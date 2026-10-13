@@ -1034,3 +1034,42 @@ fn a_closed_comments_panel_stays_closed_when_picking_comment_tools() {
     h.run_steps(2);
     assert_eq!(h.state().right, Some(RightPanel::Comments));
 }
+#[test]
+fn typing_an_arabic_comment_preserves_logical_order_and_reorders_view() {
+    let mut h = harness(|app| app.set_option("panel", "comments").unwrap());
+    field(&h, "Add a comment").click();
+    h.run_steps(2);
+    field(&h, "Add a comment").type_text("مرحبا بالعالم");
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    let c = comments(&h);
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].contents.as_deref(), Some("مرحبا بالعالم"));
+
+    // Now reply in Arabic
+    h.run_steps(2);
+    field(&h, "Add a reply").click();
+    h.run_steps(2);
+    field(&h, "Add a reply").type_text("أوافق تماما");
+    h.run_steps(1);
+    h.get_by_label("Post").click();
+    h.run_steps(3);
+    let c = comments(&h);
+    assert_eq!(c.len(), 2);
+    assert_eq!(c[1].contents.as_deref(), Some("أوافق تماما"));
+}
+#[test]
+fn sticky_note_composer_types_and_posts_arabic_comment() {
+    let mut h = harness(|app| app.set_option("quick", "note").unwrap());
+    click_pt(&mut h, (250.0, 180.0));
+    assert!(h.state().views[0].comments.composer.is_some(), "the composer opened");
+    field(&h, "Add a comment").type_text("ملاحظة باللغة العربية");
+    h.run_steps(2);
+    h.get_by_label("Post").click();
+    h.run_steps(3);
+    let c = comments(&h);
+    assert_eq!(c.len(), 1);
+    assert_eq!((c[0].subtype.as_str(), c[0].contents.as_deref()), ("Text", Some("ملاحظة باللغة العربية")));
+    assert!(h.state().views[0].comments.composer.is_none());
+}

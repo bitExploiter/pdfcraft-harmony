@@ -691,7 +691,8 @@ pub fn build(d: &Dict) -> Option<Stream> {
             let text = d.get(b"Contents").and_then(|o| o.as_string()).map(PdfString::to_text).unwrap_or_default();
             let pad = 2.0 + bw;
             let width = (rect[2] - rect[0] - 2.0 * pad).max(1.0);
-            let q = d.int(b"Q").unwrap_or(0);
+            let is_rtl = text.chars().any(|c| matches!(u32::from(c), 0x0590..=0x08FF | 0xFB1D..=0xFDFF | 0xFE70..=0xFEFC));
+            let q = d.int(b"Q").unwrap_or(if is_rtl { 2 } else { 0 });
             c.push_str(&format!(
                 "{} {} {} {} re W n\nBT\n/Helv {} Tf\n{}",
                 n(rect[0]),

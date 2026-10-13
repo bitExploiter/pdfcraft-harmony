@@ -1,6 +1,6 @@
 # PdfCraft roadmap: milestones and what's next
 
-> **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (M1 #1339: unchanged incremental saves of a classic cross-reference table write a zero-length subsection; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M5/M14: RTL comment and text editing layout and cursor tracking; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (M3: Windows' Animation effects setting is followed, and Preferences has Animation effects; earlier: exclusive image-crop resize follow-up; M2: short same-line redraws split before placement; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (M7: preserve Arabic ActualText typing order; earlier: M3: Windows' Animation effects setting is followed, and Preferences has Animation effects; earlier: exclusive image-crop resize follow-up; M2: short same-line redraws split before placement; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (M7: local GoToR links and confined automation candidate; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -145,6 +145,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | M5/M14: RTL comment and text editing layout and cursor tracking; FreeText right alignment default; estimates unchanged. |
 | 2026-10-12 | minor | M1 #1339: unchanged incremental saves of a classic cross-reference table write a zero-length subsection. Estimates unchanged. |
 | 2026-10-12 | minor | M12: bounded text-only auto-tag preview through the engine and automation; actual PDF structure writing and visual review remain open. Estimates unchanged. |
 | 2026-10-12 | minor | M7: keep added Arabic copy/search in typing order with per-line ActualText; preserve that order in the editor and keep visual runs separate. Font-independent regressions and tool save/reopen coverage; font fallback and bidi typing remain partial. Estimates unchanged. |

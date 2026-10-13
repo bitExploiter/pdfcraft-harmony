@@ -1166,8 +1166,14 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
                 ComposerKind::Replace => tl!("Replacement text"),
                 _ => tl!("Add a comment"),
             };
-            let edit =
-                ui.add(egui::TextEdit::multiline(&mut c.text).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY).id_salt("composer-text"));
+            let mut layouter = crate::bidi::text_edit_layouter();
+            let is_rtl = crate::bidi::has_rtl(&c.text) || crate::i18n::current().rtl();
+            let mut text_edit =
+                egui::TextEdit::multiline(&mut c.text).hint_text(hint).desired_rows(3).desired_width(f32::INFINITY).id_salt("composer-text");
+            if is_rtl {
+                text_edit = text_edit.horizontal_align(egui::Align::RIGHT);
+            }
+            let edit = ui.add(text_edit.layouter(&mut layouter));
             if c.focus {
                 edit.request_focus();
                 c.focus = false;

@@ -344,6 +344,111 @@ fn mirrored(c: char) -> char {
         other => other,
     }
 }
+/// A layouter for [`egui::TextEdit`] that lays out right-to-left text in reading order
+/// and maps character boundaries so the cursor and typing track properly from right to left.
+pub fn text_edit_layouter() -> impl FnMut(&egui::Ui, &dyn egui::TextBuffer, f32) -> std::sync::Arc<egui::Galley> {
+    |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| text_edit_layout(ui, text.as_str(), wrap_width)
+}
+
+/// Lays out text for a text edit field, applying bidirectional reordering when the text
+/// or the interface contains right-to-left script, and adjusting glyph bounds so the
+/// cursor and selection track characters in typing order.
+pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::sync::Arc<egui::Galley> {
+    let is_rtl_ui = crate::i18n::current().rtl();
+    let font_id = egui::TextStyle::Body.resolve(ui.style());
+    let text_color = ui.visuals().text_color();
+
+    if !has_rtl(content) && !is_rtl_ui {
+        let mut job = egui::text::LayoutJob::simple(content.to_owned(), font_id, text_color, wrap_width);
+        job.wrap.max_width = wrap_width;
+        return ui.fonts_mut(|f| f.layout_job(job));
+    }
+
+    if content.is_empty() {
+        let mut job = egui::text::LayoutJob::simple(String::new(), font_id, text_color, wrap_width);
+        if is_rtl_ui {
+            job.halign = egui::Align::RIGHT;
+        }
+        job.wrap.max_width = wrap_width;
+        return ui.fonts_mut(|f| f.layout_job(job));
+    }
+
+    let is_rtl = has_rtl(content) || is_rtl_ui;
+    let mut visual_lines = Vec::new();
+    let logical_lines: Vec<&str> = content.split('\n').collect();
+    for line in &logical_lines {
+        visual_lines.push(visual_auto(line).into_owned());
+    }
+    let visual_text = visual_lines.join("\n");
+
+    let mut job = egui::text::LayoutJob::simple(visual_text, font_id, text_color, wrap_width);
+    if is_rtl {
+        job.halign = egui::Align::RIGHT;
+    }
+    job.wrap.max_width = wrap_width;
+    let mut galley = ui.fonts_mut(|f| f.layout_job(job));
+
+    let g = std::sync::Arc::make_mut(&mut galley);
+    for (row_idx, logical_line) in logical_lines.iter().enumerate() {
+        let Some(placed_row) = g.rows.get_mut(row_idx) else { break };
+        let char_count = logical_line.chars().count();
+        if char_count == 0 {
+            continue;
+        }
+        let row = std::sync::Arc::make_mut(&mut placed_row.row);
+        let orig_glyphs = row.glyphs.clone();
+        let vis_glyphs: Vec<_> = orig_glyphs.iter().filter(|g| g.advance_width > 0.0).copied().collect();
+
+        let base_level = if is_rtl { Level::rtl() } else { Level::ltr() };
+        let bidi = unicode_bidi::BidiInfo::new(logical_line, Some(base_level));
+        let levels = if let Some(para) = bidi.paragraphs.first() {
+            bidi.reordered_levels_per_char(para, para.range.clone())
+        } else {
+            vec![base_level; char_count]
+        };
+        let visual_map = unicode_bidi::BidiInfo::reorder_visual(&levels);
+        let mut log_to_vis = vec![0; char_count];
+        for (v, &log) in visual_map.iter().enumerate() {
+            if log < char_count {
+                log_to_vis[log] = v;
+            }
+        }
+
+        let row_width = row.size.x;
+        let mut cursor_offsets = vec![0.0f32; char_count.saturating_add(1)];
+        for (i, &v) in log_to_vis.iter().enumerate() {
+            let is_char_rtl = levels.get(i).is_some_and(Level::is_rtl);
+            let (x_left, x_right) = if v < vis_glyphs.len() {
+                let g = vis_glyphs[v];
+                (g.pos.x, g.pos.x + g.advance_width)
+            } else {
+                (0.0, row_width)
+            };
+            if is_char_rtl {
+                cursor_offsets[i] = x_right;
+                cursor_offsets[i + 1] = x_left;
+            } else {
+                cursor_offsets[i] = x_left;
+                cursor_offsets[i + 1] = x_right;
+            }
+        }
+
+        if is_rtl && char_count > 0 {
+            cursor_offsets[0] = row_width;
+            cursor_offsets[char_count] = 0.0;
+        }
+
+        let Some(sample) = orig_glyphs.first().copied() else { continue };
+        row.glyphs.clear();
+        for &x in &cursor_offsets {
+            let mut glyph = sample;
+            glyph.pos.x = x;
+            row.glyphs.push(glyph);
+        }
+    }
+
+    galley
+}
 
 #[cfg(test)]
 mod tests {
@@ -599,5 +704,46 @@ mod tests {
             let v = visual(s);
             assert!(v.chars().count() <= s.chars().count(), "{:?}", s.chars().take(12).collect::<String>());
         }
+    }
+    #[test]
+    fn test_bidi_text_edit_layout() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions());
+        let text = "واحد اثنين";
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = text_edit_layout(ui, text, 200.0);
+            let logical_char_count = text.chars().count();
+            assert_eq!(galley.rows.len(), 1);
+            let c0 = galley.pos_from_cursor(egui::text::CCursor::new(0));
+            let c_end = galley.pos_from_cursor(egui::text::CCursor::new(logical_char_count));
+            // In RTL, typing starts at the right (c0) and progresses to the left (c_end).
+            assert!(c0.min.x > c_end.min.x, "c0 ({}) must be to the right of c_end ({})", c0.min.x, c_end.min.x);
+            // Every character boundary should have a valid cursor rect.
+            for ci in 0..=logical_char_count {
+                let c = galley.pos_from_cursor(egui::text::CCursor::new(ci));
+                assert!(c.min.x <= c0.min.x + 0.1 && c.min.x >= c_end.min.x - 0.1, "ci={ci} cursor at {}", c.min.x);
+            }
+        });
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn test_bidi_text_edit_empty_and_mixed() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions());
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            // Empty text layout
+            let empty = text_edit_layout(ui, "", 200.0);
+            assert!(empty.rows.is_empty() || empty.rect.width() == 0.0);
+
+            // Mixed text layout
+            let mixed = "مرحبا (PDF) 123";
+            let galley = text_edit_layout(ui, mixed, 300.0);
+            let count = mixed.chars().count();
+            let c0 = galley.pos_from_cursor(egui::text::CCursor::new(0));
+            let c_end = galley.pos_from_cursor(egui::text::CCursor::new(count));
+            assert!(c0.min.x > c_end.min.x);
+        });
+        output.drop_without_applying_deltas();
     }
 }

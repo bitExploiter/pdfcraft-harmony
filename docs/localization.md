@@ -42,7 +42,7 @@ What Arabic does not have yet:
 
 - **The layout is not mirrored.** Panels, menus, toolbars and alignment are as in the left-to-right languages, with Arabic labels in them.
 - **A wrapped paragraph breaks at the wrong end.** A label too long for its line continues on the next line with its *first* words, so wrapped descriptions and tooltips read from the last line up. Single-line labels are right.
-- **Text you type into a field** (search, comments, form values) has joined letters but its words run left to right while you edit it. What is stored is correct.
+- **Text you type into fields**: Comment fields (composer card, Comments panel add box, inline editing, replies) and find input now lay out right-to-left text in reading order and align right, with the cursor tracking natural right-to-left typing. Form fields and canvas text remain left-aligned.
 - Labels built by joining translated pieces in code (a list such as `A · B · C`) keep the code's left-to-right order.
 
 These need bidirectional support in the text layout itself, not in the catalog.
