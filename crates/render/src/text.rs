@@ -2225,6 +2225,31 @@ mod tests {
     }
 
     #[test]
+    fn whole_words_ignore_neighbours_in_scripts_written_without_spaces() {
+        // "台北市的PDF檔案" in one run: Chinese writes no spaces between words, so "台北" is a
+        // whole word inside "台北市" and "PDF" inside "的PDF檔", as Acrobat finds them with Whole
+        // words only on. A Latin neighbour still bounds: "cat" is not a whole word in "category".
+        let mut v = Vec::new();
+        word(&mut v, "台北市的PDF檔案", 10.0, 10.0, 6.0);
+        word(&mut v, "category", 74.0, 10.0, 6.0);
+        let t = layout(v);
+        assert_eq!(t.plain_text(), "台北市的PDF檔案 category");
+        assert_eq!(t.find_opts("台北", false, true), vec![0..2], "a word inside a longer run of ideographs");
+        assert_eq!(t.find_opts("北市", false, true), vec![1..3]);
+        assert_eq!(t.find_opts("PDF", false, true), vec![4..7], "Latin between ideographs");
+        assert_eq!(t.find_opts("pdf檔", false, true), vec![4..8]);
+        assert!(t.find_opts("cat", false, true).is_empty(), "Latin neighbours still bound a word");
+        assert_eq!(t.find_opts("category", false, true), vec![9..17]);
+        // Thai and Japanese kana are written without spaces too.
+        let mut v = Vec::new();
+        word(&mut v, "ภาษาไทย", 10.0, 30.0, 6.0);
+        word(&mut v, "ひらがなとカタカナ", 62.0, 30.0, 6.0);
+        let t = layout(v);
+        assert_eq!(t.find_opts("ไทย", false, true), vec![4..7]);
+        assert_eq!(t.find_opts("カタカナ", false, true), vec![12..16]);
+    }
+
+    #[test]
     fn turkish_dotted_and_dotless_i_match_in_any_case() {
         // "İSTANBUL IRMAK KIŞ" on one line: each word typed in lower case must find it, and the
         // reverse. `to_lowercase` alone made `İ` two characters and left `ı` unmatched.
