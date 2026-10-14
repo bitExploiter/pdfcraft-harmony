@@ -2465,7 +2465,119 @@ fn page_scroll<R>(
     ui.scope_builder(egui::UiBuilder::new().id(id), |ui| scroll.show_viewport(ui, draw)).inner
 }
 
+/// Show the document viewport with the ruler layout enabled. Workstream 6 will connect the
+/// `show_rulers` choice to commands and persistence; keeping the hidden path explicit here makes
+/// its no-layout-change contract testable now.
 pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
+    document_area_with_rulers(app, index, ui, true);
+}
+
+/// Show the document viewport with or without reserved ruler bands.
+pub fn document_area_with_rulers(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui, show_rulers: bool) {
+    if !show_rulers {
+        document_canvas(app, index, ui);
+        return;
+    }
+
+    let outer = ui.available_rect_before_wrap();
+    let layout = RulerLayout::new(outer, crate::ruler::DEFAULT_RULER_THICKNESS);
+    ui.scope_builder(egui::UiBuilder::new().id_salt("document-canvas").max_rect(layout.canvas), |ui| {
+        document_canvas(app, index, ui);
+    });
+
+    let units = app.units;
+    let geometry = app.views.get(index).map(DocView::canvas_geometry).cloned().unwrap_or_default();
+    paint_document_rulers(ui, layout, &geometry, units);
+    ui.advance_cursor_after_rect(outer);
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RulerLayout {
+    outer: Rect,
+    corner: Rect,
+    horizontal: Rect,
+    vertical: Rect,
+    canvas: Rect,
+}
+
+impl RulerLayout {
+    fn new(outer: Rect, thickness: f32) -> Self {
+        let thickness = thickness.max(0.0).min(outer.width()).min(outer.height());
+        let split = outer.min + vec2(thickness, thickness);
+        Self {
+            outer,
+            corner: Rect::from_min_max(outer.min, split),
+            horizontal: Rect::from_min_max(pos2(split.x, outer.top()), pos2(outer.right(), split.y)),
+            vertical: Rect::from_min_max(pos2(outer.left(), split.y), pos2(split.x, outer.bottom())),
+            canvas: Rect::from_min_max(split, outer.max),
+        }
+    }
+
+    fn fit_to_viewport(self, viewport: Rect) -> Self {
+        if !viewport.is_positive() {
+            return self;
+        }
+        let viewport = viewport.intersect(self.canvas);
+        if !viewport.is_positive() {
+            return self;
+        }
+        Self {
+            corner: Rect::from_min_max(self.outer.min, viewport.min),
+            horizontal: Rect::from_min_max(pos2(viewport.left(), self.outer.top()), pos2(viewport.right(), viewport.top())),
+            vertical: Rect::from_min_max(pos2(self.outer.left(), viewport.top()), pos2(viewport.left(), viewport.bottom())),
+            ..self
+        }
+    }
+}
+
+fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGeometry, units: crate::units::Unit) {
+    let layout = layout.fit_to_viewport(geometry.viewport_rect);
+    crate::ruler::paint_corner(ui, layout.corner, units);
+
+    let active = geometry.active_page();
+    let pointer = ui.input(|input| input.pointer.hover_pos()).filter(|position| geometry.viewport_rect.contains(*position));
+    let (horizontal_origin, horizontal_length, vertical_origin, vertical_length, scale) = active.map_or((0.0, 0.0, 0.0, 0.0, 1.0), ruler_page_axes);
+
+    crate::ruler::paint_ruler(
+        ui,
+        crate::ruler::RulerPaintInput {
+            orientation: crate::ruler::RulerOrientation::Horizontal,
+            rect: layout.horizontal,
+            page_origin: horizontal_origin,
+            page_length_pdf_points: horizontal_length,
+            screen_points_per_pdf_point: scale,
+            unit: units,
+            pointer_screen_position: pointer.map(|position| f64::from(position.x)),
+        },
+    );
+    crate::ruler::paint_ruler(
+        ui,
+        crate::ruler::RulerPaintInput {
+            orientation: crate::ruler::RulerOrientation::Vertical,
+            rect: layout.vertical,
+            page_origin: vertical_origin,
+            page_length_pdf_points: vertical_length,
+            screen_points_per_pdf_point: scale,
+            unit: units,
+            pointer_screen_position: pointer.map(|position| f64::from(position.y)),
+        },
+    );
+}
+
+fn ruler_page_axes(page: &VisiblePageGeometry) -> (f64, f64, f64, f64, f64) {
+    let rotated = !page.rotation_degrees.is_multiple_of(180);
+    let horizontal_length = if rotated { page.unrotated_size_points.y } else { page.unrotated_size_points.x };
+    let vertical_length = if rotated { page.unrotated_size_points.x } else { page.unrotated_size_points.y };
+    (
+        f64::from(page.page_rect.left()),
+        f64::from(horizontal_length),
+        f64::from(page.page_rect.top()),
+        f64::from(vertical_length),
+        f64::from(page.screen_points_per_pdf_point),
+    )
+}
+
+fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     // Keyboard scrolling applies to this frame's page view only, never later.
     let key_scroll = std::mem::take(&mut app.views[index].key_scroll);
@@ -6678,5 +6790,55 @@ trailer << /Root 1 0 R >>
         let geometry = CanvasGeometry::new(viewport, pages, None);
         assert_eq!(geometry.active_page_index, Some(14));
         assert_eq!(geometry.active_page().map(|page| page.page_index), Some(14));
+    }
+
+    #[test]
+    fn ruler_layout_reserves_only_the_top_and_left_bands() {
+        let outer = Rect::from_min_max(pos2(10.0, 20.0), pos2(810.0, 620.0));
+        let layout = RulerLayout::new(outer, 18.0);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(28.0, 38.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(28.0, 20.0), pos2(810.0, 38.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(28.0, 620.0)));
+        assert_eq!(layout.canvas, Rect::from_min_max(pos2(28.0, 38.0), pos2(810.0, 620.0)));
+    }
+
+    #[test]
+    fn ruler_layout_clamps_safely_in_a_tiny_viewport() {
+        let outer = Rect::from_min_max(pos2(5.0, 7.0), pos2(15.0, 15.0));
+        let layout = RulerLayout::new(outer, crate::ruler::DEFAULT_RULER_THICKNESS);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(5.0, 7.0), pos2(13.0, 15.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(13.0, 7.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(5.0, 15.0), pos2(13.0, 15.0)));
+        assert_eq!(layout.canvas, Rect::from_min_max(pos2(13.0, 15.0), pos2(15.0, 15.0)));
+        assert!(layout.horizontal.is_positive());
+        assert!(!layout.vertical.is_positive());
+        assert!(!layout.canvas.is_positive());
+    }
+
+    #[test]
+    fn ruler_layout_tracks_the_actual_scroll_viewport_edges() {
+        let outer = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let base = RulerLayout::new(outer, 18.0);
+        let viewport = Rect::from_min_max(pos2(18.0, 18.0), pos2(786.0, 586.0));
+        let layout = base.fit_to_viewport(viewport);
+        assert_eq!(layout.corner, Rect::from_min_max(outer.min, viewport.min));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(18.0, 0.0), pos2(786.0, 18.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(0.0, 18.0), pos2(18.0, 586.0)));
+        assert_eq!(layout.canvas, base.canvas);
+    }
+
+    #[test]
+    fn ruler_page_axes_follow_display_rotation_without_rebuilding_layout() {
+        let page = |rotation_degrees| VisiblePageGeometry {
+            page_index: 0,
+            page_rect: Rect::from_min_size(pos2(100.0, 200.0), vec2(300.0, 400.0)),
+            unrotated_size_points: vec2(600.0, 800.0),
+            rotation_degrees,
+            screen_points_per_pdf_point: 0.5,
+        };
+        assert_eq!(ruler_page_axes(&page(0)), (100.0, 600.0, 200.0, 800.0, 0.5));
+        assert_eq!(ruler_page_axes(&page(180)), (100.0, 600.0, 200.0, 800.0, 0.5));
+        assert_eq!(ruler_page_axes(&page(90)), (100.0, 800.0, 200.0, 600.0, 0.5));
+        assert_eq!(ruler_page_axes(&page(270)), (100.0, 800.0, 200.0, 600.0, 0.5));
     }
 }
