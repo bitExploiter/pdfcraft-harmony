@@ -17,6 +17,8 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+mod batch;
+
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
@@ -57,6 +59,9 @@ pdfcraft-cli extract <in.pdf> --pages 1,3,5 --out out.pdf
 pdfcraft-cli split   <in.pdf> (--every N | --before 3,7) [--out-dir DIR]
 pdfcraft-cli check  <files or dirs…> [--timeout 20] [--dpi 36] [--json out.json]
 pdfcraft-cli audit  <file.pdf> [--password PW]            find faux redactions (fails when found)
+pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
+                      [--recursive] [--root DIR] [--stop-on-error]
+                      [--ppi 150] [--quality 60] [--dpi 300] [--language en] [--ocr-all-pages]
 pdfcraft-cli tools                                       automation tools and their JSON Schemas
 pdfcraft-cli run    <tool> [key=value …] [--root DIR] [--out image.png]
 pdfcraft-cli run    --script steps.json [--root DIR]      [{\"tool\": \"doc_open\", \"args\": {…}}, …]
@@ -90,6 +95,7 @@ fn main() -> ExitCode {
         Some("audit") => audit(&args[1..]),
         Some("tools") => tools(),
         Some("run") => run(&args[1..]),
+        Some("batch") => batch::run(&args[1..]),
         Some("ui") => ui(&args[1..]),
         #[cfg(feature = "mcp")]
         Some("mcp") => mcp(&args[1..]),
@@ -332,10 +338,19 @@ fn text(args: &[String]) -> Result<(), CliError> {
     // no pages, and "extract every page" of nothing would print nothing and exit 0 (#132). Ask
     // `inspect` why instead, so a protected file fails the same way `info` does.
     if r.page_count() == 0 {
-        let info = inspect(bytes, password).map_err(|e| format!("text: {e}"))?;
+        let info = inspect(bytes.clone(), password).map_err(|e| format!("text: {e}"))?;
         if !info.pages.is_empty() {
             return Err("text: the document could not be parsed".into());
         }
+    }
+    // Printing the text is copying it, so ask what `text_extract` asks (#1645): without the
+    // permissions password, a document that doesn't allow copying gives no text.
+    let mut session = pdfcraft_engine::Session::new();
+    if let Some(doc) = session.open(path, None, bytes, password).ok().and_then(|id| session.get(id)) {
+        // The engine's hint is about editing in the app; on the command line the way in is
+        // `--password`.
+        doc.check_copying()
+            .map_err(|_| "text: the document's permissions don't allow copying its text; pass the owner password with --password to extract it")?;
     }
     let pages: Vec<usize> = match selected_page {
         Some(page) => vec![page],
@@ -622,8 +637,20 @@ fn short(s: &str) -> String {
 fn collect(paths: &[&str]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut stack: Vec<PathBuf> = paths.iter().map(PathBuf::from).collect();
+    let mut visited = std::collections::HashSet::new();
     while let Some(p) = stack.pop() {
         if p.is_dir() {
+            // Directory aliases and symlink cycles must not scan the same tree repeatedly.
+            let identity = match p.canonicalize() {
+                Ok(identity) => identity,
+                Err(error) => {
+                    eprintln!("{}: could not resolve directory: {error}", p.display());
+                    continue;
+                }
+            };
+            if !visited.insert(identity) {
+                continue;
+            }
             if let Ok(rd) = std::fs::read_dir(&p) {
                 stack.extend(rd.flatten().map(|e| e.path()));
             }

@@ -131,6 +131,7 @@ pub mod ui_scale;
 pub mod updates;
 mod wheel_pager;
 mod widgets;
+pub mod window_controls;
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod open_worker_tests;
@@ -496,6 +497,9 @@ pub struct PdfCraftApp {
     /// The user closed the Comments panel, so picking a comment tool leaves it closed until they
     /// open it again (#225). Remembered across restarts.
     pub comments_panel_closed: bool,
+    /// The user closed the right panel, so opening a document leaves it closed instead of
+    /// showing its comments or bookmarks (#1590). Remembered across restarts.
+    pub right_panel_closed: bool,
     pub quick_tool: QuickTool,
     /// The tool to go back to when Space, held for a temporary Hand, is released.
     space_hand: Option<QuickTool>,
@@ -571,6 +575,14 @@ pub struct PdfCraftApp {
     pub toast: Option<(String, f64)>,
     /// Whether the macOS title bar is drawn by us (traffic lights over our tab strip).
     pub integrated_titlebar: bool,
+    /// Set when the desktop leaves the window frame to the app (GNOME on Wayland): the tab strip
+    /// carries these window buttons and the window's edges resize it.
+    pub window_controls: Option<window_controls::Layout>,
+    /// Preferences ▸ Use system title bar: where `window_controls` is set, give the window back
+    /// winit's frame instead of drawing the header bar (#1001).
+    pub system_title_bar: bool,
+    /// Whether the window currently has the app's header bar (`None` until the first frame).
+    app_frame_shown: Option<bool>,
     pub password_prompt: Option<PasswordPrompt>,
     pub unlock_prompt: Option<UnlockPrompt>,
     pub full_screen: bool,
@@ -644,7 +656,8 @@ pub struct PdfCraftApp {
     pub doc_js: js_ui::DocJsDraft,
     pub a11y: a11y_ui::A11yState,
     pub(crate) tags_state: tags_ui::State,
-    pub a11y_skipped: std::collections::BTreeSet<pdfcraft_engine::a11y::Rule>,
+    /// Rules skipped by hand, for the document they were skipped in.
+    pub a11y_skipped: std::collections::HashSet<(DocId, pdfcraft_engine::a11y::Rule)>,
     pub alt_draft: a11y_ui::AltDraft,
     /// List the OS key store's signing identities among the digital IDs (the desktop app).
     pub os_key_store_ids: bool,
@@ -767,6 +780,8 @@ pub struct PdfCraftApp {
     pub last_opened_url: Option<String>,
     /// A document asked to open this address; the user hasn't answered yet (#90, #91).
     pub pending_link: Option<PendingLink>,
+    /// An absolute GoToR target waiting for approval, before any target-file I/O (#1364).
+    pub pending_remote_link: Option<PendingRemoteLink>,
 }
 
 /// Where in a document a request to open an address came from.
@@ -795,6 +810,14 @@ impl LinkOrigin {
 pub struct PendingLink {
     pub url: String,
     pub origin: LinkOrigin,
+}
+
+/// A resolved local target and its original source/destination, independent of the active tab.
+#[derive(Clone, Debug)]
+pub struct PendingRemoteLink {
+    pub source: DocId,
+    pub path: std::path::PathBuf,
+    pub destination: pdfcraft_render::RemoteDestination,
 }
 
 /// Settings for the Number pages dialog.
@@ -852,6 +875,7 @@ impl PdfCraftApp {
             right: None,
             right_before_read: None,
             comments_panel_closed: false,
+            right_panel_closed: false,
             quick_tool: QuickTool::Select,
             space_hand: None,
             comment_prefs: Default::default(),
@@ -897,6 +921,9 @@ impl PdfCraftApp {
             pinned: Default::default(),
             toast: None,
             integrated_titlebar: false,
+            window_controls: None,
+            system_title_bar: false,
+            app_frame_shown: None,
             password_prompt: None,
             unlock_prompt: None,
             full_screen: false,
@@ -985,6 +1012,7 @@ impl PdfCraftApp {
             bookmark_rename: None,
             last_opened_url: None,
             pending_link: None,
+            pending_remote_link: None,
             protect_draft: Default::default(),
             boxes_draft: Default::default(),
             marks_draft: Default::default(),
@@ -1151,11 +1179,15 @@ impl PdfCraftApp {
             open_worker::ResultKind::Failed(reason) => {
                 self.notify_fmt("Couldn't open {name}: {reason}", &[("name", &pending.name), ("reason", &reason)]);
             }
-            open_worker::ResultKind::Conversion(bytes) => {
-                if let Some(Err(error)) = self.open_converted(&pending.name, &bytes) {
-                    self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]);
+            open_worker::ResultKind::Conversion(bytes) => match self.open_converted(&pending.name, &bytes) {
+                Some(Ok(())) => {
+                    if let Some(command) = pending.then {
+                        self.execute(command);
+                    }
                 }
-            }
+                Some(Err(error)) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
+                None => {}
+            },
             open_worker::ResultKind::Prepared { bytes, result } => match *result {
                 Ok(prepared) => match self.finish_open(&pending.name, pending.path.clone(), bytes.len(), prepared, pending.activate) {
                     Ok(id) => {
@@ -1246,9 +1278,10 @@ impl PdfCraftApp {
         let doc = self.session.get(id).ok_or("the document could not be opened")?;
         let pages = doc.info.pages.len();
         // Acrobat opens straight to the Comments panel when a document has comments.
-        // Read mode opens with the panes closed; the rail still opens them (#932).
+        // Read mode opens with the panes closed; the rail still opens them (#932). A right panel
+        // the user closed stays closed (#1590).
         let opening_mode = self.mode_override.unwrap_or(self.default_mode);
-        if activate && self.right.is_none() && opening_mode != Mode::Read {
+        if activate && self.right.is_none() && !self.right_panel_closed && opening_mode != Mode::Read {
             self.right = if !doc.info.annotations.is_empty() {
                 Some(RightPanel::Comments)
             } else if !doc.info.outline.is_empty() {
@@ -1424,15 +1457,39 @@ impl PdfCraftApp {
             }
             (Ok(bytes), false) => {
                 #[cfg(not(target_arch = "wasm32"))]
-                self.ask_one(pickers::Ask::Save(rfd::AsyncFileDialog::new().set_file_name(&att.name)), None, move |app, path| {
-                    match crate::editing::write_atomically(&path.to_string_lossy(), &bytes) {
+                self.ask_one(
+                    pickers::Ask::Save(rfd::AsyncFileDialog::new().set_file_name(crate::files::attachment_file_name(&att.name))),
+                    None,
+                    move |app, path| match crate::editing::write_atomically(&path.to_string_lossy(), &bytes) {
                         Ok(()) => app.notify_fmt("Saved {name}", &[("name", &path.display().to_string())]),
                         Err(e) => app.notify_fmt("Couldn't save: {e}", &[("e", &e.to_string())]),
-                    }
-                });
+                    },
+                );
                 #[cfg(target_arch = "wasm32")]
                 self.notify_fmt("Downloading attachments on the web arrives with M3.10 ({n} bytes ready)", &[("n", &bytes.len().to_string())]);
             }
+        }
+    }
+
+    /// Whether the app draws the window's title bar, buttons and resize edges: the desktop leaves
+    /// the frame to the app and Use system title bar is off.
+    pub fn draws_window_frame(&self) -> bool {
+        self.window_controls.is_some() && !self.system_title_bar
+    }
+
+    /// Follow Use system title bar at once: the window starts without winit's frame wherever the
+    /// app may draw its own, and gets it back (or loses it again) when the preference changes.
+    fn sync_window_frame(&mut self, ctx: &egui::Context) {
+        if self.window_controls.is_none() {
+            return;
+        }
+        let app_frame = self.draws_window_frame();
+        if self.app_frame_shown != Some(app_frame) {
+            // The window opens undecorated, so only a change from that needs a command.
+            if self.app_frame_shown.is_some() || !app_frame {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Decorations(!app_frame));
+            }
+            self.app_frame_shown = Some(app_frame);
         }
     }
 
@@ -1552,7 +1609,11 @@ impl PdfCraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn open_remote_link(&mut self, source: DocId, file: String, destination: pdfcraft_render::RemoteDestination) {
-        let source_path = self.session.get(source).and_then(|doc| doc.path.clone());
+        if self.pending_remote_link.is_some() || self.pending_link.is_some() {
+            return;
+        }
+        let Some(source_doc) = self.session.get(source) else { return };
+        let source_path = source_doc.path.clone();
         let path = match pdfcraft_engine::resolve_remote_document_path(source_path.as_deref().map(std::path::Path::new), &file) {
             Ok(path) => path,
             Err(e) => {
@@ -1560,6 +1621,26 @@ impl PdfCraftApp {
                 return;
             }
         };
+        if pdfcraft_engine::remote_document_path_is_absolute(&file) {
+            self.pending_remote_link = Some(PendingRemoteLink { source, path, destination });
+            return;
+        }
+        self.open_resolved_remote_link(path, destination);
+    }
+
+    /// Take a pending request exactly once. Closing its source invalidates the request.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn resolve_pending_remote_link(&mut self, open: bool) {
+        if let Some(pending) = self.pending_remote_link.take()
+            && open
+            && self.session.get(pending.source).is_some()
+        {
+            self.open_resolved_remote_link(pending.path, pending.destination);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_resolved_remote_link(&mut self, path: std::path::PathBuf, destination: pdfcraft_render::RemoteDestination) {
         let path = path.to_string_lossy().into_owned();
         let name = std::path::Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.clone());
         let stamp = file_watch::Stamp::at(&path);
@@ -1585,6 +1666,11 @@ impl PdfCraftApp {
         self.notify_tr("Local cross-PDF links require the desktop app");
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn resolve_pending_remote_link(&mut self, _open: bool) {
+        self.pending_remote_link = None;
+    }
+
     fn apply_remote_destination(&mut self, destination: pdfcraft_render::RemoteDestination) {
         let Some(index) = self.views.len().checked_sub(1) else { return };
         let Some(doc) = self.session.get(self.views[index].id) else { return };
@@ -1604,6 +1690,12 @@ impl PdfCraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) {
+        self.open_path_then(path, None);
+    }
+
+    /// Keep a chosen tool with its file until preparation and any password entry finish.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
         let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
         // Taken before reading: a build that rewrites the file meanwhile still counts as a change.
         let stamp = file_watch::Stamp::at(path);
@@ -1616,10 +1708,15 @@ impl PdfCraftApp {
                     let before = self.views.len();
                     if let Err(error) = self.open_bytes(&name, Some(path.to_string()), bytes) {
                         self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
-                    } else if self.views.len() > before
-                        && let Some(doc) = self.views.last().map(|view| view.id)
-                    {
-                        self.watch.known_as(doc, stamp);
+                    } else if let Some(prompt) = self.password_prompt.as_mut().filter(|p| p.path.as_deref() == Some(path)) {
+                        prompt.then = then;
+                    } else if self.views.len() > before {
+                        if let Some(doc) = self.views.last().map(|view| view.id) {
+                            self.watch.known_as(doc, stamp);
+                        }
+                        if let Some(command) = then {
+                            self.execute(command);
+                        }
                     }
                 }
                 Err(error) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &error.to_string())]),
@@ -1636,7 +1733,7 @@ impl PdfCraftApp {
             activate: true,
             after_open: None,
             recovered: None,
-            then: None,
+            then,
         }) {
             self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
         }
@@ -1703,6 +1800,20 @@ impl PdfCraftApp {
         };
     }
 
+    /// Moves the tab at `from` so it sits at `to` (#1537). The same document stays active
+    /// wherever it lands; an index out of range changes nothing.
+    pub fn move_tab(&mut self, from: usize, to: usize) {
+        if from >= self.views.len() || to >= self.views.len() || from == to {
+            return;
+        }
+        let active = self.active_ids().map(|(_, id)| id);
+        let view = self.views.remove(from);
+        self.views.insert(to, view);
+        if let Some(id) = active {
+            self.active = self.views.iter().position(|v| v.id == id);
+        }
+    }
+
     pub fn active_ids(&self) -> Option<(usize, DocId)> {
         self.active.and_then(|i| self.views.get(i).map(|v| (i, v.id)))
     }
@@ -1715,6 +1826,7 @@ impl PdfCraftApp {
             || self.password_prompt.is_some()
             || self.unlock_prompt.is_some()
             || self.pending_link.is_some()
+            || self.pending_remote_link.is_some()
             || self.updates.open
     }
 
@@ -1742,7 +1854,7 @@ impl PdfCraftApp {
     pub fn request_document_url(&mut self, url: &str, origin: LinkOrigin) {
         match pdfcraft_engine::links::document_url(url) {
             Ok(url) => {
-                if self.pending_link.is_none() {
+                if self.pending_link.is_none() && self.pending_remote_link.is_none() {
                     self.pending_link = Some(PendingLink { url, origin });
                 }
             }
@@ -1889,14 +2001,7 @@ impl PdfCraftApp {
         let command = spec.id;
         self.ask_one(pickers::Ask::File(dialog), None, move |app, path| {
             let path = path.to_string_lossy().into_owned();
-            let before = app.views.len();
-            app.open_path(&path);
-            if let Some(prompt) = app.password_prompt.as_mut().filter(|p| p.path.as_deref() == Some(path.as_str())) {
-                // Encrypted: the tool runs once the password is in.
-                prompt.then = Some(command);
-            } else if app.views.len() > before && app.active.is_some() {
-                app.execute(command);
-            }
+            app.open_path_then(&path, Some(command));
         });
     }
 
@@ -1977,6 +2082,11 @@ impl PdfCraftApp {
         } else if panel.is_none() && self.right == Some(RightPanel::Comments) {
             self.comments_panel_closed = true;
         }
+        if panel.is_some() {
+            self.right_panel_closed = false;
+        } else if self.right.is_some() {
+            self.right_panel_closed = true;
+        }
         self.right = panel;
         if panel.is_some() {
             self.pending_panel_reveals.push(docking::Panel::Inspector);
@@ -1995,6 +2105,7 @@ impl PdfCraftApp {
             // Kept only while the preference is on.
             "last_session": self.reopen_last_session.then(|| self.session_to_save()),
             "reload_changed_files": self.reload_changed_files,
+            "system_title_bar": self.system_title_bar,
             "pinned_folders": self.pinned.folders,
             "theme": self.theme_preference,
             "scroll_speed": self.scroll_speed,
@@ -2043,6 +2154,7 @@ impl PdfCraftApp {
             "combine_view": self.combine_view.as_str(),
             "combine_zoom": self.combine_zoom,
             "comments_panel_closed": self.comments_panel_closed,
+            "right_panel_closed": self.right_panel_closed,
         })
         .to_string()
     }
@@ -2076,6 +2188,9 @@ impl PdfCraftApp {
             self.reopen_last_session = on;
         }
         self.last_session = last_session::LastSession::from_json(&v["last_session"]);
+        if let Some(on) = v["system_title_bar"].as_bool() {
+            self.system_title_bar = on;
+        }
         if let Some(on) = v["reload_changed_files"].as_bool() {
             self.reload_changed_files = on;
         }
@@ -2103,6 +2218,9 @@ impl PdfCraftApp {
         }
         if let Some(closed) = v["comments_panel_closed"].as_bool() {
             self.comments_panel_closed = closed;
+        }
+        if let Some(closed) = v["right_panel_closed"].as_bool() {
+            self.right_panel_closed = closed;
         }
         if let Some(defaults) = v["default_zoom"].as_str().and_then(|zoom| self.view_defaults.with_zoom(zoom)) {
             self.view_defaults = defaults;
@@ -2438,6 +2556,13 @@ impl PdfCraftApp {
             }
             ("author", _) => self.comment_prefs.author = value.to_string(),
             ("ui-scale", _) => self.ui_scale = ui_scale::parse(value)?,
+            ("system-title-bar", _) => {
+                self.system_title_bar = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err("system-title-bar must be true or false".into()),
+                };
+            }
             ("flatten-fill-sign", _) => {
                 self.flatten_fill_sign_on_save = match value {
                     "true" => true,
@@ -2539,6 +2664,11 @@ impl PdfCraftApp {
                 }
             }
             self.tool_keys(i, ctx);
+            if self.quick_tool == QuickTool::EditText
+                && let Some(doc) = self.session.get(self.views[i].id).filter(|d| d.allows_modification())
+            {
+                object_ui::nudge_keys(ctx, &mut self.views[i], doc);
+            }
             canvas::shortcuts(&mut self.views[i], ctx);
             self.copy_key(i, ctx);
             self.image_pick_keys(i, ctx);
@@ -2698,11 +2828,17 @@ impl eframe::App for PdfCraftApp {
         }
         // Don't replace a pending prompt or import. A startup file may need its own password
         // prompt, so its bytes stay queued until the current interaction finishes.
-        if self.password_prompt.is_none()
+        #[cfg(not(target_arch = "wasm32"))]
+        let opening = !self.pending_opens.is_empty();
+        #[cfg(target_arch = "wasm32")]
+        let opening = false;
+        if !opening
+            && self.password_prompt.is_none()
             && self.image_import.is_none()
             && self.dialog.is_none()
             && self.close_request.is_none()
             && self.pending_link.is_none()
+            && self.pending_remote_link.is_none()
         {
             let startup = self.startup_inbox.lock().map(|mut q| std::mem::take(&mut *q)).unwrap_or_default();
             for (name, bytes) in startup {
@@ -2819,6 +2955,10 @@ impl eframe::App for PdfCraftApp {
             widgets::toast(self, &ctx);
             self.finish_render_frame(&ctx);
             return;
+        }
+        self.sync_window_frame(&ctx);
+        if self.draws_window_frame() {
+            window_controls::resize_edges(&ctx);
         }
         chrome::tab_strip(self, ui);
         chrome::mode_bar(self, ui);
