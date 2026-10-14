@@ -501,6 +501,8 @@ pub struct PdfCraftApp {
     pub view_defaults: canvas::ViewDefaults,
     /// The unit page sizes and margins are shown in (Preferences ▸ Documents and view).
     pub units: units::Unit,
+    /// Whether document rulers reserve space around the viewer. Global and persisted.
+    pub show_rulers: bool,
     /// The Preferences ▸ Date format box while it's being edited, or while it holds an invalid
     /// pattern (the session keeps the last valid one).
     pub date_format_draft: Option<String>,
@@ -899,6 +901,7 @@ impl PdfCraftApp {
             default_mode: Mode::AllTools,
             view_defaults: Default::default(),
             units: Default::default(),
+            show_rulers: true,
             date_format_draft: None,
             mode_override: None,
             left: LeftPanel::AllTools,
@@ -2310,6 +2313,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["show_rulers"] = serde_json::Value::Bool(self.show_rulers);
         v.to_string()
     }
 
@@ -2366,6 +2370,9 @@ impl PdfCraftApp {
         }
         if let Ok(units) = serde_json::from_value::<units::Unit>(v["units"].clone()) {
             self.units = units;
+        }
+        if let Some(show) = v["show_rulers"].as_bool() {
+            self.show_rulers = show;
         }
         if let Some(on) = v["highlight_fields"].as_bool() {
             self.view_defaults.highlight_fields = on;
