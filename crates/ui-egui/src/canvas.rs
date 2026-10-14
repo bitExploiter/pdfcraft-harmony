@@ -367,6 +367,98 @@ pub(crate) fn snapshot_tab_name(title: &str, file_name: &str, snapshot: &Snapsho
     }
 }
 
+/// Final displayed geometry for one visible page. The canvas builds this from the same snapped
+/// rectangle and page transform used for painting; ruler code must consume it rather than repeat
+/// page-layout calculations.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisiblePageGeometry {
+    pub page_index: usize,
+    pub page_rect: Rect,
+    /// Page size in PDF/view-space points before View rotation.
+    pub unrotated_size_points: Vec2,
+    /// View rotation in degrees clockwise: 0, 90, 180 or 270.
+    pub rotation_degrees: u16,
+    /// Final logical screen points occupied by one PDF point.
+    pub screen_points_per_pdf_point: f32,
+}
+
+impl VisiblePageGeometry {
+    fn from_xform(page_index: usize, xf: PageXform) -> Self {
+        let displayed_width_points = if xf.rot.is_multiple_of(180) { xf.pw } else { xf.ph };
+        Self {
+            page_index,
+            page_rect: xf.rect,
+            unrotated_size_points: vec2(xf.pw, xf.ph),
+            rotation_degrees: xf.rot,
+            screen_points_per_pdf_point: xf.rect.width() / displayed_width_points.max(1.0),
+        }
+    }
+
+    fn visible_area(self, viewport_rect: Rect) -> f32 {
+        if self.page_rect.intersects(viewport_rect) {
+            let visible = self.page_rect.intersect(viewport_rect);
+            visible.width().max(0.0) * visible.height().max(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Geometry from the most recently painted document frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasGeometry {
+    pub viewport_rect: Rect,
+    pub pages: Vec<VisiblePageGeometry>,
+    pub active_page_index: Option<usize>,
+}
+
+impl Default for CanvasGeometry {
+    fn default() -> Self {
+        Self { viewport_rect: Rect::NOTHING, pages: Vec::new(), active_page_index: None }
+    }
+}
+
+impl CanvasGeometry {
+    fn new(viewport_rect: Rect, pages: Vec<VisiblePageGeometry>, pointer: Option<Pos2>) -> Self {
+        let active_page_index = active_page_geometry(viewport_rect, &pages, pointer).map(|page| page.page_index);
+        Self { viewport_rect, pages, active_page_index }
+    }
+
+    /// Geometry for the page selected by the deterministic ruler policy.
+    pub fn active_page(&self) -> Option<&VisiblePageGeometry> {
+        let active = self.active_page_index?;
+        self.pages.iter().find(|page| page.page_index == active)
+    }
+}
+
+/// Select the page that drives both rulers: pointer page, viewport-centre page, greatest visible
+/// area, then the first visible page. A pointer outside the viewport is ignored.
+pub fn active_page_geometry(viewport_rect: Rect, pages: &[VisiblePageGeometry], pointer: Option<Pos2>) -> Option<&VisiblePageGeometry> {
+    if !viewport_rect.is_positive() {
+        return None;
+    }
+    if let Some(pointer) = pointer.filter(|point| viewport_rect.contains(*point))
+        && let Some(page) = pages.iter().find(|page| page.page_rect.contains(pointer))
+    {
+        return Some(page);
+    }
+    if let Some(page) = pages.iter().find(|page| page.page_rect.contains(viewport_rect.center())) {
+        return Some(page);
+    }
+    pages
+        .iter()
+        .filter_map(|page| {
+            let area = page.visible_area(viewport_rect);
+            (area > 0.0 && area.is_finite()).then_some((page, area))
+        })
+        .fold(None, |best, candidate| match best {
+            Some((_, best_area)) if best_area >= candidate.1 => best,
+            _ => Some(candidate),
+        })
+        .map(|(page, _)| page)
+        .or_else(|| pages.first())
+}
+
 pub struct DocView {
     pub id: DocId,
     pub zoom: f32,
@@ -470,6 +562,7 @@ pub struct DocView {
     screen_xforms: Vec<(usize, PageXform)>,
     /// The scroll viewport on screen last frame.
     viewport_screen: Rect,
+    canvas_geometry: CanvasGeometry,
     /// Pending zoom anchor: page, fractional position (also in gutters), and viewport offset.
     zoom_anchor: Option<(usize, f32, f32, Vec2)>,
     /// The page view has been shown, so its scroll offset in egui's memory is this document's.
@@ -677,6 +770,11 @@ impl DocView {
         self.viewport_screen
     }
 
+    /// Final page geometry from the latest document frame.
+    pub fn canvas_geometry(&self) -> &CanvasGeometry {
+        &self.canvas_geometry
+    }
+
     /// Whether a middle-button scrolling gesture is active (tests and automation).
     pub fn auto_scrolling(&self) -> bool {
         self.auto_scroll.active()
@@ -755,6 +853,7 @@ impl DocView {
             screen_rects: Vec::new(),
             screen_xforms: Vec::new(),
             viewport_screen: Rect::NOTHING,
+            canvas_geometry: CanvasGeometry::default(),
             zoom_anchor: None,
             shown: false,
             wheel: Default::default(),
@@ -874,6 +973,7 @@ impl DocView {
         fresh.viewport_w = self.viewport_w;
         fresh.viewport_h = self.viewport_h;
         fresh.viewport_screen = self.viewport_screen;
+        fresh.canvas_geometry = self.canvas_geometry.clone();
         *self = fresh;
         // Marks the kept images out of date and clamps the page to the new page count.
         self.document_changed(info);
@@ -2394,6 +2494,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let info = &doc.info;
     if info.pages.is_empty() {
         app.views[index].auto_scroll.cancel();
+        app.views[index].canvas_geometry = CanvasGeometry::default();
         ui.centered_and_justified(|ui| ui.label(tl!("This document has no pages.")));
         return;
     }
@@ -2434,6 +2535,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     // No dialog, close prompt or palette over the page: only then does page input count.
     let unobstructed = !app.modal_open() && !app.palette_open;
     let view = &mut app.views[index];
+    view.canvas_geometry = CanvasGeometry::default();
     if view.organize {
         organize_grid(view, info, doc.allows_assembly(), doc.dirty, unobstructed, ui, &t);
         return;
@@ -2869,6 +2971,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         let visible = viewport.translate(resp_rect.min.to_vec2());
         let mut wanted = Vec::new();
         let mut visible_now = Vec::new();
+        let mut page_geometry = Vec::new();
         view.screen_rects.clear();
         view.screen_xforms.clear();
         // Visible heights (points) closer than this are equal: one page size can meet the
@@ -2897,11 +3000,12 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             if pressed && pressed_page.is_none() && pointer.is_some_and(|p| r.contains(p)) {
                 pressed_page = Some(i);
             }
+            let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
             if r.intersects(visible) {
                 visible_now.push(i);
                 view.screen_rects.push((i, r));
-                view.screen_xforms
-                    .push((i, PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) }));
+                view.screen_xforms.push((i, xf));
+                page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             }
             let overlap = r.intersect(visible).height();
             if i == view.current {
@@ -2914,7 +3018,6 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 best_overlap = overlap;
                 current = i;
             }
-            let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
             // Soft shadow + paper.
             painter.add(egui::epaint::Shadow { offset: [0, 3], blur: 14, spread: 0, color: t.page_shadow }.as_shape(r, CornerRadius::ZERO));
             painter.rect_filled(r, CornerRadius::ZERO, Color32::WHITE);
@@ -3577,6 +3680,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 hover_text = badge_hover.take();
             }
         }
+        view.canvas_geometry = CanvasGeometry::new(visible, page_geometry, pointer);
         // ScrollArea ignores the wheel while any widget is dragged, so a text-selection drag
         // scrolls the page itself (#721). After the page loop, so it keeps scrolling once the
         // pointer leaves the selection's page for the gap or the next page; over the whole
@@ -6477,5 +6581,102 @@ trailer << /Root 1 0 R >>
         assert_eq!(v.find.as_ref().unwrap().current, Some(0));
         assert_eq!(v.find.as_ref().unwrap().matches, vec![(1, 5..9)]);
         assert!(v.goto.is_none());
+    }
+
+    fn page_geometry(page_index: usize, rect: Rect) -> VisiblePageGeometry {
+        VisiblePageGeometry {
+            page_index,
+            page_rect: rect,
+            unrotated_size_points: vec2(600.0, 800.0),
+            rotation_degrees: 0,
+            screen_points_per_pdf_point: rect.width() / 600.0,
+        }
+    }
+
+    #[test]
+    fn ruler_active_page_prefers_the_pointer_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(2, Rect::from_min_max(pos2(100.0, 0.0), pos2(700.0, 500.0))),
+            page_geometry(3, Rect::from_min_max(pos2(100.0, 520.0), pos2(700.0, 1_020.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(200.0, 550.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(3));
+    }
+
+    #[test]
+    fn ruler_active_page_ignores_a_pointer_outside_the_viewport() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(4, Rect::from_min_max(pos2(100.0, -400.0), pos2(700.0, 100.0))),
+            page_geometry(5, Rect::from_min_max(pos2(100.0, 120.0), pos2(700.0, 620.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(200.0, 700.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(5));
+    }
+
+    #[test]
+    fn ruler_active_page_prefers_the_viewport_centre_without_a_pointer_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(6, Rect::from_min_max(pos2(100.0, -100.0), pos2(700.0, 200.0))),
+            page_geometry(7, Rect::from_min_max(pos2(100.0, 220.0), pos2(700.0, 720.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(10.0, 10.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(7));
+    }
+
+    #[test]
+    fn ruler_active_page_uses_greatest_visible_area_then_first_on_a_tie() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(1_000.0, 600.0));
+        let pages = [
+            page_geometry(8, Rect::from_min_max(pos2(0.0, 0.0), pos2(300.0, 600.0))),
+            page_geometry(9, Rect::from_min_max(pos2(700.0, 0.0), pos2(1_000.0, 600.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, None);
+        assert_eq!(active.map(|page| page.page_index), Some(8));
+
+        let larger = [pages[0], page_geometry(9, Rect::from_min_max(pos2(600.0, 0.0), pos2(1_000.0, 600.0)))];
+        let active = active_page_geometry(viewport, &larger, None);
+        assert_eq!(active.map(|page| page.page_index), Some(9));
+    }
+
+    #[test]
+    fn ruler_active_page_falls_back_to_first_and_handles_empty_geometry() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(10, Rect::from_min_max(pos2(1_000.0, 0.0), pos2(1_600.0, 800.0))),
+            page_geometry(11, Rect::from_min_max(pos2(1_700.0, 0.0), pos2(2_300.0, 800.0))),
+        ];
+        assert_eq!(active_page_geometry(viewport, &pages, None).map(|page| page.page_index), Some(10));
+        assert!(active_page_geometry(viewport, &[], None).is_none());
+        assert!(active_page_geometry(Rect::NOTHING, &pages, None).is_none());
+    }
+
+    #[test]
+    fn visible_page_geometry_uses_final_transform_scale_and_rotation() {
+        let unrotated = VisiblePageGeometry::from_xform(
+            12,
+            PageXform { rect: Rect::from_min_size(pos2(20.0, 30.0), vec2(300.0, 400.0)), rot: 0, pw: 600.0, ph: 800.0 },
+        );
+        assert_eq!(unrotated.unrotated_size_points, vec2(600.0, 800.0));
+        assert_eq!(unrotated.rotation_degrees, 0);
+        assert!((unrotated.screen_points_per_pdf_point - 0.5).abs() < f32::EPSILON);
+
+        let rotated = VisiblePageGeometry::from_xform(
+            13,
+            PageXform { rect: Rect::from_min_size(pos2(20.0, 30.0), vec2(400.0, 300.0)), rot: 90, pw: 600.0, ph: 800.0 },
+        );
+        assert_eq!(rotated.rotation_degrees, 90);
+        assert!((rotated.screen_points_per_pdf_point - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn canvas_geometry_returns_the_selected_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = vec![page_geometry(14, Rect::from_min_max(pos2(100.0, 50.0), pos2(700.0, 550.0)))];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+        assert_eq!(geometry.active_page_index, Some(14));
+        assert_eq!(geometry.active_page().map(|page| page.page_index), Some(14));
     }
 }
