@@ -4,8 +4,7 @@
 //! it to a new width. Click an image to select it: drag to move, drag a corner to resize (keeping
 //! its proportions), right-click for rotate, flip, replace, save and delete; Delete removes it.
 
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::{cell::RefCell, collections::BTreeMap, rc::Rc, sync::Arc};
 
 use egui::{Color32, CornerRadius, FontFamily, FontId, Pos2, Rect, Stroke};
 use pdfcraft_engine::{Edit, ObjectKind, ObjectTarget};
@@ -1393,8 +1392,152 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
     families
 }
 
+/// The line editor's buffer: egui works in display order, and every change maps straight back
+/// to the logical text this keeps, so the paragraph written to the PDF reads as typed while
+/// the screen reads as the Unicode bidirectional algorithm draws it (#2101).
+pub(crate) struct VisualText {
+    /// The logical text, shared with the layouter: `TextEdit` lays out again after it handles
+    /// events, in the same frame, so the layouter must see changes made after it first ran.
+    logical: Rc<RefCell<String>>,
+    /// The logical text in display order: what egui lays out, puts the caret in and copies.
+    visual: String,
+    /// `order[display character] = the logical character it shows`.
+    order: Vec<usize>,
+    /// What a cut removed this frame, in logical order, for the clipboard (egui would copy the
+    /// display order back out).
+    deleted: Option<String>,
+}
+
+impl VisualText {
+    /// A buffer over `text`, with the shared handle the layouter reads the same logical text
+    /// through: a galley built after a change, in the same frame, must see it.
+    pub(crate) fn new(text: String) -> (Self, Rc<RefCell<String>>) {
+        let logical = Rc::new(RefCell::new(text));
+        let (visual, order) = crate::bidi::visual_with_order(&logical.borrow());
+        (Self { logical: logical.clone(), visual, order, deleted: None }, logical)
+    }
+
+    /// The logical text as it stands now.
+    pub(crate) fn logical_text(&self) -> String {
+        self.logical.borrow().clone()
+    }
+
+    /// The logical characters of a display range, in logical order: what Copy and Cut must put
+    /// on the clipboard.
+    pub(crate) fn logical_slice(&self, range: std::ops::Range<usize>) -> String {
+        let Some(wanted) = self.order.get(range) else { return String::new() };
+        let mut wanted = wanted.to_vec();
+        wanted.sort_unstable();
+        let logical = self.logical.borrow();
+        let mut at = wanted.iter().peekable();
+        let mut out = String::with_capacity(wanted.len());
+        for (i, c) in logical.chars().enumerate() {
+            if at.peek() == Some(&&i) {
+                at.next();
+                out.push(c);
+            }
+        }
+        out
+    }
+
+    /// The logical characters a display range covers, as one span: the format panel's
+    /// `RangeStyle` takes a span, not the set a selection across runs can be.
+    pub(crate) fn logical_span(&self, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
+        let Some(wanted) = self.order.get(range) else { return 0..0 };
+        match (wanted.iter().min(), wanted.iter().max()) {
+            (Some(lo), Some(hi)) => *lo..*hi + 1,
+            _ => 0..0,
+        }
+    }
+
+    /// What a cut removed this frame, in logical order, if anything.
+    pub(crate) fn take_deleted(&mut self) -> Option<String> {
+        self.deleted.take()
+    }
+
+    fn refresh(&mut self) {
+        let (visual, order) = crate::bidi::visual_with_order(&self.logical.borrow());
+        self.visual = visual;
+        self.order = order;
+    }
+}
+
+/// egui copies and cuts what it laid out — the display order. Put the logical text on the
+/// clipboard instead, and only when this editor actually handled a copy or a cut.
+pub(crate) fn clipboard_in_logical_order(ui: &egui::Ui, buf: &mut VisualText, cursor: Option<egui::text::CCursorRange>) {
+    let (cut, copied) =
+        ui.input(|i| (i.events.iter().any(|e| matches!(e, egui::Event::Cut)), i.events.iter().any(|e| matches!(e, egui::Event::Copy))));
+    if cut {
+        if let Some(removed) = buf.take_deleted() {
+            ui.ctx().copy_text(removed);
+        }
+    } else if copied
+        && let Some(range) = cursor
+        && !range.is_empty()
+    {
+        let selected = range.as_sorted_char_range();
+        ui.ctx().copy_text(buf.logical_slice(selected.start.into()..selected.end.into()));
+    }
+}
+
+impl egui::TextBuffer for VisualText {
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<Self>()
+    }
+
+    fn is_mutable(&self) -> bool {
+        true
+    }
+
+    fn as_str(&self) -> &str {
+        &self.visual
+    }
+
+    fn insert_text(&mut self, text: &str, char_index: egui::text::CharIndex) -> usize {
+        let added = text.chars().count();
+        {
+            let mut logical = self.logical.borrow_mut();
+            // The caret sits before the display character at its index; the typed text goes
+            // before the logical character that one shows (past the end: at the end).
+            let at = self.order.get(char_index.0).copied().unwrap_or_else(|| logical.chars().count());
+            let byte = logical.char_indices().nth(at).map_or(logical.len(), |(b, _)| b);
+            logical.insert_str(byte, text);
+        }
+        self.refresh();
+        added
+    }
+
+    fn delete_char_range(&mut self, char_range: std::ops::Range<egui::text::CharIndex>) {
+        let mut gone: Vec<usize> = self.order.get(char_range.start.0..char_range.end.0).map(|at| at.to_vec()).unwrap_or_default();
+        gone.sort_unstable();
+        if gone.is_empty() {
+            return;
+        }
+        {
+            let mut logical = self.logical.borrow_mut();
+            // A display range can cover logical characters that are apart (a run the selection
+            // crossed); all of them go, each read from the logical text once.
+            let mut removed = String::new();
+            let mut kept = String::with_capacity(logical.len());
+            for (i, c) in logical.chars().enumerate() {
+                if gone.binary_search(&i).is_ok() {
+                    removed.push(c);
+                } else {
+                    kept.push(c);
+                }
+            }
+            self.deleted = Some(removed);
+            *logical = kept;
+        }
+        self.refresh();
+    }
+}
+
 fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
+    // The paragraph as the screen shows it: display order for right-to-left script (#2101).
+    // `text` is the logical draft; every measurement below is order-independent.
+    let (vis, order) = crate::bidi::visual_with_order(text);
     // An unchanged PDF row already has an authoritative line break. Do not rewrap it
     // because font rounding or a fallback face measures a fraction of a pixel wider.
     job.wrap.max_width = if text == ed.original && ed.look == ed.look0 && ed.extras == ed.extras0 { f32::INFINITY } else { width };
@@ -1414,7 +1557,27 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
         if centered {
             job.halign = egui::Align::Center;
         }
+        // The line each character of the logical draft belongs to, then the runs of the
+        // display string that share one line: display order only moves characters inside
+        // their own line, so each run still draws with its source line's look (#2101).
+        let mut line_of: Vec<usize> = Vec::with_capacity(text.chars().count());
         for (range, index) in block.edited_spans(text) {
+            line_of.extend(std::iter::repeat_n(index, text.get(range).map_or(0, |s| s.chars().count())));
+        }
+        let mut spans: Vec<(std::ops::Range<usize>, usize)> = Vec::new();
+        for (k, (at, c)) in vis.char_indices().enumerate() {
+            let end = at + c.len_utf8();
+            let index = order.get(k).and_then(|l| line_of.get(*l)).copied().unwrap_or(0);
+            if let Some((range, last)) = spans.last_mut()
+                && *last == index
+                && range.end == at
+            {
+                range.end = end;
+            } else {
+                spans.push((at..end, index));
+            }
+        }
+        for (range, index) in spans {
             let Some(line) = lines.get(index) else { continue };
             let mut look = source_look(&line.base_font, line.size, line.color, line.bold, line.italic);
             look.size = line.size;
@@ -1444,7 +1607,7 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
             let target_width = ((line.rect[2] - line.rect[0]) * look.size / line.size.max(0.01)) as f32 * scale;
             let spacing = if original_face { (target_width - native_width) / line.text.chars().count().saturating_sub(1).max(1) as f32 } else { 0.0 };
             job.append(
-                text.get(range).unwrap_or_default(),
+                vis.get(range).unwrap_or_default(),
                 0.0,
                 egui::TextFormat {
                     font_id: font,
@@ -1457,9 +1620,9 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
         }
     } else {
         job.append(
-            text,
+            &vis,
             0.0,
-            egui::TextFormat {
+            egui::text::TextFormat {
                 font_id: editor_font(&ed.look, ed.size),
                 color: color32(ed.look.color),
                 italics: ed.look.italic,
@@ -1664,11 +1827,18 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                 };
                 let rows = 1;
                 let snapshot = ed.clone();
-                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-                    let galley = editor_galley(ui, &snapshot, text.as_str(), scale, wrap_width);
-                    if snapshot.changes_with(text.as_str()) { galley } else { unseen(galley) }
+                // egui works in display order (#2101): the buffer keeps the logical text and
+                // hands out the display string, and the layouter reads the same logical text
+                // fresh, because TextEdit lays out again after it handles events, in the same
+                // frame, so a snapshot would miss what was just typed.
+                let (mut buf, logical) = VisualText::new(ed.text.clone());
+                let for_layout = logical.clone();
+                let mut layouter = |ui: &egui::Ui, _text: &dyn egui::TextBuffer, wrap_width: f32| {
+                    let text = for_layout.borrow();
+                    let galley = editor_galley(ui, &snapshot, &text, scale, wrap_width);
+                    if snapshot.changes_with(&text) { galley } else { unseen(galley) }
                 };
-                let output = egui::TextEdit::multiline(&mut ed.text)
+                let output = egui::TextEdit::multiline(&mut buf)
                     .id(egui::Id::new("edit-text-line-input"))
                     .font(font.clone())
                     .margin(egui::Margin::ZERO)
@@ -1678,6 +1848,8 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     .desired_width(width)
                     .desired_rows(rows)
                     .show(ui);
+                ed.text = buf.logical_text();
+                clipboard_in_logical_order(ui, &mut buf, output.cursor_range);
                 if ed.has_changes() {
                     if background_ready {
                         reveal = true;
@@ -1688,8 +1860,11 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                 look = Some((Arc::clone(&output.galley), output.galley_pos));
                 if let Some(cursor) = output.cursor_range {
                     let selected = cursor.as_sorted_char_range();
+                    // The format panel styles logical bytes; a selection across runs covers a
+                    // set, and its span is the range that holds it.
+                    let span = buf.logical_span(selected.start.into()..selected.end.into());
                     let byte = |index| ed.text.char_indices().nth(index).map_or(ed.text.len(), |(at, _)| at);
-                    ed.selection = (!selected.is_empty()).then(|| byte(selected.start.into())..byte(selected.end.into()));
+                    ed.selection = (!selected.is_empty() && span.start < span.end).then(|| byte(span.start)..byte(span.end));
                 }
                 let r = output.response;
                 if r.changed() {
@@ -1748,6 +1923,79 @@ pub(crate) fn caret_color_on(fill: Color32) -> Color32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use egui::TextBuffer as _;
+
+    #[test]
+    fn typing_into_an_empty_editor_stores_exactly_what_was_typed() {
+        let (mut buf, _) = VisualText::new(String::new());
+        assert_eq!(buf.insert_text("שלום", egui::text::CharIndex(0)), 4);
+        assert_eq!(buf.logical_text(), "שלום");
+        assert_eq!(buf.as_str(), "שלום", "one right-to-left word shows as it reads");
+        let (mut buf, _) = VisualText::new(String::new());
+        buf.insert_text("مرحبا سلام", egui::text::CharIndex(0));
+        assert_eq!(buf.logical_text(), "مرحبا سلام");
+        assert_eq!(buf.as_str(), "سلام مرحبا", "the screen reads the sentence right to left");
+    }
+
+    #[test]
+    fn a_click_in_the_display_inserts_at_the_same_place_in_the_text() {
+        let (mut buf, _) = VisualText::new("مرحبا سلام".to_owned());
+        assert_eq!(buf.as_str(), "سلام مرحبا");
+        // The display's first character is the logical sixth (the second word); text typed
+        // before it lands between the words, where the caret sits on screen (#2101).
+        buf.insert_text("X", egui::text::CharIndex(0));
+        assert_eq!(buf.logical_text(), "مرحبا Xسلام");
+        // Past the end of the display is past the end of the text.
+        let end = buf.logical_text().chars().count();
+        buf.insert_text("Y", egui::text::CharIndex(end));
+        assert_eq!(buf.logical_text(), "مرحبا XسلامY");
+        assert_eq!(buf.as_str(), crate::bidi::visual_with_order(&buf.logical_text()).0);
+    }
+
+    #[test]
+    fn a_display_selection_removes_every_character_it_covers() {
+        let (mut buf, _) = VisualText::new("שדה abc".to_owned());
+        assert_eq!(buf.as_str(), "abc שדה");
+        // Display characters 1..6 are logical {0, 1, 3, 5, 6}: the selection crossed a run,
+        // so the logical characters it covers go, each read from the text once.
+        buf.delete_char_range(egui::text::CharIndex(1)..egui::text::CharIndex(6));
+        assert_eq!(buf.logical_text(), "הa");
+        assert_eq!(buf.take_deleted(), Some("שד bc".to_owned()));
+        assert_eq!(buf.as_str(), crate::bidi::visual_with_order(&buf.logical_text()).0);
+    }
+
+    #[test]
+    fn a_selection_reads_back_as_its_logical_characters() {
+        let (buf, _) = VisualText::new("שדה abc".to_owned());
+        // Display 0..4 is "abc ": the logical characters " abc".
+        assert_eq!(buf.logical_slice(0..4), " abc");
+        assert_eq!(buf.logical_span(0..4), 3..7);
+        // Display 1..5 covers a set that spans runs: the slice keeps just it, the span holds it.
+        assert_eq!(buf.logical_slice(1..5), "ש bc");
+        assert_eq!(buf.logical_span(1..5), 0..7);
+        // A range past the end reads as nothing rather than panicking.
+        assert_eq!(buf.logical_slice(40..90), "");
+        assert_eq!(buf.logical_span(40..90), 0..0);
+    }
+
+    #[test]
+    fn every_edit_keeps_the_display_a_permutation_of_the_text() {
+        for start in ["שורה ראשונה\nשורה שנייה", "مرحبا 123 abc", "mixed שלום text", "plain latin"] {
+            let (mut buf, _) = VisualText::new(start.to_owned());
+            let check = |buf: &VisualText, at: &str| {
+                let (vis, order) = crate::bidi::visual_with_order(&buf.logical_text());
+                assert_eq!(buf.as_str(), vis, "{at}: {start:?}");
+                let mut sorted = order.clone();
+                sorted.sort_unstable();
+                assert_eq!(sorted, (0..vis.chars().count()).collect::<Vec<usize>>(), "{at}: {start:?} is not a permutation");
+            };
+            check(&buf, "opened");
+            buf.insert_text("Z", egui::text::CharIndex(2));
+            check(&buf, "after typing");
+            buf.delete_char_range(egui::text::CharIndex(1)..egui::text::CharIndex(4));
+            check(&buf, "after deleting");
+        }
+    }
 
     #[test]
     fn the_rotate_knob_moves_below_when_there_is_no_room_above() {

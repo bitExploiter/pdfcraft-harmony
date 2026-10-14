@@ -1891,3 +1891,59 @@ fn routine_continuous_scrolling_does_not_add_navigation_history() {
     assert!(h.state().views[0].back.is_empty());
     assert!(h.state().views[0].forward.is_empty());
 }
+
+/// Issue #2101: the editor shows right-to-left text in display order while the paragraph keeps
+/// reading order, and the caret a click places inserts where it sits on screen.
+#[test]
+fn typing_right_to_left_keeps_the_text_where_the_caret_clicked() {
+    let (mut h, c) = harness_pages(1);
+    ok(&mut h, &c, "ui.command", json!({"id": "edit.text"}));
+    // Click clear of the fixture's own line ("Page 1" sits at the page's left middle). The
+    // rect is the whole page; at this zoom the window shows only its top, so aim at the
+    // centre of what is inside the window.
+    let state = ok(&mut h, &c, "ui.state", json!({}));
+    let page = state["active"]["pages_on_screen"][0]["rect"].clone();
+    let left = page[0].as_f64().unwrap();
+    let right = page[2].as_f64().unwrap();
+    let top = page[1].as_f64().unwrap();
+    let bottom = page[3].as_f64().unwrap().min(state["window"]["height"].as_f64().unwrap() - 200.0);
+    let x = (left + right) / 2.0;
+    let y = (top + bottom) / 2.0;
+    ok(&mut h, &c, "ui.click", json!({"x": x, "y": y}));
+    h.run_steps(2);
+    // The sentence is stored exactly as typed, in reading order.
+    const SENTENCE: &str = "مرحبا سلام";
+    ok(&mut h, &c, "ui.type", json!({"text": SENTENCE}));
+    h.run_steps(2);
+    assert_eq!(h.state().views[0].content.draft.as_ref().map(|d| d.text.as_str()), Some(SENTENCE));
+    // Home puts the caret at the start of what is on screen — the logical end of the
+    // sentence, after the space — and text typed there lands between the two words, where
+    // the caret sits.
+    ok(&mut h, &c, "ui.key", json!({"key": "Home"}));
+    h.run_steps(1);
+    ok(&mut h, &c, "ui.type", json!({"text": "Z"}));
+    h.run_steps(2);
+    let (head, tail) = SENTENCE.split_once(' ').expect("two words");
+    assert_eq!(
+        h.state().views[0].content.draft.as_ref().map(|d| d.text.as_str()),
+        Some(format!("{head} Z{tail}").as_str()),
+        "the caret's place on screen keeps the text where it was clicked"
+    );
+}
+
+/// Issue #2101, Fill & Sign half: the type box shows display order and hands the engine the
+/// reading order.
+#[test]
+fn fill_and_sign_stores_typed_text_in_reading_order() {
+    let (mut h, c) = harness_pages(1);
+    ok(&mut h, &c, "ui.command", json!({"id": "sign.panel"}));
+    ok(&mut h, &c, "ui.command", json!({"id": "sign.fill.text"}));
+    let page = ok(&mut h, &c, "ui.state", json!({}))["active"]["pages_on_screen"][0]["rect"].clone();
+    let x = page[0].as_f64().unwrap() + (page[2].as_f64().unwrap() - page[0].as_f64().unwrap()) * 0.75;
+    let y = page[1].as_f64().unwrap() + (page[3].as_f64().unwrap() - page[1].as_f64().unwrap()) * 0.75;
+    ok(&mut h, &c, "ui.click", json!({"x": x, "y": y}));
+    h.run_steps(2);
+    ok(&mut h, &c, "ui.type", json!({"text": "ا ببببب"}));
+    h.run_steps(2);
+    assert_eq!(h.state().views[0].fill_text.as_ref().map(|t| t.text.as_str()), Some("ا ببببب"));
+}

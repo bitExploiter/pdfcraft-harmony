@@ -733,15 +733,21 @@ pub(crate) fn type_box(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
             // The area's max rect is last frame's size, which caps the edit's width; widen it so the
             // box grows as text is typed.
             ui.set_min_width(width);
-            let r = ui.add(
-                egui::TextEdit::singleline(&mut t.text)
+            let r = {
+                // Display order on screen, the logical text written to the PDF (#2101).
+                let (mut buf, _) = crate::edit_text_ui::VisualText::new(t.text.clone());
+                let output = egui::TextEdit::singleline(&mut buf)
                     .font(egui::FontId::proportional((t.size as f32 * zoom).max(8.0)))
                     .desired_width(width)
                     .background_color(Color32::from_rgba_unmultiplied(255, 255, 255, 230))
                     .text_color(Color32::BLACK)
                     .hint_text(tl!("Type text"))
-                    .id_salt("fill-text-edit"),
-            );
+                    .id_salt("fill-text-edit")
+                    .show(ui);
+                t.text = buf.logical_text();
+                crate::edit_text_ui::clipboard_in_logical_order(ui, &mut buf, output.cursor_range);
+                output.response
+            };
             if t.focus {
                 r.request_focus();
                 t.focus = false;
