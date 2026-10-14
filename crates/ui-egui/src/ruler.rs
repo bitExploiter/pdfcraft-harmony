@@ -270,6 +270,220 @@ fn format_label(unit: Unit, value: f64) -> String {
     }
 }
 
+/// Suggested logical-point thickness for either ruler band.
+pub const DEFAULT_RULER_THICKNESS: f32 = 18.0;
+const HORIZONTAL_LABEL_OUTER_PADDING: f32 = 1.0;
+const HORIZONTAL_LABEL_TICK_GAP: f32 = 1.0;
+const RULER_LABEL_SIZE: f32 = 9.0;
+
+/// Read-only paint input for one ruler band.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RulerPaintInput {
+    pub orientation: RulerOrientation,
+    pub rect: egui::Rect,
+    pub page_origin: f64,
+    pub page_length_pdf_points: f64,
+    pub screen_points_per_pdf_point: f64,
+    pub unit: Unit,
+    /// Pointer position on this ruler's screen axis. The caller supplies it only while the
+    /// pointer is over the document canvas.
+    pub pointer_screen_position: Option<f64>,
+}
+
+impl RulerPaintInput {
+    fn calculation_geometry(self) -> RulerGeometry {
+        let (ruler_start, ruler_end) = match self.orientation {
+            RulerOrientation::Horizontal => (f64::from(self.rect.left()), f64::from(self.rect.right())),
+            RulerOrientation::Vertical => (f64::from(self.rect.top()), f64::from(self.rect.bottom())),
+        };
+        RulerGeometry {
+            orientation: self.orientation,
+            ruler_start,
+            ruler_end,
+            page_origin: self.page_origin,
+            page_length_pdf_points: self.page_length_pdf_points,
+            screen_points_per_pdf_point: self.screen_points_per_pdf_point,
+            unit: self.unit,
+        }
+    }
+}
+
+/// Paint one clipped read-only ruler band. The caller owns layout and pointer policy.
+pub fn paint_ruler(ui: &egui::Ui, input: RulerPaintInput) {
+    let style = RulerPaintStyle::from_ui(ui);
+    let painter = ui.painter().with_clip_rect(input.rect);
+    painter.rect_filled(input.rect, egui::CornerRadius::ZERO, style.outside_background);
+
+    let calculation = input.calculation_geometry();
+    if let Some(page_span) = page_span(input) {
+        painter.rect_filled(page_span, egui::CornerRadius::ZERO, style.page_background);
+        paint_page_boundaries(&painter, input, page_span, style);
+    }
+
+    let ticks = visible_ticks(calculation);
+    for kind in [TickKind::Minor, TickKind::Medium, TickKind::Major] {
+        for tick in ticks.iter().filter(|tick| tick.kind == kind) {
+            paint_tick(&painter, input, tick, style);
+        }
+    }
+    if let Some(pointer) = input.pointer_screen_position.and_then(screen_coordinate) {
+        paint_pointer_marker(&painter, input.orientation, input.rect, pointer, style.pointer);
+    }
+    paint_canvas_edge(&painter, input.orientation, input.rect, style.edge);
+}
+
+/// Paint the inert square where horizontal and vertical rulers meet.
+pub fn paint_corner(ui: &egui::Ui, rect: egui::Rect, unit: Unit) {
+    let style = RulerPaintStyle::from_ui(ui);
+    let painter = ui.painter().with_clip_rect(rect);
+    painter.rect_filled(rect, egui::CornerRadius::ZERO, style.outside_background);
+    painter.line_segment([rect.right_top(), rect.right_bottom()], style.edge);
+    painter.line_segment([rect.left_bottom(), rect.right_bottom()], style.edge);
+    painter.text(rect.center(), egui::Align2::CENTER_CENTER, unit.label(), crate::theme::regular(RULER_LABEL_SIZE), style.label);
+}
+
+#[derive(Clone, Copy)]
+struct RulerPaintStyle {
+    outside_background: egui::Color32,
+    page_background: egui::Color32,
+    tick: egui::Stroke,
+    major_tick: egui::Stroke,
+    edge: egui::Stroke,
+    boundary: egui::Stroke,
+    label: egui::Color32,
+    pointer: egui::Color32,
+}
+
+impl RulerPaintStyle {
+    fn from_ui(ui: &egui::Ui) -> Self {
+        let tokens = crate::theme::Tokens::get(ui.ctx());
+        Self {
+            outside_background: tokens.chrome,
+            page_background: tokens.card,
+            tick: egui::Stroke::new(1.0, tokens.text_muted),
+            major_tick: egui::Stroke::new(1.0, tokens.text),
+            edge: egui::Stroke::new(1.0, tokens.border),
+            boundary: egui::Stroke::new(1.0, tokens.accent_text),
+            label: tokens.text,
+            pointer: tokens.accent,
+        }
+    }
+}
+
+fn page_span(input: RulerPaintInput) -> Option<egui::Rect> {
+    if !input.rect.is_positive()
+        || !input.page_origin.is_finite()
+        || !input.page_length_pdf_points.is_finite()
+        || input.page_length_pdf_points < 0.0
+        || !input.screen_points_per_pdf_point.is_finite()
+        || input.screen_points_per_pdf_point <= 0.0
+    {
+        return None;
+    }
+    let page_end = input.page_origin + input.page_length_pdf_points * input.screen_points_per_pdf_point;
+    let start = screen_coordinate(input.page_origin)?;
+    let end = screen_coordinate(page_end)?;
+    let span = match input.orientation {
+        RulerOrientation::Horizontal => egui::Rect::from_min_max(egui::pos2(start, input.rect.top()), egui::pos2(end, input.rect.bottom())),
+        RulerOrientation::Vertical => egui::Rect::from_min_max(egui::pos2(input.rect.left(), start), egui::pos2(input.rect.right(), end)),
+    };
+    let clipped = span.intersect(input.rect);
+    clipped.is_positive().then_some(clipped)
+}
+
+fn paint_page_boundaries(painter: &egui::Painter, input: RulerPaintInput, page_span: egui::Rect, style: RulerPaintStyle) {
+    match input.orientation {
+        RulerOrientation::Horizontal => {
+            painter.line_segment([page_span.left_top(), page_span.left_bottom()], style.boundary);
+            painter.line_segment([page_span.right_top(), page_span.right_bottom()], style.boundary);
+        }
+        RulerOrientation::Vertical => {
+            painter.line_segment([page_span.left_top(), page_span.right_top()], style.boundary);
+            painter.line_segment([page_span.left_bottom(), page_span.right_bottom()], style.boundary);
+        }
+    }
+}
+
+fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick, style: RulerPaintStyle) {
+    let Some(at) = screen_coordinate(tick.screen_position) else { return };
+    let length = tick_length(input.rect, input.orientation, tick.kind);
+    let stroke = if tick.kind == TickKind::Major { style.major_tick } else { style.tick };
+    match input.orientation {
+        RulerOrientation::Horizontal => {
+            painter.line_segment([egui::pos2(at, input.rect.bottom()), egui::pos2(at, input.rect.bottom() - length)], stroke);
+            if let Some(label) = &tick.label {
+                painter.text(
+                    egui::pos2(at, input.rect.top() + HORIZONTAL_LABEL_OUTER_PADDING),
+                    egui::Align2::CENTER_TOP,
+                    label,
+                    crate::theme::regular(RULER_LABEL_SIZE),
+                    style.label,
+                );
+            }
+        }
+        RulerOrientation::Vertical => {
+            painter.line_segment([egui::pos2(input.rect.right(), at), egui::pos2(input.rect.right() - length, at)], stroke);
+            if let Some(label) = &tick.label {
+                painter.text(
+                    egui::pos2(input.rect.left() + 2.0, at),
+                    egui::Align2::LEFT_CENTER,
+                    label,
+                    crate::theme::regular(RULER_LABEL_SIZE),
+                    style.label,
+                );
+            }
+        }
+    }
+}
+
+fn tick_length(rect: egui::Rect, orientation: RulerOrientation, kind: TickKind) -> f32 {
+    let available = match orientation {
+        RulerOrientation::Horizontal => (rect.height() - HORIZONTAL_LABEL_OUTER_PADDING - RULER_LABEL_SIZE - HORIZONTAL_LABEL_TICK_GAP).max(0.0),
+        RulerOrientation::Vertical => rect.width().max(0.0),
+    };
+    let desired: f32 = match (orientation, kind) {
+        (RulerOrientation::Horizontal, TickKind::Minor) => 2.0,
+        (RulerOrientation::Horizontal, TickKind::Medium) => 4.0,
+        (RulerOrientation::Horizontal, TickKind::Major) => 6.0,
+        (RulerOrientation::Vertical, TickKind::Minor) => 5.0,
+        (RulerOrientation::Vertical, TickKind::Medium) => 8.0,
+        (RulerOrientation::Vertical, TickKind::Major) => 11.0,
+    };
+    desired.min(available)
+}
+
+fn paint_canvas_edge(painter: &egui::Painter, orientation: RulerOrientation, rect: egui::Rect, stroke: egui::Stroke) {
+    let points = match orientation {
+        RulerOrientation::Horizontal => [rect.left_bottom(), rect.right_bottom()],
+        RulerOrientation::Vertical => [rect.right_top(), rect.right_bottom()],
+    };
+    painter.line_segment(points, stroke);
+}
+
+fn paint_pointer_marker(painter: &egui::Painter, orientation: RulerOrientation, rect: egui::Rect, axis_position: f32, color: egui::Color32) {
+    let points = pointer_marker_points(orientation, rect, axis_position);
+    painter.add(egui::Shape::convex_polygon(points.to_vec(), color, egui::Stroke::NONE));
+}
+
+fn pointer_marker_points(orientation: RulerOrientation, rect: egui::Rect, axis_position: f32) -> [egui::Pos2; 3] {
+    match orientation {
+        RulerOrientation::Horizontal => [
+            egui::pos2(axis_position - 4.0, rect.bottom() - 1.0),
+            egui::pos2(axis_position + 4.0, rect.bottom() - 1.0),
+            egui::pos2(axis_position, rect.bottom() - 7.0),
+        ],
+        RulerOrientation::Vertical => [
+            egui::pos2(rect.right() - 1.0, axis_position - 4.0),
+            egui::pos2(rect.right() - 1.0, axis_position + 4.0),
+            egui::pos2(rect.right() - 7.0, axis_position),
+        ],
+    }
+}
+
+fn screen_coordinate(value: f64) -> Option<f32> {
+    (value.is_finite() && (f64::from(f32::MIN)..=f64::from(f32::MAX)).contains(&value)).then_some(value as f32)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +650,115 @@ mod tests {
     fn labels_do_not_show_negative_zero() {
         assert_eq!(format_label(Unit::Inches, -0.0), "0");
         assert_eq!(format_label(Unit::Points, 72.0), "72");
+    }
+
+    fn paint_input(orientation: RulerOrientation, rect: egui::Rect) -> RulerPaintInput {
+        RulerPaintInput {
+            orientation,
+            rect,
+            page_origin: match orientation {
+                RulerOrientation::Horizontal => f64::from(rect.left()) + 20.0,
+                RulerOrientation::Vertical => f64::from(rect.top()) + 20.0,
+            },
+            page_length_pdf_points: 612.0,
+            screen_points_per_pdf_point: 1.0,
+            unit: Unit::Points,
+            pointer_screen_position: Some(match orientation {
+                RulerOrientation::Horizontal => f64::from(rect.center().x),
+                RulerOrientation::Vertical => f64::from(rect.center().y),
+            }),
+        }
+    }
+
+    #[test]
+    fn generated_labels_keep_the_minimum_screen_spacing() {
+        for unit in Unit::ALL {
+            for scale in [0.25, 0.75, 1.0, 1.333_333, 2.0, 4.0, 16.0] {
+                let labels: Vec<f64> =
+                    visible_ticks(geometry(unit, scale)).into_iter().filter(|tick| tick.label.is_some()).map(|tick| tick.screen_position).collect();
+                assert!(labels.windows(2).all(|pair| pair[1] - pair[0] >= MIN_LABEL_SPACING - 0.01));
+            }
+        }
+    }
+
+    #[test]
+    fn horizontal_and_vertical_page_spans_are_clipped_to_the_ruler() {
+        let horizontal_rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, DEFAULT_RULER_THICKNESS));
+        let mut horizontal = paint_input(RulerOrientation::Horizontal, horizontal_rect);
+        horizontal.page_origin = -50.0;
+        horizontal.page_length_pdf_points = 500.0;
+        assert_eq!(page_span(horizontal), Some(horizontal_rect));
+
+        let vertical_rect = egui::Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(DEFAULT_RULER_THICKNESS, 240.0));
+        let mut vertical = paint_input(RulerOrientation::Vertical, vertical_rect);
+        vertical.page_origin = 100.0;
+        vertical.page_length_pdf_points = 60.0;
+        assert_eq!(page_span(vertical), Some(egui::Rect::from_min_max(egui::pos2(30.0, 100.0), egui::pos2(30.0 + DEFAULT_RULER_THICKNESS, 160.0))));
+    }
+
+    #[test]
+    fn invalid_page_spans_are_not_painted() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, DEFAULT_RULER_THICKNESS));
+        let mut input = paint_input(RulerOrientation::Horizontal, rect);
+        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            input.screen_points_per_pdf_point = scale;
+            assert_eq!(page_span(input), None);
+        }
+        input.screen_points_per_pdf_point = 1.0;
+        input.page_origin = f64::MAX;
+        assert_eq!(page_span(input), None);
+    }
+
+    #[test]
+    fn tick_hierarchy_has_strictly_increasing_lengths() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        for orientation in [RulerOrientation::Horizontal, RulerOrientation::Vertical] {
+            let minor = tick_length(rect, orientation, TickKind::Minor);
+            let medium = tick_length(rect, orientation, TickKind::Medium);
+            let major = tick_length(rect, orientation, TickKind::Major);
+            assert!(minor < medium && medium < major);
+        }
+    }
+
+    #[test]
+    fn horizontal_labels_have_outer_padding_and_a_gap_before_major_ticks() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        let label_top = rect.top() + HORIZONTAL_LABEL_OUTER_PADDING;
+        let label_bottom = label_top + RULER_LABEL_SIZE;
+        let major_tick_top = rect.bottom() - tick_length(rect, RulerOrientation::Horizontal, TickKind::Major);
+        assert!(label_top > rect.top());
+        assert!(major_tick_top - label_bottom >= HORIZONTAL_LABEL_TICK_GAP);
+    }
+
+    #[test]
+    fn pointer_markers_point_toward_the_canvas_edge() {
+        let horizontal = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        let h = pointer_marker_points(RulerOrientation::Horizontal, horizontal, 100.0);
+        assert_eq!(h[2], egui::pos2(100.0, horizontal.bottom() - 7.0));
+        assert_eq!(h[0].y, horizontal.bottom() - 1.0);
+
+        let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(DEFAULT_RULER_THICKNESS, 300.0));
+        let v = pointer_marker_points(RulerOrientation::Vertical, vertical, 100.0);
+        assert_eq!(v[2], egui::pos2(vertical.right() - 7.0, 100.0));
+        assert_eq!(v[0].x, vertical.right() - 1.0);
+    }
+
+    #[test]
+    fn both_themes_paint_two_rulers_and_the_corner_in_an_isolated_harness() {
+        for kind in [crate::theme::ThemeKind::Light, crate::theme::ThemeKind::Dark] {
+            let ctx = egui::Context::default();
+            ctx.set_fonts(crate::theme::font_definitions());
+            crate::theme::apply(&ctx, kind);
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let corner = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(DEFAULT_RULER_THICKNESS));
+                let horizontal = egui::Rect::from_min_size(egui::pos2(DEFAULT_RULER_THICKNESS, 0.0), egui::vec2(400.0, DEFAULT_RULER_THICKNESS));
+                let vertical = egui::Rect::from_min_size(egui::pos2(0.0, DEFAULT_RULER_THICKNESS), egui::vec2(DEFAULT_RULER_THICKNESS, 400.0));
+                paint_corner(ui, corner, Unit::Points);
+                paint_ruler(ui, paint_input(RulerOrientation::Horizontal, horizontal));
+                paint_ruler(ui, paint_input(RulerOrientation::Vertical, vertical));
+            });
+            assert!(output.shapes.len() > 20, "{kind:?} ruler harness produced too few shapes");
+            output.drop_without_applying_deltas();
+        }
     }
 }
