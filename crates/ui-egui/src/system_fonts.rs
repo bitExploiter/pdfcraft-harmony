@@ -3,7 +3,9 @@
 //! The embedded faces (Inter, egui's defaults, craft-fonts) come first in every family; this one
 //! only draws characters none of them has, such as an Arabic file name in a build without
 //! craft-fonts, or the Simplified Chinese interface in a build without a `Hans` face (#826). A
-//! second installed face, [`devanagari_fallback`], draws Hindi when one is installed. It is
+//! second installed face, [`devanagari_fallback`], draws Hindi when one is installed, and a third,
+//! [`hangul_fallback`], draws Korean (a Hangul file name or bookmark title in any interface
+//! language) when no embedded face covers the Hangul syllables. They are
 //! read at runtime and never embedded or shipped (AGENTS.md §1.4), and `PDFCRAFT_SYSTEM_FONTS=0`
 //! turns it off (published screenshots do).
 
@@ -26,6 +28,10 @@ const DEVANAGARI_PROBE: char = '\u{0915}';
 const HANS_PROBE: char = '\u{6B22}';
 /// 說 (U+8AAA): Traditional only, absent from the Japanese craft-fonts faces.
 const HANT_PROBE: char = '\u{8AAA}';
+/// The precomposed Hangul syllables (가 … 힣). A Hangul face must map every one of them: a face
+/// with only some would draw part of a name and leave the rest as tofu.
+const HANGUL_FIRST: char = '\u{AC00}';
+const HANGUL_LAST: char = '\u{D7A3}';
 
 /// What the installed face is wanted for, from the interface language.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -77,6 +83,60 @@ pub fn devanagari_fallback() -> Option<Arc<FontData>> {
             devanagari_candidates().iter().find_map(|path| read(path, DEVANAGARI_PROBE, MAX_BYTES))
         })
         .clone()
+}
+
+/// The installed fallback face for Hangul (Korean), read once. `None` when it is turned off or no
+/// candidate covering every Hangul syllable is installed; the interface then draws what the
+/// embedded faces can, as before.
+pub fn hangul_fallback() -> Option<Arc<FontData>> {
+    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            if std::env::var_os("PDFCRAFT_SYSTEM_FONTS").is_some_and(|v| v == "0") {
+                return None;
+            }
+            hangul_candidates().iter().find_map(|path| read_with(path, MAX_HAN_BYTES, covers_hangul_font))
+        })
+        .clone()
+}
+
+/// Whether face `index` of `bytes` maps every Hangul syllable. Unparsable data covers nothing.
+pub fn covers_hangul(bytes: &[u8], index: u32) -> bool {
+    skrifa::FontRef::from_index(bytes, index).is_ok_and(|font| covers_hangul_font(&font))
+}
+
+fn covers_hangul_font(font: &skrifa::FontRef<'_>) -> bool {
+    use skrifa::MetadataProvider as _;
+    let charmap = font.charmap();
+    (HANGUL_FIRST..=HANGUL_LAST).all(|c| charmap.map(c).is_some())
+}
+
+/// Korean sans faces the operating system ships, the interface face first. Noto CJK (Noto Sans
+/// CJK KR, and Noto Sans KR, its Korean subset) and Source Han are left out on purpose: they are
+/// one Adobe design (AGENTS.md §1.1).
+fn hangul_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        // Malgun Gothic, Malgun Gothic Semilight, then the older Gulim / Dotum collection.
+        ["malgun.ttf", "malgunsl.ttf", "gulim.ttc"].iter().map(|f| windows_fonts().join(f)).collect()
+    } else if cfg!(target_os = "macos") {
+        ["/System/Library/Fonts/AppleSDGothicNeo.ttc", "/System/Library/Fonts/Supplemental/AppleGothic.ttf", "/Library/Fonts/AppleGothic.ttf"]
+            .iter()
+            .map(PathBuf::from)
+            .collect()
+    } else {
+        unix_fonts(&[
+            "truetype/nanum/NanumGothic.ttf",
+            "nanum/NanumGothic.ttf",
+            "naver-nanum/NanumGothic.ttf",
+            "nanum-fonts/NanumGothic.ttf",
+            "TTF/NanumGothic.ttf",
+            "truetype/unfonts-core/UnDotum.ttf",
+            "un-core/UnDotum.ttf",
+            "TTF/UnDotum.ttf",
+            "truetype/baekmuk/dotum.ttf",
+            "baekmuk-ttf-dotum-fonts/dotum.ttf",
+        ])
+    }
 }
 
 /// Well-known locations of Devanagari (Hindi) faces, best first.
@@ -185,23 +245,41 @@ fn unix_fonts(files: &'static [&'static str]) -> Vec<PathBuf> {
 }
 
 fn read(path: &Path, probe: char, max: u64) -> Option<Arc<FontData>> {
+    read_with(path, max, maps(probe))
+}
+
+/// Whether a face maps `c`.
+fn maps(c: char) -> impl Fn(&skrifa::FontRef<'_>) -> bool {
+    move |font| {
+        use skrifa::MetadataProvider as _;
+        font.charmap().map(c).is_some()
+    }
+}
+
+/// The first face of the file at `path` (at most `max` bytes) that parses and that `accepts`.
+fn read_with(path: &Path, max: u64, accepts: impl Fn(&skrifa::FontRef<'_>) -> bool) -> Option<Arc<FontData>> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() > max {
         return None;
     }
     let bytes = std::fs::read(path).ok()?;
-    let index = face_with(&bytes, probe)?;
+    let index = face_where(&bytes, accepts)?;
     let mut data = FontData::from_owned(bytes);
     data.index = index;
     log::info!("interface font fallback: {} (face {index})", path.display());
     Some(Arc::new(data))
 }
 
-/// The first face of the file that parses and maps `c`. egui parses fonts with the same skrifa,
-/// so a face accepted here is one it can load.
+/// The first face of the file that parses and maps `c`.
+#[cfg(test)]
 fn face_with(bytes: &[u8], c: char) -> Option<u32> {
-    use skrifa::MetadataProvider as _;
-    (0..MAX_FACES).find(|&index| skrifa::FontRef::from_index(bytes, index).is_ok_and(|font| font.charmap().map(c).is_some()))
+    face_where(bytes, maps(c))
+}
+
+/// The first face of the file that parses and that `accepts`. egui parses fonts with the same
+/// skrifa, so a face accepted here is one it can load.
+fn face_where(bytes: &[u8], accepts: impl Fn(&skrifa::FontRef<'_>) -> bool) -> Option<u32> {
+    (0..MAX_FACES).find(|&index| skrifa::FontRef::from_index(bytes, index).is_ok_and(|font| accepts(&font)))
 }
 
 #[cfg(test)]
@@ -242,14 +320,46 @@ mod tests {
             assert!(!list.is_empty(), "{need:?}");
             assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{need:?}");
         }
+        let hangul = hangul_candidates();
+        assert!(!hangul.is_empty());
+        assert!(hangul.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{hangul:?}");
+    }
+
+    #[test]
+    fn hangul_coverage_needs_every_syllable() {
+        // Inter has no Hangul; broken data and a missing face index cover nothing, without panicking.
+        let inter = include_bytes!("../../../assets/fonts/Inter-Regular.ttf");
+        assert!(!covers_hangul(inter, 0));
+        assert!(!covers_hangul(inter, 7));
+        assert!(!covers_hangul(b"", 0));
+        assert!(!covers_hangul(&[0u8; 4096], 0));
+        let path = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/fonts/Inter-Regular.ttf"));
+        assert!(read_with(path, MAX_HAN_BYTES, covers_hangul_font).is_none());
+        assert!(read_with(path, MAX_HAN_BYTES, |_| true).is_some());
+    }
+
+    /// Windows ships Malgun Gothic; where it is installed, it is the Hangul face read.
+    #[test]
+    fn windows_reads_malgun_gothic_for_hangul() {
+        let malgun = windows_fonts().join("malgun.ttf");
+        if !cfg!(windows) || !malgun.is_file() || std::env::var_os("PDFCRAFT_SYSTEM_FONTS").is_some_and(|v| v == "0") {
+            eprintln!("skipping windows_reads_malgun_gothic_for_hangul: not Windows, no malgun.ttf, or PDFCRAFT_SYSTEM_FONTS=0");
+            return;
+        }
+        assert_eq!(hangul_candidates().first(), Some(&malgun));
+        let data = hangul_fallback().expect("Malgun Gothic covers Hangul");
+        assert!(covers_hangul(&data.font, data.index));
     }
 
     #[test]
     fn han_candidates_skip_adobe_designs() {
-        for need in [Need::Hans, Need::Hant] {
-            for path in candidates(need) {
+        for list in [candidates(Need::Hans), candidates(Need::Hant), hangul_candidates()] {
+            for path in list {
                 let name = path.to_string_lossy().to_lowercase();
-                assert!(!["notosanscjk", "notoserifcjk", "sourcehan", "source-han"].iter().any(|b| name.contains(b)), "{name}");
+                assert!(
+                    !["notosanscjk", "notoserifcjk", "notosanskr", "notoserifkr", "sourcehan", "source-han"].iter().any(|b| name.contains(b)),
+                    "{name}"
+                );
             }
         }
     }

@@ -2,6 +2,7 @@
 
 use egui::epaint::text::{Fonts, TextOptions};
 use egui::{Color32, FontFamily, FontId};
+use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::theme;
 
 const JAPANESE: &str = "日本語の文字";
@@ -168,6 +169,117 @@ fn system_fallback_covers_devanagari() {
         assert!(fonts.has_glyphs(&id, DEVANAGARI), "{id:?} lacks {DEVANAGARI}");
     }
     assert!(layout_widths(&mut fonts, DEVANAGARI).iter().all(|w| w.is_finite() && *w > 0.0));
+}
+
+/// A Korean bookmark title and file name, as a Korean user's documents carry them.
+const KOREAN_BOOKMARK: &str = "한글 북마크 테스트";
+const KOREAN_FILE_NAME: &str = "안티바이러스제품 보안요구사항.pdf";
+
+/// Whether `face` (font data in `defs`) maps every Hangul syllable.
+fn covers_hangul(defs: &egui::FontDefinitions, face: &str) -> bool {
+    use skrifa::MetadataProvider as _;
+    let data = &defs.font_data[face];
+    skrifa::FontRef::from_index(&data.font, data.index).is_ok_and(|f| ('\u{AC00}'..='\u{D7A3}').all(|c| f.charmap().map(c).is_some()))
+}
+
+/// The atlas cell each Hangul syllable of `text` is drawn from in `id`, and the cell of egui's
+/// replacement glyph. A missing glyph is drawn as the replacement box (□), so tofu shows as every
+/// syllable sharing that one cell.
+fn hangul_cells(fonts: &mut Fonts, id: &FontId, text: &str) -> (Vec<(char, [u16; 4])>, [u16; 4]) {
+    let mut view = fonts.with_pixels_per_point(2.0);
+    let cell = |g: &egui::epaint::text::Glyph| [g.uv_rect.min[0], g.uv_rect.min[1], g.uv_rect.max[0], g.uv_rect.max[1]];
+    let galley = view.layout_no_wrap(text.to_owned(), id.clone(), Color32::BLACK);
+    let cells = galley.rows.iter().flat_map(|r| &r.glyphs).filter(|g| ('\u{AC00}'..='\u{D7A3}').contains(&g.chr)).map(|g| (g.chr, cell(g))).collect();
+    // U+FFFF is a noncharacter no face maps, so it is always drawn as the replacement glyph.
+    let replacement = view.layout_no_wrap("\u{FFFF}".to_owned(), id.clone(), Color32::BLACK);
+    let replacement = replacement.rows.iter().flat_map(|r| &r.glyphs).map(cell).next().expect("one glyph");
+    (cells, replacement)
+}
+
+/// Asserts that every Hangul syllable of `text` is a real glyph in every family: distinct
+/// syllables come from distinct atlas cells, none of them the replacement box.
+fn assert_hangul_drawn(fonts: &mut Fonts, text: &str) {
+    for id in families() {
+        assert!(fonts.has_glyphs(&id, text), "{id:?} lacks a glyph of {text}");
+        let (cells, replacement) = hangul_cells(fonts, &id, text);
+        assert!(!cells.is_empty(), "{text}");
+        for (c, cell) in &cells {
+            assert_ne!(*cell, replacement, "{id:?}: {c} is drawn as tofu in {text}");
+            for (d, other) in &cells {
+                assert!(c == d || cell != other, "{id:?}: {c} and {d} share one glyph in {text}");
+            }
+        }
+    }
+}
+
+/// A Korean bookmark title and file name are drawn with real Hangul glyphs (not □) in every
+/// interface family whatever the interface language, from an installed Hangul face when no
+/// embedded one has Hangul. On Windows with Malgun Gothic installed (every Windows 10/11), the
+/// installed face is required.
+#[test]
+fn korean_file_names_and_bookmarks_are_not_tofu() {
+    assert!(!theme::font_definitions().font_data.contains_key(theme::SYSTEM_HANGUL_FALLBACK));
+    let embedded = theme::font_definitions();
+    let bundled = embedded.font_data.keys().any(|name| covers_hangul(&embedded, name));
+    // Without a Hangul face the check above does see tofu: it is not vacuous.
+    if !bundled {
+        let mut fonts = Fonts::new(TextOptions::default(), embedded);
+        let (cells, replacement) = hangul_cells(&mut fonts, &FontId::proportional(13.0), KOREAN_BOOKMARK);
+        assert!(cells.iter().any(|(_, cell)| *cell == replacement), "embedded faces draw every syllable: {cells:?}");
+    }
+    let windows_malgun = cfg!(windows)
+        && std::env::var_os("PDFCRAFT_SYSTEM_FONTS").is_none_or(|v| v != "0")
+        && std::path::Path::new(&std::env::var_os("WINDIR").unwrap_or_else(|| r"C:\Windows".into())).join("Fonts").join("malgun.ttf").is_file();
+    // Every interface language, not only Korean: the names come from the user's documents.
+    for cjk in [theme::CjkPreference::Default, theme::CjkPreference::SimplifiedChinese, theme::CjkPreference::TraditionalChinese] {
+        let defs = theme::installed_font_definitions(cjk);
+        let installed = defs.font_data.contains_key(theme::SYSTEM_HANGUL_FALLBACK);
+        assert!(installed || bundled || !windows_malgun, "{cjk:?}: Malgun Gothic is installed but not used");
+        if !installed && !bundled {
+            eprintln!("skipping korean_file_names_and_bookmarks_are_not_tofu ({cjk:?}): no Hangul face (or PDFCRAFT_SYSTEM_FONTS=0)");
+            continue;
+        }
+        if installed {
+            for (family, stack) in &defs.families {
+                assert_eq!(stack.iter().filter(|n| *n == theme::SYSTEM_HANGUL_FALLBACK).count(), 1, "{family:?}");
+                let at = stack.iter().position(|n| n == theme::SYSTEM_HANGUL_FALLBACK).expect("counted above");
+                // After the app's own faces and every craft-fonts face, so Latin, Japanese and
+                // Chinese text keeps its faces.
+                assert!(stack[..at].iter().any(|n| n.starts_with("Inter") || n == "JetBrainsMono"), "{family:?}: {stack:?}");
+                assert!(!stack[at..].iter().any(|n| pdfcraft_fonts::CRAFT_FONTS.iter().any(|f| f.name() == *n)), "{family:?}: {stack:?}");
+            }
+        }
+        let mut fonts = Fonts::new(TextOptions::default(), defs);
+        assert_hangul_drawn(&mut fonts, KOREAN_BOOKMARK);
+        assert_hangul_drawn(&mut fonts, KOREAN_FILE_NAME);
+        // Real glyphs are about a full em wide each; tofu boxes are not.
+        let syllables = KOREAN_FILE_NAME.chars().filter(|c| ('\u{AC00}'..='\u{D7A3}').contains(c)).count() as f32;
+        assert!(layout_widths(&mut fonts, KOREAN_FILE_NAME).iter().all(|w| w.is_finite() && *w > 13.0 * 0.8 * syllables));
+    }
+    // Latin text keeps the app's own faces and layout.
+    let mut with = Fonts::new(TextOptions::default(), theme::installed_font_definitions(theme::CjkPreference::Default));
+    let mut without = Fonts::new(TextOptions::default(), theme::font_definitions());
+    assert_eq!(layout_widths(&mut with, "PdfCraft report-2026.pdf"), layout_widths(&mut without, "PdfCraft report-2026.pdf"));
+}
+
+/// The installed fonts show the Korean names in real widgets, as the bookmarks panel and the
+/// tab strip do.
+#[test]
+fn korean_names_show_in_the_interface() {
+    let mut installed = false;
+    let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(480.0, 160.0)).build_ui(move |ui| {
+        // Fonts set with set_fonts take effect from the next frame.
+        if !installed {
+            theme::install_fonts_for(ui.ctx(), theme::CjkPreference::Default);
+            installed = true;
+            return;
+        }
+        ui.label(KOREAN_BOOKMARK);
+        let _ = ui.selectable_label(true, KOREAN_FILE_NAME);
+    });
+    h.run();
+    assert!(h.query_by_label(KOREAN_BOOKMARK).is_some());
+    assert!(h.query_by_label(KOREAN_FILE_NAME).is_some());
 }
 
 /// The Han characters of a catalog's translations.
