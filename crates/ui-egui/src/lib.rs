@@ -3027,7 +3027,8 @@ pub(crate) fn cloud_page_shell<R>(
             .inner_margin(egui::Margin { left: 36, right: 36, top: 24, bottom: 28 })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    let resp = icons::button(ui, "arrow-left", 26.0, false, tl!("Back"));
+                    let back_label = format!("← {}", tl!("Back"));
+                    let resp = ui.button(&back_label);
                     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
                     if resp.clicked() {
                         back = true;

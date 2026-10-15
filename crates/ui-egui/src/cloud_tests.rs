@@ -185,7 +185,7 @@ fn account_reports_not_linked_before_sign_in() {
     h.run_steps(4);
     let cloud = &h.state().cloud;
     assert!(cloud.account.is_none(), "no account before linking");
-    assert!(matches!(cloud.account_fault, Some(Fault::NotLinked)), "NotLinked reported while unlinked");
+    assert!(matches!(cloud.account_fault, Some(Fault::NotLinked)), "NotLinked expected while unlinked; got: {:?}", cloud.account_fault);
 }
 
 #[test]
@@ -432,8 +432,8 @@ fn open_from_cloud_page_heading_and_back_button_are_visible() {
         "cloud Open page must render a visible heading; rendered: {labels:?}",
     );
     assert!(
-        labels.iter().any(|l| l == "Back"),
-        "Back button label must be a visible text shape for screen-reader navigation; rendered: {labels:?}",
+        labels.iter().any(|l| l.contains("Back")),
+        "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",
     );
 }
 
@@ -452,8 +452,8 @@ fn save_as_cloud_page_heading_and_back_button_are_visible() {
         "cloud Save As page must render a visible heading; rendered: {labels:?}",
     );
     assert!(
-        labels.iter().any(|l| l == "Back"),
-        "Back button label must be a visible text shape for screen-reader navigation; rendered: {labels:?}",
+        labels.iter().any(|l| l.contains("Back")),
+        "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",
     );
 }
 
