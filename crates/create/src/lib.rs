@@ -4,6 +4,7 @@
 
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
 
+mod density;
 mod extract;
 mod upright_image;
 pub use extract::{ExtractedImage, ImageExport, extract_images, image_file};
@@ -454,8 +455,8 @@ fn bmp_one_bit(bytes: &[u8]) -> Option<Embedded> {
     Some(Embedded { dict: d, data, filtered: false, smask: None, icc: None, px, dpi: (72.0, 72.0) })
 }
 
-/// BMP and GIF (the first frame), through the `image` decoders. Their resolution is not read:
-/// 72 dpi, as for images without one.
+/// BMP and GIF (the first frame), through the `image` decoders. A GIF has no resolution (72 dpi); a BMP's is read by
+/// [`embed`] (pels per metre) like every other format's.
 fn decoded(name: &str, bytes: &[u8], format: image::ImageFormat) -> Result<Embedded, CreateError> {
     if format == image::ImageFormat::Bmp
         && let Some(one_bit) = bmp_one_bit(bytes)
@@ -488,17 +489,17 @@ fn tiff_pages(name: &str, bytes: &[u8]) -> Result<Vec<Embedded>, CreateError> {
         let (w, h) = dec.dimensions().map_err(|e| bad(e.to_string()))?;
         let ct = dec.colortype().map_err(|e| bad(e.to_string()))?;
         let unit = dec.get_tag_u32(Tag::ResolutionUnit).unwrap_or(2);
-        let res = |t: Tag, dec: &mut Decoder<std::io::Cursor<&[u8]>>| -> f64 {
+        let res = |t: Tag, dec: &mut Decoder<std::io::Cursor<&[u8]>>| -> Option<f64> {
             // Resolutions are rationals.
-            let v = match dec.get_tag(t) {
-                Ok(tiff::decoder::ifd::Value::Rational(n, d)) if d != 0 => f64::from(n) / f64::from(d),
-                Ok(other) => other.into_f64().unwrap_or(72.0),
-                Err(_) => 72.0,
-            };
-            let v = if unit == 3 { v * 2.54 } else { v };
-            if v.is_finite() && v >= 1.0 { v } else { 72.0 }
+            match dec.get_tag(t) {
+                Ok(tiff::decoder::ifd::Value::Rational(n, d)) if d != 0 => Some(f64::from(n) / f64::from(d)),
+                Ok(other) => other.into_f64().ok(),
+                Err(_) => None,
+            }
         };
-        let dpi = (res(Tag::XResolution, &mut dec), res(Tag::YResolution, &mut dec));
+        let (x, y) = (res(Tag::XResolution, &mut dec), res(Tag::YResolution, &mut dec));
+        // No unit ("none"), a missing axis or an absurd value gives nothing: 72 dpi, as for any image without one.
+        let dpi = density::tiff_tag_density(unit, x, y).unwrap_or((72.0, 72.0));
         let data = match dec.read_image().map_err(|e| bad(e.to_string()))? {
             DecodingResult::U8(v) => v,
             // 16-bit samples: keep the high byte.
@@ -598,13 +599,14 @@ pub fn source_kind(name: &str, bytes: &[u8]) -> Option<SourceKind> {
 /// Detect the image format from its bytes; a TIFF may hold several pages.
 fn embed(name: &str, bytes: &[u8]) -> Result<Vec<Embedded>, CreateError> {
     if bytes.starts_with(&[0xFF, 0xD8]) {
-        Ok(vec![jpeg(name, &upright_image::upright(bytes))?])
+        let upright = upright_image::upright(bytes);
+        Ok(vec![with_density(jpeg(name, &upright)?, &upright)])
     } else if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
-        Ok(vec![png_image(name, bytes)?])
+        Ok(vec![with_density(png_image(name, bytes)?, bytes)])
     } else if is_tiff(bytes) {
         tiff_pages(name, bytes)
     } else if bytes.starts_with(b"BM") {
-        Ok(vec![decoded(name, bytes, image::ImageFormat::Bmp)?])
+        Ok(vec![with_density(decoded(name, bytes, image::ImageFormat::Bmp)?, bytes)])
     } else if is_gif(bytes) {
         Ok(vec![decoded(name, bytes, image::ImageFormat::Gif)?])
     } else if bytes.starts_with(JP2_SIGNATURE) || bytes.starts_with(&[0xFF, 0x4F, 0xFF, 0x51]) {
@@ -612,6 +614,13 @@ fn embed(name: &str, bytes: &[u8]) -> Result<Vec<Embedded>, CreateError> {
     } else {
         Err(CreateError::Image(name.into(), "use a PNG, JPEG, JPEG 2000, TIFF, GIF or BMP image".into()))
     }
+}
+
+/// The resolution of a single-image file (JPEG, PNG, BMP) by the one rule for every format (see `density`): what the
+/// file carries when both axes are a real unit inside the sane range, else 72 dpi.
+fn with_density(mut img: Embedded, bytes: &[u8]) -> Embedded {
+    img.dpi = density::image_density(bytes).unwrap_or((72.0, 72.0));
+    img
 }
 
 /// Embed an image file (its first page, for TIFFs) as an image XObject in `doc`. Returns the
