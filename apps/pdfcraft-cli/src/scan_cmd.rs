@@ -496,7 +496,17 @@ mod tests {
     struct Mock;
 
     fn page(n: u8) -> Page {
-        Page { bytes: vec![n; 8], format: "bmp", width: 2, height: 2, dpi: 200, dpi_y: 200, requested_dpi: 200, thresholded: false }
+        Page {
+            bytes: vec![n; 8],
+            format: "bmp",
+            width: 2,
+            height: 2,
+            dpi: 200,
+            dpi_y: 200,
+            requested_dpi: 200,
+            thresholded: false,
+            length: Default::default(),
+        }
     }
 
     impl Backend for Mock {

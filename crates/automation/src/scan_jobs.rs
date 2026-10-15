@@ -18,7 +18,7 @@
 use std::path::{Path, PathBuf};
 
 use pdfcraft_platform::scan::{
-    self, Color, Intent, PageSize, Region, Rotation, ScanSettings, Source,
+    self, Color, Intent, PageLength, PageSize, Region, Rotation, ScanSettings, Source,
     job::{ExitClass, ScanJobJournal, ScanJobState},
 };
 use serde_json::{Value, json};
@@ -371,6 +371,7 @@ pub fn request_json(settings: &ScanSettings, reverse: bool) -> Value {
     put("compression", settings.compression.as_ref().map(|v| json!(v)));
     put("intent", settings.intent.map(|v| json!(v.as_str())));
     put("page_size", settings.page_size.map(|v| json!(v.as_str())));
+    put("page_length", (settings.page_length != PageLength::Driver).then(|| json!(settings.page_length.as_str())));
     put("auto_deskew", settings.auto_deskew.map(|v| json!(v)));
     put("orientation", settings.orientation.map(|v| json!(v)));
     put("photometric", settings.photometric.map(|v| json!(v)));
@@ -441,6 +442,10 @@ pub fn settings_from_request(request: &Value) -> Result<ScanSettings, String> {
         page_size: name("page_size")?
             .map(|text| PageSize::parse(text).ok_or_else(|| format!("request.page_size '{text}' is not understood")))
             .transpose()?,
+        page_length: match name("page_length")? {
+            None => PageLength::Driver,
+            Some(text) => PageLength::parse(text).ok_or_else(|| format!("request.page_length '{text}' is not understood"))?,
+        },
         auto_deskew: flag("auto_deskew")?,
         orientation: signed("orientation")?,
         photometric: signed("photometric")?,
@@ -653,6 +658,20 @@ mod tests {
         assert_eq!(again, settings);
         let bad = json!({ "color": "purple" });
         assert!(settings_from_request(&bad).unwrap_err().contains("color"));
+    }
+
+    #[test]
+    fn the_page_length_request_survives_and_the_default_leaves_the_journal_unchanged() {
+        let plain = ScanSettings::default();
+        assert!(request_json(&plain, false).get("page_length").is_none(), "a driver length writes nothing, so old journals are unchanged");
+        assert_eq!(settings_from_request(&request_json(&plain, false)).unwrap().page_length, PageLength::Driver);
+        for mode in [PageLength::Auto, PageLength::AutoInfer] {
+            let settings = ScanSettings { page_length: mode, page_size: Some(PageSize::Legal), ..ScanSettings::default() };
+            let json = request_json(&settings, false);
+            assert_eq!(json["page_length"], mode.as_str());
+            assert_eq!(settings_from_request(&json).unwrap(), settings);
+        }
+        assert!(settings_from_request(&json!({ "page_length": "exact" })).unwrap_err().contains("page_length"));
     }
 
     #[test]

@@ -46,6 +46,7 @@ use serde_json::{Value, json};
 pub use pdfcraft_render::Pixels;
 pub use scanning::{
     CHECK_ACQUIRE_WARNING, ScanCheck, ScanCheckOptions, list_scan_devices, render_check_text, scan_check, scan_device_details, scan_error_info_json,
+    scan_length_json,
 };
 pub use tools::{ToolDef, tools};
 

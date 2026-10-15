@@ -82,6 +82,7 @@ pdfcraft-cli scan   --out DIR --yes [--dpi 200] [--color gray|rgb|bw]
                       [--rotation portrait|landscape|180|270]
                       [--format bmp|jpeg|png|tiff] [--compression none|jpeg|g4|…]
                       [--intent text|gray|color|…] [--page-size letter|a4|…]
+                      [--page-length driver|auto|infer]  # auto: scanner detection, else the --page-size length; infer: approximate, from the image
                       [--deskew on|off] [--dpi-y N] [--orientation N] [--photometric N]
                       [--invert on|off] [--mirror on|off] [--lamp on|off] [--duplex]
                       [--reverse]  # 2nd pass: flip stack, scan backs in reverse, interleave
@@ -1130,6 +1131,7 @@ const SCAN_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--compression", takes_value: true },
     OptionSpec { name: "--intent", takes_value: true },
     OptionSpec { name: "--page-size", takes_value: true },
+    OptionSpec { name: "--page-length", takes_value: true },
     OptionSpec { name: "--deskew", takes_value: true },
     OptionSpec { name: "--dpi-y", takes_value: true },
     OptionSpec { name: "--orientation", takes_value: true },
@@ -1314,6 +1316,14 @@ fn scan(args: &[String]) -> Result<(), CliError> {
                 .ok_or_else(|| format!("scan: --page-size is a4, letter, legal, auto, custom, or business-card (got {text})"))?,
         ),
     };
+    let page_length = match option_value(args, "--page-length")? {
+        None => pdfcraft_platform::scan::PageLength::Driver,
+        Some(text) => pdfcraft_platform::scan::PageLength::parse(text).ok_or_else(|| {
+            format!(
+                "scan: --page-length is driver (the scanner's own length, the default), auto (the scanner's detection when it has one, else the --page-size length) or infer (auto, then a guess from the image: approximate) (got {text})"
+            )
+        })?,
+    };
     let auto_deskew = optional_on_off(args, "--deskew")?;
     let dpi_y = match option_value(args, "--dpi-y")? {
         Some(text) => Some(text.parse::<u32>().map_err(|_| "scan: --dpi-y is a whole number")?),
@@ -1335,6 +1345,7 @@ fn scan(args: &[String]) -> Result<(), CliError> {
         compression: option_value(args, "--compression")?.map(str::to_string),
         intent,
         page_size,
+        page_length,
         auto_deskew,
         orientation: optional_i32(args, "--orientation")?,
         photometric: optional_i32(args, "--photometric")?,
@@ -1455,6 +1466,7 @@ fn page_json(path: &Path, page: &pdfcraft_platform::scan::Page) -> serde_json::V
         "dpi": page.dpi,
         "bytes": page.bytes.len(),
         "thresholded": page.thresholded,
+        "length": pdfcraft_automation::scan_length_json(&page.length),
     })
 }
 
@@ -1605,6 +1617,29 @@ mod tests {
         assert!(deskew.to_string().contains("deskew"), "{deskew}");
         let dpi_y = super::scan(&["--out".into(), "pages".into(), "--yes".into(), "--dpi-y".into(), "x".into()]).unwrap_err();
         assert!(dpi_y.to_string().contains("dpi-y"), "{dpi_y}");
+        let length = super::scan(&["--out".into(), "pages".into(), "--yes".into(), "--page-length".into(), "exact".into()]).unwrap_err();
+        let text = length.to_string();
+        assert!(text.contains("page-length") && text.contains("approximate"), "{text}");
+    }
+
+    #[test]
+    fn a_saved_page_reports_how_its_length_was_obtained() {
+        use pdfcraft_platform::scan::{LengthRecord, LengthSource, Page};
+        let page = Page {
+            bytes: vec![0; 4],
+            format: "bmp",
+            width: 1700,
+            height: 2146,
+            dpi: 200,
+            dpi_y: 200,
+            requested_dpi: 200,
+            thresholded: false,
+            length: LengthRecord::with_source(2146, 200, LengthSource::Inferred),
+        };
+        let json = super::page_json(std::path::Path::new("page-001.bmp"), &page);
+        assert_eq!(json["length"]["source"], "inferred");
+        assert_eq!(json["length"]["approximate"], true);
+        assert_eq!(json["length"]["length_inches"], 10.73);
     }
 
     #[test]

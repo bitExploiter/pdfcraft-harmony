@@ -44,6 +44,24 @@ impl Automation {
     }
 }
 
+/// How a page got its length: `{source, length_mils, length_inches, length_mm, approximate}`. `source` is `driver`,
+/// `device`, `size` or `inferred`; only `inferred` is approximate. The lengths are `null` when not known.
+pub fn scan_length_json(record: &scan::LengthRecord) -> Value {
+    json!({
+        "source": record.source.as_str(),
+        "length_mils": record.length_mils,
+        "length_inches": record.length_inches().map(|inches| (inches * 1000.0).round() / 1000.0),
+        "length_mm": record.length_mm().map(|mm| (mm * 10.0).round() / 10.0),
+        "approximate": record.approximate,
+    })
+}
+
+/// What an item publishes about page length: `{device_detect, max_length_mils}`; `device_detect` is `unknown`,
+/// `absent` or `present`.
+fn page_length_support_json(support: scan::PageLengthSupport) -> Value {
+    json!({ "device_detect": support.device_detect.as_str(), "max_length_mils": support.max_length_mils })
+}
+
 /// `{kind, phase, hresult, code_name, retryable, resumable, message}` for a failed scan: the
 /// identity the engine settled on, so a caller reads fields and never the sentence. `hresult` is
 /// hex text (`0x80210006`); absent values are `null`. The vocabulary is `craft-scan`'s; `hresult` and
@@ -112,7 +130,19 @@ fn scan_settings_from_args(args: &Args) -> Result<scan::ScanSettings> {
         format: args.opt_str("format")?.map(str::to_string),
         compression: None,
         intent: None,
-        page_size: None,
+        page_size: args
+            .opt_str("page_size")?
+            .map(|text| {
+                scan::PageSize::parse(text).ok_or_else(|| {
+                    ToolError::InvalidArgs(format!("page_size must be a4, letter, legal, auto, custom, or business-card (got {text})"))
+                })
+            })
+            .transpose()?,
+        page_length: match args.opt_str("page_length")? {
+            None => scan::PageLength::Driver,
+            Some(text) => scan::PageLength::parse(text)
+                .ok_or_else(|| ToolError::InvalidArgs(format!("page_length must be driver, auto, or infer (infer is approximate) (got {text})")))?,
+        },
         auto_deskew: None,
         orientation: None,
         photometric: None,
@@ -147,6 +177,7 @@ fn finish_acquire_json(
                 "requested_dpi": page.requested_dpi,
                 "bytes": page.bytes.len(),
                 "thresholded": page.thresholded,
+                "length": scan_length_json(&page.length),
             })
         })
         .collect();
@@ -307,6 +338,10 @@ fn scanner_json(scanner: &scan::Scanner) -> Value {
         "sheet": area_json(scanner.sheet),
         "glass": choices_json(scanner.glass.as_ref()),
         "feeder_choices": choices_json(scanner.feeder_choices.as_ref()),
+        "page_length": {
+            "glass": page_length_support_json(scanner.length_support(scan::Source::Glass)),
+            "feeder": page_length_support_json(scanner.length_support(scan::Source::Feeder)),
+        },
     })
 }
 
@@ -538,6 +573,7 @@ fn check_acquire(
                     "dpi_y": page.dpi_y,
                     "requested_dpi": page.requested_dpi,
                             "bytes": page.bytes.len(),
+                            "length": scan_length_json(&page.length),
                             "path": paths.get(index).cloned().unwrap_or(Value::Null),
                         })
                 })
@@ -596,6 +632,13 @@ pub fn render_check_text(report: &Value) -> String {
         for label in ["bed", "sheet"] {
             if let (Some(w), Some(h)) = (row[label]["width"].as_f64(), row[label]["height"].as_f64()) {
                 out.push_str(&format!("  {label} size: {:.2} x {:.2} in\n", w / 1000.0, h / 1000.0));
+            }
+        }
+        for (label, key) in [("glass", "glass"), ("feeder", "feeder")] {
+            let support = &row["page_length"][key];
+            if let Some(detect) = support["device_detect"].as_str() {
+                let longest = support["max_length_mils"].as_f64().map(|mils| format!(", longest page {:.2} in", mils / 1000.0)).unwrap_or_default();
+                out.push_str(&format!("  {label} page length: scanner detection {detect}{longest}\n"));
             }
         }
         for (label, key) in [("glass", "glass"), ("feeder", "feeder_choices")] {
@@ -681,6 +724,7 @@ mod tests {
             dpi_y: 200,
             requested_dpi: 200,
             thresholded: false,
+            length: Default::default(),
         };
         let acquired = scan::Acquired { source: scan::Source::Feeder, pages: vec![page] };
         let settings = scan::ScanSettings { pages: 3, source: scan::Source::Feeder, ..scan::ScanSettings::default() };
@@ -804,6 +848,57 @@ mod tests {
     }
 
     #[test]
+    fn page_length_and_page_size_are_arguments_and_default_to_the_driver() {
+        let plain = json!({ "out": "x" });
+        let settings = scan_settings_from_args(&Args(&plain)).unwrap();
+        assert_eq!((settings.page_length, settings.page_size), (scan::PageLength::Driver, None));
+        let asked = json!({ "out": "x", "page_length": "infer", "page_size": "legal" });
+        let settings = scan_settings_from_args(&Args(&asked)).unwrap();
+        assert_eq!((settings.page_length, settings.page_size), (scan::PageLength::AutoInfer, Some(scan::PageSize::Legal)));
+        let bad = json!({ "out": "x", "page_length": "exact" });
+        let text = scan_settings_from_args(&Args(&bad)).unwrap_err().to_string();
+        assert!(text.contains("page_length") && text.contains("approximate"), "{text}");
+        let bad = json!({ "out": "x", "page_size": "tabloid" });
+        assert!(scan_settings_from_args(&Args(&bad)).unwrap_err().to_string().contains("page_size"));
+        let def = crate::tools::find("scan_acquire").unwrap();
+        let lengths = def.input_schema["properties"]["page_length"]["enum"].clone();
+        assert_eq!(lengths, json!(["driver", "auto", "infer"]));
+    }
+
+    #[test]
+    fn a_pages_length_record_says_how_it_was_obtained() {
+        let driver = scan_length_json(&scan::LengthRecord::from_delivered(2800, 200));
+        assert_eq!(driver, json!({ "source": "driver", "length_mils": 14000, "length_inches": 14.0, "length_mm": 355.6, "approximate": false }));
+        let inferred = scan_length_json(&scan::LengthRecord::with_source(2146, 200, scan::LengthSource::Inferred));
+        assert_eq!(
+            (inferred["source"].clone(), inferred["approximate"].clone(), inferred["length_inches"].clone()),
+            (json!("inferred"), json!(true), json!(10.73))
+        );
+        let unknown = scan_length_json(&scan::LengthRecord::default());
+        assert_eq!((unknown["length_mils"].clone(), unknown["source"].clone()), (Value::Null, json!("driver")));
+    }
+
+    #[test]
+    fn the_scanner_row_states_length_detection_three_ways() {
+        let mut scanner = scanner_for("{a}");
+        let unknown = scanner_json(&scanner);
+        assert_eq!(unknown["page_length"]["feeder"]["device_detect"], "unknown");
+        assert_eq!(unknown["page_length"]["glass"]["max_length_mils"], Value::Null);
+        scanner.reported.feeder_length = scan::PageLengthSupport { device_detect: scan::Presence::Absent, max_length_mils: Some(14_000) };
+        scanner.reported.glass_length = scan::PageLengthSupport { device_detect: scan::Presence::Present, max_length_mils: None };
+        let row = scanner_json(&scanner);
+        assert_eq!(row["page_length"]["feeder"], json!({ "device_detect": "absent", "max_length_mils": 14000 }));
+        assert_eq!(row["page_length"]["glass"]["device_detect"], "present");
+        let text = render_check_text(&json!({ "mode": "details", "count": 1, "scanners": [{
+            "id": "{a}", "name": "x", "port": null, "connection": "unknown", "details": "loaded",
+            "flatbed": true, "feeder": true, "duplex": false, "feeder_ready": false, "conditions": [],
+            "glass": null, "feeder_choices": null, "page_length": row["page_length"].clone() }],
+            "acquire": null, "problems": [], "ok": true, "supported": true }));
+        assert!(text.contains("feeder page length: scanner detection absent, longest page 14.00 in"), "{text}");
+        assert!(text.contains("glass page length: scanner detection present"), "{text}");
+    }
+
+    #[test]
     fn a_loaded_row_carries_all_nine_handling_flags_and_the_abnormal_ones_by_name() {
         let mut scanner = scanner_for("{a}");
         scanner.handling_status = scan::HandlingStatus { feeder_ready: Some(true), jam: true, attention: true, ..scan::HandlingStatus::default() };
@@ -877,6 +972,7 @@ mod tests {
             dpi_y: 200,
             requested_dpi: 200,
             thresholded: false,
+            length: Default::default(),
         };
         let jam = scan::ScanError::Incomplete {
             message: "The scanner has a paper jam.".into(),
@@ -970,6 +1066,7 @@ mod tests {
             dpi_y: 100,
             requested_dpi: 100,
             thresholded: false,
+            length: Default::default(),
         };
         scan::Acquired { source: scan::Source::Glass, pages: vec![page] }
     }
@@ -1069,6 +1166,7 @@ mod tests {
                 "name",
                 "optical_x",
                 "optical_y",
+                "page_length",
                 "pages",
                 "port",
                 "sheet"
@@ -1079,7 +1177,7 @@ mod tests {
         let (result, _, _) = run(&options);
         let acquire = result.unwrap().report["acquire"].clone();
         assert_eq!(sorted_keys(&acquire), ["count", "ok", "pages", "requested_dpi", "source"]);
-        assert_eq!(sorted_keys(&acquire["pages"][0]), ["bytes", "dpi", "dpi_y", "format", "height", "path", "requested_dpi", "width"]);
+        assert_eq!(sorted_keys(&acquire["pages"][0]), ["bytes", "dpi", "dpi_y", "format", "height", "length", "path", "requested_dpi", "width"]);
     }
 
     #[test]
