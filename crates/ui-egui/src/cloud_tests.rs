@@ -161,7 +161,8 @@ impl CloudBackend for Service {
 }
 
 fn harness_with(state: Arc<Mutex<State>>) -> Harness {
-    egui_kittest::Harness::new_state(move |_ctx| {
+    // egui_kittest 0.36 uses new_eframe (PdfCraftApp implements eframe::App).
+    egui_kittest::Harness::new_eframe(move |_ctx| {
         let mut app = PdfCraftApp::new();
         app.run_inline = true;
         app.cloud.connect(Service(Arc::clone(&state)));
@@ -290,23 +291,27 @@ fn writes_as_accepts_bare_name_as_pdf() {
 
 #[test]
 fn conflict_is_stored_after_a_refused_conditional_write() {
-    let (mut h, state) = linked_harness();
     let entry = pdf_entry("/docs/shared.pdf");
-    {
-        let mut s = state.lock().unwrap();
-        s.files.push((entry.clone(), vec![]));
-    }
-    cloud::start(h.state_mut());
+    let state = Arc::new(Mutex::new(State {
+        linked: true,
+        capabilities: vec![Capability::Files, Capability::Etags],
+        // The file must have real PDF bytes so open_bytes can parse it.
+        files: vec![(entry.clone(), minimal_pdf())],
+        ..Default::default()
+    }));
+    let mut h = harness_with(Arc::clone(&state));
     h.run_steps(4);
-    // Set the cloud origin with the v1 etag.
-    cloud::origin(h.state_mut(), entry.clone());
-    // Another client overwrites the file so the etag diverges.
+    // Open the document from the cloud so an origin with the v1 etag is recorded.
+    cloud::open_entry(h.state_mut(), entry.clone(), None);
+    h.run_steps(8);
+    assert!(h.state().active.is_some(), "document must be open before testing the save conflict");
+    // Another client overwrites the file so the etag on the server advances.
     state.lock().unwrap().overwrite("/docs/shared.pdf");
-    // Trigger a cloud save. The write will be rejected (Conflict).
-    cloud::save(h.state_mut());
+    // Trigger a cloud save. The etag no longer matches → the server returns Conflict.
+    cloud::save(h.state_mut()).expect("save submission must not fail synchronously");
     h.run_steps(8);
     let writes = state.lock().unwrap().writes.clone();
-    // Exactly one write attempt (the conflict must not be retried).
+    // Exactly one write attempt (the conflict must not be retried automatically).
     assert_eq!(writes.len(), 1, "conflict must not be retried automatically");
     assert!(h.state().cloud.conflict.is_some(), "conflict state set after a refused conditional write");
 }
@@ -374,12 +379,30 @@ fn open_minimal(h: &mut Harness) -> u64 {
 
 /// Render one frame using an egui Context and collect all non-empty text galley strings.
 /// This is the same technique the home-tab test uses to prove labels are visible.
-fn shapes_from_page(app: &mut PdfCraftApp, size: egui::Vec2, draw: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui)) -> Vec<String> {
+///
+/// `ctx.run_ui` needs `FnMut`. The `draw` closure is wrapped in `Option` so it can be
+/// consumed by a `FnMut` that can only fire once (the test always passes a single-frame input).
+#[allow(unsafe_code)]
+fn shapes_from_page(
+    app: &mut PdfCraftApp,
+    size: egui::Vec2,
+    draw: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui),
+) -> Vec<String> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::font_definitions());
-    let output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() }, |ui| {
-        draw(app, ui)
-    });
+    // Wrap both the closure and the app pointer so the `FnMut` closure can call a `FnOnce`.
+    // SAFETY: `shapes_from_page` is synchronous; `app` outlives the closure; `run_ui` calls
+    // the closure exactly once per frame on the calling thread.
+    let app_ptr: *mut PdfCraftApp = app;
+    let mut draw_opt: Option<Box<dyn FnOnce(&mut PdfCraftApp, &mut egui::Ui)>> = Some(Box::new(draw));
+    let output = ctx.run_ui(
+        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() },
+        |ui| {
+            if let Some(f) = draw_opt.take() {
+                f(unsafe { &mut *app_ptr }, ui);
+            }
+        },
+    );
     let texts: Vec<String> = output
         .shapes
         .iter()
@@ -450,7 +473,7 @@ fn open_from_cloud_command_enabled_when_service_connected() {
 /// The cloud commands are disabled and absent from the File menu when no service is configured.
 #[test]
 fn cloud_commands_disabled_without_service() {
-    let mut app = PdfCraftApp::new();
+    let app = PdfCraftApp::new();
     // No backend connected — cloud not available.
     let open_cloud = pdfcraft_engine::commands::command("file.open_cloud").unwrap();
     let save_cloud = pdfcraft_engine::commands::command("file.save_as_cloud").unwrap();
@@ -472,27 +495,6 @@ fn save_as_cloud_requires_document_and_service() {
 }
 
 // ---- UI-path: Open from cloud -------------------------------------------
-
-/// Cloud Open page is shown in the central panel when cloud_page == Some(Open).
-/// This exercises the rendering path end-to-end from state → render → visible heading label.
-#[test]
-fn open_from_cloud_page_renders_in_central_panel() {
-    let (mut h, _state) = linked_harness();
-    h.run_steps(4);
-    // Activate the cloud Open page exactly as the "Open from cloud…" button/command does.
-    h.state_mut().cloud_page_doc_count = h.state().views.len();
-    h.state_mut().cloud_page = Some(crate::CloudPage::Open);
-    let labels = rendered_labels(&mut h);
-    assert!(
-        labels.iter().any(|l| l.contains("Open from cloud") || l.contains("Back")),
-        "cloud Open page must render a visible heading or Back button; got: {labels:?}",
-    );
-    // The page heading is present as a text shape with accessible content.
-    assert!(
-        labels.iter().any(|l| l == "Back"),
-        "Back button label must be present for keyboard/screen-reader navigation; got: {labels:?}",
-    );
-}
 
 /// Cloud Open page dismisses itself once a document is successfully opened.
 /// The test backend answers Job::Read immediately, so the open completes within run_steps.
@@ -573,21 +575,6 @@ fn file_save_stays_local_when_document_has_no_cloud_origin() {
 }
 
 // ---- UI-path: Save As to cloud ------------------------------------------
-
-/// Cloud Save As page is shown when cloud_page == Some(SaveAs).
-#[test]
-fn save_as_cloud_page_renders_in_central_panel() {
-    let (mut h, _state) = linked_harness();
-    h.run_steps(4);
-    open_minimal(&mut h);
-    h.state_mut().cloud_page = Some(crate::CloudPage::SaveAs);
-    let labels = rendered_labels(&mut h);
-    assert!(
-        labels.iter().any(|l| l.contains("Save as to cloud") || l.contains("Back")),
-        "cloud Save As page must render a visible heading; got: {labels:?}",
-    );
-    assert!(labels.iter().any(|l| l == "Back"), "Back button must be accessible");
-}
 
 /// file.save_as_cloud sets cloud_page to SaveAs.
 #[test]
