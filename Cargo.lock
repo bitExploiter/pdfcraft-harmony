@@ -4256,6 +4256,7 @@ version = "0.10.1"
 dependencies = [
  "async-channel",
  "futures-lite",
+ "pdfcraft-wia",
  "rustix 1.1.5",
  "zbus",
 ]
@@ -4409,6 +4410,16 @@ dependencies = [
  "pdfcraft-ui-egui",
  "wasm-bindgen-futures",
  "web-sys",
+]
+
+[[package]]
+name = "pdfcraft-wia"
+version = "0.8.0"
+dependencies = [
+ "craft-scan",
+ "log",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]
