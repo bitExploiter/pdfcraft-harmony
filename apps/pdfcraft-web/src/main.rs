@@ -84,7 +84,7 @@ fn main() {
                     // deployment it is absent and the interface shows the link-account prompt.
                     app.cloud.connect(cloud::Service::new(cc.egui_ctx.clone()));
                     if let Some(share) = collabcraft_share::CollabCraft::from_env() {
-                        app.share.connect(share);
+                        app.share.connect(share.for_app("pdfcraft"));
                     }
                     Ok(Box::new(app))
                 }),

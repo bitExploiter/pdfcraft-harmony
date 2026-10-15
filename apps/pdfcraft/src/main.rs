@@ -458,7 +458,7 @@ fn app_creator<'a>(
             app.cloud.connect(backend);
         }
         // The share dialog's backend: connects the same session as Open/Save.
-        app.share.connect(collabcraft_share::CollabCraft::from_fn(cloud::client));
+        app.share.connect(collabcraft_share::CollabCraft::from_fn(cloud::client).for_app("pdfcraft"));
         Ok(Box::new(app))
     })
 }

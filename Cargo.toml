@@ -18,10 +18,10 @@ craft-ui = { git = "https://github.com/storytold/craft-libs", version = "0.1.0",
 # crate opens no socket and names no provider, so this builds for the web too.
 craft-cloud = { git = "https://github.com/storytold/craft-libs", version = "0.1.0", rev = "289d562cc6e8b567819aee51f759a78f41a65454" }
 # How the desktop and browser apps reach CollabCraft. No provider credential or URL compiled in.
-craft-cloud-client = { git = "https://github.com/wdunn001/collab-craft", rev = "80bfaec" }
+craft-cloud-client = { git = "https://github.com/wdunn001/collab-craft", rev = "3c77c3e" }
 # The share dialog's backend: the half that opens a socket, kept here so only one session lives
 # in the process and a sign-in through Open/Save reaches the share dialog too.
-collabcraft-share = { git = "https://github.com/wdunn001/collab-craft", rev = "80bfaec" }
+collabcraft-share = { git = "https://github.com/wdunn001/collab-craft", rev = "3c77c3e" }
 # Shared system spooler; document composition remains in pdfcraft-print.
 craft-print = { git = "https://github.com/storytold/craft-libs", version = "0.1.0", rev = "d991bf6792f8ade99c51358bf3c1d902c8cd96b5" }
 # internal
