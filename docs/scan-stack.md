@@ -22,6 +22,35 @@ Tests never open real scanners unless `PDFCRAFT_TEST_REAL_SCANNERS` is set. `CRA
 names devices that are never opened, and `CRAFT_SCAN_TRACE` records the acquire phases; the older
 `PDFCRAFT_SCAN_DENY` and `PDFCRAFT_SCAN_TRACE` are still read when the new names are not set.
 
+## Page length
+
+A document feeder often cannot tell how long the sheet it pulled is. In the measured case (a WIA device on USB and on WSD) Windows
+itself reports that the feeder cannot detect the page size, and WIA lists one page size plus an adjustable vertical extent, but
+nothing that reports the sheet length. `--page-length` (CLI) and `page_length` (the `scan_acquire` tool, and the `request` of the job
+journal) choose what to do, in this priority order. `craft-scan`'s README has the vocabulary; this is what the WIA backend does.
+
+| `--page-length` | What happens |
+| --- | --- |
+| `driver` (default) | Nothing new. The driver keeps whatever extent it has. A `--page-size` is applied as it always was. |
+| `auto` | 1. **Device detection**, when the item *publishes* it: `WIA_IPS_AUTO_CROP` accepting `WIA_AUTO_CROP_SINGLE` (1), a `WIA_IPS_PAGE_SIZE` list holding `WIA_PAGE_AUTO` (100), or `WIA_IPS_LONG_DOCUMENT` accepting `WIA_LONG_DOCUMENT_ENABLED` (1), in that order. Recorded as `device`. 2. **An explicit `--page-size`** (a4, letter, legal, business-card): the page size is written when the item lists it, then the vertical extent is set to that length at the scan resolution, inside the item's published range; a size the item does not list is written as the extent only, never as an unlisted page-size value. A length more than one step outside the range is an error (`The scanner cannot scan a page 14.00 in long at 200 dpi (its longest is 11.69 in)`), not a silent clamp. Recorded as `size`. 3. Otherwise the driver default, recorded as `driver`. Never looks at pixels. |
+| `infer` | `auto`, and when neither device detection nor a size applies **on the feeder**: request the item's longest vertical extent and cut each page at the end of the sheet found in the image. **Approximate**; recorded as `inferred` with `approximate: true`. |
+
+An explicit region (`--left/--top/--width/--height`) wins over every mode: it already says which area to scan. `--page-size custom` and
+`auto` name no length. Width is never changed by the length policy.
+
+**How inference decides** (`craft_scan::infer_sheet_end`): the scanner that was measured fills everything beyond the sheet end with pure
+white (255,255,255) while the paper itself carries scanner noise. The last row that is not pure white is the sheet end (plus a 0.01 in
+margin). The rule refuses unless the rows above the end show that noise, so a white margin that is exactly 255 everywhere is not mistaken
+for fill and the end of the printing is not taken for the end of the sheet. It runs on the delivered pixels before any black-and-white
+thresholding. It was measured on one scanner (sheet end 10.73 to 10.76 in, at 200 and 600 dpi); a scanner that pads differently is simply
+refused and the page keeps its full extent (`driver`). It is never the default.
+
+**Support is three-state.** `scan devices --details` / `scan check --details` print, per item, `scanner detection unknown|absent|present`
+and the longest page; JSON: `scanners[].page_length.{glass,feeder}.{device_detect, max_length_mils}`. `absent` means the item's
+properties were read and none of the three is published; `unknown` means they could not be read. Each saved page reports `length`
+(`{source, length_mils, length_inches, length_mm, approximate}`) in the CLI line, the `scan_acquire` result and the job journal.
+The `device` path has only been exercised by unit tests over a fake property table, not on a scanner that publishes detection.
+
 ## Scan jobs
 
 `pdfcraft-cli scan --out DIR --yes` runs the scan as one `craft_scan::job::ScanJob`, following the loop in craft-scan's
