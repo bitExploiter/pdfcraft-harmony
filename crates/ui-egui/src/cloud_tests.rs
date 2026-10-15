@@ -10,7 +10,7 @@
 use std::sync::{Arc, Mutex};
 
 use crate::PdfCraftApp;
-use crate::cloud::{self, Account, Capability, CloudApp, CloudBackend, Destination, Entry, EntryKind, Event, Fault, Job, Link, Post};
+use crate::cloud::{self, Account, Capability, CloudApp, CloudBackend, Destination, Entry, EntryKind, Event, Fault, Job, Post};
 
 type Harness = egui_kittest::Harness<'static, PdfCraftApp>;
 
