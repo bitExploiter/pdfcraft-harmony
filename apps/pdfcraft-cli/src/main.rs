@@ -82,7 +82,7 @@ pdfcraft-cli scan   --out DIR --yes [--dpi 200] [--color gray|rgb|bw]
                       [--rotation portrait|landscape|180|270]
                       [--format bmp|jpeg|png|tiff] [--compression none|jpeg|g4|…]
                       [--intent text|gray|color|…] [--page-size letter|a4|…]
-                      [--page-length driver|auto|infer]  # auto: scanner detection, else the --page-size length; infer: approximate, from the image
+                      [--page-length driver|size|auto|infer]  # size: the --page-size length; auto: scanner detection, else size; infer: approximate, from the image
                       [--deskew on|off] [--dpi-y N] [--orientation N] [--photometric N]
                       [--invert on|off] [--mirror on|off] [--lamp on|off] [--duplex]
                       [--reverse]  # 2nd pass: flip stack, scan backs in reverse, interleave
@@ -1320,7 +1320,7 @@ fn scan(args: &[String]) -> Result<(), CliError> {
         None => pdfcraft_platform::scan::PageLength::Driver,
         Some(text) => pdfcraft_platform::scan::PageLength::parse(text).ok_or_else(|| {
             format!(
-                "scan: --page-length is driver (the scanner's own length, the default), auto (the scanner's detection when it has one, else the --page-size length) or infer (auto, then a guess from the image: approximate) (got {text})"
+                "scan: --page-length is driver (the scanner's own length, the default), size (the --page-size length as extents), auto (the scanner's detection when it has one, else the --page-size length) or infer (auto, then a guess from the image: approximate) (got {text})"
             )
         })?,
     };

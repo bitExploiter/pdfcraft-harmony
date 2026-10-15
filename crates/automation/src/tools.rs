@@ -1188,7 +1188,7 @@ pub fn tools() -> Vec<ToolDef> {
                 "format": { "type": "string", "description": "bmp, jpeg, … (driver-dependent)" },
                 "duplex": { "type": "boolean", "description": "default false" },
                 "page_size": { "type": "string", "enum": names(scan::PageSize::ALL.iter().map(|v| v.as_str())), "description": "Page-size preset (driver-dependent). With page_length auto or infer its length is applied as extents." },
-                "page_length": { "type": "string", "enum": names(scan::PageLength::ALL.iter().map(|v| v.as_str())), "description": "How the page length is decided. driver (default): the scanner's own. auto: the scanner's length detection when it publishes one, else the length of page_size. infer: auto, then a guess of the sheet end from the image (approximate; each page reports length.source and length.approximate)." },
+                "page_length": { "type": "string", "enum": names(scan::PageLength::ALL.iter().map(|v| v.as_str())), "description": "How the page length is decided. driver (default): the scanner's own. size: the length of page_size as extents. auto: the scanner's length detection when it publishes one, else the length of page_size. infer: auto, then a guess of the sheet end from the image (approximate; each page reports length.source and length.approximate)." },
             }),
             &["out"],
         )),

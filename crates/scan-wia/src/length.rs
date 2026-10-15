@@ -198,13 +198,18 @@ pub fn decide(request: &Request, table: &PropTable) -> Decision {
     if request.region {
         return driver("an explicit region sets the scan area");
     }
-    if let Some(method) = device_methods(table).first() {
+    if request.mode != PageLength::Size
+        && let Some(method) = device_methods(table).first()
+    {
         return Decision { action: Action::Device(*method), why: "the scanner publishes length detection" };
     }
     if let Some(size) = request.page_size
         && let Some((_, height_mils)) = size.extent_mils()
     {
         return Decision { action: Action::Size { size, height_mils }, why: "extents from the chosen page size" };
+    }
+    if request.mode == PageLength::Size {
+        return driver("no page size that names a length was chosen");
     }
     if request.mode.may_infer() {
         return if request.feeder {
@@ -368,6 +373,20 @@ mod tests {
         assert_eq!(decide(&ask(PageLength::AutoInfer, None, true), &detecting).action, Action::Device(DeviceDetect::AutoCrop));
         // An unread table cannot offer detection but does not stop a size or inference.
         assert_eq!(decide(&ask(PageLength::AutoInfer, None, true), &PropTable::new(false)).action, Action::Infer);
+    }
+
+    #[test]
+    fn size_mode_uses_the_size_even_when_the_scanner_detects_and_never_infers() {
+        let detecting = PropTable::new(true).with(WIA_IPS_AUTO_CROP, Prop::List { values: vec![0, 1], writable: true });
+        let plain = plain_feeder(200);
+        for table in [&detecting, &plain] {
+            assert_eq!(
+                decide(&ask(PageLength::Size, Some(PageSize::Letter), true), table).action,
+                Action::Size { size: PageSize::Letter, height_mils: 11_000 }
+            );
+            assert_eq!(decide(&ask(PageLength::Size, None, true), table).action, Action::Driver);
+            assert_eq!(decide(&ask(PageLength::Size, Some(PageSize::Auto), true), table).action, Action::Driver);
+        }
     }
 
     #[test]

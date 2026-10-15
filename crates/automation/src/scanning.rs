@@ -140,8 +140,9 @@ fn scan_settings_from_args(args: &Args) -> Result<scan::ScanSettings> {
             .transpose()?,
         page_length: match args.opt_str("page_length")? {
             None => scan::PageLength::Driver,
-            Some(text) => scan::PageLength::parse(text)
-                .ok_or_else(|| ToolError::InvalidArgs(format!("page_length must be driver, auto, or infer (infer is approximate) (got {text})")))?,
+            Some(text) => scan::PageLength::parse(text).ok_or_else(|| {
+                ToolError::InvalidArgs(format!("page_length must be driver, size, auto, or infer (infer is approximate) (got {text})"))
+            })?,
         },
         auto_deskew: None,
         orientation: None,
@@ -862,7 +863,7 @@ mod tests {
         assert!(scan_settings_from_args(&Args(&bad)).unwrap_err().to_string().contains("page_size"));
         let def = crate::tools::find("scan_acquire").unwrap();
         let lengths = def.input_schema["properties"]["page_length"]["enum"].clone();
-        assert_eq!(lengths, json!(["driver", "auto", "infer"]));
+        assert_eq!(lengths, json!(["driver", "size", "auto", "infer"]));
     }
 
     #[test]
