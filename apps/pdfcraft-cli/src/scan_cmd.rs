@@ -351,7 +351,7 @@ pub fn job(args: &[String]) -> Result<(), CliError> {
             serde_json::to_string(&scan_jobs::job_json(dir, &record)).map_err(|error| format!("scan job: {error}"))?
         ));
     }
-    stdout_line(format_args!("{}", scan_jobs::detail_text(dir, &record).trim_end()))
+    stdout_line(format_args!("{}", scan_jobs::detail_text(scan_jobs::PROGRAM, dir, &record).trim_end()))
 }
 
 #[cfg(test)]

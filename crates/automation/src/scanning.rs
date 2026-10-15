@@ -33,7 +33,7 @@ impl Automation {
         let folder = self.resolve(dir, false)?;
         if args.opt_bool("show")?.unwrap_or(false) {
             let record = jobs::read_record(&folder).map_err(failed)?;
-            return Ok(json!({ "job": jobs::job_json(&folder, &record), "text": jobs::detail_text(&folder, &record) }));
+            return Ok(json!({ "job": jobs::job_json(&folder, &record), "text": jobs::detail_text(jobs::PROGRAM, &folder, &record) }));
         }
         // The folder and its immediate subfolders; a subfolder that resolves outside the folder (a link) is left out.
         let real = folder.canonicalize().map_err(|error| failed(format!("{dir}: {error}")))?;

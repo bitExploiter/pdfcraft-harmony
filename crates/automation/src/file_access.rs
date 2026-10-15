@@ -345,8 +345,7 @@ mod tests {
         // Helpers that are only called with a resolved path. `doc_batch` (batch.rs) resolves its
         // inputs and out_dir, walks only inside them (skipping links) and resolves every
         // discovered file again before `process` reads it or `publish` writes it.
-        // The scan journal helpers (scan_jobs.rs): `scan_jobs` resolves the folder first, the CLI owns its own paths.
-        const RESOLVED_BY_CALLER: &[&str] = &["write_atomic", "write_atomic_with", "read_review_sidecar", "process", "linked", "walk", "publish", "write_record", "read_record", "candidate_dirs"];
+        const RESOLVED_BY_CALLER: &[&str] = &["write_atomic", "write_atomic_with", "read_review_sidecar", "process", "linked", "walk", "publish"];
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut offenders = vec![];
         for entry in std::fs::read_dir(&dir).unwrap() {
