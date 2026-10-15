@@ -181,13 +181,14 @@ fn a_tool_chosen_with_no_document_asks_for_one_and_runs_on_it() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
+        app.run_inline = true;
         app.pick_override = Some(vec![pick]);
         app
     });
     h.run_steps(2);
     h.state_mut().run_command("export.text");
     assert!(h.state().toast.as_ref().is_none_or(|t| t.0 != "Open a document first"));
-    h.run_steps(6);
+    h.run_steps(3);
     assert!(h.state().active.is_some(), "the picked file is open");
     assert!(matches!(h.state().dialog, Some(Dialog::Export(_))), "and the tool runs on it: {:?}", h.state().dialog);
     // Cancelled: nothing opens and nothing runs.
@@ -277,6 +278,7 @@ fn the_open_recent_menu_lists_files_and_opens_one() {
         move |_cc| {
             let mut app = PdfCraftApp::new();
             app.set_option("language", "en").unwrap();
+            app.run_inline = true;
             app.open_bytes("doc.pdf", None, fixture(3)).unwrap();
             app.recent.push(pdfcraft_ui_egui::RecentFile { name: "recent.pdf".into(), path, pages: 2, size: 0 });
             app
