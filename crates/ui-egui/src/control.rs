@@ -669,6 +669,9 @@ impl Host for crate::PdfCraftApp {
         #[cfg(target_arch = "wasm32")]
         let pending_opens: Vec<Value> = Vec::new();
         json!({
+            "single_document_window": self.single_document_window,
+            "desktop_windows": self.desktop_windows,
+            "window_closed": self.window_closed,
             "docking": self.docking,
             "documents": docs,
             "pending_opens": pending_opens,
@@ -766,6 +769,15 @@ impl Host for crate::PdfCraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: &str) -> Reply {
+        if self.single_document_window
+            && self.window_occupied()
+            && let Some(sender) = &self.window_open
+        {
+            sender
+                .send(crate::WindowOpen::Path { path: path.to_owned(), then: None })
+                .map_err(|_| "the desktop window manager is unavailable".to_owned())?;
+            return Ok(json!({ "accepted": path, "pending": true, "new_window": true }));
+        }
         let before = self.views.len();
         self.open_path(path);
         if self.views.len() > before || self.password_prompt.is_some() {

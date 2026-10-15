@@ -66,6 +66,16 @@ declare_class!(
             self.did_finish_launching(notification)
         }
 
+        #[method(applicationShouldHandleReopen:hasVisibleWindows:)]
+        fn app_should_handle_reopen(&self, app: &NSApplication, visible: bool) -> bool {
+            // A closed document leaves the root event loop alive. A Dock click restores
+            // its window so the user can choose another file without relaunching.
+            if !visible {
+                app.windows().into_iter().take(1).for_each(|window| window.makeKeyAndOrderFront(None));
+            }
+            true
+        }
+
         #[method(applicationWillTerminate:)]
         fn app_will_terminate(&self, notification: &NSNotification) {
             self.will_terminate(notification)

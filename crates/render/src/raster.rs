@@ -330,6 +330,7 @@ fn render_page<'a>(
                 let scale = req.scale.clamp(0.01, 400.0);
                 let (tw, th) = (t.w.clamp(1, 4096), t.h.clamp(1, 4096));
                 RenderSettings {
+                    smooth_images: !req.preview && std::env::var("PDFCRAFT_SMOOTH_IMAGES").as_deref() == Ok("1"),
                     x_scale: scale,
                     y_scale: scale,
                     width: Some(tw as u16),
@@ -353,6 +354,7 @@ fn render_page<'a>(
                 // scale keeps each side within MAX_SIDE (give or take float noise), so it fits u16.
                 let side = |pt: f32| device_pixels(pt, scale).min(MAX_SIDE as u32) as u16;
                 RenderSettings {
+                    smooth_images: !req.preview && std::env::var("PDFCRAFT_SMOOTH_IMAGES").as_deref() == Ok("1"),
                     x_scale: scale,
                     y_scale: scale,
                     width: Some(side(w)),
@@ -7237,5 +7239,51 @@ trailer << /Root 1 0 R >>
             }
             assert!(render(glyph, 3).as_chunks::<4>().0.iter().all(|p| p[..3] == [255, 255, 255]), "{glyph}: 3 Tr hides the glyph");
         }
+    }
+}
+
+#[cfg(test)]
+mod local_scan_tests {
+    use super::*;
+
+    fn checker(masked: bool) -> Arc<Vec<u8>> {
+        let data: Vec<u8> = (0..64).flat_map(|y| (0..64).map(move |x| if (x + y) % 2 == 0 { 0 } else { 255 })).collect();
+        let mut doc = lopdf::Document::with_version("1.7");
+        let pages = doc.new_object_id();
+        let mut image = lopdf::dictionary! { "Type" => "XObject", "Subtype" => "Image", "Width" => 64, "Height" => 64, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8, "Interpolate" => false };
+        if masked {
+            let alpha = doc.add_object(lopdf::Stream::new(lopdf::dictionary! { "Type" => "XObject", "Subtype" => "Image", "Width" => 64, "Height" => 64, "ColorSpace" => "DeviceGray", "BitsPerComponent" => 8 }, vec![255;4096]));
+            image.set("SMask", alpha);
+        }
+        let image = doc.add_object(lopdf::Stream::new(image, data));
+        let body = doc.add_object(lopdf::Stream::new(lopdf::dictionary! {}, b"q 16 0 0 16 0 0 cm /Scan Do Q".to_vec()));
+        let page = doc.add_object(lopdf::dictionary! { "Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 16.into(), 16.into()], "Contents" => body, "Resources" => lopdf::dictionary! { "XObject" => lopdf::dictionary! { "Scan" => image } } });
+        doc.objects.insert(pages, lopdf::dictionary! { "Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1 }.into());
+        let catalog = doc.add_object(lopdf::dictionary! { "Type" => "Catalog", "Pages" => pages });
+        doc.trailer.set("Root", catalog);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        Arc::new(bytes)
+    }
+
+    fn pixels(masked: bool, smooth: bool) -> Vec<u8> {
+        let pdf = Pdf::new_with_password(checker(masked), "").unwrap();
+        let settings = RenderSettings { smooth_images: smooth, width: Some(16), height: Some(16), ..Default::default() };
+        let mut pixels = vec![0; 16 * 16 * 4];
+        hayro::render_into(&pdf.pages()[0], &RenderCache::new(), &InterpreterSettings::default(), &settings, &mut pixels);
+        pixels
+    }
+
+    #[test]
+    fn smooth_scan_reduces_aliasing_in_a_minified_opaque_image() {
+        let original = pixels(false, false);
+        let smooth = pixels(false, true);
+        let error = |bytes: &[u8]| -> u32 { (4..12).flat_map(|y| (4..12).map(move |x| (bytes[(y * 16 + x) * 4] as i32 - 128).unsigned_abs())).sum() };
+        assert!(error(&smooth) < error(&original) / 4, "smoothing must preserve the average ink coverage rather than lose alternating strokes");
+    }
+
+    #[test]
+    fn smooth_scan_keeps_masked_image_sampling_unchanged() {
+        assert_eq!(pixels(true, false), pixels(true, true));
     }
 }
