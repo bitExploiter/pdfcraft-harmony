@@ -2874,7 +2874,7 @@ impl eframe::App for PdfCraftApp {
                 cloud::sign_in(self);
                 // Clear the "Finish signing in…" status that sign_in() sets;
                 // from the user's perspective they already finished.
-                self.cloud_mut().status = None;
+                self.cloud.status = None;
             }
         }
         // Bootstrap cloud state: ask who is signed in and start a root listing.
