@@ -59,6 +59,9 @@ pub struct ScanDraft {
     pub compression: Option<String>,
     pub intent: Option<Intent>,
     pub page_size: Option<PageSize>,
+    /// How the page length is decided (feeder only): the driver's own, the chosen page size, the scanner's
+    /// detection, or a guess from the image. See [`final_settings`] for the mapping to the engine.
+    pub page_length: shared::PageLength,
     pub auto_deskew: Option<bool>,
     pub orientation: Option<i32>,
     pub photometric: Option<i32>,
@@ -103,6 +106,7 @@ impl Default for ScanDraft {
             compression: None,
             intent: None,
             page_size: None,
+            page_length: shared::PageLength::Driver,
             auto_deskew: None,
             orientation: None,
             photometric: None,
@@ -128,6 +132,11 @@ impl Default for ScanDraft {
 }
 
 impl ScanDraft {
+    /// The chosen page size names a length (A4, Letter, Legal, business card). `Auto` and `Custom` do not.
+    pub fn page_size_names_a_length(&self) -> bool {
+        self.page_size.is_some_and(|size| size.extent_mils().is_some())
+    }
+
     /// Bed or feeder. The preview belongs to the previous source, so it goes away.
     pub fn set_source(&mut self, source: Source) {
         if self.source == source {
@@ -145,6 +154,7 @@ impl ScanDraft {
         self.compression = None;
         self.intent = None;
         self.page_size = None;
+        self.page_length = shared::PageLength::Driver;
         self.auto_deskew = None;
         self.orientation = None;
         self.photometric = None;
@@ -433,6 +443,13 @@ fn choices_of(scanner: &Scanner) -> shared::Choices {
     choices.colors = Capability::from_option_list((!colors.is_empty()).then_some(colors.as_slice()));
     choices.max_pages = Capability::from_option_range(scanner.pages.and(pages.last().copied()).map(|max| (1, max)));
     choices.all_pages = shared::presence(Some(true));
+    // Only the feeder row shows page length, so the feeder item's answer is the one that counts. A scanner whose
+    // properties were read without detection is "absent" (disabled with a reason); one that was not read is unknown.
+    choices.detect_length = match scanner.length_support(Source::Feeder).device_detect {
+        scan::Presence::Present => shared::presence(Some(true)),
+        scan::Presence::Absent => shared::presence(Some(false)),
+        scan::Presence::Unknown => shared::presence(None),
+    };
     choices
 }
 
@@ -477,6 +494,8 @@ fn push_settings(draft: &ScanDraft, settings: &mut shared::Settings) {
     settings.dpi = draft.dpi;
     settings.pages = if draft.pages == 0 { shared::Pages::All } else { shared::Pages::Count(draft.pages) };
     settings.duplex = draft.duplex;
+    settings.page_length = draft.page_length;
+    settings.page_size_chosen = draft.page_size_names_a_length();
 }
 
 /// Take back what the shared component changed. A new scanner or source drops the preview, as it
@@ -503,6 +522,7 @@ fn pull_settings(draft: &mut ScanDraft, settings: &shared::Settings) -> bool {
     draft.dpi = settings.dpi;
     draft.color = color_of(settings.color);
     draft.duplex = settings.duplex;
+    draft.page_length = settings.page_length;
     reset
 }
 
@@ -546,6 +566,16 @@ fn labels() -> shared::Labels<'static> {
             duplex: Some("This scanner has no duplex unit."),
             pages: Some("The scanner does not let you choose a page count."),
             ..shared::Reasons::default()
+        },
+        length: shared::LengthLabels {
+            heading: "Page length",
+            driver: "Driver default",
+            match_size: "Match page size",
+            detect: "Detect (scanner)",
+            infer: "Detect from image (approximate)",
+            no_page_size: "Choose a page size in Advanced first.",
+            no_detection: "This scanner does not detect the page length.",
+            infer_note: "Estimated from the scanned image, so it can be wrong. This is not a scanner feature.",
         },
         warning_feeder_empty: "The feeder reports no paper.",
         warning_cover_open: "A cover on the scanner is open.",
@@ -719,6 +749,8 @@ pub struct ScanUi {
     pub(crate) interrupted: Option<Interrupted>,
     /// Documents opened by the Create job that just finished (for the toast).
     last_create_files: u32,
+    /// How the last scanned page got its length, for the status line and the toast.
+    last_length: Option<scan::LengthRecord>,
 }
 
 /// Which pass of a scan an interruption cut short.
@@ -1146,6 +1178,10 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> Scan
         if let Some(error) = app.scan.draft.error.clone() {
             ui.add_space(4.0);
             ui.label(egui::RichText::new(error).color(Color32::from_rgb(0xB0, 0x30, 0x30)));
+        }
+        if let Some(note) = app.scan.last_length.as_ref().and_then(length_note) {
+            ui.add_space(4.0);
+            ui.label(egui::RichText::new(note).small().color(t.text_muted));
         }
         if busy {
             ui.add_space(4.0);
@@ -1976,6 +2012,7 @@ fn preview_settings(draft: &ScanDraft, scanner: &Scanner) -> ScanSettings {
         compression: None,
         intent,
         page_size: None,
+        page_length: scan::PageLength::Driver,
         auto_deskew: None,
         orientation: None,
         photometric: None,
@@ -1985,6 +2022,35 @@ fn preview_settings(draft: &ScanDraft, scanner: &Scanner) -> ScanSettings {
         duplex: false,
         cancel: None,
         progress: None,
+    }
+}
+
+/// The engine's page-length request for the dialog's choice: Match page size is `Size` (the chosen size's length,
+/// whatever the scanner could detect), Detect is `Auto` (the scanner's detection, else the size), and the image
+/// guess is `AutoInfer`. Only the feeder has a length to decide.
+fn engine_page_length(choice: shared::PageLength, effective: Source) -> scan::PageLength {
+    if effective != Source::Feeder {
+        return scan::PageLength::Driver;
+    }
+    match choice {
+        shared::PageLength::Driver => scan::PageLength::Driver,
+        shared::PageLength::MatchSize => scan::PageLength::Size,
+        shared::PageLength::Detect => scan::PageLength::Auto,
+        shared::PageLength::Infer => scan::PageLength::AutoInfer,
+    }
+}
+
+/// One sentence about how the last scanned page got its length, `None` for the driver's own length (nothing to say).
+fn length_note(record: &scan::LengthRecord) -> Option<String> {
+    let inches = record.length_inches();
+    match (record.source, inches) {
+        (scan::LengthSource::Driver, _) => None,
+        (scan::LengthSource::Device, Some(len)) => Some(format!("Page length {len:.2} in, detected by the scanner.")),
+        (scan::LengthSource::Device, None) => Some("Page length detected by the scanner.".to_string()),
+        (scan::LengthSource::Size, Some(len)) => Some(format!("Page length {len:.2} in, from the chosen page size.")),
+        (scan::LengthSource::Size, None) => Some("Page length from the chosen page size.".to_string()),
+        (scan::LengthSource::Inferred, Some(len)) => Some(format!("Page length about {len:.2} in, estimated from the scanned image.")),
+        (scan::LengthSource::Inferred, None) => Some("Page length estimated from the scanned image.".to_string()),
     }
 }
 
@@ -2006,6 +2072,7 @@ fn final_settings(draft: &ScanDraft, scanner: &Scanner, cancel: CancelToken) -> 
         compression: draft.compression.clone(),
         intent: draft.intent,
         page_size: draft.page_size,
+        page_length: engine_page_length(draft.page_length, effective),
         auto_deskew: draft.auto_deskew,
         orientation: draft.orientation,
         photometric: draft.photometric,
@@ -2350,6 +2417,7 @@ impl PdfCraftApp {
             }
         } else {
             self.scan.last_create_files = 0;
+            self.scan.last_length = None;
             self.scan.interrupted = None;
             if duplex_first_pass {
                 // A new first pass starts a new set of fronts.
@@ -2588,6 +2656,9 @@ impl PdfCraftApp {
             return;
         }
         let count = pages.len();
+        if let Some(page) = pages.last() {
+            self.scan.last_length = Some(page.length);
+        }
         let mut first_hint = 0;
         let mut fronts_pass = false;
         if let Some(job) = &mut self.scan.job {
@@ -2825,6 +2896,14 @@ impl PdfCraftApp {
             ScanKind::Insert(_) => self.notify_tr("Inserted scanned pages"),
             ScanKind::Preview | ScanKind::ReverseSides => {}
         }
+        // The length is only worth a word when something other than the driver decided it.
+        if matches!(kind, ScanKind::Create | ScanKind::Insert(_))
+            && let Some(note) = self.scan.last_length.as_ref().and_then(length_note)
+            && let Some((text, _)) = &self.toast
+        {
+            let text = format!("{text} {note}");
+            self.notify(text);
+        }
     }
 
     fn take_preview(&mut self, pages: Vec<Page>) {
@@ -2904,6 +2983,75 @@ mod tests {
     }
     use egui::Pos2;
     use pdfcraft_platform::scan::Source;
+
+    #[test]
+    fn page_length_defaults_to_the_driver_and_resets_with_the_source() {
+        use craft_ui::scanning::PageLength as Choice;
+        let mut draft = ScanDraft::default();
+        assert_eq!(draft.page_length, Choice::Driver);
+        draft.page_length = Choice::Infer;
+        draft.set_source(Source::Glass);
+        assert_eq!(draft.page_length, Choice::Driver, "changing the source starts the advanced choices over");
+    }
+
+    #[test]
+    fn the_dialog_choice_maps_to_the_engine_request_for_the_feeder_only() {
+        use super::engine_page_length;
+        use craft_ui::scanning::PageLength as Choice;
+        use pdfcraft_platform::scan::PageLength as Engine;
+        assert_eq!(engine_page_length(Choice::Driver, Source::Feeder), Engine::Driver);
+        assert_eq!(engine_page_length(Choice::MatchSize, Source::Feeder), Engine::Size);
+        assert_eq!(engine_page_length(Choice::Detect, Source::Feeder), Engine::Auto);
+        assert_eq!(engine_page_length(Choice::Infer, Source::Feeder), Engine::AutoInfer);
+        for choice in Choice::ALL {
+            assert_eq!(engine_page_length(choice, Source::Glass), Engine::Driver, "the bed has a fixed length");
+        }
+    }
+
+    #[test]
+    fn final_settings_carry_the_page_length_and_the_chosen_size() {
+        use super::{choices_of, final_settings, length_note};
+        use craft_ui::scanning::PageLength as Choice;
+        use pdfcraft_platform::scan::{CancelToken, LengthRecord, LengthSource, PageLength, PageLengthSupport, Presence};
+        let mut scanner = super::fallback_scanner(&craft_ui::scanning::Scanner::default());
+        scanner.feeder = true;
+        scanner.flatbed = true;
+        let draft = ScanDraft {
+            device: scanner.id.clone(),
+            source: Source::Feeder,
+            page_size: Some(pdfcraft_platform::scan::PageSize::Legal),
+            page_length: Choice::MatchSize,
+            ..ScanDraft::default()
+        };
+        assert!(draft.page_size_names_a_length());
+        let settings = final_settings(&draft, &scanner, CancelToken::new());
+        assert_eq!((settings.page_length, settings.page_size), (PageLength::Size, Some(pdfcraft_platform::scan::PageSize::Legal)));
+        let custom = ScanDraft { page_size: Some(pdfcraft_platform::scan::PageSize::Custom), ..draft.clone() };
+        assert!(!custom.page_size_names_a_length(), "custom names no length");
+        // Detection is read from the feeder item: present, absent and not read are three different rows.
+        scanner.reported.feeder_length = PageLengthSupport { device_detect: Presence::Present, max_length_mils: None };
+        assert!(choices_of(&scanner).detect_length.is_supported());
+        scanner.reported.feeder_length = PageLengthSupport { device_detect: Presence::Absent, max_length_mils: None };
+        assert!(choices_of(&scanner).detect_length.is_unsupported());
+        scanner.reported.feeder_length = PageLengthSupport::default();
+        let unknown = choices_of(&scanner).detect_length;
+        assert!(!unknown.is_known() && unknown.is_enabled());
+        // The status sentence says how the length was obtained; the driver's own length says nothing.
+        assert_eq!(length_note(&LengthRecord::from_delivered(2800, 200)), None);
+        assert_eq!(
+            length_note(&LengthRecord::with_source(2146, 200, LengthSource::Inferred)).as_deref(),
+            Some("Page length about 10.73 in, estimated from the scanned image.")
+        );
+        assert_eq!(
+            length_note(&LengthRecord::with_source(2338, 200, LengthSource::Size)).as_deref(),
+            Some("Page length 11.69 in, from the chosen page size.")
+        );
+        assert_eq!(length_note(&LengthRecord::default()), None);
+        assert_eq!(
+            length_note(&LengthRecord { source: LengthSource::Device, length_mils: None, approximate: false }).as_deref(),
+            Some("Page length detected by the scanner.")
+        );
+    }
 
     #[test]
     fn the_dialog_defaults_to_auto_300_dpi_gray() {
@@ -3374,7 +3522,17 @@ mod tests {
         bytes[26] = 1;
         bytes[28] = 24;
         bytes[34] = 16;
-        pdfcraft_platform::scan::Page { bytes, format: "bmp", width: 2, height: 2, dpi: 300, dpi_y: 300, requested_dpi: 300, thresholded: false }
+        pdfcraft_platform::scan::Page {
+            bytes,
+            format: "bmp",
+            width: 2,
+            height: 2,
+            dpi: 300,
+            dpi_y: 300,
+            requested_dpi: 300,
+            thresholded: false,
+            length: Default::default(),
+        }
     }
 
     /// GUI bookkeeping: pages that stream in over several poll batches all land in the one
@@ -3648,7 +3806,17 @@ mod tests {
         bytes[26] = 1;
         bytes[28] = 24;
         bytes[34..38].copy_from_slice(&row.to_le_bytes());
-        pdfcraft_platform::scan::Page { bytes, format: "bmp", width: w, height: 1, dpi: 72, dpi_y: 72, requested_dpi: 72, thresholded: false }
+        pdfcraft_platform::scan::Page {
+            bytes,
+            format: "bmp",
+            width: w,
+            height: 1,
+            dpi: 72,
+            dpi_y: 72,
+            requested_dpi: 72,
+            thresholded: false,
+            length: Default::default(),
+        }
     }
 
     fn widths(app: &crate::PdfCraftApp, id: DocId) -> Vec<u32> {
