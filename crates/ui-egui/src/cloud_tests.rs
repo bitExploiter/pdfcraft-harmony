@@ -233,9 +233,34 @@ fn open_page_lists_root_when_linked() {
     }
     cloud::start(h.state_mut());
     h.run_steps(8);
-    // The root listing was fetched; the folder appears in the file list.
-    let folders = &h.state().cloud.folders;
-    assert!(!folders.is_empty() || h.state().cloud.account.is_some(), "listing proceeded");
+    // The root listing was fetched: account is present and the mine folder
+    // reports that it has loaded at least once.
+    assert!(h.state().cloud.account.is_some(), "account fetched after start");
+    assert!(h.state().cloud.mine.loaded, "root folder listing arrived");
+}
+
+#[test]
+fn sign_out_does_not_leave_unauthenticated_fault() {
+    // After sign_out(), craft-libs resets asked_account to false so the next
+    // start() re-submits Job::Account.  The in-memory service then returns
+    // NotLinked (it drops the session on SignOut).  The important assertion is
+    // that account_fault is NOT Unauthenticated: Unauthenticated is what the
+    // browser transport maps to a login redirect, and seeing it here would
+    // mean a sign-out loop in the browser.  NotLinked is handled differently
+    // (it offers a link prompt rather than a redirect).
+    let (mut h, _state) = linked_harness();
+    h.run_steps(4);
+    assert!(h.state().cloud.account.is_some(), "signed in before sign-out");
+
+    cloud::sign_out(h.state_mut());
+    h.run_steps(4);
+
+    assert!(h.state().cloud.account.is_none(), "account cleared after sign-out");
+    assert!(
+        !matches!(h.state().cloud.account_fault, Some(Fault::Unauthenticated)),
+        "Unauthenticated fault after sign-out would trigger a login redirect loop; got: {:?}",
+        h.state().cloud.account_fault,
+    );
 }
 
 #[test]

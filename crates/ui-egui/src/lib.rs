@@ -2856,6 +2856,27 @@ impl eframe::App for PdfCraftApp {
         self.process_file_requests();
         #[cfg(not(target_arch = "wasm32"))]
         self.process_picked();
+        // In the browser build a login popup that has just closed signals a fresh
+        // account check.  The transport stores "pdfcraft:auth_done" in egui's
+        // ephemeral memory and requests a repaint; we consume it here, set the
+        // "pdfcraft:popup_retry" flag so offer_login_popup() does not open another
+        // window if the post-close check still returns Unauthenticated (user
+        // cancelled), then call sign_in() to force a new Job::Account.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let auth_done = egui::Id::new("pdfcraft:auth_done");
+            let popup_retry = egui::Id::new("pdfcraft:popup_retry");
+            if ctx.memory(|m| m.data.get_temp::<bool>(auth_done).unwrap_or(false)) {
+                ctx.memory_mut(|m| {
+                    m.data.remove::<bool>(auth_done);
+                    m.data.insert_temp(popup_retry, true);
+                });
+                cloud::sign_in(self);
+                // Clear the "Finish signing in…" status that sign_in() sets;
+                // from the user's perspective they already finished.
+                self.cloud_mut().status = None;
+            }
+        }
         // Bootstrap cloud state: ask who is signed in and start a root listing.
         // Called each frame but start() guards itself with asked_account and acts
         // only once. In the browser build the session rides the same-origin cookie
