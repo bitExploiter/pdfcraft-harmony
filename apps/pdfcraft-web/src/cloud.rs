@@ -181,7 +181,8 @@ fn offer_login_popup(ctx: &egui::Context) {
             // the update loop via egui's ephemeral memory.
             let ctx = ctx.clone();
             let cb = wasm_bindgen::closure::Closure::<dyn FnMut()>::new(move || {
-                if popup.closed() {
+                // Window::closed() returns Result<bool, JsValue>; treat errors as closed.
+                if popup.closed().unwrap_or(true) {
                     ctx.memory_mut(|m| {
                         m.data.insert_temp(egui::Id::new("pdfcraft:auth_done"), true);
                     });
