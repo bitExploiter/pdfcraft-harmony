@@ -279,10 +279,8 @@ struct DeviceDump {
 }
 
 /// Connect and list every published property on the root and each transfer child of the devices
-/// that match `filter` (all of them when it is empty), as text. No Download. A denied device
-/// (`CRAFT_SCAN_DENY`, or the legacy `PDFCRAFT_SCAN_DENY`) is named but never opened.
+/// that match `filter` (all of them when it is empty), as text. No Download.
 fn dump_devices(filter: &str) -> Result<String, ScanError> {
-    let denied = craft_scan::deny_list();
     let _com = ComInit::new().map_err(failed)?;
     let mgr = device_manager()?;
     let mut out = String::new();
@@ -292,13 +290,6 @@ fn dump_devices(filter: &str) -> Result<String, ScanError> {
         let port = read_string(&info, WIA_DIP_PORT_NAME).ok().filter(|text| !text.is_empty());
         let device = ScannerRef::new(id.clone(), name.clone(), port);
         if !filter.trim().is_empty() && !device.matches(filter) {
-            continue;
-        }
-        if device.is_denied(&denied) {
-            out.push_str(&format!(
-                "device {id} ({name}): denied, not opened
-"
-            ));
             continue;
         }
         // Open, dump, and drop one device before the next. Some WSD drivers fault if two are held.

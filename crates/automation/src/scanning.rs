@@ -201,15 +201,12 @@ fn finish_acquire_json(
 /// By default nothing is opened: each row is `{id, name, port, connection, details: "skipped"}`.
 /// `filter` (case-insensitive id, name or port substring) opens only the matching devices and
 /// returns only those, with `details: "loaded"` and the full capability keys. `details == true`
-/// without a filter opens every device that is not denied. A device that fails to open stays in
-/// the list as `details: "error"` with the engine's own `error` sentence. A denied device (see
-/// `CRAFT_SCAN_DENY`, or the older `PDFCRAFT_SCAN_DENY`) is never opened: it is listed as `details: "denied"`, and a filter that
-/// names or selects one is refused.
+/// without a filter opens every device. A device that fails to open stays in the list as
+/// `details: "error"` with the engine's own `error` sentence.
 pub fn list_scan_devices(filter: Option<&str>, details: bool) -> Result<Value> {
-    let denied = scan::deny_list();
-    check_filter(filter, &denied)?;
+    check_filter(filter)?;
     let (listed, errors) = listed_refs()?;
-    let mut out = build_listing(filter, details, &denied, &listed, &mut |id| scan::scanner_details(id))?;
+    let mut out = build_listing(filter, details, &listed, &mut |id| scan::scanner_details(id))?;
     if !errors.is_empty() {
         out["errors"] = Value::Array(errors);
     }
@@ -233,47 +230,34 @@ fn refs_from(listing: scan::Listing<scan::ScannerRef>) -> Result<(Vec<scan::Scan
 }
 
 /// One device by exact id (`wia:<id>`), as a `details` row (`loaded`, or `error` when it will not open).
-/// Opens that device only. A denied or unknown id is an error.
+/// Opens that device only. An unknown id is an error.
 pub fn scan_device_details(id: &str) -> Result<Value> {
-    let denied = scan::deny_list();
-    check_filter(Some(id), &denied)?;
+    check_filter(Some(id))?;
     let (listed, _) = listed_refs()?;
-    detail_row_for(id, &denied, &listed, &mut |id| scan::scanner_details(id))
+    detail_row_for(id, &listed, &mut |id| scan::scanner_details(id))
 }
 
 type OpenScanner<'a> = dyn FnMut(&str) -> std::result::Result<scan::Scanner, scan::ScanError> + 'a;
 
-fn check_filter(filter: Option<&str>, denied: &[String]) -> Result<()> {
+fn check_filter(filter: Option<&str>) -> Result<()> {
     let Some(text) = filter else {
         return Ok(());
     };
     if text.trim().is_empty() {
         return Err(ToolError::InvalidArgs("the device filter must not be empty".into()));
     }
-    if scan::filter_is_denied(text, denied) {
-        return Err(denied_error());
-    }
     Ok(())
 }
 
-fn denied_error() -> ToolError {
-    ToolError::InvalidArgs("refusing to list or open a denied scanner (CRAFT_SCAN_DENY)".into())
-}
-
-fn build_listing(filter: Option<&str>, details: bool, denied: &[String], listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
-    check_filter(filter, denied)?;
+fn build_listing(filter: Option<&str>, details: bool, listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
+    check_filter(filter)?;
     let selected: Vec<&scan::ScannerRef> = listed.iter().filter(|item| filter.is_none_or(|text| item.matches(text))).collect();
-    if filter.is_some() && selected.iter().any(|item| item.is_denied(denied)) {
-        return Err(denied_error());
-    }
     let open_them = details || filter.is_some();
     let rows: Vec<Value> = selected
         .into_iter()
         .map(|item| {
             if !open_them {
                 ref_row(item, scan::ListDetails::Skipped)
-            } else if item.is_denied(denied) {
-                ref_row(item, scan::ListDetails::Denied)
             } else {
                 opened_row(item, open)
             }
@@ -282,11 +266,8 @@ fn build_listing(filter: Option<&str>, details: bool, denied: &[String], listed:
     Ok(json!({ "count": rows.len(), "scanners": rows }))
 }
 
-fn detail_row_for(id: &str, denied: &[String], listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
+fn detail_row_for(id: &str, listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
     let item = listed.iter().find(|item| item.id == id).ok_or_else(|| failed(format!("no scanner with id {id:?}")))?;
-    if item.is_denied(denied) {
-        return Err(denied_error());
-    }
     Ok(opened_row(item, open))
 }
 
@@ -390,7 +371,7 @@ fn span_json(span: Option<scan::ValueSpan>) -> Value {
 pub struct ScanCheckOptions {
     /// Open the matching device (id, name or port text) and read its capabilities. Exactly one must match.
     pub device: Option<String>,
-    /// Open every device that is not denied.
+    /// Open every device.
     pub details: bool,
     /// Make one low-resolution acquire from `device`. The scanner moves.
     pub acquire: bool,
@@ -413,14 +394,11 @@ pub const CHECK_ACQUIRE_WARNING: &str = "scan check --acquire makes the scanner 
 
 type AcquireScanner<'a> = dyn FnMut(&scan::ScanSettings) -> std::result::Result<scan::Acquired, scan::ScanError> + 'a;
 
-/// Report what the scan stack sees (`pdfcraft-cli scan check`), through the real backend and the
-/// deny list (`CRAFT_SCAN_DENY`). `notice` receives [`CHECK_ACQUIRE_WARNING`] right before an acquire.
+/// Report what the scan stack sees (`pdfcraft-cli scan check`), through the real backend. `notice` receives [`CHECK_ACQUIRE_WARNING`] right before an acquire.
 pub fn scan_check(options: &ScanCheckOptions, notice: &mut dyn FnMut(&str)) -> Result<ScanCheck> {
-    let denied = scan::deny_list();
     run_check(
         options,
         scan::supported(),
-        &denied,
         &mut scan::scanner_list,
         &mut |id| scan::scanner_details(id),
         &mut |settings| scan::acquire(settings),
@@ -431,7 +409,6 @@ pub fn scan_check(options: &ScanCheckOptions, notice: &mut dyn FnMut(&str)) -> R
 fn run_check(
     options: &ScanCheckOptions,
     supported: bool,
-    denied: &[String],
     list: &mut dyn FnMut() -> std::result::Result<scan::Listing<scan::ScannerRef>, scan::ScanError>,
     open: &mut OpenScanner<'_>,
     acquire: &mut AcquireScanner<'_>,
@@ -444,7 +421,7 @@ fn run_check(
     if options.out.is_some() && !options.acquire {
         return Err(ToolError::InvalidArgs("--out only applies together with --acquire".into()));
     }
-    check_filter(options.device.as_deref(), denied)?;
+    check_filter(options.device.as_deref())?;
     if !supported {
         return Err(failed(scan::ScanError::Unsupported.to_string()));
     }
@@ -465,9 +442,6 @@ fn run_check(
                 return Err(failed(format!("{text:?} matches {} scanners; pass one id: {}", many.len(), ids.join(", "))));
             }
         };
-        if item.is_denied(denied) {
-            return Err(denied_error());
-        }
         let (row, scanner) = opened_pair(item, open);
         opened = scanner;
         vec![row]
@@ -477,8 +451,6 @@ fn run_check(
             .map(|item| {
                 if !options.details {
                     ref_row(item, scan::ListDetails::Skipped)
-                } else if item.is_denied(denied) {
-                    ref_row(item, scan::ListDetails::Denied)
                 } else {
                     opened_row(item, open)
                 }
@@ -699,7 +671,7 @@ mod tests {
     #[test]
     fn the_unsupported_backend_reports_windows_only_for_listing_and_acquire() {
         let sentence = "scanning is only supported on Windows (WIA) in this version";
-        let listed = build_listing(None, false, &[], &[], &mut |_| Err(scan::ScanError::Unsupported));
+        let listed = build_listing(None, false, &[], &mut |_| Err(scan::ScanError::Unsupported));
         assert!(listed.is_ok(), "an empty list is fine");
         assert_eq!(scan::ScanError::Unsupported.to_string(), sentence);
         let folder = std::env::temp_dir();
@@ -789,7 +761,7 @@ mod tests {
     #[test]
     fn the_default_listing_is_cheap_and_opens_nothing() {
         let mut opened = Vec::new();
-        let out = build_listing(None, false, &[], &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
+        let out = build_listing(None, false, &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
         assert!(opened.is_empty());
         assert_eq!(out["count"], 3);
         let row = &out["scanners"][0];
@@ -802,7 +774,7 @@ mod tests {
     #[test]
     fn a_filter_opens_only_the_matching_devices() {
         let mut opened = Vec::new();
-        let out = build_listing(Some("0000f2"), false, &[], &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
+        let out = build_listing(Some("0000f2"), false, &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
         assert_eq!(opened, ["{a}"]);
         assert_eq!(out["count"], 1);
         assert_eq!(out["scanners"][0]["details"], "loaded");
@@ -812,7 +784,7 @@ mod tests {
     #[test]
     fn an_empty_filter_is_an_error() {
         for text in ["", "  "] {
-            let err = build_listing(Some(text), false, &[], &fixture(), &mut |_| Err(scan::ScanError::Unsupported)).unwrap_err();
+            let err = build_listing(Some(text), false, &fixture(), &mut |_| Err(scan::ScanError::Unsupported)).unwrap_err();
             assert!(matches!(err, ToolError::InvalidArgs(_)), "{err}");
         }
     }
@@ -820,7 +792,7 @@ mod tests {
     #[test]
     fn details_opens_everything_and_keeps_a_failed_device_as_an_error_row() {
         let mut opened = Vec::new();
-        let out = build_listing(None, true, &[], &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
+        let out = build_listing(None, true, &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
         assert_eq!(opened, ["{a}", "{b}", "{c}"]);
         assert_eq!(out["count"], 3);
         assert_eq!(out["scanners"][1]["details"], "loaded");
@@ -828,24 +800,6 @@ mod tests {
         assert_eq!(bad["details"], "error");
         assert_eq!(bad["error"], "The device is busy.");
         assert_eq!(bad["id"], "{c}");
-    }
-
-    #[test]
-    fn denied_devices_are_never_opened_and_denied_filters_are_refused() {
-        let denied = scan::parse_deny_list("99999999-aaaa-4bbb-8ccc-dddddddddddd");
-        let mut opened = Vec::new();
-        let out = build_listing(None, true, &denied, &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
-        assert_eq!(opened, ["{a}", "{c}"]);
-        assert_eq!(out["scanners"][1]["details"], "denied");
-        for text in ["99999999-aaaa-4bbb-8ccc-dddddddddddd", "99999999", "Office Printer"] {
-            let result = build_listing(Some(text), true, &denied, &fixture(), &mut |id| open_fake(&mut opened, id));
-            assert!(matches!(result, Err(ToolError::InvalidArgs(_))), "{text}: {result:?}");
-        }
-        // A filter that selects the denied device by another field is refused too.
-        let err =
-            build_listing(Some("printer"), false, &scan::parse_deny_list("office"), &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap_err();
-        assert!(matches!(err, ToolError::InvalidArgs(_)), "{err}");
-        assert_eq!(opened, ["{a}", "{c}"]);
     }
 
     #[test]
@@ -921,9 +875,9 @@ mod tests {
         for details in scan::ListDetails::ALL {
             assert_eq!(details.as_str().parse::<scan::ListDetails>().ok(), Some(*details));
         }
-        let rows = build_listing(None, true, &scan::parse_deny_list("99999999"), &fixture(), &mut |id| open_fake(&mut Vec::new(), id)).unwrap();
+        let rows = build_listing(None, true, &fixture(), &mut |id| open_fake(&mut Vec::new(), id)).unwrap();
         let seen: Vec<&str> = rows["scanners"].as_array().unwrap().iter().filter_map(|row| row["details"].as_str()).collect();
-        assert_eq!(seen, ["loaded", "denied", "error"]);
+        assert_eq!(seen, ["loaded", "loaded", "error"]);
         let def = crate::tools::find("scan_acquire").unwrap();
         let property = |name: &str| -> Vec<String> {
             def.input_schema["properties"][name]["enum"].as_array().unwrap().iter().filter_map(|v| v.as_str().map(str::to_string)).collect()
@@ -993,14 +947,13 @@ mod tests {
     }
 
     #[test]
-    fn detail_by_exact_id_returns_one_row_and_refuses_denied_or_unknown() {
+    fn detail_by_exact_id_returns_one_row_and_refuses_an_unknown_id() {
         let mut opened = Vec::new();
-        let row = detail_row_for("{a}", &[], &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
+        let row = detail_row_for("{a}", &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
         assert_eq!(row["details"], "loaded");
-        let row = detail_row_for("{c}", &[], &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
+        let row = detail_row_for("{c}", &fixture(), &mut |id| open_fake(&mut opened, id)).unwrap();
         assert_eq!(row["details"], "error");
-        assert!(detail_row_for("{zz}", &[], &fixture(), &mut |id| open_fake(&mut opened, id)).is_err());
-        assert!(detail_row_for("{b}", &scan::parse_deny_list("office"), &fixture(), &mut |id| open_fake(&mut opened, id)).is_err());
+        assert!(detail_row_for("{zz}", &fixture(), &mut |id| open_fake(&mut opened, id)).is_err());
         assert_eq!(opened, ["{a}", "{c}"]);
     }
 
@@ -1009,7 +962,6 @@ mod tests {
     fn check_with(
         options: &ScanCheckOptions,
         supported: bool,
-        denied: &[String],
         log: &mut Vec<String>,
         notices: &mut Vec<String>,
         acquire_result: std::result::Result<scan::Acquired, scan::ScanError>,
@@ -1019,7 +971,6 @@ mod tests {
         run_check(
             options,
             supported,
-            denied,
             &mut || {
                 cell.borrow_mut().push("list".into());
                 Ok(scan::Listing { items: fixture(), errors: Vec::new() })
@@ -1041,7 +992,6 @@ mod tests {
         let check = run_check(
             &ScanCheckOptions::default(),
             true,
-            &[],
             &mut || {
                 let failure = scan::BackendError { backend: "wia", error: scan::ScanError::Failed("The scanner is offline.".into()) };
                 Ok(scan::Listing { items: fixture(), errors: vec![failure] })
@@ -1074,7 +1024,7 @@ mod tests {
 
     fn run(options: &ScanCheckOptions) -> (Result<ScanCheck>, Vec<String>, Vec<String>) {
         let (mut log, mut notices) = (Vec::new(), Vec::new());
-        let result = check_with(options, true, &[], &mut log, &mut notices, Ok(one_page()));
+        let result = check_with(options, true, &mut log, &mut notices, Ok(one_page()));
         (result, log, notices)
     }
 
@@ -1127,19 +1077,13 @@ mod tests {
     }
 
     #[test]
-    fn check_device_refuses_no_match_many_matches_and_denied_devices() {
+    fn check_device_refuses_no_match_and_many_matches() {
         let (mut log, mut notices) = (Vec::new(), Vec::new());
         for (text, wanted) in [("nothing like it", "no scanner matches"), ("e", "matches 3 scanners")] {
             let options = ScanCheckOptions { device: Some(text.into()), ..ScanCheckOptions::default() };
-            let error = check_with(&options, true, &[], &mut log, &mut notices, Ok(one_page())).unwrap_err();
+            let error = check_with(&options, true, &mut log, &mut notices, Ok(one_page())).unwrap_err();
             assert!(matches!(&error, ToolError::Failed(message) if message.contains(wanted)), "{text}: {error:?}");
         }
-        let denied = scan::parse_deny_list("office");
-        let options = ScanCheckOptions { device: Some("{b}".into()), acquire: true, ..ScanCheckOptions::default() };
-        let error = check_with(&options, true, &denied, &mut log, &mut notices, Ok(one_page())).unwrap_err();
-        assert!(matches!(error, ToolError::Failed(_) | ToolError::InvalidArgs(_)), "{error:?}");
-        assert!(log.iter().all(|line| line == "list"), "nothing was opened: {log:?}");
-        assert!(notices.is_empty());
     }
 
     #[test]
@@ -1188,11 +1132,11 @@ mod tests {
             ScanCheckOptions { acquire: true, ..ScanCheckOptions::default() },
             ScanCheckOptions { acquire: true, details: true, ..ScanCheckOptions::default() },
         ] {
-            let error = check_with(&options, true, &[], &mut log, &mut notices, Ok(one_page())).unwrap_err();
+            let error = check_with(&options, true, &mut log, &mut notices, Ok(one_page())).unwrap_err();
             assert!(matches!(&error, ToolError::InvalidArgs(message) if message.contains("--acquire needs --device")), "{error:?}");
         }
         let options = ScanCheckOptions { out: Some(std::env::temp_dir()), ..ScanCheckOptions::default() };
-        assert!(matches!(check_with(&options, true, &[], &mut log, &mut notices, Ok(one_page())), Err(ToolError::InvalidArgs(_))));
+        assert!(matches!(check_with(&options, true, &mut log, &mut notices, Ok(one_page())), Err(ToolError::InvalidArgs(_))));
         assert!(log.is_empty() && notices.is_empty(), "no list, open or acquire happened: {log:?}");
     }
 
@@ -1230,13 +1174,13 @@ mod tests {
         let (mut log, mut notices) = (Vec::new(), Vec::new());
         let options = ScanCheckOptions { device: Some("{a}".into()), acquire: true, ..ScanCheckOptions::default() };
         let busy = hresult_error(scan::InterruptKind::Busy, 0x8021_0006, "WIA_ERROR_BUSY", "The scanner is busy. Try again in a moment.");
-        let check = check_with(&options, true, &[], &mut log, &mut notices, Err(busy)).unwrap();
+        let check = check_with(&options, true, &mut log, &mut notices, Err(busy)).unwrap();
         assert!(!check.ok);
         assert_eq!(check.report["acquire"]["ok"], false);
         assert_eq!(check.report["acquire"]["error_info"]["kind"], "busy");
         let options = ScanCheckOptions { device: Some("{c}".into()), acquire: true, ..ScanCheckOptions::default() };
         let (mut log, mut notices) = (Vec::new(), Vec::new());
-        let check = check_with(&options, true, &[], &mut log, &mut notices, Ok(one_page())).unwrap();
+        let check = check_with(&options, true, &mut log, &mut notices, Ok(one_page())).unwrap();
         assert!(!check.ok);
         assert!(log.iter().all(|line| !line.starts_with("acquire")), "{log:?}");
         assert!(notices.is_empty(), "the warning is only for a scan that really starts");
@@ -1245,10 +1189,10 @@ mod tests {
     #[test]
     fn check_without_windows_says_so_after_the_guards_and_touches_nothing() {
         let (mut log, mut notices) = (Vec::new(), Vec::new());
-        let error = check_with(&ScanCheckOptions::default(), false, &[], &mut log, &mut notices, Ok(one_page())).unwrap_err();
+        let error = check_with(&ScanCheckOptions::default(), false, &mut log, &mut notices, Ok(one_page())).unwrap_err();
         assert!(matches!(&error, ToolError::Failed(m) if m == "scanning is only supported on Windows (WIA) in this version"), "{error:?}");
         let options = ScanCheckOptions { acquire: true, ..ScanCheckOptions::default() };
-        let error = check_with(&options, false, &[], &mut log, &mut notices, Ok(one_page())).unwrap_err();
+        let error = check_with(&options, false, &mut log, &mut notices, Ok(one_page())).unwrap_err();
         assert!(matches!(error, ToolError::InvalidArgs(_)), "the guard answers the same on every platform");
         assert!(log.is_empty() && notices.is_empty());
     }

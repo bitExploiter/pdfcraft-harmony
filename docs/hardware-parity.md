@@ -37,9 +37,7 @@ and returns full rows (`details: "loaded"`: handling status such as feeder/flat 
 cover, feeder capacity when published, and per-source capabilities); `--details` opens every
 device. A device that fails to open stays listed with `details: "error"` and the engine's `error`
 sentence. The automation tool `scan_devices` takes the same `device` / `details` arguments, and the
-output is `{count, scanners}` in both, plus `errors` (`[{backend, error}]`) when one backend failed while another answered; ids are `<backend>:<native id>` (`wia:<WIA id>`). `scan devices --dump` prints the backend's diagnostic text (for WIA, every published property) and never opens a denied device. Devices named in the `CRAFT_SCAN_DENY` environment
-variable (the older `PDFCRAFT_SCAN_DENY` is still read when it is not set) (comma-separated substrings of a uuid, id, name or port) are never opened: they list as
-`details: "denied"`, and a `--device` filter that names or selects one is refused.
+output is `{count, scanners}` in both, plus `errors` (`[{backend, error}]`) when one backend failed while another answered; ids are `<backend>:<native id>` (`wia:<WIA id>`). `scan devices --dump` prints the backend's diagnostic text (for WIA, every published property).
 The From scanner… dialog works the same way (on a platform without a backend it shows "Scanning needs Windows (WIA) in this version." instead of a device list): it lists every installed scanner without opening any
 (a busy or offline one stays listed), then reads the capabilities of the selected device only, on a
 background thread. If that fails, the engine's sentence is shown with Try again, and Scan still

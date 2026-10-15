@@ -7,7 +7,7 @@ is registered, and every scan request reports one sentence ("scanning is only su
 
 | Crate | Role |
 |------|------|
-| `craft-scan` (storytold/craft-libs, [#114](https://github.com/storytold/craft-libs/pull/114)) | The portable core: scan settings, errors and recovery, document-handling status, the acquire contract (progress and cancel tokens, in-memory pages), software 1-bit conversion, a BMP parser, tracing, the deny list, the `Backend` trait with its registry, and `ScanJob` (one acquisition across its attempts, the journal, the exit classes). No platform code and no unsafe. Pinned in the workspace `Cargo.toml` to `refs/pull/114/head` (which builds on the `craft-job` crate of [#120](https://github.com/storytold/craft-libs/pull/120); `craft-job` is pinned to the same ref so there is one copy of it) until those are merged; the app enables its optional `serde` feature for the journal. |
+| `craft-scan` (storytold/craft-libs, [#114](https://github.com/storytold/craft-libs/pull/114)) | The portable core: scan settings, errors and recovery, document-handling status, the acquire contract (progress and cancel tokens, in-memory pages), software 1-bit conversion, a BMP parser, tracing, the `Backend` trait with its registry, and `ScanJob` (one acquisition across its attempts, the journal, the exit classes). No platform code and no unsafe. Pinned in the workspace `Cargo.toml` to `refs/pull/114/head` (which builds on the `craft-job` crate of [#120](https://github.com/storytold/craft-libs/pull/120); `craft-job` is pinned to the same ref so there is one copy of it) until those are merged; the app enables its optional `serde` feature for the journal. |
 | `pdfcraft-wia` | The Windows WIA backend (COM), registered as `wia`. The only crate in the stack with `unsafe`; see [unsafe-audit.md](unsafe-audit.md). Its `rules` module holds the HRESULT tables, the sentences and the status-bit rules, with no COM, so they are tested on every platform. |
 | `pdfcraft-platform` | `pdfcraft_platform::scan`: re-exports `craft-scan` and registers the WIA backend once (`register_backends`, idempotent; the scan functions call it first, so no entry point needs start-up code). `scan::supported()` answers at run time: true once a backend is registered. |
 | `pdfcraft-create` | Keeps a black-and-white 1-bit BMP as a 1-bit image when creating a PDF. |
@@ -18,9 +18,8 @@ is registered, and every scan request reports one sentence ("scanning is only su
 Devices, feeder, WSD and duplex behaviour are described in
 [hardware-parity.md](hardware-parity.md#windows-wia-scanner-acquire).
 
-Tests never open real scanners unless `PDFCRAFT_TEST_REAL_SCANNERS` is set. `CRAFT_SCAN_DENY`
-names devices that are never opened, and `CRAFT_SCAN_TRACE` records the acquire phases; the older
-`PDFCRAFT_SCAN_DENY` and `PDFCRAFT_SCAN_TRACE` are still read when the new names are not set.
+Tests never open real scanners unless `PDFCRAFT_TEST_REAL_SCANNERS` is set. `CRAFT_SCAN_TRACE`
+records the acquire phases; the older `PDFCRAFT_SCAN_TRACE` is still read when the new name is not set.
 
 ## Page length
 

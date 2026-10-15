@@ -1159,8 +1159,7 @@ const SCAN_OPTIONS: &[OptionSpec] = &[
 /// `scan devices` lists scanners without opening any (id, name, port, connection, `details:
 /// "skipped"`). `--device TEXT` opens only the devices whose id, name or port contains TEXT and
 /// returns their capabilities (`details: "loaded"`); `--details` opens all of them. A device that
-/// will not open stays listed with `details: "error"` and the reason; one named in
-/// `CRAFT_SCAN_DENY` (or the older `PDFCRAFT_SCAN_DENY`) is never opened (`details: "denied"`).
+/// will not open stays listed with `details: "error"` and the reason.
 /// `scan devices --dump` prints every property the backend publishes, as text. Anything else
 /// pulls paper, and only with `--yes`. `--reverse` is manual duplex when the feeder has no duplex
 /// bit: fronts are already in `--out`; flip the whole stack (last sheet on top), scan the reverse
@@ -1477,8 +1476,7 @@ fn list_scanners(filter: Option<&str>, details: bool) -> Result<(), CliError> {
 }
 
 fn dump_scanners() -> Result<(), CliError> {
-    // Text, rendered by each backend (for WIA, every published property); devices on the deny list
-    // are named and never opened.
+    // Text, rendered by each backend (for WIA, every published property).
     let text = pdfcraft_platform::scan::diagnostic_dump("").map_err(|error| format!("scan: {error}"))?;
     stdout_line(format_args!("{}", text.trim_end()))
 }
