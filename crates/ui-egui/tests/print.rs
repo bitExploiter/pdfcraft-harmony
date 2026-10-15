@@ -781,7 +781,7 @@ fn paper_choice_survives_cancel_and_settings_restore() {
     assert_eq!(json["print_paper"], "A4", "store the canonical name, not its position");
     let mut app = PdfCraftApp::new();
     app.restore(&saved);
-    let expected = pdfcraft_ui_egui::PrintDraft { paper: a4, ..Default::default() };
+    let expected = pdfcraft_ui_egui::PrintDraft { paper: a4, paper_picked: true, ..Default::default() };
     assert_eq!(app.print_draft, expected, "no other print preference becomes persistent");
     let mut restarted = harness_with_settings(Some(saved));
     assert!(restarted.state_mut().execute("print.dialog"));
