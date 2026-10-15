@@ -389,7 +389,7 @@ pub fn tools() -> Vec<ToolDef> {
             }),
             &["doc", "page", "rect", "rows"],
         )),
-        t("stamp_custom", "Add a custom stamp", "Stamp a picture: a PDF page (file_page, default 1) or an image file, centred at at [x, y] (points from the top-left of the displayed page) at its natural size, at most 200 pt. name labels it (default: the file name). Undoable.")
+        t("stamp_custom", "Add a custom stamp", "Stamp a picture: a PDF page (file_page, default 1) or an image file, centred at at [x, y] (points from the top-left of the displayed page) at its natural size, at most 200 pt. name labels it (default: the file name). line adds a text line under the picture with {name} (the author), {date} and {time} filled in now, as a dynamic stamp. Undoable.")
             .cmd("comment.stamp")
             .with(schema(
                 json!({
@@ -400,6 +400,7 @@ pub fn tools() -> Vec<ToolDef> {
                     "file_page": { "type": "integer", "minimum": 1 },
                     "name": { "type": "string" },
                     "author": { "type": "string" },
+                    "line": { "type": "string", "maxLength": 200 },
                 }),
                 &["doc", "page", "path", "at"],
             )),
