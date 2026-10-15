@@ -12,6 +12,7 @@ is registered, and every scan request reports one sentence ("scanning is only su
 | `pdfcraft-platform` | `pdfcraft_platform::scan`: re-exports `craft-scan` and registers the WIA backend once (`register_backends`, idempotent; the scan functions call it first, so no entry point needs start-up code). `scan::supported()` answers at run time: true once a backend is registered. |
 | `pdfcraft-create` | Keeps a black-and-white 1-bit BMP as a 1-bit image when creating a PDF. |
 | `pdfcraft-automation` | The `scan_devices`, `scan_acquire` and read-only `scan_jobs` tools (and their MCP form), and the `scan_jobs` module that reads and writes the job journal for the CLI and the tool. |
+| `pdfcraft-ui-egui` | The From scanner… dialog (`scan_ui.rs`): hosts the shared `craft_ui::scanning` device list, settings and presets, and owns the preview, region, advanced options, Create PDF, Insert scanned pages, manual duplex and the interruption prompt. |
 | `pdfcraft-cli` | `pdfcraft-cli scan devices`, `pdfcraft-cli scan check` (what the stack sees; one optional 100 dpi acquire), `pdfcraft-cli scan --out DIR --yes` (a `ScanJob`), `scan jobs`, `scan job DIR` and `scan --continue DIR`; see [cli.md](cli.md). |
 
 Devices, feeder, WSD and duplex behaviour are described in
