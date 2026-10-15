@@ -186,7 +186,7 @@ impl PdfCraftApp {
         }
         let target = self.pick_target(target);
         let then: Then = Box::new(then);
-        if let Some(paths) = self.pick_override.clone() {
+        if let Some(paths) = self.pick_override.take() {
             self.pickers.deliver(target, paths.into_iter().map(PathBuf::from).collect(), then);
             return true;
         }
@@ -380,13 +380,14 @@ mod tests {
         let into = got.clone();
         assert!(app.ask(Ask::Files(rfd::AsyncFileDialog::new()), None, move |app, _| {
             // Merge data: the spreadsheet's save picker, asked from the first pick's closure.
+            app.pick_override = Some(vec!["merged.csv".into()]);
             assert!(app.ask(Ask::Save(rfd::AsyncFileDialog::new()), None, move |_, paths| into.lock().unwrap().extend(paths)));
         }));
         // Another command asks for a picker before the frame uses the first pick: refused.
         assert!(!app.ask(Ask::File(rfd::AsyncFileDialog::new()), None, |_, _| panic!("must not run")));
         app.process_picked();
         app.process_picked();
-        assert_eq!(*got.lock().unwrap(), vec![PathBuf::from("first.fdf")], "the chained picker answered");
+        assert_eq!(*got.lock().unwrap(), vec![PathBuf::from("merged.csv")], "the chained picker answered");
     }
 
     #[test]
