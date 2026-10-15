@@ -39,9 +39,8 @@ pub fn paint(ui: &egui::Ui, rect: Rect, name: &str, size: f32, tint: Color32) {
 /// context so the SVG image loader can be reached. The icon is centred in `rect`.
 pub fn paint_on(painter: &egui::Painter, rect: Rect, name: &str, tint: Color32) {
     let size = rect.size().min_elem();
-    let layer = painter.layer_id();
     let id = egui::Id::new("icon_paint").with(name);
-    let ui = egui::Ui::new(painter.ctx().clone(), layer, id, egui::UiBuilder::new().max_rect(rect));
+    let ui = egui::Ui::new(painter.ctx().clone(), id, egui::UiBuilder::new().max_rect(rect));
     image(name, size, tint).paint_at(&ui, Rect::from_center_size(rect.center(), Vec2::splat(size)));
 }
 

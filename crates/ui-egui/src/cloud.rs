@@ -228,7 +228,7 @@ impl CloudApp for PdfCraftApp {
             hover: t.hover,
             soft: t.accent.gamma_multiply(0.14),
             family: egui::FontFamily::Proportional,
-            bold: theme::bold(13.0).family,
+            bold: egui::FontFamily::Name("semibold".into()),
         }
     }
 }
