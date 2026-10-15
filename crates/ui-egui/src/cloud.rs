@@ -37,7 +37,7 @@ pub use craft_ui::cloud::{
 };
 
 use crate::PdfCraftApp;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 
 /// Extensions PdfCraft opens. The same set the desktop file picker offers.
 const OPENS: [&str; 3] = ["pdf", "fdf", "xfdf"];

@@ -229,21 +229,6 @@ pub fn client() -> Option<Client> {
     Some(client)
 }
 
-/// A token the cloud session knows about, for the sign-in polling loop.
-///
-/// The environment variable is checked when the app is known to be served by
-/// CollabCraft (via the launcher). Any other source of a token is the device
-/// flow. Both use this type so the polling loop need not care.
-pub enum CloudToken {
-    Env(String),
-}
-
-impl CloudToken {
-    pub fn from_env() -> Option<Self> {
-        std::env::var("COLLABCRAFT_SESSION").ok().filter(|t| !t.is_empty()).map(CloudToken::Env)
-    }
-}
-
 /// Where the session token lives beside the application's own settings.
 fn token_path() -> Option<PathBuf> {
     let dir = settings_dir()?;
