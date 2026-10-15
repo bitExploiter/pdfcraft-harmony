@@ -178,14 +178,15 @@ fn linked_harness() -> (Harness, Arc<Mutex<State>>) {
 // ---------------------------------------------------------------- tests
 
 #[test]
-fn account_reports_not_linked_before_sign_in() {
+fn account_offers_link_before_sign_in() {
     let state = Arc::new(Mutex::new(State::default()));
     let mut h = harness_with(Arc::clone(&state));
     cloud::start(h.state_mut());
     h.run_steps(4);
     let cloud = &h.state().cloud;
     assert!(cloud.account.is_none(), "no account before linking");
-    assert!(matches!(cloud.account_fault, Some(Fault::NotLinked)), "NotLinked expected while unlinked; got: {:?}", cloud.account_fault);
+    assert!(cloud.account_fault.is_none(), "NotLinked is an actionable state, not an error");
+    assert!(matches!(cloud.link, Some(cloud::Link::Offered)), "link offer expected while unlinked; got: {:?}", cloud.link);
 }
 
 #[test]
@@ -383,11 +384,7 @@ fn open_minimal(h: &mut Harness) -> u64 {
 /// `ctx.run_ui` needs `FnMut`. Both the `draw` closure and the mutable app reference are
 /// wrapped in `Option` and moved into the `FnMut` closure; `.take()` consumes each exactly
 /// once on the first (and only) frame — safe with no `unsafe` required.
-fn shapes_from_page(
-    app: &mut PdfCraftApp,
-    size: egui::Vec2,
-    draw: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui),
-) -> Vec<String> {
+fn shapes_from_page(app: &mut PdfCraftApp, size: egui::Vec2, draw: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui)) -> Vec<String> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::font_definitions());
     // Both the `FnOnce` draw closure and the `&mut app` are moved into Options.
@@ -395,14 +392,11 @@ fn shapes_from_page(
     // (there are none in practice) are no-ops.  No unsafe needed.
     let mut draw_opt: Option<Box<dyn FnOnce(&mut PdfCraftApp, &mut egui::Ui)>> = Some(Box::new(draw));
     let mut app_opt: Option<&mut PdfCraftApp> = Some(app);
-    let output = ctx.run_ui(
-        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() },
-        |ui| {
-            if let (Some(f), Some(a)) = (draw_opt.take(), app_opt.take()) {
-                f(a, ui);
-            }
-        },
-    );
+    let output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() }, |ui| {
+        if let (Some(f), Some(a)) = (draw_opt.take(), app_opt.take()) {
+            f(a, ui);
+        }
+    });
     let texts: Vec<String> = output
         .shapes
         .iter()
@@ -427,14 +421,8 @@ fn open_from_cloud_page_heading_and_back_button_are_visible() {
     let labels = shapes_from_page(app, egui::vec2(1200.0, 800.0), |app, ui| {
         crate::cloud_page_shell(app, ui, |app, ui| crate::cloud::open_page(app, ui));
     });
-    assert!(
-        labels.iter().any(|l| l.contains("Open from cloud")),
-        "cloud Open page must render a visible heading; rendered: {labels:?}",
-    );
-    assert!(
-        labels.iter().any(|l| l.contains("Back")),
-        "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",
-    );
+    assert!(labels.iter().any(|l| l.contains("Open from cloud")), "cloud Open page must render a visible heading; rendered: {labels:?}",);
+    assert!(labels.iter().any(|l| l.contains("Back")), "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",);
 }
 
 /// The cloud Save As page shell must render a visible heading and "Back" button.
@@ -447,14 +435,8 @@ fn save_as_cloud_page_heading_and_back_button_are_visible() {
     let labels = shapes_from_page(app, egui::vec2(1200.0, 800.0), |app, ui| {
         crate::cloud_page_shell(app, ui, |app, ui| crate::cloud::save_page(app, ui));
     });
-    assert!(
-        labels.iter().any(|l| l.contains("Save as to cloud")),
-        "cloud Save As page must render a visible heading; rendered: {labels:?}",
-    );
-    assert!(
-        labels.iter().any(|l| l.contains("Back")),
-        "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",
-    );
+    assert!(labels.iter().any(|l| l.contains("Save as to cloud")), "cloud Save As page must render a visible heading; rendered: {labels:?}",);
+    assert!(labels.iter().any(|l| l.contains("Back")), "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",);
 }
 
 /// The "Open from cloud…" command must be enabled when a cloud service is connected.
@@ -464,10 +446,7 @@ fn open_from_cloud_command_enabled_when_service_connected() {
     let (mut h, _state) = linked_harness();
     h.run_steps(4);
     let spec = pdfcraft_engine::commands::command("file.open_cloud").expect("file.open_cloud command must be registered");
-    assert!(
-        h.state().command_enabled(spec),
-        "file.open_cloud must be enabled when cloud service is connected",
-    );
+    assert!(h.state().command_enabled(spec), "file.open_cloud must be enabled when cloud service is connected",);
 }
 
 /// The cloud commands are disabled and absent from the File menu when no service is configured.

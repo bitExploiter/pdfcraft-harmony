@@ -2980,9 +2980,7 @@ impl eframe::App for PdfCraftApp {
                 }
                 // Cloud Save As page: pick a folder, name, and save; dismisses on success.
                 Some(CloudPage::SaveAs) => {
-                    let saved = cloud_page_shell(self, ui, |app, ui| {
-                        crate::cloud::save_page(app, ui)
-                    });
+                    let saved = cloud_page_shell(self, ui, |app, ui| crate::cloud::save_page(app, ui));
                     if saved {
                         self.cloud_page = None;
                     }
@@ -3015,33 +3013,32 @@ impl eframe::App for PdfCraftApp {
 ///
 /// Returns whatever `body` returns. `save_page` returns `true` when a save started, so the
 /// caller can clear `cloud_page`; `open_page` is fire-and-forget and always returns `()`.
-pub(crate) fn cloud_page_shell<R>(
-    app: &mut PdfCraftApp,
-    ui: &mut egui::Ui,
-    body: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui) -> R,
-) -> R {
+pub(crate) fn cloud_page_shell<R>(app: &mut PdfCraftApp, ui: &mut egui::Ui, body: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui) -> R) -> R {
     let t = theme::Tokens::get(ui.ctx());
     let mut back = false;
-    let result = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
-        egui::Frame::NONE
-            .inner_margin(egui::Margin { left: 36, right: 36, top: 24, bottom: 28 })
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    let back_label = format!("← {}", tl!("Back"));
-                    let resp = ui.button(&back_label);
-                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
-                    if resp.clicked() {
-                        back = true;
-                    }
-                    ui.add_space(8.0);
-                    let heading = tl!(if app.cloud_page == Some(CloudPage::SaveAs) { "Save as to cloud" } else { "Open from cloud" });
-                    ui.label(egui::RichText::new(heading).font(theme::semibold(18.0)).color(t.text));
-                });
-                ui.add_space(16.0);
-                body(app, ui)
-            })
-            .inner
-    }).inner;
+    let result = egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            egui::Frame::NONE
+                .inner_margin(egui::Margin { left: 36, right: 36, top: 24, bottom: 28 })
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        let back_label = format!("← {}", tl!("Back"));
+                        let resp = ui.button(&back_label);
+                        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
+                        if resp.clicked() {
+                            back = true;
+                        }
+                        ui.add_space(8.0);
+                        let heading = tl!(if app.cloud_page == Some(CloudPage::SaveAs) { "Save as to cloud" } else { "Open from cloud" });
+                        ui.label(egui::RichText::new(heading).font(theme::semibold(18.0)).color(t.text));
+                    });
+                    ui.add_space(16.0);
+                    body(app, ui)
+                })
+                .inner
+        })
+        .inner;
     if back {
         app.cloud_page = None;
     }
