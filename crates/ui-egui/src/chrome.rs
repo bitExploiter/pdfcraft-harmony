@@ -266,7 +266,22 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                 }
                 ui.add_space(4.0);
                 let tip = crate::commands::command_tip(ui.ctx(), tl!("Open a PDF ({key})"), "file.open");
-                if widgets::ghost_button_sized(ui, "plus", tl!("Open"), tab_h).on_hover_text(tip).clicked() {
+                if crate::cloud::available(app) {
+                    // Cloud connected: a popup lets the user choose local or cloud.
+                    let open_resp = widgets::ghost_button_sized(ui, "plus", tl!("Open"), tab_h).on_hover_text(&tip);
+                    open_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Open")));
+                    egui::Popup::menu(&open_resp).show(|ui| {
+                        if ui.button(tl!("Open local file…")).clicked() {
+                            app.open_dialog();
+                            ui.close();
+                        }
+                        if ui.button(tl!("Open from cloud…")).clicked() {
+                            app.cloud_page_doc_count = app.views.len();
+                            app.cloud_page = Some(crate::CloudPage::Open);
+                            ui.close();
+                        }
+                    });
+                } else if widgets::ghost_button_sized(ui, "plus", tl!("Open"), tab_h).on_hover_text(tip).clicked() {
                     app.open_dialog();
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {

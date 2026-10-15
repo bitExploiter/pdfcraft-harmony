@@ -338,6 +338,18 @@ pub enum Dialog {
     CertificateViewer,
 }
 
+/// Which cloud page is shown in the central panel instead of the document or home screen.
+///
+/// `None` (the common case) means the normal document / home / docking view. `Open` shows
+/// `craft_ui::cloud::open_page`; `SaveAs` shows `craft_ui::cloud::save_page`. These are the
+/// only two navigation states PdfCraft needs beyond its existing tabs — the smallest explicit
+/// addition that makes Open from cloud and Save As to cloud reachable from the UI.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloudPage {
+    Open,
+    SaveAs,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PropsTab {
     Description,
@@ -777,6 +789,11 @@ pub struct PdfCraftApp {
     /// Open and Save against cloud storage. Connected by the host application when a
     /// CollabCraft service is configured; disconnected leaves the app local-only.
     pub cloud: craft_ui::cloud::CloudFiles,
+    /// Which cloud page is shown in the central panel, when any. `None` is the normal state.
+    pub cloud_page: Option<CloudPage>,
+    /// The number of open document tabs when `cloud_page` became `Some(Open)`. Used to detect
+    /// that a successful cloud open completed so the page can dismiss itself.
+    cloud_page_doc_count: usize,
     /// Share dialog state. Connected by the host; drawn from the title bar when sharing
     /// is available. The dialog is the same across all Craft apps.
     pub share: craft_ui::share::ShareDialog,
@@ -1040,6 +1057,8 @@ impl PdfCraftApp {
             replace_draft: None,
             number_draft: NumberDraft { from: 1, to: 1, style: pdfcraft_engine::LabelStyle::Decimal, prefix: String::new(), start: 1 },
             cloud: craft_ui::cloud::CloudFiles::new(),
+            cloud_page: None,
+            cloud_page_doc_count: 0,
             share: craft_ui::share::ShareDialog::new(),
             presence: craft_ui::presence::PresenceBar::new().badges_only(),
         }
@@ -2887,6 +2906,11 @@ impl eframe::App for PdfCraftApp {
         cloud::start(self);
         // Drain answers from the cloud worker (Open, Save, account, listing).
         cloud::pump(self, ctx);
+        // After pump: if we were on the cloud Open page and a new document tab appeared
+        // (the open completed), dismiss the page and show the document.
+        if self.cloud_page == Some(CloudPage::Open) && self.views.len() > self.cloud_page_doc_count && self.cloud.busy.is_none() {
+            self.cloud_page = None;
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -2947,14 +2971,34 @@ impl eframe::App for PdfCraftApp {
         }
         let t = theme::Tokens::get(&ctx);
         egui::CentralPanel::default().frame(egui::Frame::NONE.fill(t.pasteboard)).show(ui, |ui| {
-            if self.mode == Mode::Read {
-                match self.active {
-                    None if self.combine_showing() => combine_ui::page(self, ui),
-                    None => home::show(self, ui),
-                    Some(index) => canvas::document_area(self, index, ui),
+            match self.cloud_page {
+                // Cloud Open page: browse and select a file; dismisses once the doc is open.
+                Some(CloudPage::Open) => {
+                    cloud_page_shell(self, ui, |app, ui| {
+                        crate::cloud::open_page(app, ui);
+                    });
                 }
-            } else {
-                docking::show(self, ui);
+                // Cloud Save As page: pick a folder, name, and save; dismisses on success.
+                Some(CloudPage::SaveAs) => {
+                    let saved = cloud_page_shell(self, ui, |app, ui| {
+                        crate::cloud::save_page(app, ui)
+                    });
+                    if saved {
+                        self.cloud_page = None;
+                    }
+                }
+                // Normal view: home, document, or docking workspace.
+                None => {
+                    if self.mode == Mode::Read {
+                        match self.active {
+                            None if self.combine_showing() => combine_ui::page(self, ui),
+                            None => home::show(self, ui),
+                            Some(index) => canvas::document_area(self, index, ui),
+                        }
+                    } else {
+                        docking::show(self, ui);
+                    }
+                }
             }
         });
         self.process_pending_edits();
@@ -2964,6 +3008,43 @@ impl eframe::App for PdfCraftApp {
         widgets::toast(self, &ctx);
         self.finish_render_frame(&ctx);
     }
+}
+
+/// Wraps a cloud page (Open or Save As) in a scrollable, padded shell with a "← Back"
+/// button that dismisses the page and returns the user to the document or home screen.
+///
+/// Returns whatever `body` returns. `save_page` returns `true` when a save started, so the
+/// caller can clear `cloud_page`; `open_page` is fire-and-forget and always returns `()`.
+pub(crate) fn cloud_page_shell<R>(
+    app: &mut PdfCraftApp,
+    ui: &mut egui::Ui,
+    body: impl FnOnce(&mut PdfCraftApp, &mut egui::Ui) -> R,
+) -> R {
+    let t = theme::Tokens::get(ui.ctx());
+    let mut back = false;
+    let result = egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::Frame::NONE
+            .inner_margin(egui::Margin { left: 36, right: 36, top: 24, bottom: 28 })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    let resp = icons::button(ui, "arrow-left", 26.0, false, tl!("Back"));
+                    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Back")));
+                    if resp.clicked() {
+                        back = true;
+                    }
+                    ui.add_space(8.0);
+                    let heading = tl!(if app.cloud_page == Some(CloudPage::SaveAs) { "Save as to cloud" } else { "Open from cloud" });
+                    ui.label(egui::RichText::new(heading).font(theme::semibold(18.0)).color(t.text));
+                });
+                ui.add_space(16.0);
+                body(app, ui)
+            })
+            .inner
+    }).inner;
+    if back {
+        app.cloud_page = None;
+    }
+    result
 }
 
 impl PdfCraftApp {

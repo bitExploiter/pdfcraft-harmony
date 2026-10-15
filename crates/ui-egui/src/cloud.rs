@@ -202,9 +202,12 @@ impl CloudApp for PdfCraftApp {
         self.notify(text);
     }
 
-    // `go_to_save_as` is left at its default (no-op). PdfCraft's cloud Save As
-    // page is the one craft_ui::cloud itself draws; there is no separate
-    // backstage to navigate to.
+    fn go_to_save_as(&mut self) {
+        // The conflict modal calls this when the user chooses "Save as a copy".
+        // PdfCraft has no backstage, so we set cloud_page to SaveAs which renders
+        // save_page in the CentralPanel on the next frame.
+        self.cloud_page = Some(crate::CloudPage::SaveAs);
+    }
 
     fn app_name(&self) -> &str {
         "PdfCraft"
