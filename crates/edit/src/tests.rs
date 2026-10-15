@@ -2365,6 +2365,34 @@ fn missing_glyphs_substitute_helvetica_and_impossible_text_is_refused() {
     assert!(text::replace_line(&mut doc, 0, 5, "x").is_err(), "no such line");
 }
 
+/// #2517: one blank line at ordinary leading (2 × 1.2 × the font size) is a paragraph break.
+/// Editing the first paragraph must leave the second one in place.
+#[test]
+fn a_blank_line_keeps_the_next_paragraph() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (First paragraph, first row.) Tj T* (First paragraph, second row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Second paragraph, first row.) Tj T* (Second paragraph, second row.) Tj ET";
+    let mut doc = text_page(src);
+    let before = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(before.len(), 2, "{:?}", before.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    text::replace_block(&mut doc, 0, 0, "First paragraph, edited row.\nFirst paragraph, second row.").unwrap();
+    let after = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(after.len(), 2, "{:?}", after.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    assert!(after[1].text.contains("Second paragraph"), "{:?}", after[1].text);
+}
+
+/// #2517: adding a row must not pull in a paragraph that was 3 × the font size below.
+#[test]
+fn a_grown_paragraph_does_not_swallow_the_next_one() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (One) Tj T* (Two) Tj ET \
+               BT /F1 12 Tf 1 0 0 1 72 649.6 Tm (Neighbour) Tj ET";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "One\nTwo\nThree").unwrap();
+    let after = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(after.len(), 2, "{:?}", after.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    assert!(after[1].text.contains("Neighbour"), "{:?}", after[1].text);
+}
+
 #[test]
 fn paragraphs_are_found_and_rewrapped() {
     let mut doc = text_page(

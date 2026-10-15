@@ -8196,3 +8196,33 @@ fn comments_are_reshaped_through_the_tool() {
     assert!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": [[1, 2]] })).is_err(), "a line has two ends");
     assert!(matches!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": "no" })), Err(ToolError::InvalidArgs(_))));
 }
+
+/// #2517, through the same tools as the report: one blank line is two paragraphs, and editing
+/// the first leaves the second. Growing the first by a row does not absorb a neighbour that
+/// started three sizes below.
+#[test]
+fn a_blank_line_stays_a_separate_paragraph_through_tools() {
+    let dir = workdir("blank-line");
+    let body = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (First paragraph, first row.) Tj T* (First paragraph, second row.) Tj ET \
+                BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Second paragraph, first row.) Tj T* (Second paragraph, second row.) Tj ET";
+    std::fs::write(dir.join("a.pdf"), helvetica_page(body)).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let before = ok(&mut a, "text_paragraphs", json!({ "doc": doc, "page": 1 }));
+    assert_eq!(before["count"], 2, "{before}");
+    ok(&mut a, "text_edit", json!({ "doc": doc, "page": 1, "paragraph": 1, "text": "First paragraph, edited row.\nFirst paragraph, second row." }));
+    let after = ok(&mut a, "text_paragraphs", json!({ "doc": doc, "page": 1 }));
+    assert_eq!(after["count"], 2, "{after}");
+    let second = after["paragraphs"][1]["text"].as_str().unwrap();
+    assert!(second.contains("Second paragraph"), "{second}");
+
+    let grown = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (One) Tj T* (Two) Tj ET \
+                 BT /F1 12 Tf 1 0 0 1 72 649.6 Tm (Neighbour) Tj ET";
+    std::fs::write(dir.join("grown.pdf"), helvetica_page(grown)).unwrap();
+    let grown_doc = ok(&mut a, "doc_open", json!({ "path": "grown.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(ok(&mut a, "text_paragraphs", json!({ "doc": grown_doc, "page": 1 }))["count"], 2);
+    ok(&mut a, "text_edit", json!({ "doc": grown_doc, "page": 1, "paragraph": 1, "text": "One\nTwo\nThree" }));
+    let after = ok(&mut a, "text_paragraphs", json!({ "doc": grown_doc, "page": 1 }));
+    assert_eq!(after["count"], 2, "{after}");
+    assert!(after["paragraphs"][1]["text"].as_str().unwrap().contains("Neighbour"), "{after}");
+}
