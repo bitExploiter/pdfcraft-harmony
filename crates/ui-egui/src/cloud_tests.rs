@@ -380,9 +380,9 @@ fn open_minimal(h: &mut Harness) -> u64 {
 /// Render one frame using an egui Context and collect all non-empty text galley strings.
 /// This is the same technique the home-tab test uses to prove labels are visible.
 ///
-/// `ctx.run_ui` needs `FnMut`. The `draw` closure is wrapped in `Option` so it can be
-/// consumed by a `FnMut` that can only fire once (the test always passes a single-frame input).
-#[allow(unsafe_code)]
+/// `ctx.run_ui` needs `FnMut`. Both the `draw` closure and the mutable app reference are
+/// wrapped in `Option` and moved into the `FnMut` closure; `.take()` consumes each exactly
+/// once on the first (and only) frame — safe with no `unsafe` required.
 fn shapes_from_page(
     app: &mut PdfCraftApp,
     size: egui::Vec2,
@@ -390,16 +390,16 @@ fn shapes_from_page(
 ) -> Vec<String> {
     let ctx = egui::Context::default();
     ctx.set_fonts(crate::theme::font_definitions());
-    // Wrap both the closure and the app pointer so the `FnMut` closure can call a `FnOnce`.
-    // SAFETY: `shapes_from_page` is synchronous; `app` outlives the closure; `run_ui` calls
-    // the closure exactly once per frame on the calling thread.
-    let app_ptr: *mut PdfCraftApp = app;
+    // Both the `FnOnce` draw closure and the `&mut app` are moved into Options.
+    // Inside the `FnMut`, `.take()` extracts them at most once; subsequent frames
+    // (there are none in practice) are no-ops.  No unsafe needed.
     let mut draw_opt: Option<Box<dyn FnOnce(&mut PdfCraftApp, &mut egui::Ui)>> = Some(Box::new(draw));
+    let mut app_opt: Option<&mut PdfCraftApp> = Some(app);
     let output = ctx.run_ui(
         egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() },
         |ui| {
-            if let Some(f) = draw_opt.take() {
-                f(unsafe { &mut *app_ptr }, ui);
+            if let (Some(f), Some(a)) = (draw_opt.take(), app_opt.take()) {
+                f(a, ui);
             }
         },
     );
