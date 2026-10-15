@@ -243,6 +243,9 @@ fn print_dialog_shows_the_printer_driver_options() {
     {
         let d = &mut h.state_mut().print_draft;
         d.printer = Some("Test_Queue".into());
+        // A chosen paper, so this machine's real default printer (and its paper) doesn't matter.
+        d.paper = 0;
+        d.paper_picked = true;
         d.driver_options = Some(("Test_Queue".into(), vec![tray]));
         d.driver_choices.insert("InputSlot".into(), "Tray2".into());
         d.show_driver_options = true;
@@ -759,7 +762,9 @@ fn paper_choice_survives_cancel_and_settings_restore() {
     let mut h = harness();
     assert!(h.state_mut().execute("print.dialog"));
     h.run_steps(3);
-    h.get_by_value("US Letter").click();
+    // The dialog starts on the printer's default paper, which depends on the machine's printers.
+    let shown = PAPERS[h.state().print_draft.paper].0;
+    h.get_by_value(shown).click();
     h.run_steps(2);
     h.get_by_label("A4").click();
     h.run_steps(2);
