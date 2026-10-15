@@ -4,6 +4,9 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 #[cfg(target_arch = "wasm32")]
+mod cloud;
+
+#[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast;
     use pdfcraft_ui_egui::PdfCraftApp;
@@ -74,6 +77,14 @@ fn main() {
                         eframe::web_sys::console::warn_1(
                             &"PdfCraft: ?host=parent needs a framing page on the same origin; saves download instead".into(),
                         );
+                    }
+                    // Open and Save against cloud storage. In the browser the session rides
+                    // the same-origin cookie; there is no device flow and no token file.
+                    // `Client::from_page` reads the service URL from the page; on a plain
+                    // deployment it is absent and the interface shows the link-account prompt.
+                    app.cloud.connect(cloud::Service::new(cc.egui_ctx.clone()));
+                    if let Some(share) = collabcraft_share::CollabCraft::from_env() {
+                        app.share.connect(share);
                     }
                     Ok(Box::new(app))
                 }),

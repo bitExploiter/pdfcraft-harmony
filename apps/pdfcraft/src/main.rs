@@ -31,6 +31,7 @@ use pdfcraft_ui_egui::PdfCraftApp;
 
 #[cfg(target_os = "macos")]
 mod apple_events;
+mod cloud;
 mod compositor_gpu;
 mod decorations;
 mod logging;
@@ -450,6 +451,14 @@ fn app_creator<'a>(
                 log::warn!("--{k} {v}: {e}");
             }
         }
+        // Open and Save against cloud storage, when a CollabCraft service is configured.
+        // Every call blocks, so the worker runs on its own thread and answers reach the
+        // window on a channel. Without a service the app is local-only.
+        if let Some(backend) = cloud::service(cc.egui_ctx.clone()) {
+            app.cloud.connect(backend);
+        }
+        // The share dialog's backend: connects the same session as Open/Save.
+        app.share.connect(collabcraft_share::CollabCraft::from_fn(cloud::client));
         Ok(Box::new(app))
     })
 }

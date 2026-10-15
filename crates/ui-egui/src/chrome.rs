@@ -303,6 +303,22 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     if widgets::ghost_button_sized(ui, "messages-square", "Discord", tab_h).on_hover_text(pdfcraft_engine::links::DISCORD).clicked() {
                         app.execute("help.discord");
                     }
+                    // Cloud: account badge, presence, share button. Drawn only when a CollabCraft
+                    // service is connected. The layout runs right-to-left, so these appear to the
+                    // left of the theme/help controls and do not overlap the scrolling tabs.
+                    if crate::cloud::available(app) {
+                        ui.add_space(4.0);
+                        // Share button: shown only when the provider supports sharing.
+                        if crate::cloud::shares(app) {
+                            let copies = crate::cloud::copies();
+                            if let Some(fmt) = crate::cloud::share_button(app, ui, &copies) {
+                                // "Save a Copy as PDF": the only copy format PdfCraft offers.
+                                let _ = fmt; // the format id is always "pdf" for us
+                            }
+                        }
+                        // Who else has this document open (viewer presence only).
+                        crate::cloud::who(app, ui);
+                    }
                 });
             });
         });
