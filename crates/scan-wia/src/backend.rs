@@ -6,9 +6,9 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use craft_scan::{
-    Acquired, Backend, CancelToken, ChoiceField, Color, Compression, Connection, HandlingStatus, ImageChoices, ImageFormat, Intent, MAX_PAGES, Page,
-    PageSize, Reported, Rotation, ScanError, ScanSettings, Scanner, ScannerRef, Source, ValueSpan, align_to_span, fit_region, listed_values,
-    planned_frame, spanned_values,
+    Acquired, Backend, CancelToken, ChoiceField, Color, Compression, Connection, HandlingStatus, ImageChoices, ImageFormat, InferOptions, Intent,
+    LengthSource, MAX_PAGES, Page, PageLengthSupport, PageSize, Reported, Rotation, ScanError, ScanSettings, Scanner, ScannerRef, Source, ValueSpan,
+    align_to_span, fit_region, listed_values, planned_frame, spanned_values,
 };
 use windows::Win32::Devices::ImageAcquisition::{
     DUPLEX, FEED_READY, FEEDER, FLATBED, IWiaDataTransfer, IWiaDevMgr, IWiaDevMgr2, IWiaItem, IWiaItem2, IWiaPropertyStorage, IWiaTransfer,
@@ -18,18 +18,19 @@ use windows::Win32::Devices::ImageAcquisition::{
     WIA_DPS_DOCUMENT_HANDLING_CAPABILITIES, WIA_DPS_DOCUMENT_HANDLING_CAPACITY, WIA_DPS_DOCUMENT_HANDLING_SELECT, WIA_DPS_DOCUMENT_HANDLING_STATUS,
     WIA_DPS_HORIZONTAL_BED_SIZE, WIA_DPS_HORIZONTAL_SHEET_FEED_SIZE, WIA_DPS_OPTICAL_XRES, WIA_DPS_OPTICAL_YRES, WIA_DPS_PAGES,
     WIA_DPS_VERTICAL_BED_SIZE, WIA_DPS_VERTICAL_SHEET_FEED_SIZE, WIA_IPA_COMPRESSION, WIA_IPA_DATATYPE, WIA_IPA_DEPTH, WIA_IPA_FILENAME_EXTENSION,
-    WIA_IPA_FORMAT, WIA_IPA_ITEM_CATEGORY, WIA_IPA_ITEM_FLAGS, WIA_IPA_ITEM_NAME, WIA_IPA_PREFERRED_FORMAT, WIA_IPA_TYMED, WIA_IPS_AUTO_DESKEW,
-    WIA_IPS_BRIGHTNESS, WIA_IPS_CONTRAST, WIA_IPS_CUR_INTENT, WIA_IPS_INVERT, WIA_IPS_LAMP, WIA_IPS_MAX_HORIZONTAL_SIZE, WIA_IPS_MAX_VERTICAL_SIZE,
-    WIA_IPS_MIRROR, WIA_IPS_ORIENTATION, WIA_IPS_PAGE_SIZE, WIA_IPS_PAGES, WIA_IPS_PHOTOMETRIC_INTERP, WIA_IPS_ROTATION, WIA_IPS_THRESHOLD,
-    WIA_IPS_XEXTENT, WIA_IPS_XPOS, WIA_IPS_XRES, WIA_IPS_YEXTENT, WIA_IPS_YPOS, WIA_IPS_YRES, WIA_PROP_FLAG, WIA_PROP_LIST, WIA_PROP_RANGE,
-    WIA_PROP_READ, WIA_PROP_WRITE, WiaDevMgr, WiaDevMgr2, WiaImgFmt_BMP, WiaImgFmt_JPEG, WiaImgFmt_JPEG2K, WiaImgFmt_PNG, WiaImgFmt_TIFF,
-    WiaItemTypeTransfer,
+    WIA_IPA_FORMAT, WIA_IPA_ITEM_CATEGORY, WIA_IPA_ITEM_FLAGS, WIA_IPA_ITEM_NAME, WIA_IPA_PREFERRED_FORMAT, WIA_IPA_TYMED, WIA_IPS_AUTO_CROP,
+    WIA_IPS_AUTO_DESKEW, WIA_IPS_BRIGHTNESS, WIA_IPS_CONTRAST, WIA_IPS_CUR_INTENT, WIA_IPS_INVERT, WIA_IPS_LAMP, WIA_IPS_LONG_DOCUMENT,
+    WIA_IPS_MAX_HORIZONTAL_SIZE, WIA_IPS_MAX_VERTICAL_SIZE, WIA_IPS_MIRROR, WIA_IPS_ORIENTATION, WIA_IPS_PAGE_SIZE, WIA_IPS_PAGES,
+    WIA_IPS_PHOTOMETRIC_INTERP, WIA_IPS_ROTATION, WIA_IPS_THRESHOLD, WIA_IPS_XEXTENT, WIA_IPS_XPOS, WIA_IPS_XRES, WIA_IPS_YEXTENT, WIA_IPS_YPOS,
+    WIA_IPS_YRES, WIA_PROP_FLAG, WIA_PROP_LIST, WIA_PROP_RANGE, WIA_PROP_READ, WIA_PROP_WRITE, WiaDevMgr, WiaDevMgr2, WiaImgFmt_BMP, WiaImgFmt_JPEG,
+    WiaImgFmt_JPEG2K, WiaImgFmt_PNG, WiaImgFmt_TIFF, WiaItemTypeTransfer,
 };
 use windows::Win32::System::Com::StructuredStorage::PROPVARIANT;
 use windows::Win32::System::Variant::{VT_BSTR, VT_CLSID, VT_I4, VT_LPWSTR, VT_UI2, VT_UI4};
 use windows::core::{GUID, Interface};
 
 use crate::ffi::{self, ComInit, CrossThreadTransfer};
+use crate::length::{self, Action, DeviceDetect, PropTable};
 use crate::rules::{self, describe_windows_error, handling_caps, status_from_bits};
 use crate::sinks::{Bands, TransferState, band_bytes, band_callback, finish_band, halt_feeder, transfer_callback};
 
@@ -57,6 +58,10 @@ impl Backend for Wia {
 
     fn status(&self, native_id: &str) -> Option<HandlingStatus> {
         scanner_status(native_id)
+    }
+
+    fn page_length_support(&self, native_id: &str, source: Source) -> PageLengthSupport {
+        scanner_details(native_id).map(|scanner| scanner.length_support(source)).unwrap_or_default()
     }
 
     fn diagnostic_dump(&self, filter: &str) -> Result<String, ScanError> {
@@ -175,6 +180,8 @@ fn read_scanner(mgr: &IWiaDevMgr2, id: &str, name: &str) -> Result<Scanner, Scan
     reported.units = units_read;
     reported.glass_absent = glass_props.as_ref().map(missing_choices).unwrap_or_default();
     reported.feeder_absent = feeder_props.as_ref().map(missing_choices).unwrap_or_default();
+    reported.glass_length = glass_props.as_ref().map(|props| length::support(&read_length_table(props))).unwrap_or_default();
+    reported.feeder_length = feeder_props.as_ref().map(|props| length::support(&read_length_table(props))).unwrap_or_default();
     Ok(Scanner {
         id: id.to_string(),
         name: name.to_string(),
@@ -540,10 +547,48 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         require_choice(&item, WIA_IPS_CUR_INTENT, intent.driver(), "intent")?;
         write_i4(&item, WIA_IPS_CUR_INTENT, intent.driver())?;
     }
-    if let Some(page_size) = settings.page_size {
+    // Page length (see `crate::length`): device detection when the item publishes it, else the chosen page size as
+    // extents, else (opt in) the longest extent and an inference from the image. `Driver` does none of it.
+    let length_table = read_length_table(&item);
+    let length_request = length::Request {
+        mode: settings.page_length,
+        page_size: settings.page_size,
+        region: settings.region.is_some(),
+        feeder: source == Source::Feeder,
+    };
+    let mut decision = length::decide(&length_request, &length_table);
+    let mut length_source = LengthSource::Driver;
+    if let Action::Device(method) = decision.action {
+        if apply_device_detect(&item, method, wsd_port) {
+            length_source = LengthSource::Device;
+        } else {
+            // Published but refused: fall through to the size or inference, as if it were not published.
+            decision = length::decide(&length_request, &PropTable::new(length_table.was_read()));
+        }
+    }
+    let mut size_extent = None;
+    if let Some(page_size) = settings.page_size
+        && length_source != LengthSource::Device
+    {
         // The size is chosen against the list of the item that transfers (the feeder's, not the glass's,
         // once Auto has resolved), and a size the driver refuses never fails the scan.
-        apply_page_size(&item, page_size, source, &trace)?;
+        let applied = apply_page_size(&item, page_size, source, &trace)?;
+        if let Action::Size { size, height_mils } = decision.action {
+            // Page size if listed, else extents; the extent is also written when the size was taken so the length
+            // is the one asked for whatever the driver did with its own list.
+            size_extent = Some((size, height_mils, applied == Some(size)));
+            length_source = LengthSource::Size;
+        }
+    }
+    let infer_requested = decision.action == Action::Infer;
+    if trace.enabled() {
+        let action = match decision.action {
+            Action::Driver => "driver",
+            Action::Device(method) => method.name(),
+            Action::Size { .. } => "size",
+            Action::Infer => "infer",
+        };
+        trace.phase("page_length", &[("action", action), ("source", length_source.as_str()), ("why", decision.why)]);
     }
     if let Some(on) = settings.auto_deskew {
         let value = as_i32(if on { WIA_AUTO_DESKEW_ON } else { WIA_AUTO_DESKEW_OFF })?;
@@ -592,6 +637,28 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
     require_choice(&item, WIA_IPS_YRES, dpi_y_i, "dpi-y")?;
     write_i4_if_needed(&item, WIA_IPS_XRES, dpi_x, wsd_port)?;
     write_i4_if_needed(&item, WIA_IPS_YRES, dpi_y_i, wsd_port)?;
+    let mut frame = frame;
+    let mut inferring = false;
+    if frame.width > 0 && frame.height > 0 {
+        let y_span = choice_span(&item, WIA_IPS_YEXTENT);
+        if let Some((size, height_mils, page_size_taken)) = size_extent {
+            match length::fit_height(height_mils, dpi_y, y_span) {
+                Ok(rows) => frame.height = rows,
+                // The driver took the page size itself, so its own extent stands even if the range disagrees.
+                Err(_) if page_size_taken => {}
+                Err(error) => return Err(ScanError::Failed(error.sentence(height_mils, dpi_y))),
+            }
+            log::debug!("scan: page length from {}: {} rows at {dpi_y} dpi", size.name(), frame.height);
+        } else if infer_requested {
+            let max_mils = length::support(&length_table).max_length_mils.or(max.map(|(_, height)| height));
+            if let Some(rows) = length::longest_rows(y_span, max_mils, dpi_y) {
+                frame.height = rows;
+                inferring = true;
+            } else {
+                log::warn!("scan: the item publishes no longest extent, so the sheet end is not inferred");
+            }
+        }
+    }
     let (x, y) = if frame.width == 0 || frame.height == 0 {
         (0, 0)
     } else if frame.move_origin {
@@ -694,6 +761,8 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         );
     }
 
+    let page_rule = craft_scan::bw::PageRule::for_settings(settings)
+        .with_length(craft_scan::bw::LengthPlan { source: length_source, infer: inferring.then(InferOptions::default) });
     let wanted_n = if page_count == 0 { usize::try_from(MAX_PAGES).unwrap_or(0) } else { usize::try_from(page_count).unwrap_or(0) };
     // Media type is a whole file or a banded callback. Inbox WSD (wsdscdrv) accepts a
     // TYMED_CALLBACK (128) write, starts CreateScanJob, then fails the banded transfer
@@ -719,7 +788,7 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
                 x,
                 y,
                 settings.color.depth(),
-                craft_scan::bw::PageRule::for_settings(settings),
+                page_rule,
                 wanted_n,
                 pages_requested,
                 settings.progress.clone(),
@@ -773,7 +842,7 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         transfer: None,
         device: None,
         feeder: source == Source::Feeder,
-        rule: craft_scan::bw::PageRule::for_settings(settings),
+        rule: page_rule,
         cancel: settings.cancel.clone(),
         progress: settings.progress.clone(),
         wire_byte_progress: wsd_port,
@@ -1285,7 +1354,7 @@ fn apply_page_size(
     requested: PageSize,
     source: Source,
     trace: &craft_scan::trace::AcquireTrace,
-) -> Result<(), ScanError> {
+) -> Result<Option<PageSize>, ScanError> {
     let published = published_page_sizes(item);
     let (applied, omit) = match rules::plan_page_size(requested, published.as_deref()) {
         rules::PageSizePlan::Omit(why) => (None, Some(why)),
@@ -1301,7 +1370,7 @@ fn apply_page_size(
         }
     };
     if applied == Some(requested) {
-        return Ok(());
+        return Ok(applied);
     }
     let note = rules::page_size_note(requested, applied, omit);
     log::warn!("scan: {} item: {note}", source.name());
@@ -1311,7 +1380,7 @@ fn apply_page_size(
             &[("requested", requested.name()), ("applied", applied.map_or("none", PageSize::name)), ("source", source.name()), ("note", &note)],
         );
     }
-    Ok(())
+    Ok(applied)
 }
 
 /// `Ok(true)` once written, `Ok(false)` when the driver refused the value with `E_INVALIDARG`.
@@ -1327,6 +1396,49 @@ fn write_page_size(item: &IWiaPropertyStorage, size: PageSize) -> Result<bool, S
             Err(property_error(WIA_IPS_PAGE_SIZE, error.code().0 as u32, text))
         }
     }
+}
+
+/// One property as the driver publishes it, `None` when the item does not have it.
+fn length_prop(props: &IWiaPropertyStorage, id: u32) -> Option<length::Prop> {
+    let attributes = ffi::property_attributes(props, id);
+    attributes.status.ok()?;
+    let writable = attributes.flags & WIA_PROP_WRITE != 0;
+    let raw = ffi::variant_i32_vector(&attributes.valid);
+    if attributes.flags & WIA_PROP_LIST != 0 {
+        Some(length::Prop::List { values: listed_values(&raw), writable })
+    } else if attributes.flags & WIA_PROP_RANGE != 0 {
+        spanned_values(&raw).map(|span| length::Prop::Range { span, writable })
+    } else {
+        read_i4(props, id).ok().map(|value| length::Prop::Value { value, writable })
+    }
+}
+
+/// The properties of an item that decide the page length. Read only: nothing is written. The table counts as
+/// read when the item answers for the resolution (every scan item has one), so a storage that could not be read
+/// gives `Unknown` and not `Absent`.
+fn read_length_table(props: &IWiaPropertyStorage) -> PropTable {
+    let ids = [length::WIA_IPS_PAGE_SIZE, length::WIA_IPS_YEXTENT, length::WIA_IPS_MAX_VERTICAL_SIZE, WIA_IPS_AUTO_CROP, WIA_IPS_LONG_DOCUMENT];
+    let answered =
+        ffi::property_attributes(props, WIA_IPS_XRES).status.is_ok() || ffi::property_attributes(props, length::WIA_IPS_YEXTENT).status.is_ok();
+    let mut table = PropTable::new(answered);
+    for id in ids {
+        if let Some(prop) = length_prop(props, id) {
+            table = table.with(id, prop);
+        }
+    }
+    table
+}
+
+/// Ask the device to detect the sheet length. `false` when the driver refuses, which is then handled as if the
+/// device had not published it.
+fn apply_device_detect(item: &IWiaPropertyStorage, method: DeviceDetect, wsd: bool) -> bool {
+    let (id, value) = method.write();
+    let written =
+        if id == length::WIA_IPS_PAGE_SIZE { write_page_size(item, PageSize::Auto).unwrap_or(false) } else { write_i4(item, id, value).is_ok() };
+    if !written {
+        log::warn!("scan: the scanner publishes {} but did not accept it{}", method.name(), if wsd { " (WSD port)" } else { "" });
+    }
+    written
 }
 
 fn write_i4(props: &IWiaPropertyStorage, id: u32, value: i32) -> Result<(), ScanError> {

@@ -9,11 +9,13 @@
 //! and `sinks` (the COM callback objects WIA calls back into). Everything else here, and the whole
 //! of `craft-scan`, is safe code. `docs/unsafe-audit.md` lists every category and how to review it.
 //!
+//! [`length`] (what an item publishes about sheet-length detection and what to do about a page-length request) and
 //! [`rules`] (the HRESULT tables, the sentences and the status-bit rules) has no COM in it and
 //! builds on every platform. The backend itself is empty on other platforms.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod length;
 pub mod rules;
 
 #[cfg(windows)]

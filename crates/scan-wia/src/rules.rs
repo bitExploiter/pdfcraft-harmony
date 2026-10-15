@@ -381,13 +381,7 @@ pub fn after_transfer_checked(
 /// The nominal sheet of a named page size in thousandths of an inch, `(width, height)`. `Custom`
 /// and `Auto` are not a sheet and have none.
 pub fn page_size_dims(size: PageSize) -> Option<(u32, u32)> {
-    match size {
-        PageSize::A4 => Some((8267, 11692)),
-        PageSize::Letter => Some((8500, 11000)),
-        PageSize::Legal => Some((8500, 14000)),
-        PageSize::BusinessCard => Some((3543, 2165)),
-        PageSize::Custom | PageSize::Auto => None,
-    }
+    size.extent_mils()
 }
 
 /// Why no page size is written at all.
