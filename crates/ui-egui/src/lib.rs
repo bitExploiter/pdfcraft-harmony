@@ -2856,6 +2856,14 @@ impl eframe::App for PdfCraftApp {
         self.process_file_requests();
         #[cfg(not(target_arch = "wasm32"))]
         self.process_picked();
+        // Bootstrap cloud state: ask who is signed in and start a root listing.
+        // Called each frame but start() guards itself with asked_account and acts
+        // only once. In the browser build the session rides the same-origin cookie
+        // set at craft.quasarke.net login, so calling this here is what makes that
+        // login carry into PDFCraft automatically. Without it the account is only
+        // fetched when the user opens File > Open, leaving the title-bar controls
+        // (account badge, Share, presence) unresponsive until then.
+        cloud::start(self);
         // Drain answers from the cloud worker (Open, Save, account, listing).
         cloud::pump(self, ctx);
     }

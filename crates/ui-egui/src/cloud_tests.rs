@@ -198,6 +198,21 @@ fn linked_account_reported_after_start() {
 }
 
 #[test]
+fn account_fetched_by_update_loop_without_explicit_start() {
+    // start() is called from update() since the fix; verify the account
+    // arrives without a hand-written start() call. This is the browser
+    // case: the session rides the same-origin cookie set at the root
+    // sign-in, and the user never has to open File > Open for the
+    // title-bar controls to reflect it.
+    let (mut h, _state) = linked_harness();
+    // Deliberately no cloud::start() here. The update loop provides it.
+    h.run_steps(4);
+    let account = h.state().cloud.account.clone();
+    assert!(account.is_some(), "update loop must bootstrap the account without an explicit start()");
+    assert_eq!(account.unwrap().display, "Ada Lovelace");
+}
+
+#[test]
 fn sign_out_clears_account() {
     let (mut h, _state) = linked_harness();
     cloud::start(h.state_mut());
