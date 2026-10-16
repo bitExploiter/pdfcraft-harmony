@@ -57,7 +57,7 @@ fn run(client: &Client, request: Request, reply: Replier) {
             Err(e) => reply.refuse(e.to_string()),
         },
         Request::Create { draft, document, idempotency_key, send } => {
-            match client.esign_create(&draft, &document, &idempotency_key, send) {
+            match client.esign_create(draft.as_ref(), &document, &idempotency_key, send) {
                 Ok(env) => reply.answer(Answer::Created(env)),
                 Err(e) => reply.refuse(e.to_string()),
             }

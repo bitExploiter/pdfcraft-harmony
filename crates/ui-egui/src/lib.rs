@@ -2919,7 +2919,7 @@ impl eframe::App for PdfCraftApp {
             }) {
                 Some(bytes) => {
                     self.esign.submit_request(craft_ui::esign::Request::Create {
-                        draft: send.draft,
+                        draft: Box::new(send.draft),
                         document: bytes,
                         idempotency_key: send.idempotency_key,
                         send: true,
