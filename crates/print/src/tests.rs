@@ -877,3 +877,23 @@ fn driver_options_take_the_ppds_own_names_in_the_ui_language() {
 }
 
 mod appearances;
+#[test]
+fn a_custom_paper_is_named_for_cups_in_millimetres() {
+    let mm = 72.0 / 25.4;
+    assert_eq!(crate::cups_custom_media((100.0 * mm, 150.0 * mm)).as_deref(), Some("Custom.100x150mm"));
+    assert_eq!(crate::cups_custom_media((150.0 * mm, 100.0 * mm)).as_deref(), Some("Custom.100x150mm"), "portrait");
+    assert_eq!(crate::cups_custom_media((300.0, 400.0)).as_deref(), Some("Custom.105.8x141.1mm"));
+    assert_eq!(crate::cups_custom_media((f64::NAN, 400.0)), None);
+}
+
+#[test]
+fn a_custom_paper_size_is_read_in_any_unit() {
+    let close = |a: Option<(f64, f64)>, b: (f64, f64)| a.is_some_and(|a| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01);
+    assert!(close(crate::parse_paper_size("100x150mm"), (283.46, 425.2)));
+    assert!(close(crate::parse_paper_size(" 10 × 15 CM "), (283.46, 425.2)));
+    assert!(close(crate::parse_paper_size("4x6in"), (288.0, 432.0)));
+    assert!(close(crate::parse_paper_size("600x400pt"), (600.0, 400.0)), "either way round");
+    for bad in ["A4", "100x150", "x150mm", "10x150mm", "100x6000in", "NaNx150mm", "infx150mm", "-100x150mm"] {
+        assert_eq!(crate::parse_paper_size(bad), None, "{bad}");
+    }
+}

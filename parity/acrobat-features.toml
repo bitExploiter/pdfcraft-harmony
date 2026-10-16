@@ -8166,11 +8166,11 @@ title = "Page setup"
 area = "L"
 tier = "P1"
 milestone = "M10"
-status = "planned"
+status = "partial"
 commands = []
-tools = []
-evidence = []
-notes = ""
+tools = ["doc_print"]
+evidence = ["crates/ui-egui/tests/print.rs::a_custom_paper_size_is_typed_in_the_chosen_unit", "crates/ui-egui/tests/print.rs::a_page_of_no_standard_size_gets_a_custom_paper_of_its_size", "crates/print/src/tests.rs::a_custom_paper_size_is_read_in_any_unit", "crates/print/src/tests.rs::a_custom_paper_is_named_for_cups_in_millimetres"]
+notes = "Custom paper size only: Print ▸ Paper ▸ Custom size (width × height in the Units preference; Match page at 100% picks it for a page of no standard size), doc_print paper=\"100x150mm\"; CUPS gets media=Custom.WxHmm. On Windows it prints where the driver offers a custom paper (needs craft-libs with storytold/craft-libs#161), else the driver's own message. Still missing: a separate Page Setup dialog, saved custom sizes, margins and paper source per size"
 
 [[feature]]
 id = "print.print-ready-pdf"

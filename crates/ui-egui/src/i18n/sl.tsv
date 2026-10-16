@@ -2321,6 +2321,7 @@ key	Space	Preslednica
 	For page sizes and margins.	Za velikosti strani in robove.
 	PDF page: {size}	Stran PDF: {size}
 	Match page at 100%	Prilagodi strani pri 100 %
+	Custom size	Velikost po meri
 	PDF scale: {scale}%	Merilo PDF: {scale} %
 	Printer paper and scaling may differ. Check driver settings.	Papir in merilo tiskalnika se lahko razlikujeta. Preverite nastavitve gonilnika.
 	Drawing scale changes. Use Actual size for full-scale plans.	Merilo risbe se spremeni. Za načrte v polnem merilu uporabite Dejansko velikost.

@@ -2400,6 +2400,7 @@ animation effects	Off	Vypnuto
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	Stránka PDF: {size}
 	Match page at 100%	Papír podle stránky, 100 %
+	Custom size	Vlastní velikost
 	PDF scale: {scale}%	Měřítko PDF: {scale} %
 	Printer paper and scaling may differ. Check driver settings.	Papír a měřítko tiskárny se mohou lišit. Zkontrolujte nastavení ovladače.
 	Drawing scale changes. Use Actual size for full-scale plans.	Měřítko výkresu se změní. Pro plány ve skutečném měřítku použijte volbu Skutečná velikost.

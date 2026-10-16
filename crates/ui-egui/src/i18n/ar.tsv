@@ -2336,6 +2336,7 @@ key	Space	مسافة
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	صفحة PDF: {size}
 	Match page at 100%	مطابقة الورق للصفحة بنسبة 100%
+	Custom size	حجم مخصص
 	PDF scale: {scale}%	مقياس PDF: {scale}%
 	Printer paper and scaling may differ. Check driver settings.	قد يختلف ورق الطابعة ومقياس الطباعة. تحقق من إعدادات برنامج التشغيل.
 	Drawing scale changes. Use Actual size for full-scale plans.	يتغير مقياس الرسم. استخدم الحجم الفعلي لطباعة المخططات بمقياسها الأصلي.

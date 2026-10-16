@@ -2312,6 +2312,7 @@ key	Space	Boşluk
 	For page sizes and margins.	Sayfa boyutları ve kenar boşlukları için.
 	PDF page: {size}	PDF sayfası: {size}
 	Match page at 100%	Sayfayı %100'de eşleştir
+	Custom size	Özel boyut
 	PDF scale: {scale}%	PDF ölçeği: %{scale}
 	Printer paper and scaling may differ. Check driver settings.	Yazıcı kâğıdı ve ölçekleme farklı olabilir. Sürücü ayarlarını kontrol edin.
 	Drawing scale changes. Use Actual size for full-scale plans.	Çizim ölçeği değişir. Tam ölçekli planlar için Gerçek boyutu kullanın.

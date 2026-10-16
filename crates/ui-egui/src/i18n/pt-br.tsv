@@ -2317,6 +2317,7 @@ key	Space	Espaço
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	Página PDF: {size}
 	Match page at 100%	Ajustar papel à página a 100%
+	Custom size	Tamanho personalizado
 	PDF scale: {scale}%	Escala do PDF: {scale}%
 	Printer paper and scaling may differ. Check driver settings.	O papel e a escala da impressora podem variar. Confira as configurações do driver.
 	Drawing scale changes. Use Actual size for full-scale plans.	A escala do desenho muda. Use Tamanho real para plantas em escala.
