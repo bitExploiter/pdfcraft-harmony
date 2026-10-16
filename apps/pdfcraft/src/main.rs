@@ -32,8 +32,8 @@ use pdfcraft_ui_egui::PdfCraftApp;
 #[cfg(target_os = "macos")]
 mod apple_events;
 mod cloud;
-mod esign_host;
 mod compositor_gpu;
+mod esign_host;
 mod logging;
 #[cfg(target_os = "windows")]
 mod motion;

@@ -45,23 +45,19 @@ pub fn service(ctx: egui::Context) -> Option<Service> {
 fn run(client: &Client, request: Request, reply: Replier) {
     match request {
         Request::Capabilities => match client.esign_capabilities() {
-            Ok(caps) => reply.answer(Answer::Capabilities {
-                capabilities: caps.capabilities,
-                responsible_party: caps.responsible_party,
-                linked: caps.linked,
-            }),
+            Ok(caps) => {
+                reply.answer(Answer::Capabilities { capabilities: caps.capabilities, responsible_party: caps.responsible_party, linked: caps.linked })
+            }
             Err(e) => reply.refuse(e.to_string()),
         },
         Request::Lookup { query, limit } => match client.contacts(&query, limit) {
             Ok(contacts) => reply.answer(Answer::Lookup(contacts)),
             Err(e) => reply.refuse(e.to_string()),
         },
-        Request::Create { draft, document, idempotency_key, send } => {
-            match client.esign_create(draft.as_ref(), &document, &idempotency_key, send) {
-                Ok(env) => reply.answer(Answer::Created(env)),
-                Err(e) => reply.refuse(e.to_string()),
-            }
-        }
+        Request::Create { draft, document, idempotency_key, send } => match client.esign_create(draft.as_ref(), &document, &idempotency_key, send) {
+            Ok(env) => reply.answer(Answer::Created(env)),
+            Err(e) => reply.refuse(e.to_string()),
+        },
         Request::Status { envelope } => match client.esign_status(&envelope) {
             Ok(env) => reply.answer(Answer::Status(env)),
             Err(e) => reply.refuse(e.to_string()),

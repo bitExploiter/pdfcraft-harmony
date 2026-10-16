@@ -344,18 +344,8 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 .cloud
                                 .account
                                 .as_ref()
-                                .map(|a| craft_cloud::Identity {
-                                    id: a.id.clone(),
-                                    display: a.display.clone(),
-                                    email: a.email.clone(),
-                                    avatar: None,
-                                })
-                                .unwrap_or_else(|| craft_cloud::Identity {
-                                    id: String::new(),
-                                    display: String::new(),
-                                    email: None,
-                                    avatar: None,
-                                });
+                                .map(|a| craft_cloud::Identity { id: a.id.clone(), display: a.display.clone(), email: a.email.clone(), avatar: None })
+                                .unwrap_or_else(|| craft_cloud::Identity { id: String::new(), display: String::new(), email: None, avatar: None });
                             crate::esign::open(&mut app.esign, id, title, etag, sender);
                         }
                         // Who else has this document open (viewer presence only).

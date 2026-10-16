@@ -169,11 +169,8 @@ fn offer_login_popup(ctx: &egui::Context) {
     }
 
     // Try to open a popup.  Returns Ok(None) when blocked by the browser.
-    let popup_result = window.open_with_url_and_target_and_features(
-        "/auth/login",
-        "_blank",
-        "popup,width=520,height=620,menubar=no,toolbar=no,location=no",
-    );
+    let popup_result =
+        window.open_with_url_and_target_and_features("/auth/login", "_blank", "popup,width=520,height=620,menubar=no,toolbar=no,location=no");
 
     match popup_result {
         Ok(Some(popup)) => {
@@ -191,10 +188,7 @@ fn offer_login_popup(ctx: &egui::Context) {
                     // the update loop consumes "pdfcraft:auth_done".
                 }
             });
-            let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
-                cb.as_ref().unchecked_ref(),
-                750,
-            );
+            let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(cb.as_ref().unchecked_ref(), 750);
             cb.forget();
         }
         _ => {
