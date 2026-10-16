@@ -13,6 +13,7 @@ workspace = true
 craft-ui = { workspace = true }
 # Provider-neutral cloud types used by the CloudApp implementation (Entry, EntryKind, Capability).
 craft-cloud = { workspace = true }
+craft-esign = { workspace = true }
 pdfcraft-fonts = { workspace = true }
 pdfcraft-engine = { workspace = true }
 pdfcraft-cos = { workspace = true }
