@@ -1174,7 +1174,7 @@ dependencies = [
 [[package]]
 name = "craft-ui"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F112%2Fhead#8a10538ffd40101e61f7c101ced3e57ffd7acbc5"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F112%2Fhead#5a51d940f6ed22053f92b98c7094558686140c01"
 dependencies = [
  "egui",
  "serde",
