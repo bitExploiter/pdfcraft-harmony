@@ -340,12 +340,12 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                     None,
                                 ),
                             };
-                            let sender = app
-                                .cloud
-                                .account
-                                .as_ref()
-                                .map(|a| craft_cloud::Identity { id: a.id.clone(), display: a.display.clone(), email: a.email.clone(), avatar: None })
-                                .unwrap_or_else(|| craft_cloud::Identity { id: String::new(), display: String::new(), email: None, avatar: None });
+                            let sender = craft_cloud::Identity {
+                                id: String::new(),
+                                display: app.cloud.account.as_ref().map(|a| a.display.clone()).unwrap_or_default(),
+                                email: None,
+                                avatar: None,
+                            };
                             crate::esign::open(&mut app.esign, id, title, etag, sender);
                         }
                         // Who else has this document open (viewer presence only).
