@@ -3004,7 +3004,7 @@ impl eframe::App for PdfCraftApp {
                 }
                 // Cloud Save As page: pick a folder, name, and save; dismisses on success.
                 Some(CloudPage::SaveAs) => {
-                    let saved = cloud_page_shell(self, ui, |app, ui| crate::cloud::save_page(app, ui));
+                    let saved = cloud_page_shell(self, ui, crate::cloud::save_page);
                     if saved {
                         self.cloud_page = None;
                     }

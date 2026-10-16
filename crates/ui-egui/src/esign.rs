@@ -47,8 +47,5 @@ pub fn labels() -> EsignLabels {
 
 pub fn request_button(ui: &mut egui::Ui, dialog: &EsignDialog) -> bool {
     let labels = labels();
-    match craft_ui::esign::request_button(ui, &labels, dialog.available(), &[]) {
-        Some(craft_ui::menu::SplitHit::Primary) => true,
-        _ => false,
-    }
+    matches!(craft_ui::esign::request_button(ui, &labels, dialog.available(), &[]), Some(craft_ui::menu::SplitHit::Primary))
 }

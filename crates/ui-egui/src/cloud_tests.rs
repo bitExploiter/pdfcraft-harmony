@@ -390,7 +390,8 @@ fn shapes_from_page(app: &mut PdfCraftApp, size: egui::Vec2, draw: impl FnOnce(&
     // Both the `FnOnce` draw closure and the `&mut app` are moved into Options.
     // Inside the `FnMut`, `.take()` extracts them at most once; subsequent frames
     // (there are none in practice) are no-ops.  No unsafe needed.
-    let mut draw_opt: Option<Box<dyn FnOnce(&mut PdfCraftApp, &mut egui::Ui)>> = Some(Box::new(draw));
+    type DrawOnce = Box<dyn FnOnce(&mut PdfCraftApp, &mut egui::Ui)>;
+    let mut draw_opt: Option<DrawOnce> = Some(Box::new(draw));
     let mut app_opt: Option<&mut PdfCraftApp> = Some(app);
     let output = ctx.run_ui(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() }, |ui| {
         if let (Some(f), Some(a)) = (draw_opt.take(), app_opt.take()) {
@@ -419,7 +420,7 @@ fn open_from_cloud_page_heading_and_back_button_are_visible() {
     let app = h.state_mut();
     app.cloud_page = Some(crate::CloudPage::Open);
     let labels = shapes_from_page(app, egui::vec2(1200.0, 800.0), |app, ui| {
-        crate::cloud_page_shell(app, ui, |app, ui| crate::cloud::open_page(app, ui));
+        crate::cloud_page_shell(app, ui, crate::cloud::open_page);
     });
     assert!(labels.iter().any(|l| l.contains("Open from cloud")), "cloud Open page must render a visible heading; rendered: {labels:?}",);
     assert!(labels.iter().any(|l| l.contains("Back")), "Back button must render visible text for screen-reader navigation; rendered: {labels:?}",);
