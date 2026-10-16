@@ -446,6 +446,12 @@ pub(crate) fn path_as_rect(path: &BezPath) -> Option<Rect> {
     if path.elements().len() != 5 {
         return None;
     }
+    // PdfCraft patch: only a closed path whose every side is horizontal or vertical. Five
+    // elements touching the four corners can also be an open polyline: the "M" of AutoCAD SHX
+    // text is `m l l l l` with two diagonals, and drawn as a rectangle it became a box (#2911).
+    if !closed_axis_aligned(path) {
+        return None;
+    }
 
     let bbox = path.fast_bounding_box();
     let (min_x, min_y, max_x, max_y) = (bbox.min_x(), bbox.min_y(), bbox.max_x(), bbox.max_y());
@@ -479,4 +485,36 @@ pub(crate) fn path_as_rect(path: &BezPath) -> Option<Rect> {
     } else {
         None
     }
+}
+
+/// Whether `path` (one MoveTo, then LineTos and at most a final ClosePath) goes back to where it
+/// started and moves only horizontally or vertically.
+fn closed_axis_aligned(path: &BezPath) -> bool {
+    let mut start = None;
+    let mut last = None;
+    let mut closed = false;
+    for el in path.elements() {
+        let p = match el {
+            PathEl::MoveTo(p) => {
+                start = Some(*p);
+                last = Some(*p);
+                continue;
+            }
+            PathEl::LineTo(p) => *p,
+            PathEl::ClosePath => {
+                closed = true;
+                match start {
+                    Some(p) => p,
+                    None => return false,
+                }
+            }
+            PathEl::QuadTo(..) | PathEl::CurveTo(..) => return false,
+        };
+        let Some(from) = last else { return false };
+        if !(p.x.is_nearly_equal(from.x) || p.y.is_nearly_equal(from.y)) {
+            return false;
+        }
+        last = Some(p);
+    }
+    closed || matches!((start, last), (Some(a), Some(b)) if a.x.is_nearly_equal(b.x) && a.y.is_nearly_equal(b.y))
 }

@@ -4694,6 +4694,38 @@ trailer << /Root 1 0 R >>
         assert_eq!((last.width, last.height), (50, 100), "the last page is read from its own offset");
     }
 
+    /// #2911 / #235: five path elements that touch the four corners of their bounding box are not
+    /// always a rectangle. The "M" of AutoCAD SHX text is an open `m l l l l` with two diagonals;
+    /// taken as a rectangle it was stroked as a box (and filled as one), and an open path with
+    /// four horizontal or vertical sides gained the side it doesn't have. A closed rectangle
+    /// still draws as before.
+    #[test]
+    fn an_open_or_diagonal_five_point_path_is_not_drawn_as_a_rectangle() {
+        // Grey value at PDF point (x, y) of the 40 x 40 page, rendered at 4 pixels per point.
+        let grey_at = |content: &[u8], x: usize, y: usize| -> u8 {
+            let page = PageRenderer::new(Arc::new(one_page_pdf(content, "")), RenderConfig::default()).render(RenderRequest {
+                page: 0,
+                kind: RequestKind::Pixels,
+                tile: None,
+                scale: 4.0,
+                tag: 0,
+                preview: false,
+            });
+            assert!(page.error.is_none(), "{:?}", page.error);
+            let (px, py) = (x * 4, (40 - y) * 4);
+            page.rgba[(py * page.width as usize + px) * 4]
+        };
+        let m = b"0 G 2 w 5 35 m 35 35 l 5 20 l 35 5 l 5 5 l S";
+        assert!(grey_at(m, 20, 35) < 64, "the M's top stroke is drawn");
+        assert!(grey_at(m, 5, 28) > 192, "the M has no left side, so none is stroked");
+        let m_fill = b"0 g 5 35 m 35 35 l 5 20 l 35 5 l 5 5 l f";
+        assert!(grey_at(m_fill, 30, 20) > 192, "the notch between the diagonals stays unfilled");
+        let open = b"0 G 2 w 5 35 m 5 5 l 35 5 l 35 35 l 20 35 l S";
+        assert!(grey_at(open, 10, 35) > 192, "the open path's top is only stroked from 35 to 20");
+        let closed = b"0 G 2 w 5 5 m 35 5 l 35 35 l 5 35 l h S";
+        assert!(grey_at(closed, 5, 20) < 64, "a closed rectangle still strokes all four sides");
+    }
+
     /// A page whose content expands far beyond its compressed stream stops at the expansion budget,
     /// which is 64 times the compressed size and at least `MAX_DECODED_STREAM`, and the page says so.
     #[test]
