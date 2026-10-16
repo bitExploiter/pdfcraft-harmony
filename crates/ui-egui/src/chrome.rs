@@ -671,15 +671,28 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     if icons::button(ui, "zoom-in", 32.0, false, &tip).clicked() {
                         view.zoom_step(true);
                     }
-                    // Between rotate and zoom, as in Acrobat. Its command runs once `view` is free.
+                    // Keep both layouts directly reachable. Retain the popup for scrolling,
+                    // cover-page and zoom options; commands run once `view` is free.
                     let tip = crate::i18n::fmt(tl!("Page display: {layout}"), &[("layout", tl!(view.layout.label()))]);
-                    let resp = icons::button(ui, view.layout.icon(), 32.0, false, &tip);
+                    let resp = icons::button(ui, "settings", 32.0, false, &tip);
                     page_display = egui::Popup::menu(&resp)
                         .show(|ui| {
                             ui.set_min_width(220.0);
                             rail_view_menu(ui, view)
                         })
                         .and_then(|r| r.inner);
+                    let continuous = view.continuous();
+                    let scroll_icon = if continuous { "scroll-continuous" } else { "scroll-normal" };
+                    if icons::button(ui, scroll_icon, 32.0, false, tl!("Continuous scrolling")).clicked() {
+                        page_display = Some("view.continuous");
+                    }
+                    let next_layout = match view.layout {
+                        PageLayout::Single => PageLayout::TwoUp,
+                        PageLayout::TwoUp => PageLayout::Single,
+                    };
+                    if icons::button(ui, view.layout.icon(), 32.0, false, tl!(next_layout.label())).clicked() {
+                        page_display = Some(next_layout.command());
+                    }
                     let tip = crate::commands::key_tip(ui.ctx(), tl!("Rotate view clockwise ({key})"), crate::commands::ROTATE_CW);
                     if icons::button(ui, "rotate-cw", 32.0, false, &tip).clicked() {
                         view.rotate_view(true);

@@ -4,7 +4,7 @@
 
 Every asset PdfCraft includes, bundles or uses to build its published material, with its author, source and licence. The policy is in [AGENTS.md](AGENTS.md) §1. The machine-readable list, with SHA-256 hashes, is [ATTRIBUTION.toml](ATTRIBUTION.toml). Licence texts are kept beside the assets and summarised in [NOTICE](NOTICE).
 
-## In this repository (288)
+## In this repository (290)
 
 | Asset | Title | Author | Licence | Source | Used for |
 |---|---|---|---|---|---|
@@ -296,6 +296,8 @@ Every asset PdfCraft includes, bundles or uses to build its published material, 
 | `crates/ui-egui/src/i18n/sq.tsv` | Albanian interface translation catalog | PdfCraft contributors | MIT OR Apache-2.0 | Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; 2026-10-22 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 signature-appearance labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 text-field-table labels are contributor-original AI-assisted translations from English, not separately native-reviewed | Albanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs |
 | `crates/ui-egui/src/i18n/th.tsv` | Thai interface translation catalog | PdfCraft contributors | MIT OR Apache-2.0 | Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; 2026-10-22 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed | Thai UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs |
 | `crates/ui-egui/src/i18n/ca.tsv` | Catalan interface translation catalog | PdfCraft contributors | MIT OR Apache-2.0 | Contributor-original: clean-room translations of PdfCraft's English UI labels, written from their meaning; no proprietary localisation resources; 2026-10-22 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 text-field-table labels are contributor-original AI-assisted translations from English, not separately native-reviewed | Catalan UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs |
+| `assets/icons/scroll-continuous.svg` | Continuous scrolling indicator | PdfCraft local mod contributors (Codex-generated) | MIT OR Apache-2.0 | Contributor-original SVG generated for the page-display rail on 2026-10-16; colour follows the UI theme | Right-rail scrolling mode toggle |
+| `assets/icons/scroll-normal.svg` | Normal page scrolling indicator | PdfCraft local mod contributors (Codex-generated) | MIT OR Apache-2.0 | Contributor-original SVG generated for the page-display rail on 2026-10-16; colour follows the UI theme | Right-rail scrolling mode toggle |
 
 ## Compiled in through dependencies (5)
 
