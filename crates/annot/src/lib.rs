@@ -683,8 +683,41 @@ fn annots(doc: &Document, page: ObjRef) -> Vec<Object> {
     doc.resolve(a).as_array().cloned().unwrap_or_default()
 }
 
+/// Apple Markup's private copy of a page's markup: on the page and on each of its annotations.
+const APPLE_PAGE_MARKUP: [&[u8]; 2] = [b"AAPL:PPK", b"AAPL:PPKHash"];
+const APPLE_ANNOT_MARKUP: &[u8] = b"AAPL:AKExtras";
+
+/// Drop Apple Markup's private copy of the page's markup once the annotation list changes. iOS
+/// draws Markup annotations from that copy, which no longer matches `/Annots`: iOS 26 showed a
+/// Markup signature in its own place and again over a signature added here. Without it, Apple
+/// draws every annotation from its appearance, as other viewers do.
+fn drop_apple_markup(doc: &mut Document, page: ObjRef, list: &mut [Object]) -> Result<(), AnnotError> {
+    if doc.get(page).as_dict().is_some_and(|d| APPLE_PAGE_MARKUP.iter().any(|k| d.contains(k))) {
+        doc.update_dict(page, |d| {
+            for k in APPLE_PAGE_MARKUP {
+                d.remove(k);
+            }
+        })?;
+    }
+    for entry in list {
+        match entry {
+            Object::Dict(d) => {
+                d.remove(APPLE_ANNOT_MARKUP);
+            }
+            Object::Ref(r) if doc.get(*r).as_dict().is_some_and(|d| d.contains(APPLE_ANNOT_MARKUP)) => {
+                doc.update_dict(*r, |d| {
+                    d.remove(APPLE_ANNOT_MARKUP);
+                })?;
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
 /// Replace a page's `/Annots`, writing into the shared array object when it is indirect.
-fn set_annots(doc: &mut Document, page: ObjRef, list: Vec<Object>) -> Result<(), AnnotError> {
+fn set_annots(doc: &mut Document, page: ObjRef, mut list: Vec<Object>) -> Result<(), AnnotError> {
+    drop_apple_markup(doc, page, &mut list)?;
     let existing = doc.get(page).as_dict().and_then(|d| d.reference(b"Annots"));
     match existing {
         Some(r) if doc.get(r).as_array().is_some() => doc.set(r, Object::Array(list)),

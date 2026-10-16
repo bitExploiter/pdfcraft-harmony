@@ -1382,3 +1382,26 @@ fn free_text_properties_show_legacy_or_absent_border_width() {
     .unwrap();
     assert_eq!(props(&doc, 0, index).unwrap().width, Some(4.0));
 }
+
+#[test]
+fn adding_to_an_apple_markup_page_drops_apples_stale_copy() {
+    // As iOS Markup saves a signature: its private copy on the page and on the stamp.
+    let mut doc = document_of(&[
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>",
+        b"<< /Type /Page /Parent 2 0 R /Annots [4 0 R] /AAPL:PPK 5 0 R /AAPL:PPKHash 5 0 R >>",
+        b"<< /Type /Annot /Subtype /Stamp /Rect [100 100 200 150] /F 644 /AAPL:AKExtras << /PPKType (draw) >> >>",
+        b"<< /Length 0 >>\nstream\n\nendstream",
+    ]);
+    add_annotation(&mut doc, &new(0, Shape::Note { at: [300.0, 300.0], icon: NoteIcon::Comment }), &meta("n")).unwrap();
+
+    let doc = reopen(&doc);
+    let page = doc.get(page_refs(&doc).unwrap()[0]);
+    let page = page.as_dict().unwrap();
+    assert!(!page.contains(b"AAPL:PPK") && !page.contains(b"AAPL:PPKHash"));
+    let all = list(&doc, 0);
+    assert!(all.iter().all(|d| !d.contains(b"AAPL:AKExtras")));
+    // The Markup stamp itself stays, with its flags.
+    assert_eq!(all[0].name(b"Subtype"), Some(&b"Stamp"[..]));
+    assert_eq!(all[0].get(b"F").and_then(Object::as_int), Some(644));
+}
