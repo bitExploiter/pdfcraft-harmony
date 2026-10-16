@@ -316,6 +316,31 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::write(path, bytes)
 }
 
+fn open_browser(url: &str) -> std::io::Result<()> {
+    #[cfg(target_os = "windows")]
+    // `cmd` splits its command line on `&` before anything else sees it. An
+    // authorize URL is mostly `&`. Pass through raw; percent-encode quotes.
+    let mut command = {
+        use std::os::windows::process::CommandExt as _;
+        let mut c = std::process::Command::new("cmd");
+        c.raw_arg(format!("/C start \"\" \"{}\"", url.replace('"', "%22")));
+        c
+    };
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut c = std::process::Command::new("open");
+        c.arg(url);
+        c
+    };
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let mut command = {
+        let mut c = std::process::Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+    command.spawn().map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
