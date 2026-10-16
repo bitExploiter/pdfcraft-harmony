@@ -255,11 +255,12 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 || ((pr[0] + pr[2] - frame[0] - frame[2]) / 2.0).abs() < tol
                 || (pr[2] - frame[2]).abs() < tol
                 || hanging;
-            // Once a paragraph has two rows, its own leading is known. A blank line is about
-            // twice that, so a wider gap is the next paragraph (#2517). A single row has no
-            // leading yet: ordinary leading (about 1.2 × the size) and double spacing (2 × the
-            // size) still join, and a blank line (2.4 × the size) does not. The old cap of
-            // 2.5 × the size joined the blank line too.
+            // Once a paragraph has two rows, its own leading is the measured baseline gap. A
+            // blank line is about twice that, so a wider gap is the next paragraph (#2517). A
+            // single row uses the text object's TL when it has one: a gap equal to that TL
+            // joins, and a gap of twice the TL does not. Without a TL, ordinary leading still
+            // joins and a gap of 2.4 × the size does not. The old cap of 2.5 × the size joined
+            // the blank line too.
             let own_leading = block.rows.len().checked_sub(2).and_then(|i| {
                 let above = block.rows.get(i)?.first().and_then(|n| lines.get(*n));
                 let below = prev_row.first().and_then(|n| lines.get(*n));
@@ -268,9 +269,8 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                     _ => None,
                 }
             });
-            // 2.05 keeps a double-spaced row (gap == 2 × size) in the paragraph and still
-            // rejects a blank line, which is 2.4 × the size.
-            let max_gap = own_leading.filter(|lead| *lead > tol * 0.4).map_or(tol * 2.05, |lead| lead * 1.5);
+            let stated = (prev.origin.state.leading > 0.0).then(|| prev.wrap_leading()).filter(|lead| lead.is_finite() && *lead > tol * 0.4);
+            let max_gap = own_leading.filter(|lead| *lead > tol * 0.4).or(stated).map_or(tol * 2.05, |lead| lead * 1.5);
             // OCR lines stay apart: the scan fixes where each one is, so they never rewrap together.
             (!mixed || !(invisible(prev) || invisible(first)))
                 && (mixed || same_style(prev, first))
@@ -857,6 +857,14 @@ pub(super) fn rewrite_styled_block(
         .ok_or_else(|| EditError::Invalid("the paragraph is drawn in a space it cannot be edited in".into()))?;
     let (tx, ty) = back.apply(dx, dy);
     block_ops.push(Op::new("cm", vec![n(1.0), n(0.0), n(0.0), n(1.0), n(tx), n(ty)]));
+    // A new row can land one leading above the next paragraph and look like the same
+    // paragraph. When every row is in this rewrite, a paragraph marker keeps them in one
+    // scope so the neighbour stays out (#2517). A row left in the source stream cannot share
+    // that marker, so it is omitted and geometry groups those rows as before.
+    let marked = kept.iter().all(|row| !*row);
+    if marked {
+        block_ops.push(Op::new("BMC", vec![Object::name("P")]));
+    }
     let crop = p.crop(doc);
     let centered = is_centred(block, lines, (crop[0] + crop[2]) / 2.0, first.size);
     let source_leading = block
@@ -1020,6 +1028,9 @@ pub(super) fn rewrite_styled_block(
         } else {
             style.line_spacing.unwrap_or(1.5).clamp(0.5, 5.0) * style.size.unwrap_or(anchor.size)
         };
+    }
+    if marked {
+        block_ops.push(Op::new("EMC", vec![]));
     }
     block_ops.push(Op::new("Q", vec![]));
     let mut drop = coincident_ops(lines, &members);

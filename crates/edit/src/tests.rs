@@ -2377,7 +2377,17 @@ fn a_blank_line_keeps_the_next_paragraph() {
     text::replace_block(&mut doc, 0, 0, "First paragraph, edited row.\nFirst paragraph, second row.").unwrap();
     let after = text::text_blocks(&doc, 0).unwrap();
     assert_eq!(after.len(), 2, "{:?}", after.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    assert!(after[0].text.contains("edited row") && after[0].text.contains("second row"), "{:?}", after[0].text);
     assert!(after[1].text.contains("Second paragraph"), "{:?}", after[1].text);
+    // The second row is left in the source stream. A marker around only the rewritten row
+    // would split the paragraph; either there is no marker, or it covers both rows and not the next paragraph.
+    let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
+    if let Some(start) = content.find("/P BMC") {
+        let end = start + content[start..].find("EMC").unwrap_or(content.len() - start);
+        let marked = &content[start..end];
+        assert!(marked.contains("edited row") && marked.contains("second row"), "marker split the paragraph: {content}");
+        assert!(!marked.contains("Second paragraph"), "marker swallowed the next paragraph: {content}");
+    }
 }
 
 /// #2517: adding a row must not pull in a paragraph that was 3 × the font size below.
@@ -2391,6 +2401,77 @@ fn a_grown_paragraph_does_not_swallow_the_next_one() {
     let after = text::text_blocks(&doc, 0).unwrap();
     assert_eq!(after.len(), 2, "{:?}", after.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
     assert!(after[1].text.contains("Neighbour"), "{:?}", after[1].text);
+}
+
+/// An explicit `TL` is the leading `T*` moves by. Rows at that gap are one paragraph, including
+/// when the gap is larger than twice the font size. A following paragraph that starts two
+/// leadings lower stays separate. The numbers are the gaps under test, not a claim about how a
+/// word processor derives them: this repo's Helvetica box is 0.925 em (ascent 0.718, descent
+/// 0.207), so twice that box at 12 pt is 22.2 pt, while 27.6 pt is 12 × 2.3.
+#[test]
+fn explicit_leading_is_the_measured_baseline_gap() {
+    for tl in [14.4_f64, 18.0, 22.2, 24.0, 27.6, 28.8] {
+        let src = format!("BT /F1 12 Tf {tl} TL 1 0 0 1 72 700 Tm (One) Tj T* (Two) Tj T* (Three) Tj ET");
+        let doc = text_page(&src);
+        let lines = text::text_lines(&doc, 0).unwrap();
+        let gaps: Vec<f64> = lines.windows(2).map(|w| w[0].origin_baseline() - w[1].origin_baseline()).collect();
+        assert!(gaps.iter().all(|gap| (gap - tl).abs() < 0.05), "TL {tl} did not move the baselines: {gaps:?}");
+        let blocks = text::text_blocks(&doc, 0).unwrap();
+        assert_eq!(blocks.len(), 1, "TL {tl}, measured gaps {gaps:?}: {:?}", blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    }
+    // Two rows at the TL, then a paragraph whose first baseline is two TLs below the second row.
+    let tl = 14.4_f64;
+    let next = 700.0 - tl - 2.0 * tl;
+    let blank = format!(
+        "BT /F1 12 Tf {tl} TL 1 0 0 1 72 700 Tm (One) Tj T* (Two) Tj ET \
+         BT /F1 12 Tf {tl} TL 1 0 0 1 72 {next} Tm (Neighbour) Tj ET"
+    );
+    let doc = text_page(&blank);
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let between = lines[1].origin_baseline() - lines[2].origin_baseline();
+    assert!((between - 2.0 * tl).abs() < 0.05, "the blank line measured {between}, not {}", 2.0 * tl);
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks.len(), 2, "{:?}", blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+}
+
+/// The neighbour starts one blank line below (two leadings under the second row). Adding a row
+/// puts the new baseline one leading above that neighbour, inside the join window. The neighbour
+/// still has to survive the edit, both saves, and a second edit.
+#[test]
+fn growing_into_a_blank_line_keeps_the_neighbour_after_save() {
+    let tl = 14.4_f64;
+    let src = format!(
+        "BT /F1 12 Tf {tl} TL 1 0 0 1 72 700 Tm (One) Tj T* (Two) Tj ET \
+         BT /F1 12 Tf {tl} TL 1 0 0 1 72 {} Tm (Neighbour) Tj ET",
+        700.0 - 3.0 * tl
+    );
+    let mut doc = text_page(&src);
+    let before = text::text_lines(&doc, 0).unwrap();
+    let opening = before[1].origin_baseline() - before[2].origin_baseline();
+    assert!((opening - 2.0 * tl).abs() < 0.05, "fixture gap {opening} is not a blank line");
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "One\nTwo\nThree").unwrap();
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let bases: Vec<f64> = lines.iter().map(|l| l.origin_baseline()).collect();
+    assert_eq!(bases.len(), 4, "{bases:?}");
+    let grown = bases[2] - bases[3];
+    assert!((grown - tl).abs() < 0.05, "the new row is {grown} pt above the neighbour, not one leading");
+    assert!(grown < tl * 1.5, "this gap is outside the join window, so the test would pass without the marker");
+    let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    assert_eq!(texts(&doc), ["One Two Three", "Neighbour"]);
+    let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
+    let marked = content.find("/P BMC").and_then(|start| content[start..].find("EMC").map(|end| content[start..start + end].to_owned()));
+    let marked = marked.unwrap_or_else(|| panic!("a full rewrite did not mark its rows: {content}"));
+    for row in ["(One)", "(Two)", "(Three)"] {
+        assert!(marked.contains(row), "{row} is outside the marker: {content}");
+    }
+    assert!(!marked.contains("Neighbour"), "the neighbour was pulled into the marker: {content}");
+    for saved in [reopen(&doc), Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap()] {
+        assert_eq!(texts(&saved), ["One Two Three", "Neighbour"]);
+        let mut again = saved;
+        text::replace_block(&mut again, 0, 0, "One\nTwo\nFour").unwrap();
+        assert_eq!(texts(&reopen(&again)), ["One Two Four", "Neighbour"]);
+    }
 }
 
 #[test]

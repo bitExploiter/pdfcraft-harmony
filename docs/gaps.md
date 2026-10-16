@@ -101,8 +101,11 @@ update the numbers.
   Legacy non-SFNT previews, mixed-font/style contextual runs, structure-tree fidelity and reliable
   semantic grouping on every untagged PDF remain open. Replacing one line or paragraph no longer
   removes a distinct neighbour whose glyph box overlaps (#1316); a second drawing on the same
-  baseline is still replaced. A blank line at ordinary leading stays a paragraph break, so editing
-  the first paragraph leaves the next one in place (#2517). Estimates are unchanged.
+  baseline is still replaced. A blank line stays a paragraph break. An explicit `TL` is the
+  measured baseline gap, and growing a paragraph so its new row is one leading above the next
+  one does not absorb that paragraph (#2517). A heading and smaller body lines (#1756), a
+  hanging-indent continuation (#2564), and cells in different columns (#1680, #2478) are still
+  grouped by the same geometry. Estimates are unchanged.
 
 - **Missing:** robust in-place editing of text PdfCraft didn't write: subset fonts without the
   needed glyphs, CJK and right-to-left text, rotated text, lists, superscript/subscript, keeping

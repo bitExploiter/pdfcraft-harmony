@@ -190,7 +190,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
-- **2026-10-15 (M7, #2517):** A blank line between paragraphs stays a paragraph break. Rows join while the gap is within the paragraph's own leading, or within about twice the font size when the paragraph has only one row. Editing the first paragraph leaves the next one in place, including after the first paragraph grows by a row. Estimates unchanged.
+- **2026-10-15 (M7, #2517):** A blank line between paragraphs stays a paragraph break. An explicit `TL` is checked against the measured baseline gap: rows at that gap stay one paragraph, and a gap of twice the `TL` does not. Growing the paragraph so the new row is one leading above the next paragraph does not absorb it on a later edit. Estimates unchanged.
 
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
