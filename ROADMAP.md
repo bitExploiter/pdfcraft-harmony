@@ -172,6 +172,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-17 (research):** Added a [PDF workflow research reference](docs/research/pdf-workflows/README.md): dated public-source locators, 20 workflow research domains, a pinned feature mapping and interaction evidence. Reference documentation; no feature statuses, milestone priorities or estimates changed.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
