@@ -20,18 +20,31 @@ fn main() {
         else {
             return;
         };
+        let mut invite = match craft_cloud_client::invite::arrive().await {
+            craft_cloud_client::invite::Arrival::Ordinary => None,
+            craft_cloud_client::invite::Arrival::Refused(reason) => {
+                craft_cloud_client::invite::refuse(&reason);
+                return;
+            }
+            craft_cloud_client::invite::Arrival::Invited(invitation) => Some(invitation),
+        };
         let started = eframe::WebRunner::new()
             .start(
                 canvas,
                 options,
-                Box::new(|cc| {
+                Box::new(move |cc| {
                     let mut app = PdfCraftApp::new();
+                    let invited = invite.is_some();
                     // "printcraft": settings saved under the app's former name, PrintCraft.
-                    if let Some(json) = cc.storage.and_then(|s| s.get_string("pdfcraft").or_else(|| s.get_string("printcraft"))) {
+                    if !invited
+                        && let Some(json) = cc.storage.and_then(|s| s.get_string("pdfcraft").or_else(|| s.get_string("printcraft")))
+                    {
                         app.restore(&json);
                     }
                     // `?file=<url>` opens a PDF from a URL (same-origin or CORS-enabled).
-                    if let Some(url) = query_param("file") {
+                    if !invited
+                        && let Some(url) = query_param("file")
+                    {
                         let inbox = app.startup_inbox.clone();
                         let failed = app.failed_inbox.clone();
                         let ctx = cc.egui_ctx.clone();
@@ -86,6 +99,9 @@ fn main() {
                     if let Some(share) = collabcraft_share::CollabCraft::from_env() {
                         app.share.connect(share.for_app("pdfcraft"));
                     }
+                    if let Some(invitation) = invite.take() {
+                        open_invite(&mut app, invitation);
+                    }
                     Ok(Box::new(app))
                 }),
             )
@@ -99,6 +115,28 @@ fn main() {
             }
         }
     });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn open_invite(app: &mut pdfcraft_ui_egui::PdfCraftApp, invitation: craft_cloud_client::invite::Invitation) {
+    let name = invitation.name.clone();
+    match pdfcraft_ui_egui::cloud::CloudApp::open_bytes(app, &name, invitation.document.clone()) {
+        Ok(Some(_)) => {
+            let mode = if invitation.read_only() { " (view only)" } else { "" };
+            let who = if invitation.recipient.is_empty() { String::new() } else { format!(" (shared with {})", invitation.recipient) };
+            app.cloud.status = Some(format!("Opened \"{name}\"{mode}{who}"));
+            if let Err(e) = invitation.join() {
+                eframe::web_sys::console::warn_1(&format!("invite relay join failed: {e}").into());
+            }
+        }
+        Ok(None) => {
+            app.cloud.status = Some(format!("Shared \"{name}\" needs a choice before it opens"));
+        }
+        Err(e) => {
+            eframe::web_sys::console::error_1(&format!("invite open failed: {e}").into());
+            craft_cloud_client::invite::refuse(&format!("The shared document could not be opened. {e}"));
+        }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
