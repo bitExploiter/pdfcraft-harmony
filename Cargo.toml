@@ -19,10 +19,10 @@ craft-ui = { git = "https://github.com/wdunn001/craft-libs", version = "0.1.0", 
 craft-cloud = { git = "https://github.com/wdunn001/craft-libs", version = "0.1.0", rev = "3aa7841deee2f9919a4dcca55487db5063293654" }
 craft-esign = { git = "https://github.com/wdunn001/craft-libs", version = "0.1.0", rev = "3aa7841deee2f9919a4dcca55487db5063293654" }
 # How the desktop and browser apps reach CollabCraft. No provider credential or URL compiled in.
-craft-cloud-client = { git = "https://github.com/wdunn001/collab-craft", rev = "8111793" }
+craft-cloud-client = { git = "https://github.com/wdunn001/collab-craft", rev = "23a3b6612eb73a51d54139e25658c94689adbb06" }
 # The share dialog's backend: the half that opens a socket, kept here so only one session lives
 # in the process and a sign-in through Open/Save reaches the share dialog too.
-collabcraft-share = { git = "https://github.com/wdunn001/collab-craft", rev = "8111793" }
+collabcraft-share = { git = "https://github.com/wdunn001/collab-craft", rev = "23a3b6612eb73a51d54139e25658c94689adbb06" }
 # Shared system spooler; document composition remains in pdfcraft-print.
 craft-print = { git = "https://github.com/storytold/craft-libs", version = "0.1.0", rev = "d991bf6792f8ade99c51358bf3c1d902c8cd96b5" }
 # internal
