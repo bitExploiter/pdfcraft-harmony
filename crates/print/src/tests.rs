@@ -877,3 +877,11 @@ fn driver_options_take_the_ppds_own_names_in_the_ui_language() {
 }
 
 mod appearances;
+
+/// #2707: a booklet's two-sided setting follows its subset.
+#[test]
+fn a_booklet_prints_both_sides_on_the_short_edge() {
+    assert_eq!(booklet_duplex(BookletSubset::BothSides), spool::Duplex::ShortEdge);
+    assert_eq!(booklet_duplex(BookletSubset::FrontOnly), spool::Duplex::Off);
+    assert_eq!(booklet_duplex(BookletSubset::BackOnly), spool::Duplex::Off);
+}
