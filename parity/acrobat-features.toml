@@ -8305,11 +8305,11 @@ title = "Add printer marks (crop, bleed, registration, colour bars)"
 area = "L"
 tier = "P1"
 milestone = "M11"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["print.printer_marks", "print.printer_marks.remove"]
+tools = ["doc_printer_marks", "doc_remove_printer_marks"]
+evidence = ["crates/prepress/src/tests.rs::every_mark_prints_read_only_and_draws_through_the_all_separation", "crates/prepress/src/tests.rs::the_colour_bar_and_page_information_clear_the_corner_marks_and_targets", "crates/prepress/src/tests.rs::growing_the_media_box_fits_every_mark_and_removal_puts_it_back", "crates/automation/tests/automation.rs::printer_marks_go_on_report_what_did_not_fit_and_come_off_again"]
+notes = "Crop and bleed marks, registration targets, a CMYK colour bar and a page-information line, around any page box (trim by default), as printer's mark annotations (§12.5.6.20) with the spec's /MN names. Removable, and only marks PdfCraft wrote. Crop, bleed and registration marks and the page information draw in the `All` separation, so they reach every plate. Optionally grows the media box to fit them; otherwise pages whose marks fall outside are reported, not dropped. Not yet: a dialog (headless and registry only), Acrobat's mark styles beyond the default geometry, Japanese mark styles, marks on a layer (Acrobat's \"embed printer marks with layers\"), and text that reads upright on a page with /Rotate (marks stay on the trim geometry, so the page-information line turns with the page)."
 
 [[feature]]
 id = "print.fix-hairlines"

@@ -145,6 +145,7 @@ pub use pdfcraft_annot::{
 pub use pdfcraft_forms::detect;
 pub use pdfcraft_optimize as optimize;
 pub use pdfcraft_preflight as pdfa;
+pub use pdfcraft_prepress::{Info as PrinterMarkInfo, Marks as PrinterMarks, RefBox, Report as PrinterMarkReport, Style as PrinterMarkStyle};
 pub use pdfcraft_print as print;
 pub use pdfcraft_redact::codes::{CODE_SETS as REDACTION_CODE_SETS, CodeSet as RedactionCodeSet};
 pub use pdfcraft_redact::patterns::{
@@ -284,6 +285,9 @@ fn scope_of(edit: &Edit) -> Scope {
         | Edit::AddWatermark { .. }
         | Edit::AddBackground { .. }
         | Edit::RemoveMarks { .. } => Scope::Content,
+        // Printer marks are annotations, and growing a media box changes the page tree, so
+        // neither `Scope::Content` (which promises both are untouched) nor `Scope::Comments`
+        // (printer marks are not comments) fits: these re-inspect the whole document.
         Edit::Batch { edits, .. } => {
             let mut scopes = edits.iter().map(scope_of);
             let first = scopes.next().unwrap_or(Scope::Full);
@@ -404,6 +408,10 @@ pub struct Document {
     /// What the last successful [`Session::apply`] wrote that its fonts can't draw: kept as typed,
     /// drawn with `?` in its place (see [`TextNotice`]). The interface shows it; tools return it.
     pub edit_notices: Vec<TextNotice>,
+    /// What the last successful [`Session::apply`] of [`Edit::AddPrinterMarks`] could not place
+    /// as asked: marks that fall outside the sheet, media boxes it enlarged, bleed marks it had
+    /// to skip. The interface shows it; tools return it. `None` after any other edit.
+    pub printer_marks: Option<pdfcraft_prepress::Report>,
 }
 
 /// Text an edit stored as typed but drew with `?` in place of `ch`, because the font it is drawn
@@ -858,6 +866,12 @@ impl Document {
     /// to. This stays that file when undo has restored an older snapshot.
     pub fn saved_bytes(&self) -> Arc<Vec<u8>> {
         self.editor.as_ref().map_or_else(|| self.bytes.clone(), |e| e.saved.clone())
+    }
+
+    /// How many of PdfCraft's printer marks are on `pages` (0-based); 0 when it cannot be read
+    /// for editing. Marks another producer wrote are not counted.
+    pub fn printer_mark_count(&self, pages: &[usize]) -> usize {
+        self.editor.as_ref().map_or(0, |e| pdfcraft_prepress::count_printer_marks(&e.cos, pages))
     }
 
     /// Notes about damage repaired while opening (Document Properties ▸ Advanced, notices).
@@ -1640,6 +1654,16 @@ pub enum Edit {
     RemoveMarks {
         kind: MarkKind,
     },
+    /// Print Production ▸ Add Printer Marks: crop, bleed and registration marks, a colour bar
+    /// and a page-information line, as printer's mark annotations around a chosen page box.
+    AddPrinterMarks {
+        pages: Vec<usize>,
+        settings: PrinterMarks,
+    },
+    /// Remove the printer marks PdfCraft added, and put back any media box it grew for them.
+    RemovePrinterMarks {
+        pages: Vec<usize>,
+    },
     /// Edit a PDF ▸ Add content ▸ Text (`text.rect` in display space).
     AddText {
         page: usize,
@@ -2046,6 +2070,8 @@ impl Edit {
             Edit::AddBackground { .. } => Label::of("Update background"),
             Edit::RemoveMarks { kind: MarkKind::HeaderFooter } => Label::of("Remove header & footer"),
             Edit::RemoveMarks { kind: MarkKind::Watermark } => Label::of("Remove watermark"),
+            Edit::AddPrinterMarks { .. } => Label::of("Add printer marks"),
+            Edit::RemovePrinterMarks { .. } => Label::of("Remove printer marks"),
             Edit::RemoveMarks { kind: MarkKind::Background } => Label::of("Remove background"),
             Edit::AddText { .. } => Label::of("Add text"),
             Edit::AddImage { .. } => Label::of("Add image"),
@@ -2185,6 +2211,8 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::AddWatermark { .. }
         | Edit::AddBackground { .. }
         | Edit::RemoveMarks { .. }
+        | Edit::AddPrinterMarks { .. }
+        | Edit::RemovePrinterMarks { .. }
         | Edit::AddField { .. }
         | Edit::ApplyRedactions { .. }
         | Edit::AddText { .. }
@@ -2260,6 +2288,8 @@ struct EditCtx {
     /// Fields the edit renamed to keep imported names separate (old → new), for the repair
     /// log and the undo label.
     renamed_fields: Vec<(String, String)>,
+    /// What [`Edit::AddPrinterMarks`] could not place as asked, for the document to report.
+    printer_marks: Option<pdfcraft_prepress::Report>,
 }
 
 impl EditCtx {
@@ -2286,6 +2316,7 @@ impl EditCtx {
             seed,
             count: 0,
             renamed_fields: Vec::new(),
+            printer_marks: None,
         }
     }
 
@@ -2597,6 +2628,35 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
                 return Err(EditError::Edit(pdfcraft_edit::EditError::Invalid("there is nothing to remove".into())));
             }
         }
+        Edit::AddPrinterMarks { pages, settings } => {
+            let report = pdfcraft_prepress::add_printer_marks(doc, pages, settings)?;
+            cx.printer_marks = Some(report.clone());
+            // What the marks could not do is recorded, never dropped quietly: a sheet too small
+            // to hold them, a bleed box that would have put two marks in one place.
+            let list = |p: &[usize]| p.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+            if !report.clipped.is_empty() {
+                doc.note_repair(format!(
+                    "printer marks reach outside the media box on page {}; they will not print until the sheet is enlarged",
+                    list(&report.clipped)
+                ));
+            }
+            if !report.grown.is_empty() {
+                doc.note_repair(format!("the media box was enlarged to fit the printer marks on page {}", list(&report.grown)));
+            }
+            if !report.no_bleed.is_empty() {
+                doc.note_repair(format!(
+                    "no bleed marks were added on page {}: the bleed box matches the box being marked, so they would have fallen under the crop marks",
+                    list(&report.no_bleed)
+                ));
+            }
+        }
+        Edit::RemovePrinterMarks { pages } => {
+            if pdfcraft_prepress::remove_printer_marks(doc, pages)? == 0 {
+                return Err(EditError::Prepress(pdfcraft_prepress::PrepressError::Invalid(
+                    "there are no printer marks of PdfCraft's to remove".into(),
+                )));
+            }
+        }
         Edit::AddText { page, text } => {
             pdfcraft_edit::add_content(doc, *page, &AddedContent::Text(text.clone()))?;
         }
@@ -2884,6 +2944,8 @@ pub enum EditError {
     Data(#[from] pdfcraft_xfdf::DataError),
     #[error("{0}")]
     Edit(#[from] pdfcraft_edit::EditError),
+    #[error("{0}")]
+    Prepress(#[from] pdfcraft_prepress::PrepressError),
     #[error("{0}")]
     Create(#[from] pdfcraft_create::CreateError),
     #[error("the edited document could not be written: {0}")]
@@ -3628,6 +3690,7 @@ impl Session {
             fonts_stale: false,
             xfa_warnings: Vec::new(),
             edit_notices: Vec::new(),
+            printer_marks: None,
         }
     }
 
@@ -3642,6 +3705,7 @@ impl Session {
         let js_off = self.js_off;
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
+        doc.printer_marks = None;
         let name = doc.name.clone();
         let is_xfa = doc.info.xfa.is_some();
         let mut cx = EditCtx::new(now, doc.generation ^ (id.0 << 48));
@@ -3807,6 +3871,7 @@ impl Session {
         doc.dirty = true;
         doc.generation += 1;
         doc.edit_notices = notices;
+        doc.printer_marks = cx.printer_marks.take();
         if !cx.xfa_removed.is_empty() {
             let removed: Vec<String> = cx.xfa_removed.iter().map(|n| format!("{XFA_REMOVED_PREFIX}{n}")).collect();
             doc.xfa_warnings.retain(|w| w.starts_with(XFA_REMOVED_PREFIX));
@@ -3831,6 +3896,7 @@ impl Session {
     pub fn undo(&mut self, id: DocId) -> Result<Label, EditError> {
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
+        doc.printer_marks = None;
         let editor = doc.editor.as_mut().ok_or(EditError::NothingToUndo)?;
         let (label, prev, keys, scope) = editor.undo.pop().ok_or(EditError::NothingToUndo)?;
         let current = std::mem::replace(&mut editor.cos, prev);
@@ -3846,6 +3912,7 @@ impl Session {
     pub fn redo(&mut self, id: DocId) -> Result<Label, EditError> {
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
+        doc.printer_marks = None;
         let editor = doc.editor.as_mut().ok_or(EditError::NothingToRedo)?;
         let (label, next, keys, scope) = editor.redo.pop().ok_or(EditError::NothingToRedo)?;
         let current = std::mem::replace(&mut editor.cos, next);

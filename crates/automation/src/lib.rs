@@ -712,6 +712,7 @@ impl Automation {
             }
             "doc_export_images" | "doc_export_text" | "doc_export_all_images" => self.export(name, &a)?,
             "doc_header_footer" | "doc_watermark" | "doc_background" | "doc_remove_marks" => self.marks(name, &a)?,
+            "doc_printer_marks" | "doc_remove_printer_marks" => self.printer_marks(name, &a)?,
             "doc_unprotect" => {
                 let mut out = self.apply(&a, Edit::RemoveProtection)?;
                 out["security"] = security(self.doc(&a)?);
@@ -1176,6 +1177,58 @@ impl Automation {
         // Text the edit stored as typed but drew with `?` (its font can't draw it): said, not silent.
         if !doc.edit_notices.is_empty() {
             out["warnings"] = json!(doc.edit_notices.iter().map(ToString::to_string).collect::<Vec<_>>());
+        }
+        Ok(out)
+    }
+
+    /// Print Production ▸ printer marks. The output says how many marks the selected pages now
+    /// carry, and what could not be placed as asked, so a caller never has to guess whether the
+    /// sheet was big enough.
+    fn printer_marks(&mut self, tool: &str, a: &Args) -> Result<Value> {
+        use pdfcraft_engine::{PrinterMarkInfo, PrinterMarkStyle, PrinterMarks, RefBox};
+        let n = self.doc(a)?.info.pages.len();
+        let pages: Vec<usize> = match a.opt_ints("pages")? {
+            Some(_) => self.pages(a, "pages")?,
+            None => (0..n).collect(),
+        };
+        let edit = if tool == "doc_remove_printer_marks" {
+            Edit::RemovePrinterMarks { pages: pages.clone() }
+        } else {
+            let d = PrinterMarkStyle::default();
+            let num = |key: &str, default: f64| -> Result<f64> { Ok(a.opt_num(key)?.unwrap_or(default)) };
+            let style = PrinterMarkStyle {
+                weight: num("weight", d.weight)?,
+                length: num("length", d.length)?,
+                offset: num("offset", d.offset)?,
+                radius: num("radius", d.radius)?,
+                patch: num("patch", d.patch)?,
+                font_size: num("font_size", d.font_size)?,
+            };
+            let reference = match a.opt_str("reference")? {
+                Some(s) => RefBox::from_name(s).ok_or_else(|| failed(format!("{s} is not a page box")))?,
+                None => RefBox::default(),
+            };
+            let (name, stamp) = (a.opt_str("info_name")?.unwrap_or_default(), a.opt_str("info_stamp")?.unwrap_or_default());
+            let info = (!name.is_empty() || !stamp.is_empty()).then(|| PrinterMarkInfo { name: name.to_owned(), stamp: stamp.to_owned() });
+            let settings = PrinterMarks {
+                crop: a.opt_bool("crop")?.unwrap_or(false),
+                bleed: a.opt_bool("bleed")?.unwrap_or(false),
+                registration: a.opt_bool("registration")?.unwrap_or(false),
+                color_bars: a.opt_bool("color_bars")?.unwrap_or(false),
+                info,
+                style,
+                reference,
+                grow_media: a.opt_bool("grow_media")?.unwrap_or(false),
+            };
+            Edit::AddPrinterMarks { pages: pages.clone(), settings }
+        };
+        let mut out = self.apply(a, edit)?;
+        let doc = self.doc(a)?;
+        out["marks"] = json!(doc.printer_mark_count(&pages));
+        if let Some(r) = &doc.printer_marks {
+            out["clipped"] = json!(r.clipped);
+            out["grown"] = json!(r.grown);
+            out["no_bleed"] = json!(r.no_bleed);
         }
         Ok(out)
     }

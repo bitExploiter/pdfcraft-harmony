@@ -1,0 +1,19 @@
+[package]
+name = "pdfcraft-prepress"
+description = "Print production: printer marks (crop, bleed, registration targets, colour bars, page information)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+pdfcraft-cos = { workspace = true }
+pdfcraft-fonts = { workspace = true }
+pdfcraft-model = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+pdfcraft-testkit = { workspace = true }
