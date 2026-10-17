@@ -82,7 +82,7 @@ impl Type1Font {
 
     pub(crate) fn map_code(&self, code: u8) -> GlyphId {
         match &self.1 {
-            Kind::Standard(s) => s.map_code(code),
+            Kind::Standard(s) => s.map_code(code, self.2.as_ref()),
             Kind::Type1(s) => s.map_code(code),
             Kind::Cff(c) => c.map_code(code),
         }

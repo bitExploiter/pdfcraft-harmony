@@ -202,6 +202,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 |---|---|---|
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
+| 2026-10-18 | minor | M2, PR #3034: refreshed against main, preserved upstream progress and renumbered the missing-glyph patch to (35); behavior and estimates unchanged. |
 | 2026-10-15 | minor | M7: Edit text caret height follows its row, with a kittest regression; estimates unchanged |
 | 2026-10-19 | minor | M3 #3360: retain each document’s scroll position when switching Read and the docking workspace at fixed zoom. Estimates unchanged. |
 | 2026-10-18 | minor | M4, PR #1919 review: repeated page indices apply each rotation to the latest page-local value, preserving indirect/inherited angles. Synthetic adjacent/interleaved duplicates retain siblings and page contents through incremental and full saves. Estimates unchanged. |
@@ -210,6 +211,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 | 2026-10-15 | minor | M6: Plain AcroForm XML imports retain all direct text around comments and processing instructions, including CDATA and character references. Estimates unchanged. |
 | 2026-10-13 | minor | M6: XML/XFDF attribute whitespace survives form and comment export/import; estimates unchanged |
 | 2026-10-14 | minor | M1: raw-deflate fallback preserves decoding-limit errors in strict and tolerant decoding; synthetic filter and COS stream regressions. Estimates unchanged. |
+| 2026-10-17 | minor | M2 #2908: per-glyph fallback for non-embedded simple fonts using approved existing faces, with four-font Cyrillic, placement and malformed-encoding regressions. Exact family/style fidelity and uncovered scripts remain limited. Estimates unchanged. |
 | 2026-10-15 | minor | M9 #1895: generic appearance rewriting deferred; separate validation overlays preserve original artwork, exports and printing. Baked captions remain unchanged (#79 open). Estimates unchanged. |
 | 2026-10-16 | minor | M10 #1201 partial: lossless image export applies component Decode pairs and Indexed mapping. Estimates unchanged. |
 | 2026-10-15 | minor | M6: CSV export and spreadsheet merging quote tabs, and import distinguishes quoted tabs from TSV delimiters without changing field identities. Estimates unchanged. |

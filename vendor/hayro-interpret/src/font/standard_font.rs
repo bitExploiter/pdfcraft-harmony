@@ -1,11 +1,13 @@
 use crate::FontResolverFn;
 use crate::font::blob::{CffFontBlob, OpenTypeFontBlob};
 use crate::font::generated::{glyph_names, metrics, standard, symbol, zapf_dings};
+use crate::font::glyph_fallback::{Decoded, SimpleGlyphFallback, decode};
 use crate::font::true_type::{Width, read_encoding, read_widths};
 use crate::font::{
     Encoding, FontData, FontQuery, glyph_name_to_unicode, normalized_glyph_name, stretch_glyph,
     strip_subset_prefix,
 };
+use hayro_cmap::CMap;
 use hayro_syntax::object::Dict;
 use hayro_syntax::object::Name;
 use hayro_syntax::object::dict::keys::{BASE_FONT, FONT_DESC, FONT_WEIGHT, ITALIC_ANGLE};
@@ -124,7 +126,8 @@ impl StandardFont {
         }
     }
 
-    pub(crate) fn is_bold(&self) -> bool {
+    /// Whether this standard substitute has a bold weight.
+    pub fn is_bold(&self) -> bool {
         matches!(
             self,
             Self::HelveticaBold
@@ -136,7 +139,8 @@ impl StandardFont {
         )
     }
 
-    pub(crate) fn is_italic(&self) -> bool {
+    /// Whether this standard substitute is italic or oblique.
+    pub fn is_italic(&self) -> bool {
         matches!(
             self,
             Self::HelveticaOblique
@@ -148,14 +152,16 @@ impl StandardFont {
         )
     }
 
-    pub(crate) fn is_serif(&self) -> bool {
+    /// Whether this standard substitute belongs to the Times family.
+    pub fn is_serif(&self) -> bool {
         matches!(
             self,
             Self::TimesRoman | Self::TimesBold | Self::TimesItalic | Self::TimesBoldItalic
         )
     }
 
-    pub(crate) fn is_monospace(&self) -> bool {
+    /// Whether this standard substitute belongs to the Courier family.
+    pub fn is_monospace(&self) -> bool {
         matches!(
             self,
             Self::Courier | Self::CourierBold | Self::CourierOblique | Self::CourierBoldOblique
@@ -357,6 +363,8 @@ pub(crate) struct StandardKind {
     fallback: bool,
     glyph_to_code: RefCell<HashMap<GlyphId, u8>>,
     encodings: HashMap<u8, String>,
+    glyph_fallback: SimpleGlyphFallback,
+    mapped_codes: RefCell<HashMap<u8, (GlyphId, Option<&'static str>)>>,
 }
 
 impl StandardKind {
@@ -394,6 +402,8 @@ impl StandardKind {
             glyph_to_code: RefCell::new(HashMap::new()),
             fallback,
             encoding,
+            glyph_fallback: SimpleGlyphFallback::new(resolver.clone(), base_font),
+            mapped_codes: RefCell::new(HashMap::new()),
         })
     }
 
@@ -409,27 +419,65 @@ impl StandardKind {
             })
     }
 
-    pub(crate) fn map_code(&self, code: u8) -> GlyphId {
-        let result = self
-            .code_to_ps_name(code)
-            .and_then(|c| {
-                self.base_font_blob
-                    .name_to_glyph(c)
-                    .or_else(|| {
-                        // If the font doesn't have a POST table, try to map via unicode instead.
-                        glyph_names::get(c).and_then(|c| {
-                            self.base_font_blob
-                                .unicode_to_glyph(c.chars().nth(0).unwrap() as u32)
-                        })
-                    })
-                    // PdfCraft patch: an accented letter the stand-in lacks is built from its
-                    // parts (see `ACCENTED_LETTERS`).
-                    .or_else(|| self.composite_glyph(code, c))
+    pub(crate) fn map_code(&self, code: u8, to_unicode: Option<&CMap>) -> GlyphId {
+        // PdfCraft patch (34): a simple font has at most 256 mappings. Avoid repeated
+        // CFF name scans and Unicode decoding, including unsuccessful lookups.
+        if let Some((glyph, _)) = self.mapped_codes.borrow().get(&code).copied() {
+            self.glyph_to_code.borrow_mut().insert(glyph, code);
+            return glyph;
+        }
+        let name = self.code_to_ps_name(code);
+        let mut metric_name = None;
+        let result = name
+            .and_then(|n| self.base_font_blob.name_to_glyph(n))
+            .filter(|glyph| *glyph != GlyphId::NOTDEF)
+            .or_else(|| {
+                // Unicode names and ToUnicode also check the primary face first.
+                let Decoded::Character(c) = decode(code, name, to_unicode)? else {
+                    return None;
+                };
+                metric_name = glyph_names::get_reverse(c);
+                self.primary_unicode_glyph(c)
+            })
+            // Keep patch (26)'s accent composites ahead of alternate faces.
+            .or_else(|| name.and_then(|n| self.composite_glyph(code, n)))
+            .or_else(|| {
+                self.glyph_fallback
+                    .map_code(code, name, to_unicode, self.glyph_width(code))
             })
             .unwrap_or(GlyphId::NOTDEF);
+        self.mapped_codes
+            .borrow_mut()
+            .insert(code, (result, metric_name));
         self.glyph_to_code.borrow_mut().insert(result, code);
-
         result
+    }
+
+    fn primary_unicode_glyph(&self, character: char) -> Option<GlyphId> {
+        self.base_font_blob
+            .unicode_to_glyph(character as u32)
+            .filter(|glyph| *glyph != GlyphId::NOTDEF)
+            .or_else(|| {
+                // CFF stand-ins have names, but no Unicode cmap.
+                self.base_font_blob
+                    .name_to_glyph(glyph_names::get_reverse(character)?)
+                    .filter(|glyph| *glyph != GlyphId::NOTDEF)
+            })
+    }
+
+    fn primary_width(&self, code: u8) -> Option<f32> {
+        self.code_to_ps_name(code)
+            .and_then(|name| self.base_font.get_width(name))
+            .or_else(|| {
+                // Unicode aliases have the primary glyph's metrics, even though the
+                // literal Encoding/ToUnicode name must remain unchanged for extraction.
+                let name = self
+                    .mapped_codes
+                    .borrow()
+                    .get(&code)
+                    .and_then(|(_, name)| *name)?;
+                self.base_font.get_width(name)
+            })
     }
 
     /// PdfCraft patch: the glyph id standing for the letter `name` built from its base letter and
@@ -489,6 +537,9 @@ impl StandardKind {
     }
 
     pub(crate) fn outline_glyph(&self, glyph: GlyphId) -> BezPath {
+        if let Some(path) = self.glyph_fallback.outline(glyph) {
+            return path;
+        }
         let composite = self.composite_outline(glyph);
         let is_composite = composite.is_some();
         let path = composite.unwrap_or_else(|| self.base_font_blob.outline_glyph(glyph));
@@ -504,10 +555,7 @@ impl StandardKind {
             self.base_font_blob.advance_width(glyph)
         };
         if let Some(code) = self.glyph_to_code.borrow().get(&glyph).copied()
-            && let Some(actual_width) = blob_width.or_else(|| {
-                self.code_to_ps_name(code)
-                    .and_then(|name| self.base_font.get_width(name))
-            })
+            && let Some(actual_width) = blob_width.or_else(|| self.primary_width(code))
         {
             // From my experiments: Most PDF viewers, if they detect a font is a
             // standard font, they completely ignore the widths array, even if
@@ -520,10 +568,7 @@ impl StandardKind {
                 } else {
                     return path;
                 }
-            } else if let Some(w) = self
-                .code_to_ps_name(code)
-                .and_then(|name| self.base_font.get_width(name))
-            {
+            } else if let Some(w) = self.primary_width(code) {
                 w
             } else {
                 return path;

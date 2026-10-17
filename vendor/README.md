@@ -51,3 +51,24 @@ black-point normalization is unchanged. `lab_bradford_tests` checks independent
 D50/equal-energy neutral and chromatic oracles, D65 identity, and direct/Indexed
 consistency (including an asymmetric chromatic Range), and zero/overflowing
 cone-response fallback.
+
+### hayro-interpret patch (35): missing simple-font glyph outlines (#2908)
+
+`StandardKind` retains its primary glyphs and patch (26) composites, then resolves a missing
+single-byte character from its glyph name or single-scalar ToUnicode entry. The new
+`FontQuery::MissingGlyph` asks the host for an OpenType face for that character and standard
+family/style. Alternate outlines have separate per-code virtual IDs, remain in the original
+font's 1000-unit space, and fit the original advance. No text advance, extraction, embedded
+font program, Type0/CID, Type3 or save path is replaced. A bounded per-font cache retains
+outlines and parsed faces; absent/corrupt/noncovering faces produce an original missing-glyph
+box for known printable text. Invisible characters stay invisible, and arbitrary codes are
+not guessed. The default/example resolver returns `None`; PdfCraft provides approved bundled
+faces in `crates/render/src/glyph_fallback.rs`. The shared Differences cursor also uses
+saturating arithmetic so a malformed i64::MAX index cannot crash interpretation.
+
+Regression evidence: `crates/render/tests/nonembedded_fallback.rs` (all four reported fonts,
+per-letter raster assertions, mixed outline sources, primary/composite precedence, PDF
+positioning, afii/uni names, ToUnicode, Type1, embedded programs, missing/corrupt faces and
+malformed Differences). The original Cyrillic raster and overflow tests both fail on main.
+This resolver seam and interpreter patch are intended for submission upstream separately
+from PdfCraft's font policy. See `docs/development.md` for remaining family/style limitations.

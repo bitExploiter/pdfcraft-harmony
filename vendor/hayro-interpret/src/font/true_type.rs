@@ -171,7 +171,7 @@ impl TrueTypeFont {
     pub(crate) fn map_code(&self, code: u8) -> GlyphId {
         match &self.kind {
             Kind::Embedded(e) => e.map_code(code),
-            Kind::Standard(s) => s.map_code(code),
+            Kind::Standard(s) => s.map_code(code, self.to_unicode.as_ref()),
         }
     }
 
@@ -482,7 +482,9 @@ pub(crate) fn read_encoding(dict: &Dict<'_>) -> (Encoding, HashMap<u8, String>) 
                         if let Ok(code) = code.try_into() {
                             map.insert(code, name.as_str().to_string());
                         }
-                        code += 1;
+                        // PdfCraft patch (34): a malformed index cannot overflow
+                        // before a later valid index resets the encoding cursor.
+                        code = code.saturating_add(1);
                     }
                     _ => {}
                 }

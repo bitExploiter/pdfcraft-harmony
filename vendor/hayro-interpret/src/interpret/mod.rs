@@ -131,6 +131,7 @@ impl Default for InterpreterSettings {
             font_resolver: Arc::new(|query| match query {
                 FontQuery::Standard(s) => Some(s.get_font_data()),
                 FontQuery::Fallback(f) => Some(f.pick_standard_font().get_font_data()),
+                FontQuery::MissingGlyph { .. } => None,
             }),
             #[cfg(feature = "embed-cmaps")]
             cmap_resolver: Arc::new(hayro_cmap::load_embedded),

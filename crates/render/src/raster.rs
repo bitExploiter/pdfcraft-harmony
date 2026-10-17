@@ -73,7 +73,9 @@ impl RenderConfig {
         InterpreterSettings {
             ocg_overrides: self.layers.clone(),
             hide_comments: self.hide_comments,
-            font_resolver: Arc::new(move |query| japanese_fallback(query).or_else(|| standard(query))),
+            font_resolver: Arc::new(move |query| {
+                crate::glyph_fallback::resolve(query).or_else(|| japanese_fallback(query)).or_else(|| standard(query))
+            }),
             ..InterpreterSettings::default()
         }
     }
