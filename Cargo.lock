@@ -1143,9 +1143,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft-devices"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+dependencies = [
+ "craft-job",
+ "craft-scan",
+ "serde_json",
+]
+
+[[package]]
 name = "craft-docpath"
 version = "0.1.0"
 source = "git+https://github.com/storytold/craft-libs?rev=82a24b006eefa036b43c09a67fb9a3fbd17ffe63#82a24b006eefa036b43c09a67fb9a3fbd17ffe63"
+
+[[package]]
+name = "craft-job"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "craft-print"
@@ -1169,6 +1187,18 @@ dependencies = [
  "muda",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
+]
+
+[[package]]
+name = "craft-scan"
+version = "0.1.0"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+dependencies = [
+ "craft-job",
+ "image",
+ "log",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4000,6 +4030,7 @@ name = "pdfcraft-automation"
 version = "0.10.1"
 dependencies = [
  "base64 0.22.1",
+ "craft-devices",
  "flate2",
  "image",
  "pdfcraft-cos",
@@ -4255,6 +4286,7 @@ name = "pdfcraft-platform"
 version = "0.10.1"
 dependencies = [
  "async-channel",
+ "craft-scan",
  "futures-lite",
  "pdfcraft-wia",
  "rustix 1.1.5",
