@@ -6,8 +6,9 @@
 //! dropped, and every positioning operator stays, so the lines after it keep their places
 //! (`Td`, `T*` and friends move from the line matrix, which showing text doesn't change).
 //!
-//! The new text uses the line's own font when every character has a code and a glyph in it;
-//! otherwise it is set in Helvetica (WinAnsi), and the result says the font was substituted.
+//! The new text uses the line's own font when every character has a code and a glyph in it.
+//! Otherwise the words the font can show keep it and only the others are set in Helvetica
+//! (WinAnsi), run by run, and the result says the font was substituted.
 //! Reflowing a paragraph to a new width is not done here (see `edit.text-reflow`).
 
 use std::collections::HashMap;
@@ -2197,6 +2198,23 @@ fn source_show(metrics: &Metrics, text: &str, size: f64, space: f64, char_spacin
     Ok(out)
 }
 
+/// `text` split into runs of words `metrics` can show (`true`) and words it can't (`false`), in
+/// order. A word is shown in one font, so a word with any character the font lacks goes to the
+/// substitute whole rather than switching fonts letter by letter. Spaces join the run they are
+/// in, since [`source_show`] draws spaces the font lacks with a displacement.
+fn source_runs(metrics: &Metrics, text: &str) -> Vec<(bool, String)> {
+    let mut runs: Vec<(bool, String)> = Vec::new();
+    for (i, word) in text.split(' ').enumerate() {
+        let own = word.is_empty() || metrics.encode(word).is_some();
+        let piece = if i == 0 { word.to_string() } else { format!(" {word}") };
+        match runs.last_mut() {
+            Some((last, run)) if *last == own || word.is_empty() => run.push_str(&piece),
+            _ => runs.push((own, piece)),
+        }
+    }
+    runs
+}
+
 /// Replace the text of line `line` (an index into [`text_lines`]) on `page` with `text`.
 pub fn replace_line(doc: &mut Document, page: usize, line: usize, text: &str) -> Result<LineEdit, EditError> {
     let edit = replace_line_with_limit(doc, page, line, text, MAX_TYPE3_GLYPHS)?;
@@ -2281,10 +2299,24 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
                 replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
                 substituted = Some(format!("{} Type3", fallback.family));
             } else {
+                // The words the line's font can show keep it; only the others are set in the
+                // substitute (#2378): a subset without `V` or `ü` no longer turns the whole line
+                // into Helvetica. Reordered text (right to left, Indic) keeps one run as before.
+                let mixed = font
+                    .as_ref()
+                    .filter(|_| !visual_indic && fallback_shown == text)
+                    .map(|m| source_runs(m, &text))
+                    .filter(|runs| runs.iter().any(|(own, _)| *own));
+                // What the substitute has to show: only the runs the line's font can't.
+                let for_substitute: String = match &mixed {
+                    Some(runs) => runs.iter().filter(|(own, _)| !*own).map(|(_, run)| run.as_str()).collect(),
+                    None => fallback_shown.clone(),
+                };
                 let win = pdfcraft_fonts::win_ansi(&fallback_shown);
                 // WinAnsi turns what it can't show into '?'; refuse rather than print the wrong thing.
-                let back: String = win.iter().map(|b| char::from_u32(u32::from(*b)).unwrap_or('?')).collect();
-                if fallback_shown.chars().zip(back.chars()).any(|(a, b)| b == '?' && a != '?') {
+                let checked = pdfcraft_fonts::win_ansi(&for_substitute);
+                let back: String = checked.iter().map(|b| char::from_u32(u32::from(*b)).unwrap_or('?')).collect();
+                if for_substitute.chars().zip(back.chars()).any(|(a, b)| b == '?' && a != '?') {
                     return Err(EditError::Invalid(format!("\"{text}\" has characters neither {} nor Helvetica can show", target.base_font)));
                 }
                 // The size in text space: the current Tf's size.
@@ -2292,8 +2324,33 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
                 let family = source_family(&target.base_font);
                 let base = family.base_font(target.bold, target.italic);
                 let substitute_name = format!("PCEd{}", base.replace('-', ""));
-                replacement.push(Op::new("Tf", vec![Object::name(&substitute_name), pdfcraft_content::num(size)]));
-                replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(win))]));
+                match mixed {
+                    Some(runs) => {
+                        let space = font.as_ref().map_or(0.33, |m| source_space(doc, &fonts_res, m));
+                        for (own, run) in runs {
+                            if own {
+                                replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
+                                if let Some(m) = font.as_ref() {
+                                    replacement.extend(source_show(
+                                        m,
+                                        &run,
+                                        target.origin.state.font.as_ref().map_or(target.size, |(_, size)| *size),
+                                        space,
+                                        target.origin.state.char_spacing,
+                                        target.origin.state.word_spacing,
+                                    )?);
+                                }
+                            } else {
+                                replacement.push(Op::new("Tf", vec![Object::name(&substitute_name), pdfcraft_content::num(size)]));
+                                replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(pdfcraft_fonts::win_ansi(&run)))]));
+                            }
+                        }
+                    }
+                    None => {
+                        replacement.push(Op::new("Tf", vec![Object::name(&substitute_name), pdfcraft_content::num(size)]));
+                        replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(win))]));
+                    }
+                }
                 replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
                 substituted = Some(base.to_string());
                 let mut f = Dict::new();
