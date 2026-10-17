@@ -13,7 +13,7 @@ use crate::{Dialog, Mode, PdfCraftApp, PropsTab, RightPanel, icons, widgets, win
 /// WordCraft (storytold/wordcraft#255).
 pub const MAC_TITLE_BAR: f32 = 28.0;
 /// The traffic lights as AppKit lays them out: button diameter, centre-to-centre pitch and the
-/// first button's left edge (8ΓÇô10 pt depending on the macOS version; the larger value keeps the
+/// first button's left edge (8╬ô├ç├┤10 pt depending on the macOS version; the larger value keeps the
 /// gap after them from shrinking).
 const MAC_LIGHT: f32 = 12.0;
 const MAC_LIGHT_PITCH: f32 = 20.0;
@@ -74,7 +74,7 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                 // Open stays in sight after the tabs: its icon, text and padding, and the gaps around it.
                 let open_width = ui.fonts_mut(|f| f.layout_no_wrap(tl!("Open").into(), theme::medium(13.0), t.text).size().x) + 38.0 + 12.0;
                 let mut tabs_width = (ui.available_width() - controls_width - open_width).max(0.0);
-                // Tabs shrink to share the strip (names end in "ΓÇª") and scroll only once they reach
+                // Tabs shrink to share the strip (names end in "╬ô├ç┬¬") and scroll only once they reach
                 // their narrowest; then arrows either side say so and step through them.
                 let mut natural: Vec<f32> = Vec::with_capacity(app.views.len() + 1);
                 for i in 0..app.views.len() {
@@ -321,7 +321,7 @@ fn theme_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         }
     }
     ui.separator();
-    if ui.button(tl!("Appearance settingsΓÇª")).clicked() {
+    if ui.button(tl!("Appearance settings╬ô├ç┬¬")).clicked() {
         app.dialog = Some(Dialog::Preferences);
         ui.close();
     }
@@ -329,7 +329,7 @@ fn theme_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
 
 /// The right-click menu on the title bar's theme button.
 fn appearance_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
-    if ui.button(tl!("Appearance settingsΓÇª")).clicked() {
+    if ui.button(tl!("Appearance settings╬ô├ç┬¬")).clicked() {
         app.dialog = Some(Dialog::Preferences);
         ui.close();
     }
@@ -376,9 +376,9 @@ fn arrow(ui: &mut egui::Ui, icon: &str, enabled: bool, tip: &str) -> bool {
     ui.add_enabled_ui(enabled, |ui| icons::button(ui, icon, TAB_ARROW, false, tip)).inner.clicked()
 }
 
-/// A tab name, at most 28 characters (longer names end in "ΓÇª").
+/// A tab name, at most 28 characters (longer names end in "╬ô├ç┬¬").
 fn tab_name(name: &str) -> String {
-    if name.chars().count() > 28 { format!("{}ΓÇª", name.chars().take(27).collect::<String>()) } else { name.to_string() }
+    if name.chars().count() > 28 { format!("{}╬ô├ç┬¬", name.chars().take(27).collect::<String>()) } else { name.to_string() }
 }
 
 /// The width a tab takes when nothing has to shrink.
@@ -482,7 +482,7 @@ fn tab(
         None => crate::bidi::visual(name),
     };
     theme::hand(resp).on_hover_text(if dirty {
-        crate::i18n::fmt(tl!("{name} ΓÇö unsaved changes"), &[("name", shown.as_ref())])
+        crate::i18n::fmt(tl!("{name} ╬ô├ç├╢ unsaved changes"), &[("name", shown.as_ref())])
     } else {
         shown.into_owned()
     })
@@ -600,12 +600,14 @@ fn main_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         }
                         ui.separator();
                     }
-                    let mut show_rulers = app.show_rulers;
-                    if ui.add(widgets::checkbox(&mut show_rulers, tl!("Rulers"))).changed() {
-                        app.execute("view.rulers");
-                        ui.close();
+                    if app.active.is_some() {
+                        let mut show_rulers = app.show_rulers;
+                        if ui.add(widgets::checkbox(&mut show_rulers, tl!("Rulers"))).changed() {
+                            app.execute("view.rulers");
+                            ui.close();
+                        }
+                        ui.separator();
                     }
-                    ui.separator();
                     crate::commands::registry_menu(app, ui, "View");
                     ui.menu_button(tl!("Display theme"), |ui| theme_menu(app, ui));
                     ui.menu_button(tl!("Side panels"), |ui| {
@@ -723,7 +725,7 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     .text_color(t.text_muted)
                     .frame(egui::Frame::NONE)
                     .margin(vec2(2.0, 2.0));
-                let r = ui.add(edit).on_hover_text(tl!("Zoom ΓÇö type a percentage and press Enter"));
+                let r = ui.add(edit).on_hover_text(tl!("Zoom ╬ô├ç├╢ type a percentage and press Enter"));
                 ui.ctx().accesskit_node_builder(id, |node| node.set_label(tl!("Zoom")));
                 if r.gained_focus() {
                     let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -785,7 +787,7 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     .corner_radius(CornerRadius::same(5))
                     .show(ui, |ui| ui.add(edit))
                     .inner
-                    .on_hover_text(tl!("Current page ΓÇö type a page number or label (such as iv) and press Enter"));
+                    .on_hover_text(tl!("Current page ╬ô├ç├╢ type a page number or label (such as iv) and press Enter"));
                 if r.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         // A page label first (logical page numbers, as Acrobat), then a number.
@@ -801,7 +803,7 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         });
 }
 
-/// View Γû╕ Page display and the rail's Page display menu: the layouts and the cover page.
+/// View ╬ô├╗Γòò Page display and the rail's Page display menu: the layouts and the cover page.
 /// Returns the command a click asks for, for the caller to run.
 fn page_display_menu(ui: &mut egui::Ui, view: &DocView) -> Option<&'static str> {
     let t = Tokens::get(ui.ctx());
