@@ -620,11 +620,10 @@ pub struct PdfCraftApp {
     /// Whether the window currently has the app's header bar (`None` until the first frame).
     app_frame_shown: Option<bool>,
     pub password_prompt: Option<PasswordPrompt>,
-    /// Files the Print verb couldn't print unattended (`--print-file`, #1695), not open yet: each
-    /// gets its Print dialog once it opens, also after its password is entered.
-    pub(crate) print_files: Vec<String>,
-    /// Open documents waiting for their Print dialog, one at a time.
-    pub(crate) print_queue: std::collections::VecDeque<DocId>,
+    /// Files the Print verb couldn't print unattended (`--print-file`, #1695), in the order asked,
+    /// with the document once it is open (also after its password is entered): each gets its
+    /// Print dialog in turn (`open_queued_print`).
+    pub(crate) print_requests: Vec<(String, Option<DocId>)>,
     pub unlock_prompt: Option<UnlockPrompt>,
     pub full_screen: bool,
     /// Files delivered asynchronously (web drag-and-drop, web file picker).
@@ -1011,8 +1010,7 @@ impl PdfCraftApp {
             system_title_bar: false,
             app_frame_shown: None,
             password_prompt: None,
-            print_files: Vec::new(),
-            print_queue: std::collections::VecDeque::new(),
+            print_requests: Vec::new(),
             unlock_prompt: None,
             full_screen: false,
             inbox: Default::default(),
@@ -1386,10 +1384,9 @@ impl PdfCraftApp {
     ) -> Result<DocId, String> {
         let id = self.session.commit_open(prepared);
         if let Some(p) = &path
-            && let Some(at) = self.print_files.iter().position(|f| same_file(f, p))
+            && let Some(request) = self.print_requests.iter_mut().find(|(f, open)| open.is_none() && same_file(f, p))
         {
-            self.print_files.remove(at);
-            self.print_queue.push_back(id);
+            request.1 = Some(id);
         }
         self.password_prompt = None;
         // The reading-colours preference is app-wide: a newly opened document starts with it.
@@ -2638,10 +2635,7 @@ impl PdfCraftApp {
             // The file's Print dialog, now if it is open, else once it opens.
             let open =
                 self.views.iter().map(|v| v.id).find(|id| self.session.get(*id).and_then(|d| d.path.as_deref()).is_some_and(|p| same_file(p, value)));
-            match open {
-                Some(id) => self.print_queue.push_back(id),
-                None => self.print_files.push(value.to_string()),
-            }
+            self.print_requests.push((value.to_string(), open));
             return Ok(());
         }
         let view = self.active.and_then(|i| self.views.get_mut(i));
