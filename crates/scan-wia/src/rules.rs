@@ -181,7 +181,9 @@ pub fn from_hresult(code: u32, driver_message: &str) -> ScanError {
 
 /// Bits from `WIA_DPS_DOCUMENT_HANDLING_STATUS`.
 pub fn status_from_bits(bits: i32) -> HandlingStatus {
-    let bits = u32::try_from(bits).unwrap_or(0);
+    // The property is a LONG of flags: read its bits as they are. A converting cast would turn a word with the top
+    // bit set into 0 and lose a jam or a cover with it.
+    let bits = u32::from_ne_bytes(bits.to_ne_bytes());
     HandlingStatus {
         feeder_ready: Some(bits & 0x1 != 0),
         flat_ready: bits & 0x2 != 0,
