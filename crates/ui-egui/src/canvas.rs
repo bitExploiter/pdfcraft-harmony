@@ -411,6 +411,8 @@ pub struct DocView {
     pub snapshot: Option<Snapshot>,
     /// Two-page view: show the first page alone, as a cover (View ▸ Page display).
     pub cover: bool,
+    /// Two-page view places the earlier page of each pair on the right (#2339).
+    pub rtl_pages: bool,
     /// Previous view / Next view: pages visited before (and after, once going back).
     pub back: Vec<usize>,
     pub forward: Vec<usize>,
@@ -748,6 +750,7 @@ impl DocView {
             close_requested: false,
             snapshot: None,
             cover: false,
+            rtl_pages: false,
             back: Vec::new(),
             forward: Vec::new(),
             goto: None,
@@ -1586,6 +1589,14 @@ impl DocView {
         }
     }
 
+    /// Put the earlier page of each two-page pair on the right. A no-op unless it changed.
+    pub fn set_rtl_pages(&mut self, rtl_pages: bool) {
+        if self.rtl_pages != rtl_pages {
+            self.rtl_pages = rtl_pages;
+            self.goto = Some((self.current, 0.0));
+        }
+    }
+
     /// Whether the cover page setting applies: only two-page view has a cover page.
     pub fn cover_applies(&self) -> bool {
         self.layout == PageLayout::TwoUp
@@ -2222,10 +2233,23 @@ impl DocView {
                     let sizes: Vec<Vec2> = pair.iter().map(page_size).collect();
                     let row_w: f32 = sizes.iter().map(|v| v.x).sum::<f32>() + gap * (sizes.len() as f32 - 1.0);
                     let row_h = sizes.iter().map(|v| v.y).fold(0.0, f32::max);
-                    let mut x = if self.cover && ri == 0 { (content_w / 2.0 + gap / 2.0).max(SIDE) } else { ((content_w - row_w) / 2.0).max(SIDE) };
-                    for size in sizes {
-                        rects.push(Rect::from_min_size(pos2(x, y + (row_h - size.y) / 2.0), size));
-                        x += size.x + gap;
+                    let lone_on_the_right = (self.cover && ri == 0) || (self.rtl_pages && sizes.len() == 1);
+                    let row_left = if lone_on_the_right { (content_w / 2.0 + gap / 2.0).max(SIDE) } else { ((content_w - row_w) / 2.0).max(SIDE) };
+                    if self.rtl_pages && sizes.len() == 2 {
+                        // The earlier page is the one a right-to-left reader meets first, so it
+                        // sits on the right. Widths can differ, so this is not a swap of origins.
+                        let right = sizes.first().copied().unwrap_or(Vec2::ZERO);
+                        let left = sizes.get(1).copied().unwrap_or(Vec2::ZERO);
+                        let x_left = row_left;
+                        let x_right = row_left + left.x + gap;
+                        rects.push(Rect::from_min_size(pos2(x_right, y + (row_h - right.y) / 2.0), right));
+                        rects.push(Rect::from_min_size(pos2(x_left, y + (row_h - left.y) / 2.0), left));
+                    } else {
+                        let mut x = row_left;
+                        for size in sizes {
+                            rects.push(Rect::from_min_size(pos2(x, y + (row_h - size.y) / 2.0), size));
+                            x += size.x + gap;
+                        }
                     }
                     y += row_h + gap;
                 }
@@ -2284,6 +2308,25 @@ fn annotation_hover_text(a: &pdfcraft_render::Annotation) -> Option<String> {
 fn anchored_scroll(point: Pos2, rel: Vec2, content: Vec2, viewport: Vec2) -> Vec2 {
     let max = vec2((content.x - viewport.x).max(0.0), (content.y - viewport.y).max(0.0));
     vec2((point.x - rel.x).clamp(0.0, max.x), (point.y - rel.y).clamp(0.0, max.y))
+}
+
+/// Lines of a hover popup in the order egui must be given so Arabic and Hebrew read right to left.
+fn annotation_hover_display(text: &str) -> Vec<crate::bidi::Line> {
+    if crate::bidi::has_rtl(text) {
+        crate::bidi::wrap(text, |_| true)
+    } else {
+        text.lines().map(|line| crate::bidi::Line { text: line.to_owned(), rtl: false }).collect()
+    }
+}
+
+fn paint_hover_text(ui: &mut egui::Ui, text: &str) {
+    if annotation_hover_display(text).iter().all(|line| !line.rtl) {
+        ui.label(text);
+        return;
+    }
+    let font = egui::FontSelection::default().resolve(ui.style());
+    let color = ui.visuals().text_color();
+    crate::widgets::wrapped_text(ui, text, font, color, false);
 }
 
 /// The request tag for a raster at `scale`: equal tags mean the same scale (to 1/65536).
@@ -4188,7 +4231,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         egui::Area::new(egui::Id::new("canvas-hover")).order(egui::Order::Tooltip).fixed_pos(pos + vec2(14.0, 16.0)).show(ui.ctx(), |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.set_max_width(320.0);
-                ui.label(text);
+                paint_hover_text(ui, &text);
             });
         });
     }
@@ -5752,6 +5795,36 @@ mod tests {
     fn hover_popup_skips_fill_and_sign_marks() {
         assert_eq!(annotation_hover_text(&annotation(false)).as_deref(), Some("FreeText\nHello"));
         assert_eq!(annotation_hover_text(&annotation(true)), None);
+    }
+
+    #[test]
+    fn arabic_comment_hover_reads_right_to_left() {
+        let lines = annotation_hover_display("Author\nواحد اثنين");
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0].text, "Author");
+        assert!(!lines[0].rtl);
+        assert_eq!(lines[1].text, "اثنين واحد");
+        assert!(lines[1].rtl);
+        assert_eq!(annotation_hover_display("Hello").iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["Hello"]);
+    }
+
+    #[test]
+    fn right_to_left_two_page_view_puts_the_earlier_page_on_the_right() {
+        let mut v = view(4, PageLayout::TwoUp, false);
+        v.zoom = 1.0;
+        let info = pdfcraft_render::DocInfo {
+            pages: (0..4)
+                .map(|_| pdfcraft_render::PageInfo { width: 300.0, height: 400.0, label: String::new(), crop: [0.0, 0.0, 300.0, 400.0], rotation: 0 })
+                .collect(),
+            ..Default::default()
+        };
+        let ltr = v.layout(&info, 1200.0);
+        assert!(ltr[0].left() < ltr[1].left(), "left to right: {ltr:?}");
+        v.rtl_pages = true;
+        let rtl = v.layout(&info, 1200.0);
+        assert!(rtl[0].left() > rtl[1].left(), "the first page is on the right: {rtl:?}");
+        assert!(rtl[2].left() > rtl[3].left(), "the next spread does the same: {rtl:?}");
+        assert!((rtl[0].width() - ltr[0].width()).abs() < 0.1);
     }
 
     fn signature(signed: bool, visible: bool, page: Option<usize>, rect: Option<[f64; 4]>) -> pdfcraft_engine::SignatureInfo {

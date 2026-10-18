@@ -312,6 +312,16 @@ fn two_up_layout_places_pages_side_by_side() {
 }
 
 #[test]
+fn right_to_left_page_order_puts_the_first_page_on_the_right() {
+    let mut h = harness(&[("layout", "two-up"), ("zoom", "50"), ("rtl-pages", "on")]);
+    h.run_steps(4);
+    let (a, b) = (rect(&h, 0).expect("page 1"), rect(&h, 1).expect("page 2"));
+    assert!((a.min.y - b.min.y).abs() < 1.0, "same row: {a:?} {b:?}");
+    assert!(a.min.x > b.max.x, "page 1 is right of page 2: {a:?} {b:?}");
+    assert!(h.state().views[0].rtl_pages);
+}
+
+#[test]
 fn two_page_view_shows_one_spread_at_a_time_until_continuous() {
     use pdfcraft_ui_egui::canvas::PageLayout;
     // Two-page view without continuous scrolling shows just the current spread; the continuous
