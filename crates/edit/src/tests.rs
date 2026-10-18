@@ -2561,6 +2561,145 @@ fn adding_a_row_does_not_make_the_next_paragraph_number_mean_charlie() {
     assert!(done.iter().any(|t| t.contains("Bravo paragraph, edited.")), "{done:?}");
 }
 
+/// The paragraph is the last thing on the page. Editing the first row and leaving the second
+/// in the source must keep both rows inside one marker, including after a save.
+#[test]
+fn a_partial_rewrite_of_the_only_paragraph_stays_one_block() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET";
+    let mut doc = text_page(src);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row."], "{texts:?}");
+    assert_marker_wraps(&page_content(&doc), "/P BMC", "(One.)", "(Alpha next row.)");
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row."], "{texts:?}");
+    assert_marker_wraps(&page_content(&doc), "/P BMC", "(One.)", "(Alpha next row.)");
+    let mut doc = doc;
+    text::replace_block(&mut doc, 0, 0, "One.\nTwo.").unwrap();
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Two."], "{texts:?}");
+    assert_marker_wraps(&page_content(&doc), "/P BMC", "(One.)", "(Two.)");
+}
+
+/// The same rewrite when an operator follows the paragraph's `ET`. The close belongs before
+/// that operator, and still after the kept row.
+#[test]
+fn a_partial_rewrite_closes_before_the_operator_that_follows_the_paragraph() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET 0 0 0 RG";
+    let mut doc = text_page(src);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row."], "{texts:?}");
+    let content = page_content(&doc);
+    assert_marker_wraps(&content, "/P BMC", "(One.)", "(Alpha next row.)");
+    let start = content.find("/P BMC").expect("marker");
+    let close = content[start..].find("EMC").map(|at| start + at).expect("close");
+    let after = content.find("0 0 0 RG").expect("the following operator is gone");
+    assert!(close < after, "the marker swallowed the operator after the paragraph: {content}");
+}
+
+/// The last paragraph on the page is already inside a marked region. A partial rewrite stays
+/// one paragraph, and that region's close still comes after both rows.
+#[test]
+fn a_partial_rewrite_of_the_last_marked_paragraph_stays_inside_its_region() {
+    let src = "/H1 << /MCID 0 >> BDC BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET EMC";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 1);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row."], "{texts:?}");
+    assert_marker_wraps(&page_content(&doc), "/MCID 0", "(One.)", "(Alpha next row.)");
+}
+
+/// A partial rewrite must not insert `/P BMC` across two existing marked-content regions.
+/// The neighbour's own marker has to keep wrapping its text.
+#[test]
+fn a_partial_rewrite_keeps_the_next_marked_region_closed() {
+    let src = "/H1 << /MCID 0 >> BDC BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET EMC \
+               /P << /MCID 1 >> BDC BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Neighbor stays.) Tj ET EMC";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row.", "Neighbor stays."], "{texts:?}");
+    let content = page_content(&doc);
+    assert_marker_wraps(&content, "/MCID 0", "(One.)", "(Alpha next row.)");
+    assert_marker_wraps(&content, "/MCID 1", "(Neighbor stays.)", "(Neighbor stays.)");
+    let neighbour = content.find("/MCID 1").expect("neighbour region");
+    let close = content[neighbour..].find("EMC").map(|at| neighbour + at).expect("neighbour close");
+    assert!(!content[neighbour..close].contains("(One.)"), "the rewrite was pulled into the neighbour's marker: {content}");
+}
+
+/// Both paragraphs already share one marked region, separated by a blank line. The extra marker
+/// around the edit has to close itself, not the region, so the neighbour stays inside it.
+#[test]
+fn a_partial_rewrite_inside_one_marked_region_leaves_the_neighbour_inside_it() {
+    let src = "/P << /MCID 0 >> BDC BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Neighbor stays.) Tj ET EMC";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row.", "Neighbor stays."], "{texts:?}");
+    let content = page_content(&doc);
+    let region = region_through_matching_close(&content, "/MCID 0");
+    assert!(region.contains("(One.)") && region.contains("(Neighbor stays.)"), "the region closed before the neighbour: {content}");
+}
+
+/// Bytes from `open` through the `EMC` that balances the marked region it begins.
+fn region_through_matching_close<'a>(content: &'a str, open: &str) -> &'a str {
+    let start = content.find(open).unwrap_or_else(|| panic!("missing {open}: {content}"));
+    let bytes = content.as_bytes();
+    let mut index = start;
+    let mut depth = 0i32;
+    while index < bytes.len() {
+        let rest = &bytes[index..];
+        let boundary = index == 0 || !bytes[index - 1].is_ascii_alphanumeric();
+        if boundary && (rest.starts_with(b"BMC") || rest.starts_with(b"BDC")) && rest.get(3).is_none_or(|b| !b.is_ascii_alphanumeric()) {
+            depth += 1;
+            index += 3;
+            continue;
+        }
+        if boundary && rest.starts_with(b"EMC") && rest.get(3).is_none_or(|b| !b.is_ascii_alphanumeric()) {
+            depth -= 1;
+            if depth == 0 {
+                return &content[start..index];
+            }
+            index += 3;
+            continue;
+        }
+        index += 1;
+    }
+    panic!("unbalanced region {open}: {content}");
+}
+
+fn page_content(doc: &Document) -> String {
+    String::from_utf8_lossy(&page_content_bytes(doc, 0)).into_owned()
+}
+
+/// `open` through the next `EMC` contains both strings, and no `EMC` sits inside a text object.
+fn assert_marker_wraps(content: &str, open: &str, first: &str, second: &str) {
+    let start = content.find(open).unwrap_or_else(|| panic!("missing {open}: {content}"));
+    let end = content[start..].find("EMC").map(|at| start + at).unwrap_or_else(|| panic!("missing EMC after {open}: {content}"));
+    let marked = &content[start..end];
+    assert!(marked.contains(first) && marked.contains(second), "{open} closed too early: {content}");
+    let mut text_objects = 0i32;
+    for token in content.split_whitespace() {
+        match token {
+            "BT" => text_objects += 1,
+            "ET" => text_objects -= 1,
+            "EMC" => assert_eq!(text_objects, 0, "EMC inside a text object: {content}"),
+            _ => {}
+        }
+    }
+    assert_eq!(text_objects, 0, "a text object was left open: {content}");
+}
+
 /// A blank line is one extra leading, so the fourth row of a grown paragraph sits on the
 /// neighbour's baseline. Changing the box width must not treat that neighbour as a duplicate
 /// drawing and delete it.

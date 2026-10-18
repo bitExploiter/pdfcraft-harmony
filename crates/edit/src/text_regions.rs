@@ -423,7 +423,7 @@ fn untouched_rows(block: &TextBlock, draft: &str, rows: &[std::ops::Range<usize>
 }
 
 /// Operator index of the paragraph's first text object, and of the next line's text object
-/// when one follows. The next index is where a closing marker belongs.
+/// when one follows.
 fn paragraph_span(block: &TextBlock, lines: &[TextLine]) -> Option<(usize, Option<usize>)> {
     let belongs: std::collections::HashSet<usize> = block.lines.iter().copied().collect();
     let start = block.lines.iter().filter_map(|i| lines.get(*i)).map(|line| line.origin.bt_op).min()?;
@@ -436,6 +436,50 @@ fn paragraph_span(block: &TextBlock, lines: &[TextLine]) -> Option<(usize, Optio
         .filter_map(|(_, line)| (line.origin.bt_op > end).then_some(line.origin.bt_op))
         .min();
     Some((start, next))
+}
+
+/// The scope shared by every line of the paragraph, when each one is in the same marked region.
+fn shared_scope(block: &TextBlock, lines: &[TextLine]) -> Option<usize> {
+    let mut scopes = block.lines.iter().filter_map(|i| lines.get(*i)).map(|line| line.scope);
+    let first = scopes.next().flatten()?;
+    scopes.all(|scope| scope == Some(first)).then_some(first)
+}
+
+/// Where an extra `/P` marker belongs.
+///
+/// The marker is omitted when the paragraph is already one marked region and the next line is
+/// in a different one: an `EMC` at that line's `BT` lands after the other region has opened, so
+/// it would close the other region and leave its text outside. When nothing follows, `close` is
+/// the operator just after the paragraph's last `ET` (`ops.len()` means append it after the
+/// stream). Closing earlier, inside the rewritten operators, leaves a kept source row outside
+/// the marker and can put `EMC` inside a `BT`.
+fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option<(usize, Option<usize>, usize)> {
+    let (start, next) = paragraph_span(block, lines)?;
+    if let Some(region) = shared_scope(block, lines)
+        && let Some(at) = next
+    {
+        let next_scope = lines.iter().find(|line| line.origin.bt_op == at).map(|line| line.scope);
+        if next_scope != Some(Some(region)) {
+            return None;
+        }
+    }
+    let close = if next.is_none() {
+        let end = block
+            .lines
+            .iter()
+            .filter_map(|i| lines.get(*i))
+            .flat_map(|line| line.ops.iter().copied().chain(std::iter::once(line.origin.bt_op)))
+            .max()?;
+        ops.iter()
+            .enumerate()
+            .skip(end.saturating_add(1))
+            .find(|(_, op)| op.op.as_slice() == b"ET")
+            .map(|(index, _)| index.saturating_add(1))
+            .unwrap_or(ops.len())
+    } else {
+        0
+    };
+    Some((start, next, close))
 }
 
 /// Rewrite visual rows while keeping the source style on each surviving character. Resource
@@ -1081,26 +1125,41 @@ pub(super) fn rewrite_styled_block(
         block_ops.push(Op::new("Tm", o.tlm.iter().map(|v| n(*v)).collect()));
     }
     let at = if split { start } else { o.bt_op };
-    // A kept source row sits outside `block_ops`, so a marker only around the rewrite splits
-    // the paragraph or leaves the added row to join the neighbour. Bound the whole paragraph:
-    // from its first text object up to, but not including, the next line.
-    let marker = if marked { None } else { paragraph_span(block, lines) };
-    if marker.is_some_and(|(_, next)| next.is_none()) {
-        block_ops.push(Op::new("EMC", vec![]));
-    }
+    // A kept source row sits outside `block_ops`. Bound the whole paragraph when a marker is
+    // safe. The close is not part of `block_ops`: that vector can end inside a text object
+    // when the rewrite splits one, and a kept row's operators come later in the stream.
+    let marker = if marked { None } else { paragraph_marker(block, lines, &ops) };
     let data = splice(&pieces, &ops, |i| {
         let mut insert = Vec::new();
-        if marker.is_some_and(|(start_at, _)| i == start_at) {
-            insert.push(Op::new("BMC", vec![Object::name("P")]));
+        if let Some((start_at, next, close)) = marker {
+            if i == start_at {
+                insert.push(Op::new("BMC", vec![Object::name("P")]));
+            }
+            if next.is_none() && i == close {
+                insert.push(Op::new("EMC", vec![]));
+            }
+            if next == Some(i) {
+                insert.push(Op::new("EMC", vec![]));
+            }
         }
         if i == at {
             insert.append(&mut block_ops);
         }
-        if marker.is_some_and(|(_, next)| next == Some(i)) {
-            insert.push(Op::new("EMC", vec![]));
-        }
         (insert, !drop.contains(&i))
     });
+    let data = if marker.is_some_and(|(_, next, close)| next.is_none() && close >= ops.len()) {
+        let mut data = data;
+        if let Some(last) = data.last_mut() {
+            if last.last().is_some_and(|byte| !byte.is_ascii_whitespace()) {
+                last.push(b'\n');
+            }
+            // `splice` never visits `ops.len()`, so a close after the final operator is appended.
+            last.extend_from_slice(&pdfcraft_content::serialize_ops(&[Op::new("EMC", vec![])]));
+        }
+        data
+    } else {
+        data
+    };
     let contents = rewritten_contents(doc, &streams, data);
     res.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(p.obj, |d| {
