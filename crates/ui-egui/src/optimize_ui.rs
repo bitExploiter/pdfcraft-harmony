@@ -372,6 +372,7 @@ impl PdfCraftApp {
             drop(s);
             let label = if cancelling { tl!("Cancelling…").to_string() } else { stage_label(stage) };
             self.progress_notice = Some(crate::widgets::ProgressNotice { label, fraction: stage.fraction(), cancellable: !cancelling });
+            self.progress_owner = crate::widgets::ProgressOwner::Optimize;
             if let Some(ctx) = &self.ctx {
                 ctx.request_repaint_after(std::time::Duration::from_millis(50));
             }

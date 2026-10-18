@@ -2489,6 +2489,7 @@ impl PdfCraftApp {
                     fraction: scan_bar_fraction(done, expected, page_percent).unwrap_or(0.0),
                     cancellable: !cancelling,
                 });
+                self.progress_owner = crate::widgets::ProgressOwner::Scan;
             }
             if let Some(ctx) = &self.ctx {
                 ctx.request_repaint_after(std::time::Duration::from_millis(100));

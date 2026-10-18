@@ -414,6 +414,16 @@ pub fn toast(app: &mut PdfCraftApp, ctx: &egui::Context) {
     ctx.request_repaint_after(std::time::Duration::from_millis(100));
 }
 
+/// The job that wrote the progress card, so a Cancel click reaches only that job.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProgressOwner {
+    /// A card nothing in the app cancels from here (printing).
+    #[default]
+    Other,
+    Optimize,
+    Scan,
+}
+
 /// A background job's progress, shown at the bottom centre until the job is done.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProgressNotice {

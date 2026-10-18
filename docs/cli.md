@@ -44,7 +44,7 @@ On a non-zero job exit the sentence goes to stderr as `scan: ...`, followed, whe
 
 `--page-length driver|size|auto|infer` chooses how the page length is decided (default `driver`: the scanner's own). `size` is the `--page-size` length as extents. `auto` uses the scanner's length detection when it publishes one, else the length of `--page-size`; `infer` adds a guess of the sheet end from the image when neither applies (feeder only, **approximate**). Each saved page reports `length.source` (`driver`, `device`, `size`, `inferred`). See [scan-stack.md](scan-stack.md#page-length).
 
-One job per output folder: a fresh `scan --out DIR` refuses a folder that already holds a journal or page files (`--reverse` after a completed front pass in the same folder is the one exception). Ctrl-C is not handled (that needs a dependency or `unsafe`): terminating the process leaves the journal in state `acquiring`, which every reader treats as an unknown outcome.
+One job per output folder: a fresh `scan --out DIR` refuses a folder that already holds a journal or page files (`--reverse` after a completed front pass in the same folder is the one exception: that pass keeps the front pass's journal as it is and writes no journal of its own, so a pass that fails leaves the folder unchanged and `--reverse` can simply be run again). Ctrl-C is not handled (that needs a dependency or `unsafe`): terminating the process leaves the journal in state `acquiring`, which every reader treats as an unknown outcome.
 
 **Diagnostics**
 
@@ -57,7 +57,7 @@ Example (stderr trace during acquire):
 
 ```powershell
 $env:CRAFT_SCAN_TRACE = "1"
-pdfcraft-cli scan acquire --device "…" --source feeder --pages 1 --out-dir .\out
+pdfcraft-cli scan --device "…" --source feeder --pages 1 --out .\out --yes
 ```
 
 Manual check: run a short acquire with `CRAFT_SCAN_TRACE=1` and confirm phase lines appear on stderr in order through `transfer_end`.

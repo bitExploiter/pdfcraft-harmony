@@ -1266,7 +1266,6 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     let source =
         pdfcraft_platform::scan::Source::parse(source_text).ok_or_else(|| format!("scan: --source is auto, feeder, or glass (got {source_text})"))?;
     let folder = PathBuf::from(out);
-    std::fs::create_dir_all(&folder).map_err(|error| format!("scan: {}: {error}", folder.display()))?;
     let front_files = if reverse {
         let files = pdfcraft_platform::scan::listed_page_files(&folder).map_err(|error| format!("scan: {error}"))?;
         if files.is_empty() {
@@ -1358,6 +1357,8 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     settings.checked().map_err(|error| format!("scan: {error}"))?;
     ensure_scanning_supported()?;
     refuse_a_folder_that_has_a_job(&folder, reverse)?;
+    // Only now: an option that did not parse must not leave an empty output folder behind.
+    std::fs::create_dir_all(&folder).map_err(|error| format!("scan: {}: {error}", folder.display()))?;
     scan_cmd::run(scan_cmd::Run { folder, settings, reverse, front_files, resume: None })
 }
 
@@ -1618,6 +1619,18 @@ mod tests {
         let length = super::scan(&["--out".into(), "pages".into(), "--yes".into(), "--page-length".into(), "exact".into()]).unwrap_err();
         let text = length.to_string();
         assert!(text.contains("page-length") && text.contains("approximate"), "{text}");
+    }
+
+    #[test]
+    fn a_scan_with_an_invalid_option_does_not_create_the_output_folder() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-scan-no-folder-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let out = dir.to_string_lossy().into_owned();
+        for bad in [["--rotation", "sideways"], ["--intent", "photo"], ["--page-size", "tabloid"], ["--dpi-y", "x"]] {
+            let args = ["--out", out.as_str(), "--yes", bad[0], bad[1]].map(String::from);
+            assert!(super::scan(&args).is_err());
+            assert!(!dir.exists(), "{} left behind by {bad:?}", dir.display());
+        }
     }
 
     #[test]

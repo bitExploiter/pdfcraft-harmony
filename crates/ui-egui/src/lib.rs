@@ -718,6 +718,8 @@ pub struct PdfCraftApp {
     pub optimize_run: Option<optimize_ui::OptimizeRun>,
     /// A background job's progress card (see [`widgets::progress_notice`]).
     pub progress_notice: Option<widgets::ProgressNotice>,
+    /// Which job last wrote [`Self::progress_notice`], so Cancel stops that job and not another one that runs too.
+    pub progress_owner: widgets::ProgressOwner,
     /// Pages copied or cut in Organize Pages, ready to paste (into any document).
     pub page_clipboard: Option<PageClip>,
     /// Files dropped on the page grid, waiting for the pointer to say which gap they go to.
@@ -1028,6 +1030,7 @@ impl PdfCraftApp {
             optimize_draft: OptimizeDraft::default(),
             optimize_run: None,
             progress_notice: None,
+            progress_owner: widgets::ProgressOwner::default(),
             page_clipboard: None,
             grid_drop: None,
             last_snapshot: None,
@@ -2054,9 +2057,14 @@ impl PdfCraftApp {
     /// Draw the running job's progress card and pass a Cancel click on to the job.
     fn show_progress(&mut self, ctx: &egui::Context) {
         if widgets::progress_notice(self, ctx) {
-            self.cancel_optimize();
-            if let Some(job) = &self.scan.job {
-                job.cancel.request();
+            match self.progress_owner {
+                widgets::ProgressOwner::Optimize => self.cancel_optimize(),
+                widgets::ProgressOwner::Scan => {
+                    if let Some(job) = &self.scan.job {
+                        job.cancel.request();
+                    }
+                }
+                widgets::ProgressOwner::Other => {}
             }
         }
     }

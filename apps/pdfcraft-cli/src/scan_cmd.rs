@@ -42,10 +42,18 @@ struct Journal<'a> {
     started: u64,
     request: Value,
     prior_attempts: Vec<Value>,
+    /// Off for a reverse (manual duplex) pass: the folder's journal is the completed front pass's record, and the
+    /// backs are held in memory and interleaved only when the pass completes. Writing a journal of `n` backs over
+    /// it would lose the front record, make the next `--reverse` run refuse the folder, and disagree with the `2n`
+    /// page files after a successful pass. A failed pass leaves the folder as it was.
+    enabled: bool,
 }
 
 impl Journal<'_> {
     fn save(&self, job: &ScanJob) -> Result<(), CliError> {
+        if !self.enabled {
+            return Ok(());
+        }
         let snapshot = job.snapshot();
         let mut attempts = self.prior_attempts.clone();
         attempts.extend(snapshot.attempts.iter().filter_map(|attempt| serde_json::to_value(attempt).ok()));
@@ -98,7 +106,7 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         }
         None => (format!("scan-{started_at}-{:x}", std::process::id()), started_at, Vec::new(), None, ScanJob::new(settings.clone(), config)),
     };
-    let journal = Journal { folder: &folder, id, started, request: scan_jobs::request_json(&settings, reverse), prior_attempts };
+    let journal = Journal { folder: &folder, id, started, request: scan_jobs::request_json(&settings, reverse), prior_attempts, enabled: !reverse };
 
     let mut saved: Vec<Value> = Vec::new();
     let mut written = 0usize;

@@ -102,6 +102,17 @@ pub(crate) struct TransferState {
     pub(crate) wire_byte_progress: bool,
 }
 
+impl Drop for TransferState {
+    /// A transfer that ends without `END_OF_STREAM` (a jam, a cancel, a driver that asks for a new stream
+    /// early) must not leave the partly written page in the temp folder.
+    fn drop(&mut self) {
+        self.stream.take();
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+}
+
 #[implement(IWiaTransferCallback)]
 struct Transfer {
     state: Rc<RefCell<TransferState>>,
@@ -181,7 +192,11 @@ impl IWiaTransferCallback_Impl for Transfer_Impl {
             progress.set_transfer(Some(0), 0, None);
         }
         let (stream, path) = file_stream().map_err(|_| windows::core::Error::from(E_FAIL))?;
-        state.path = Some(path);
+        // A page file the driver never finished is removed before the next one replaces it.
+        state.stream.take();
+        if let Some(old) = state.path.replace(path) {
+            let _ = std::fs::remove_file(old);
+        }
         state.stream = Some(stream.clone());
         Ok(stream)
     }
@@ -389,6 +404,18 @@ pub(crate) struct Bands {
     pub(crate) progress: Option<ProgressToken>,
     /// Uncompressed BMP estimate for the current page (header + padded rows).
     pub(crate) expected_bytes: Option<u64>,
+    /// The caller's cancel token: a requested cancel stops the transfer at the next band.
+    pub(crate) cancel: Option<CancelToken>,
+}
+
+impl Drop for Bands {
+    /// A page file left open by a failed or cancelled transfer is closed and removed.
+    fn drop(&mut self) {
+        self.file.take();
+        if let Some(path) = self.path.take() {
+            let _ = std::fs::remove_file(path);
+        }
+    }
 }
 
 #[implement(IWiaDataCallback)]
@@ -415,6 +442,10 @@ impl IWiaDataCallback_Impl for BandSink_Impl {
     ) -> windows::core::Result<()> {
         let message = u32::try_from(lmessage).unwrap_or(0);
         let mut state = self.this.state.try_borrow_mut().map_err(|_| windows::core::Error::from(E_FAIL))?;
+        if state.cancel.as_ref().is_some_and(CancelToken::is_requested) {
+            // Same answer as the file transfer's callback: the driver ends the stack.
+            return Err(windows::core::Error::from(WIA_ERROR_PAPER_EMPTY));
+        }
         if message == IT_MSG_NEW_PAGE || message == IT_MSG_TERMINATION {
             if let Err(error) = finish_band(&mut state) {
                 state.error = Some(error);

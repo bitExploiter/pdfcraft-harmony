@@ -176,7 +176,8 @@ fn plausible(def: &pdfcraft_automation::ToolDef) -> serde_json::Map<String, Valu
 /// The scan tools reach the system's scanners (a listing, or a real scan). They stay out of the
 /// hostile sweeps unless the machine's scanners may be touched.
 fn touches_scanners(tool: &str) -> bool {
-    tool.starts_with("scan_") && std::env::var_os("PDFCRAFT_TEST_REAL_SCANNERS").is_none()
+    // A real acquire pulls paper on every call: never part of a sweep.
+    tool == "scan_acquire" || (tool.starts_with("scan_") && std::env::var_os("PDFCRAFT_TEST_REAL_SCANNERS").is_none())
 }
 
 fn guarded(a: &mut Automation, tool: &str, args: &Value) -> std::result::Result<(), String> {

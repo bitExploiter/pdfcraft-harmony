@@ -100,12 +100,14 @@ fn acquire_failure(folder: &Path, settings: &scan::ScanSettings, error: scan::Sc
 }
 
 fn scan_settings_from_args(args: &Args) -> Result<scan::ScanSettings> {
-    let pages = if let Some(n) = args.opt_int("pages")? {
-        u32::try_from(n).map_err(|_| ToolError::InvalidArgs("pages must be non-negative".into()))?
-    } else if let Some(text) = args.opt_str("pages")? {
-        if text == "all" { 0 } else { text.parse::<u32>().map_err(|_| ToolError::InvalidArgs("pages must be a whole number or all".into()))? }
-    } else {
-        1
+    // A whole number, or the string "all" (0: the whole feeder), or a numeric string. Read the raw value:
+    // `opt_int` rejects a string before the string forms are looked at.
+    let bad = || ToolError::InvalidArgs("pages must be a whole number or all".into());
+    let pages = match args.get("pages") {
+        None | Some(Value::Null) => 1,
+        Some(Value::String(text)) if text == "all" => 0,
+        Some(Value::String(text)) => text.parse::<u32>().map_err(|_| bad())?,
+        Some(value) => value.as_u64().and_then(|n| u32::try_from(n).ok()).ok_or_else(bad)?,
     };
     let color_text = args.opt_str("color")?.unwrap_or("gray");
     let color = scan::Color::parse(color_text).ok_or_else(|| ToolError::InvalidArgs(format!("color must be gray, rgb, or bw (got {color_text})")))?;
@@ -253,16 +255,8 @@ fn build_listing(filter: Option<&str>, details: bool, listed: &[scan::ScannerRef
     check_filter(filter)?;
     let selected: Vec<&scan::ScannerRef> = listed.iter().filter(|item| filter.is_none_or(|text| item.matches(text))).collect();
     let open_them = details || filter.is_some();
-    let rows: Vec<Value> = selected
-        .into_iter()
-        .map(|item| {
-            if !open_them {
-                ref_row(item, scan::ListDetails::Skipped)
-            } else {
-                opened_row(item, open)
-            }
-        })
-        .collect();
+    let rows: Vec<Value> =
+        selected.into_iter().map(|item| if !open_them { ref_row(item, scan::ListDetails::Skipped) } else { opened_row(item, open) }).collect();
     Ok(json!({ "count": rows.len(), "scanners": rows }))
 }
 
@@ -446,16 +440,7 @@ fn run_check(
         opened = scanner;
         vec![row]
     } else {
-        listed
-            .iter()
-            .map(|item| {
-                if !options.details {
-                    ref_row(item, scan::ListDetails::Skipped)
-                } else {
-                    opened_row(item, open)
-                }
-            })
-            .collect()
+        listed.iter().map(|item| if !options.details { ref_row(item, scan::ListDetails::Skipped) } else { opened_row(item, open) }).collect()
     };
     for row in &rows {
         if row["details"] == scan::ListDetails::Error.as_str() {
@@ -800,6 +785,16 @@ mod tests {
         assert_eq!(bad["details"], "error");
         assert_eq!(bad["error"], "The device is busy.");
         assert_eq!(bad["id"], "{c}");
+    }
+
+    #[test]
+    fn pages_takes_a_number_a_numeric_string_or_all() {
+        let pages = |value: Value| scan_settings_from_args(&Args(&json!({ "out": "x", "pages": value }))).map(|settings| settings.pages);
+        assert_eq!(scan_settings_from_args(&Args(&json!({ "out": "x" }))).unwrap().pages, 1);
+        assert_eq!(pages(json!("all")).unwrap(), 0);
+        assert_eq!(pages(json!("3")).unwrap(), 3);
+        assert_eq!(pages(json!(5)).unwrap(), 5);
+        assert!(pages(json!("many")).is_err() && pages(json!(-1)).is_err() && pages(json!(1.5)).is_err());
     }
 
     #[test]

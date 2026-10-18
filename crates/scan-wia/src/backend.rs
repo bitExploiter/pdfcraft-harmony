@@ -783,6 +783,7 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
                 wanted_n,
                 pages_requested,
                 settings.progress.clone(),
+                settings.cancel.clone(),
                 &root,
                 on_feeder,
             ) {
@@ -976,11 +977,17 @@ fn choose<'a>(devices: &'a [IWiaPropertyStorage], wanted: &str) -> Result<&'a IW
     if wanted.is_empty() {
         return devices.first().ok_or_else(|| ScanError::Failed("no scanner is connected".into()));
     }
+    // An exact id or name wins over substring matches ("Canon LiDE" and "Canon LiDE 300").
+    if let Some(exact) = devices.iter().find(|device| {
+        read_string(device, WIA_DIP_DEV_ID).is_ok_and(|id| id == wanted) || read_string(device, WIA_DIP_DEV_NAME).is_ok_and(|name| name == wanted)
+    }) {
+        return Ok(exact);
+    }
     let mut matched = None;
     for device in devices {
         let id = read_string(device, WIA_DIP_DEV_ID).unwrap_or_default();
         let name = read_string(device, WIA_DIP_DEV_NAME).unwrap_or_default();
-        if id == wanted || name == wanted || name.contains(wanted) || id.contains(wanted) {
+        if name.contains(wanted) || id.contains(wanted) {
             if matched.is_some() {
                 return Err(ScanError::Failed(format!("{wanted:?} matches more than one scanner")));
             }
@@ -1586,6 +1593,7 @@ fn receive_bands(
     limit: usize,
     pages_requested: usize,
     progress: Option<craft_scan::ProgressToken>,
+    cancel: Option<craft_scan::CancelToken>,
     root: &IWiaPropertyStorage,
     feeder: bool,
 ) -> Result<Vec<Page>, ScanError> {
@@ -1593,7 +1601,17 @@ fn receive_bands(
     if let Some(progress) = &progress {
         progress.set_expected_bytes(expected_bytes);
     }
-    let state = Rc::new(RefCell::new(Bands { file: None, path: None, pages: Vec::new(), limit, rule, error: None, progress, expected_bytes }));
+    let state = Rc::new(RefCell::new(Bands {
+        file: None,
+        path: None,
+        pages: Vec::new(),
+        limit,
+        rule,
+        error: None,
+        progress,
+        expected_bytes,
+        cancel: cancel.clone(),
+    }));
     let sink = band_callback(&state);
     let transfer = ffi::banded_transfer(data, band_bytes(width, depth), &sink);
     let mut guard = state.try_borrow_mut().map_err(|_| ScanError::Failed("the band state was still borrowed".into()))?;
@@ -1607,10 +1625,11 @@ fn receive_bands(
     drop(guard);
     let status_after = status_from_bits(read_i4(root, WIA_DPS_DOCUMENT_HANDLING_STATUS).unwrap_or(0));
     let page_count = pages.len();
+    let cancelled = cancel.as_ref().is_some_and(craft_scan::CancelToken::is_requested);
     let download_error =
         transfer.err().map(failed).map(|error| rules::explain_transfer_failure(error, status_after, feeder, page_count, pages_requested));
     // A jam with pages already in hand stays an error. An empty feeder after those pages does not.
-    if let Err(error) = rules::after_transfer_checked(pages_requested, feeder, page_count, false, download_error) {
+    if let Err(error) = rules::after_transfer_checked(pages_requested, feeder, page_count, cancelled, download_error) {
         if pages.is_empty() {
             return Err(error);
         }
