@@ -202,6 +202,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 |---|---|---|
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
+| 2026-10-18 | minor | M2, PR #3034 review: missing glyphs without PDF widths or standard metrics use natural alternate advances; explicit zero and missing-width values retain priority. Estimates unchanged. |
 | 2026-10-18 | minor | M2, PR #3034: refreshed against main, preserved upstream progress and renumbered the missing-glyph patch to (35); behavior and estimates unchanged. |
 | 2026-10-15 | minor | M7: Edit text caret height follows its row, with a kittest regression; estimates unchanged |
 | 2026-10-19 | minor | M3 #3360: retain each document’s scroll position when switching Read and the docking workspace at fixed zoom. Estimates unchanged. |

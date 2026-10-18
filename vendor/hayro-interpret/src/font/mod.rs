@@ -534,10 +534,11 @@ pub enum FontQuery {
     /// Note that this type of query is currently not supported,
     /// but will be implemented in the future.
     Fallback(FallbackFontQuery),
-    /// PdfCraft patch (34): an individually decoded character that a non-embedded
+    /// PdfCraft patch (35): an individually decoded character that a non-embedded
     /// simple font's standard substitute cannot draw. Return an OpenType face
-    /// covering this character, or `None`. PDF advances and extraction stay with
-    /// the original font; the returned program is never exposed as embedded data.
+    /// covering this character, or `None`. PDF and standard-metric advances keep
+    /// priority; otherwise the alternate supplies its natural advance. Extraction
+    /// stays with the original font; no alternate program is exposed as embedded data.
     /// Reuse the same `FontData` Arc for a face so parsing can be cached (up to
     /// eight faces per simple font; failed lookups are cached per character code).
     MissingGlyph {

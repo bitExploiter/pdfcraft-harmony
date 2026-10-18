@@ -112,7 +112,10 @@ composites. For a missing glyph it decodes the Encoding/Differences glyph name (
 `uni`/`u`); a single-scalar ToUnicode mapping is the last resort. Hayro's PdfCraft patch (35)
 requests an outline through `FontQuery::MissingGlyph`. Original PDF widths, text operators,
 transforms and extraction remain authoritative; fallback programs never become embedded font
-data or modify the document. CLI rendering, `page_render`, the desktop and WASM share this path.
+data or modify the document. When neither a PDF width nor a standard metric exists for a
+code (for example Cyrillic /Differences in Helvetica without /Widths), the alternate face
+supplies its natural advance, scaled to 1000 units per em. Missing-glyph boxes use 600 units.
+Explicit zero widths and /MissingWidth keep priority. CLI rendering, `page_render`, the desktop and WASM share this path.
 
 Approved existing Inter Regular/SemiBold and JetBrains Mono supply deterministic coverage,
 independent of installed fonts and `PDFCRAFT_SYSTEM_FONTS`. Optional craft-fonts Mincho faces

@@ -482,7 +482,7 @@ pub(crate) fn read_encoding(dict: &Dict<'_>) -> (Encoding, HashMap<u8, String>) 
                         if let Ok(code) = code.try_into() {
                             map.insert(code, name.as_str().to_string());
                         }
-                        // PdfCraft patch (34): a malformed index cannot overflow
+                        // PdfCraft patch (35): a malformed index cannot overflow
                         // before a later valid index resets the encoding cursor.
                         code = code.saturating_add(1);
                     }

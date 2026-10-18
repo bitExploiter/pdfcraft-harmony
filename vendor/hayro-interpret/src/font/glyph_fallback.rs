@@ -1,4 +1,4 @@
-//! PdfCraft patch (34): bounded, display-only fallback for missing simple-font glyphs.
+//! PdfCraft patch (35): bounded, display-only fallback for missing simple-font glyphs.
 use super::blob::OpenTypeFontBlob;
 use super::generated::glyph_names;
 use super::{FontData, FontQuery, StandardFont, stretch_glyph, unicode_from_name};
@@ -16,11 +16,17 @@ const FIRST_GLYPH: u32 = 0x0200_0000;
 const MAX_FACES: usize = 8;
 const MAX_OUTLINE_ELEMENTS: usize = 16_384;
 
+#[derive(Clone)]
+struct FallbackGlyph {
+    path: BezPath,
+    advance: f32,
+}
+
 pub(super) struct SimpleGlyphFallback {
     resolver: FontResolverFn,
     standard: StandardFont,
     // At most 256 entries: the PDF font is single-byte. Cache failed mappings too.
-    paths: RefCell<HashMap<u8, Option<BezPath>>>,
+    paths: RefCell<HashMap<u8, Option<FallbackGlyph>>>,
     // Retain bytes for pointer identity; parse each returned face (including failures) once.
     faces: RefCell<Vec<(FontData, u32, Option<OpenTypeFontBlob>)>>,
 }
@@ -68,6 +74,7 @@ impl SimpleGlyphFallback {
                 standard_font: self.standard,
             };
             let resolved = (self.resolver)(&query).and_then(|(data, index)| self.face(data, index));
+            let mut advance = 600.0;
             let mut path = resolved
                 .and_then(|face| {
                     let glyph = face.font_ref().charmap().map(character)?;
@@ -78,8 +85,12 @@ impl SimpleGlyphFallback {
                     if path.elements().is_empty() || path.elements().len() > MAX_OUTLINE_ELEMENTS {
                         return None;
                     }
-                    let mut path =
-                        fit_width(path, width, face.glyph_metrics().advance_width(glyph));
+                    let actual = face
+                        .glyph_metrics()
+                        .advance_width(glyph)
+                        .filter(|w| w.is_finite() && *w >= 0.0);
+                    advance = actual.unwrap_or(600.0);
+                    let mut path = fit_width(path, width, actual);
                     if self.standard.is_italic()
                         && face.font_ref().attributes().style == Style::Normal
                     {
@@ -97,10 +108,16 @@ impl SimpleGlyphFallback {
                 kurbo::PathEl::ClosePath => true,
             }) {
                 path = missing_box(None);
+                advance = 600.0;
             }
-            path
+            FallbackGlyph { path, advance }
         });
-        let path = path.or_else(|| printable_sequence.then(|| missing_box(width)));
+        let path = path.or_else(|| {
+            printable_sequence.then(|| FallbackGlyph {
+                path: missing_box(width),
+                advance: 600.0,
+            })
+        });
         let present = path.is_some();
         self.paths.borrow_mut().insert(code, path);
         present.then_some(id)
@@ -124,7 +141,16 @@ impl SimpleGlyphFallback {
 
     pub(super) fn outline(&self, glyph: GlyphId) -> Option<BezPath> {
         let code = u8::try_from(glyph.to_u32().checked_sub(FIRST_GLYPH)?).ok()?;
-        self.paths.borrow().get(&code).cloned().flatten()
+        self.paths
+            .borrow()
+            .get(&code)?
+            .as_ref()
+            .map(|g| g.path.clone())
+    }
+
+    /// Used only when neither PDF widths nor the standard metrics define an advance.
+    pub(super) fn advance(&self, code: u8) -> Option<f32> {
+        self.paths.borrow().get(&code)?.as_ref().map(|g| g.advance)
     }
 }
 

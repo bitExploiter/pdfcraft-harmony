@@ -218,6 +218,119 @@ fn glyph_pdf(font: Object, codes: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+fn standard_fonts_without_widths_use_alternate_advances_and_keep_text_placement() {
+    use skrifa::{
+        FontRef, MetadataProvider,
+        instance::{LocationRef, Size},
+    };
+    let face = FontRef::new(pdfcraft_fonts::INTER_REGULAR).unwrap();
+    let metrics = face.glyph_metrics(Size::new(1000.0), LocationRef::default());
+    for names in [
+        [(192, "afii10033"), (193, "afii10066"), (194, "afii10074"), (195, "afii10067"), (196, "afii10070"), (197, "afii10084")],
+        [(192, "Alpha"), (193, "beta"), (194, "gamma"), (195, "delta"), (196, "epsilon"), (197, "theta")],
+    ] {
+        let mut font = encoded_font("Helvetica", &names);
+        let dict = font.as_dict_mut().unwrap();
+        dict.set("Subtype", "Type1");
+        dict.remove(b"Widths");
+        dict.remove(b"FirstChar");
+        dict.remove(b"LastChar");
+        let content =
+            b"q 0.8 0.2 -0.1 1.1 13 17 cm BT /F0 20 Tf 75 Tz 2 Tc 4 Tw 3 Ts 1 0.1 0.2 1 40 700 Tm [<41C0C1C2> 120 <C3C4C5C02042>] TJ ET Q".to_vec();
+        let bytes = pdf(vec![font.clone()], content.clone());
+        let (s, calls) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+        let actual = probe(bytes.clone(), s);
+        assert_eq!(actual.iter().map(|g| g.text.as_str()).collect::<String>(), if names[0].1 == "Alpha" { "AΑβγδεθΑ B" } else { "AПбиветП B" });
+        assert_eq!(calls.load(Ordering::Relaxed), 6, "repeated codes reuse the fallback cache");
+        let mut widths = vec![Object::Integer(600); 256];
+        for (index, g) in actual.iter().skip(1).take(6).enumerate() {
+            let c = g.text.chars().next().unwrap();
+            let expected = metrics.advance_width(face.charmap().map(c).unwrap()).unwrap();
+            assert_eq!(g.advance, Some(expected), "missing width for {c} must use the alternate face");
+            assert!(expected > 0.0);
+            widths[192 + index] = Object::Real(expected);
+        }
+        // The primary face still supplies A, space and B's standard Helvetica metrics.
+        for (index, width) in [(65, 667), (32, 278), (66, 667)] {
+            widths[index] = Object::Integer(width);
+        }
+        let dict = font.as_dict_mut().unwrap();
+        dict.set("FirstChar", 0);
+        dict.set("LastChar", 255);
+        dict.set("Widths", widths);
+        let explicit = pdf(vec![font], content);
+        let (s, _) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+        let expected = probe(explicit.clone(), s);
+        for (a, e) in actual.iter().zip(&expected) {
+            assert_eq!(a.advance, e.advance);
+            assert_eq!(a.matrix, e.matrix, "spacing, TJ, transforms and baseline must match explicit advances");
+            assert_eq!(a.path, e.path);
+        }
+        assert_eq!(render(bytes).rgba, render(explicit).rgba);
+    }
+}
+
+#[test]
+fn explicit_zero_and_missing_width_keep_priority_over_alternate_metrics() {
+    for (entry, missing_width, expected) in
+        [(Object::Integer(0), 400, 0.0), (Object::Integer(600), 400, 600.0), (Object::Null, 400, 400.0), (Object::Null, 0, 0.0)]
+    {
+        let mut font = encoded_font("Helvetica", &[(192, "afii10033")]);
+        let dict = font.as_dict_mut().unwrap();
+        dict.set("Subtype", "Type1");
+        dict.set("FirstChar", 192);
+        dict.set("LastChar", 192);
+        dict.set("Widths", vec![entry]);
+        dict.get_mut(b"FontDescriptor").unwrap().as_dict_mut().unwrap().set("MissingWidth", missing_width);
+        let (s, _) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+        let glyphs = probe(glyph_pdf(font, &[192, 192]), s);
+        assert_eq!(glyphs.len(), 2);
+        for g in &glyphs {
+            assert_eq!(g.advance, Some(expected));
+        }
+        assert!((glyphs[1].matrix[4] - glyphs[0].matrix[4] - f64::from(expected) * 0.02).abs() < 0.0001);
+    }
+}
+
+#[test]
+fn explicit_missing_width_without_widths_keeps_priority_over_alternate_metrics() {
+    for width in [0, 400] {
+        let mut font = encoded_font("Helvetica", &[(192, "afii10033")]);
+        let dict = font.as_dict_mut().unwrap();
+        dict.remove(b"Widths");
+        dict.get_mut(b"FontDescriptor").unwrap().as_dict_mut().unwrap().set("MissingWidth", width);
+        let (s, _) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+        let glyphs = probe(glyph_pdf(font, &[192, 192]), s);
+        assert_eq!(glyphs.len(), 2);
+        assert!(glyphs.iter().all(|g| g.advance == Some(width as f32)));
+        assert!((glyphs[1].matrix[4] - glyphs[0].matrix[4] - f64::from(width) * 0.02).abs() < 0.0001);
+    }
+}
+
+#[test]
+fn unavailable_alternate_without_widths_spaces_missing_boxes() {
+    let mut font = encoded_font("Helvetica", &[(192, "afii10033")]);
+    font.as_dict_mut().unwrap().remove(b"Widths");
+    let (s, _) = settings(None);
+    let glyphs = probe(glyph_pdf(font, &[192, 192]), s);
+    assert_eq!(glyphs.len(), 2);
+    assert!(glyphs.iter().all(|g| g.advance == Some(600.0) && !g.path.as_ref().unwrap().elements().is_empty()));
+    assert!((glyphs[1].matrix[4] - glyphs[0].matrix[4] - 12.0).abs() < 0.0001);
+}
+
+#[test]
+fn zero_advance_combining_fallback_without_widths_stays_zero() {
+    let mut font = encoded_font("Helvetica", &[(192, "uni0301")]);
+    font.as_dict_mut().unwrap().remove(b"Widths");
+    let (s, calls) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+    let glyphs = probe(glyph_pdf(font, &[192, 192]), s);
+    assert_eq!(calls.load(Ordering::Relaxed), 1);
+    assert_eq!(glyphs.len(), 2);
+    assert!(glyphs.iter().all(|g| g.advance == Some(0.0) && !g.path.as_ref().unwrap().elements().is_empty()));
+    assert_eq!(glyphs[0].matrix, glyphs[1].matrix);
+}
+
+#[test]
 fn mixed_runs_keep_primary_composites_and_use_a_second_outline_source() {
     let bytes =
         glyph_pdf(encoded_font("ArialMT", &[(193, "afii10017"), (194, "uni04D9"), (195, "ccaron"), (196, "lcaron")]), &[65, 193, 194, 195, 196, 66]);

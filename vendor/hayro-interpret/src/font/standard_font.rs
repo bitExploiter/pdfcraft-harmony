@@ -10,7 +10,9 @@ use crate::font::{
 use hayro_cmap::CMap;
 use hayro_syntax::object::Dict;
 use hayro_syntax::object::Name;
-use hayro_syntax::object::dict::keys::{BASE_FONT, FONT_DESC, FONT_WEIGHT, ITALIC_ANGLE};
+use hayro_syntax::object::dict::keys::{
+    BASE_FONT, FONT_DESC, FONT_WEIGHT, ITALIC_ANGLE, MISSING_WIDTH,
+};
 use kurbo::{Affine, BezPath, Shape};
 use skrifa::GlyphId;
 use skrifa::raw::TableProvider;
@@ -359,7 +361,7 @@ pub(crate) struct StandardKind {
     base_font_blob: StandardFontBlob,
     encoding: Encoding,
     widths: Vec<Width>,
-    missing_width: f32,
+    missing_width: Option<f32>,
     fallback: bool,
     glyph_to_code: RefCell<HashMap<GlyphId, u8>>,
     encodings: HashMap<u8, String>,
@@ -381,7 +383,8 @@ impl StandardKind {
         resolver: &FontResolverFn,
     ) -> Option<Self> {
         let descriptor = dict.get::<Dict<'_>>(FONT_DESC).unwrap_or_default();
-        let (widths, missing_width) = read_widths(dict, &descriptor)?;
+        let (widths, _) = read_widths(dict, &descriptor)?;
+        let missing_width = descriptor.get::<f32>(MISSING_WIDTH);
 
         let (mut encoding, encoding_map) = read_encoding(dict);
 
@@ -420,7 +423,7 @@ impl StandardKind {
     }
 
     pub(crate) fn map_code(&self, code: u8, to_unicode: Option<&CMap>) -> GlyphId {
-        // PdfCraft patch (34): a simple font has at most 256 mappings. Avoid repeated
+        // PdfCraft patch (35): a simple font has at most 256 mappings. Avoid repeated
         // CFF name scans and Unicode decoding, including unsuccessful lookups.
         if let Some((glyph, _)) = self.mapped_codes.borrow().get(&code).copied() {
             self.glyph_to_code.borrow_mut().insert(glyph, code);
@@ -583,10 +586,15 @@ impl StandardKind {
     pub(crate) fn glyph_width(&self, code: u8) -> Option<f32> {
         match self.widths.get(code as usize).copied() {
             Some(Width::Value(w)) => Some(w),
-            Some(Width::Missing) => Some(self.missing_width),
+            Some(Width::Missing) => Some(self.missing_width.unwrap_or(0.0)),
             None => self
                 .code_to_ps_name(code)
-                .and_then(|c| self.base_font.get_width(c)),
+                .and_then(|c| self.base_font.get_width(c))
+                .or(self.missing_width)
+                // Standard-14 fonts may omit /Widths. A Differences name outside
+                // their metrics still needs the alternate face's natural advance.
+                // Explicit widths (including zero and /MissingWidth) keep priority.
+                .or_else(|| self.glyph_fallback.advance(code)),
         }
     }
 

@@ -58,8 +58,10 @@ cone-response fallback.
 single-byte character from its glyph name or single-scalar ToUnicode entry. The new
 `FontQuery::MissingGlyph` asks the host for an OpenType face for that character and standard
 family/style. Alternate outlines have separate per-code virtual IDs, remain in the original
-font's 1000-unit space, and fit the original advance. No text advance, extraction, embedded
-font program, Type0/CID, Type3 or save path is replaced. A bounded per-font cache retains
+font's 1000-unit space, and fit the original advance when one exists. Without a PDF width
+or standard metric for the code, the alternate face supplies its natural advance; a missing
+glyph box uses 600 units. Explicit zero widths and /MissingWidth retain priority. Extraction,
+embedded font programs, Type0/CID, Type3 and save paths are unchanged. A bounded per-font cache retains
 outlines and parsed faces; absent/corrupt/noncovering faces produce an original missing-glyph
 box for known printable text. Invisible characters stay invisible, and arbitrary codes are
 not guessed. The default/example resolver returns `None`; PdfCraft provides approved bundled
