@@ -3318,7 +3318,7 @@ fn the_live_editor_groups_a_repeated_step_and_keeps_the_neighbour() {
         700.0 - step,
         700.0 - 2.0 * step
     );
-    let mut h = open_letter("repeated.pdf", letter_text(&repeated));
+    let mut h = open_letter("repeated.pdf", letter_text(repeated.as_str()));
     assert!(h.state_mut().execute("edit.edit_text"));
     h.run_steps(2);
     click_page(&mut h, 90.0, 700.0 - step + 4.0);
@@ -3365,7 +3365,7 @@ fn widening_example_one_keeps_the_heading_and_the_next_paragraph() {
                 BT /F1 14 Tf 72 450 Td (3. Add a row under Alpha. Neighbor stays.) Tj ET \
                 BT /F1 12 Tf 14.4 TL 1 0 0 1 72 410 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
                 BT /F1 12 Tf 14.4 TL 1 0 0 1 72 366.8 Tm (Neighbor stays.) Tj ET";
-    let mut h = open_letter("letter.pdf", letter_text(&body));
+    let mut h = open_letter("letter.pdf", letter_text(body));
     assert!(h.state_mut().execute("edit.edit_text"));
     h.run_steps(2);
     click_page(&mut h, 90.0, 690.0);

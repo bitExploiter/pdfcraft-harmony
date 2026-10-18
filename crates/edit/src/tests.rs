@@ -2382,9 +2382,8 @@ fn a_blank_line_keeps_the_next_paragraph() {
     // The second row is left in the source stream. A marker around only the rewritten row
     // would split the paragraph; either there is no marker, or it covers both rows and not the next paragraph.
     let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
-    if let Some(start) = content.find("/P BMC") {
-        let end = start + content[start..].find("EMC").unwrap_or(content.len() - start);
-        let marked = &content[start..end];
+    if content.contains("/P BMC") {
+        let marked = region_through_matching_close(&content, "/P BMC");
         assert!(marked.contains("edited row") && marked.contains("second row"), "marker split the paragraph: {content}");
         assert!(!marked.contains("Second paragraph"), "marker swallowed the next paragraph: {content}");
     }
@@ -2460,8 +2459,7 @@ fn growing_into_a_blank_line_keeps_the_neighbour_after_save() {
     let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
     assert_eq!(texts(&doc), ["One Two Three", "Neighbour"]);
     let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
-    let marked = content.find("/P BMC").and_then(|start| content[start..].find("EMC").map(|end| content[start..start + end].to_owned()));
-    let marked = marked.unwrap_or_else(|| panic!("a full rewrite did not mark its rows: {content}"));
+    let marked = region_through_matching_close(&content, "/P BMC");
     for row in ["(One)", "(Two)", "(Three)"] {
         assert!(marked.contains(row), "{row} is outside the marker: {content}");
     }
@@ -2684,20 +2682,42 @@ fn page_content(doc: &Document) -> String {
 
 /// `open` through the next `EMC` contains both strings, and no `EMC` sits inside a text object.
 fn assert_marker_wraps(content: &str, open: &str, first: &str, second: &str) {
-    let start = content.find(open).unwrap_or_else(|| panic!("missing {open}: {content}"));
-    let end = content[start..].find("EMC").map(|at| start + at).unwrap_or_else(|| panic!("missing EMC after {open}: {content}"));
-    let marked = &content[start..end];
+    let marked = region_through_matching_close(content, open);
     assert!(marked.contains(first) && marked.contains(second), "{open} closed too early: {content}");
-    let mut text_objects = 0i32;
+    assert!(!marker_crosses_a_text_object(content), "a marker opened outside a text object and closed inside it: {content}");
+}
+
+/// A marker may sit inside one text object. It may not open outside one and close inside it.
+fn marker_crosses_a_text_object(content: &str) -> bool {
+    let mut text = 0i32;
+    let mut opened_outside = 0i32;
+    let mut opened_inside = 0i32;
     for token in content.split_whitespace() {
         match token {
-            "BT" => text_objects += 1,
-            "ET" => text_objects -= 1,
-            "EMC" => assert_eq!(text_objects, 0, "EMC inside a text object: {content}"),
+            "BT" => text += 1,
+            "ET" => text -= 1,
+            "BMC" | "BDC" => {
+                if text == 0 {
+                    opened_outside += 1;
+                } else {
+                    opened_inside += 1;
+                }
+            }
+            "EMC" => {
+                if text > 0 {
+                    if opened_inside > 0 {
+                        opened_inside -= 1;
+                    } else {
+                        return true;
+                    }
+                } else if opened_outside > 0 {
+                    opened_outside -= 1;
+                }
+            }
             _ => {}
         }
     }
-    assert_eq!(text_objects, 0, "a text object was left open: {content}");
+    text != 0 || opened_outside != 0 || opened_inside != 0
 }
 
 /// A blank line is one extra leading, so the fourth row of a grown paragraph sits on the
@@ -2722,6 +2742,45 @@ fn resizing_a_grown_paragraph_keeps_the_neighbour() {
         let texts = text::text_blocks(&copy, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
         assert!(texts.iter().any(|t| t.contains("Neighbor stays.")), "width ×{factor} removed the neighbour: {texts:?}");
     }
+}
+
+/// Narrowing wraps a line. Widening it again rejoins that wrap. A newline that was typed stays.
+#[test]
+fn a_wrapped_line_rejoins_when_widened_and_a_typed_break_stays() {
+    let mut doc = text_page("BT /F1 24 Tf 20 150 Td (Page 1) Tj ET");
+    text::rewrite_block(&mut doc, 0, 0, None, &text::BlockStyle { width: Some(45.0), ..Default::default() }).unwrap();
+    let block = text::text_blocks(&doc, 0).unwrap().into_iter().next().unwrap();
+    assert!(block.editor_text.contains('\n'), "the narrow box did not wrap: {}", block.editor_text);
+    assert_eq!(block.reflow_text, "Page 1", "a wrap was kept as a hard break: {}", block.reflow_text);
+    text::rewrite_block(&mut doc, 0, 0, Some(&block.reflow_text), &text::BlockStyle { width: Some(200.0), ..Default::default() }).unwrap();
+    let lines: Vec<_> = text::text_lines(&doc, 0).unwrap().into_iter().map(|l| l.text).collect();
+    assert_eq!(lines, ["Page 1"]);
+
+    let mut typed = text_page("BT /F1 12 Tf 72 700 Td (One) Tj ET");
+    text::replace_block(&mut typed, 0, 0, "One\nTwo\nThree\nfour").unwrap();
+    let block = text::text_blocks(&typed, 0).unwrap().into_iter().next().unwrap();
+    assert_eq!(block.reflow_text, "One\nTwo\nThree\nfour", "a typed break was rejoined: {}", block.reflow_text);
+    let width = (block.rect[2] - block.rect[0]) * 6.0;
+    text::rewrite_block(&mut typed, 0, 0, Some(&block.reflow_text), &text::BlockStyle { width: Some(width.max(180.0)), ..Default::default() })
+        .unwrap();
+    assert_eq!(text::text_blocks(&typed, 0).unwrap()[0].editor_text, "One\nTwo\nThree\nfour");
+}
+
+/// A file that did not mark its breaks still rejoins a line that fills the measure, and keeps a
+/// short line that had room.
+#[test]
+fn an_unmarked_full_line_rejoins_and_a_short_break_stays() {
+    let long = "BT /F1 12 Tf 1 0 0 1 72 700 Tm (This sentence is long enough to fill a measure.) Tj ET \
+                BT /F1 12 Tf 1 0 0 1 72 685.6 Tm (Tail) Tj ET";
+    let doc = text_page(long);
+    let block = text::text_blocks(&doc, 0).unwrap().into_iter().next().unwrap();
+    assert_eq!(block.rows.len(), 2, "{}", block.editor_text);
+    assert_eq!(block.reflow_text, "This sentence is long enough to fill a measure. Tail", "{}", block.reflow_text);
+
+    let short = "BT /F1 12 Tf 1 0 0 1 72 700 Tm (One) Tj ET BT /F1 12 Tf 1 0 0 1 72 685.6 Tm (Two) Tj ET";
+    let doc = text_page(short);
+    let block = text::text_blocks(&doc, 0).unwrap().into_iter().next().unwrap();
+    assert_eq!(block.reflow_text, "One\nTwo", "{}", block.reflow_text);
 }
 
 /// The letter the screenshots edit. Widening example 1, or adding a row there, must leave the
@@ -2756,7 +2815,8 @@ fn widening_example_one_does_not_swallow_the_heading_or_split_the_next_paragraph
     text::replace_block(&mut doc, 0, idx, "One\nTwo\nThree\nfour").unwrap();
     let blocks = text::text_blocks(&doc, 0).unwrap();
     let idx = blocks.iter().position(|b| b.text.contains("four") || b.editor_text.contains("four")).unwrap();
-    let shown = blocks[idx].editor_text.clone();
+    assert_eq!(blocks[idx].reflow_text, "One\nTwo\nThree\nfour", "a typed break was treated as a wrap: {}", blocks[idx].reflow_text);
+    let shown = blocks[idx].reflow_text.clone();
     let width = blocks[idx].rect[2] - blocks[idx].rect[0];
     text::rewrite_block(&mut doc, 0, idx, Some(&shown), &text::BlockStyle { width: Some((width * 6.0).max(180.0)), ..Default::default() }).unwrap();
     let doc = reopen(&doc);
