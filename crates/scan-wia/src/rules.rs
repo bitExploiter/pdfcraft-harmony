@@ -326,20 +326,30 @@ pub enum HandlingChoices {
 pub const HANDLING_DUPLEX: i32 = 0x4;
 /// `FRONT_ONLY` in a feeder item's document handling select.
 pub const HANDLING_FRONT_ONLY: i32 = 0x20;
+/// `BACK_ONLY` in a feeder item's document handling select.
+pub const HANDLING_BACK_ONLY: i32 = 0x40;
 
 /// The value to write to the feeder item's document handling select, from what it publishes: `Ok(None)` writes
 /// nothing (the item has no such property, or it already holds what is wanted). Duplex asked of an item that
 /// publishes the property without a duplex value is an error, never a silent single-sided scan.
+///
+/// `DUPLEX` and the single-side bits (`FRONT_ONLY`, `BACK_ONLY`) are alternatives, not a combination: the inbox WSD
+/// feeder item publishes the flag bits `FRONT_ONLY | DUPLEX` as allowed, refuses the value `FRONT_ONLY | DUPLEX` with
+/// `E_INVALIDARG` and takes `DUPLEX`.
 pub fn item_handling_select(choices: &HandlingChoices, current: Option<i32>, duplex: bool) -> Result<Option<i32>, ScanError> {
     let has_duplex = |value: i32| value & HANDLING_DUPLEX != 0;
+    let single_side = HANDLING_FRONT_ONLY | HANDLING_BACK_ONLY;
+    let two_sided = |value: i32| (value & !single_side) | HANDLING_DUPLEX;
     let not_offered = || ScanError::Failed("this scanner's feeder does not offer two-sided scanning".into());
     match choices {
         HandlingChoices::NotPublished => Ok(None),
         HandlingChoices::List(values) if duplex => {
-            if current.is_some_and(has_duplex) {
+            if current.is_some_and(|value| has_duplex(value) && value & single_side == 0) {
                 return Ok(None);
             }
-            values.iter().copied().find(|value| has_duplex(*value)).map(Some).ok_or_else(not_offered)
+            // A listed value with DUPLEX and no single-side bit; else the duplex form of one that has DUPLEX.
+            let clean = values.iter().copied().find(|value| has_duplex(*value) && value & single_side == 0);
+            clean.or_else(|| values.iter().copied().find(|value| has_duplex(*value)).map(two_sided)).map(Some).ok_or_else(not_offered)
         }
         HandlingChoices::List(values) => {
             if current.is_none_or(|value| !has_duplex(value)) {
@@ -352,8 +362,8 @@ pub fn item_handling_select(choices: &HandlingChoices, current: Option<i32>, dup
             if mask & HANDLING_DUPLEX == 0 {
                 return Err(not_offered());
             }
-            let current = current.unwrap_or(HANDLING_FRONT_ONLY);
-            Ok((!has_duplex(current)).then_some(current | HANDLING_DUPLEX))
+            let wanted = two_sided(current.unwrap_or(0));
+            Ok((current != Some(wanted)).then_some(wanted))
         }
         HandlingChoices::Flags(_) => Ok(current.filter(|value| has_duplex(*value)).map(|value| value & !HANDLING_DUPLEX)),
     }
