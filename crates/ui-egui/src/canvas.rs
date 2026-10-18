@@ -1387,6 +1387,13 @@ impl DocView {
         }
     }
 
+    /// Whether the horizontal arrow named by `right` turns to the next page.
+    /// Right-to-left two-page view reads toward the left, so ← is next (#2339).
+    fn arrow_steps_forward(view: &DocView, right: bool) -> bool {
+        let rtl = view.rtl_pages && view.layout == PageLayout::TwoUp;
+        if right { !rtl } else { rtl }
+    }
+
     /// Next page (`true`) or previous page. In two-page view this moves a whole spread: the other
     /// page of the spread is already on screen, so stepping to it wouldn't move the view (#70).
     pub fn step_page(&mut self, forward: bool) {
@@ -2587,12 +2594,19 @@ pub fn shortcuts(view: &mut DocView, ctx: &egui::Context, speed: crate::scroll_s
     }
     // As in Acrobat: → / ← go to the next / previous page in every layout (#185), and so do
     // ⌘Page Down / ⌘Page Up, or plain Page Down / Page Up in single-page view.
+    // With right-to-left page order the next page is the one to the left, so the arrows swap (#2339).
     let command = ctx.input(|i| i.modifiers.command);
     let scrolls = view.continuous;
-    if key(Key::ArrowRight) || (key(Key::PageDown) && (command || !scrolls)) {
+    if key(Key::ArrowRight) {
+        view.step_page(DocView::arrow_steps_forward(view, true));
+    }
+    if key(Key::ArrowLeft) {
+        view.step_page(DocView::arrow_steps_forward(view, false));
+    }
+    if key(Key::PageDown) && (command || !scrolls) {
         view.step_page(true);
     }
-    if key(Key::ArrowLeft) || (key(Key::PageUp) && (command || !scrolls)) {
+    if key(Key::PageUp) && (command || !scrolls) {
         view.step_page(false);
     }
     // ↓ / ↑ scroll a line, and Page Down / Page Up a screen where the pages scroll. In
@@ -5825,6 +5839,11 @@ mod tests {
         assert!(rtl[0].left() > rtl[1].left(), "the first page is on the right: {rtl:?}");
         assert!(rtl[2].left() > rtl[3].left(), "the next spread does the same: {rtl:?}");
         assert!((rtl[0].width() - ltr[0].width()).abs() < 0.1);
+        assert!(!DocView::arrow_steps_forward(&v, true), "→ is previous when the next page is to the left");
+        assert!(DocView::arrow_steps_forward(&v, false));
+        v.rtl_pages = false;
+        assert!(DocView::arrow_steps_forward(&v, true));
+        assert!(!DocView::arrow_steps_forward(&v, false));
     }
 
     fn signature(signed: bool, visible: bool, page: Option<usize>, rect: Option<[f64; 4]>) -> pdfcraft_engine::SignatureInfo {

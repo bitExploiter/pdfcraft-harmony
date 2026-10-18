@@ -319,6 +319,13 @@ fn right_to_left_page_order_puts_the_first_page_on_the_right() {
     assert!((a.min.y - b.min.y).abs() < 1.0, "same row: {a:?} {b:?}");
     assert!(a.min.x > b.max.x, "page 1 is right of page 2: {a:?} {b:?}");
     assert!(h.state().views[0].rtl_pages);
+    // ← turns to the next spread; → turns back. Page Down stays “next” either way.
+    h.key_press(egui::Key::ArrowLeft);
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].current, 2, "← moved to the next spread");
+    h.key_press(egui::Key::ArrowRight);
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].current, 0, "→ moved back");
 }
 
 #[test]
