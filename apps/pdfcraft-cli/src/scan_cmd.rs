@@ -56,7 +56,7 @@ impl Journal<'_> {
         let snapshot = job.snapshot();
         let mut attempts = self.prior_attempts.clone();
         attempts.extend(snapshot.attempts.iter().filter_map(|attempt| serde_json::to_value(attempt).ok()));
-        let record = JobRecord {
+        let mut record = JobRecord {
             id: self.id.clone(),
             started: self.started,
             updated: scan_jobs::now_millis(),
@@ -66,6 +66,8 @@ impl Journal<'_> {
             attempts,
             manual_duplex: self.duplex.map(|duplex| duplex.after(job.page_count())),
         };
+        // Each page record names the file it is (a manual duplex writes them out of scan order).
+        record.number_pages_by_file();
         scan_jobs::write_record(self.folder, &record).map_err(|error| CliError::from(format!("scan: cannot write the job file: {error}")))
     }
 }
@@ -201,9 +203,14 @@ pub fn run(spec: Run) -> Result<(), CliError> {
     if code == 0 {
         // A whole-feeder job may be one load of a larger pile, and its backs may follow.
         if duplex.is_none() && settings.pages == 0 {
-            eprintln!(
-                "pdfcraft-cli: more sheets: scan --continue {d} --append --yes; the backs: flip the whole stack, then scan --continue {d} --reverse --yes"
-            );
+            if settings.duplex {
+                // The duplex unit scanned both sides already: more sheets only.
+                eprintln!("pdfcraft-cli: more sheets: scan --continue {d} --append --yes");
+            } else {
+                eprintln!(
+                    "pdfcraft-cli: more sheets: scan --continue {d} --append --yes; the backs: flip the whole stack, then scan --continue {d} --reverse --yes"
+                );
+            }
         }
         return Ok(());
     }
@@ -278,6 +285,9 @@ pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>
         }
         return Err(if record.manual_duplex.is_some() {
             "scan --continue: the backs of this job are already being scanned; put the next part of the flipped stack in the feeder and use --append"
+                .to_string()
+        } else if record.two_sided() {
+            "scan --continue: this job was scanned on both sides by the scanner's duplex unit; there are no reverse sides to add (--append adds more sheets)"
                 .to_string()
         } else {
             "scan --continue: --reverse needs the fronts to be finished first (this job is not complete)".to_string()
@@ -588,6 +598,17 @@ mod tests {
         let unfinished = record(ScanJobState::Interrupted, 2, None);
         assert!(continuation_for(&unfinished, Ok(2), &ContinueFlags { reverse: true, ..NONE }).unwrap_err().contains("finished first"));
         assert!(continuation_for(&done, Ok(2), &ContinueFlags { reverse: true, ..NONE }).unwrap_err().contains("2 page file(s)"));
+    }
+
+    #[test]
+    fn a_job_scanned_through_the_duplex_unit_takes_more_sheets_but_never_turns() {
+        let mut two_sided = record(ScanJobState::Terminal(Outcome::Completed), 4, None);
+        two_sided.request = scan_jobs::request_json(&ScanSettings { duplex: true, ..ScanSettings::default() });
+        assert_eq!(continuation_for(&two_sided, Ok(4), &ContinueFlags { append: true, ..NONE }), Ok(Plan::AddSheets));
+        let refused = continuation_for(&two_sided, Ok(4), &ContinueFlags { reverse: true, ..NONE }).unwrap_err();
+        assert!(refused.contains("duplex unit") && refused.contains("--append"), "{refused}");
+        let message = continuation_for(&two_sided, Ok(4), &NONE).unwrap_err();
+        assert!(!message.contains("--reverse"), "no backs to offer: {message}");
     }
 
     #[test]
@@ -916,6 +937,8 @@ mod tests {
         let record = scan_jobs::read_record(&dir).unwrap();
         assert_eq!(record.journal.state, ScanJobState::Terminal(Outcome::Completed));
         assert_eq!(record.manual_duplex.map(|d| d.cursor), Some(0));
+        let numbers: Vec<u32> = record.journal.pages.iter().map(|page| page.number).collect();
+        assert_eq!(numbers, [1, 3, 5, 6, 4, 2], "each page record names its file: fronts, then the backs from sheet 3 down");
         assert!(scan_jobs::page_mismatch(&dir, &record).is_none());
         assert_eq!(record.attempts.len(), 4, "one job, one timeline");
         assert!(continuation_for(&record, Ok(6), &APPEND).unwrap_err().contains("complete"));
