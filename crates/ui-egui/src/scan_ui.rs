@@ -2283,6 +2283,15 @@ impl PdfCraftApp {
             }
         }
         if matches!(click, ScanClick::ReverseSides)
+            && let Some(pending) = self.scan.duplex
+            && !self.views.iter().any(|view| view.id == pending.doc)
+        {
+            // Never reached through the UI (closing the document cancels the reverse sides), but never scan for it.
+            self.scan.duplex = None;
+            self.scan.draft.error = Some(tl!("The document is no longer open.").to_string());
+            return false;
+        }
+        if matches!(click, ScanClick::ReverseSides)
             && let Some(pending) = &self.scan.duplex
         {
             let n = u32::try_from(pending.fronts).unwrap_or(0);
@@ -2640,6 +2649,44 @@ impl PdfCraftApp {
         }
     }
 
+    /// A document was closed. A scan that was putting pages into it stops, a stopped scan waiting to go on into it is
+    /// dropped, and a manual duplex waiting for its reverse sides is cancelled, so the scanner never pulls paper for a
+    /// document that is gone. Called by [`crate::PdfCraftApp::close_tab`].
+    pub(crate) fn scan_document_closed(&mut self, id: DocId) {
+        let duplex_here = self.scan.duplex.is_some_and(|pending| pending.doc == id);
+        let mut stopped = false;
+        if let Some(job) = &self.scan.job {
+            let into_it = match job.kind {
+                ScanKind::Insert(doc) => doc == id,
+                ScanKind::Create => job.create_doc == Some(id),
+                ScanKind::ReverseSides => duplex_here,
+                ScanKind::Preview => false,
+            };
+            if into_it {
+                job.cancel.request();
+                stopped = true;
+            }
+        }
+        if let Some(state) = &self.scan.interrupted {
+            let into_it =
+                state.doc == Some(id) || matches!(state.scan_kind, ScanKind::Insert(doc) if doc == id) || (state.pass != Pass::Direct && duplex_here);
+            if into_it {
+                self.scan.interrupted = None;
+                if self.dialog == Some(crate::Dialog::ScanInterrupted) {
+                    self.dialog = None;
+                }
+                stopped = true;
+            }
+        }
+        if duplex_here {
+            self.scan.duplex = None;
+            self.scan.draft.error = None;
+            self.notify_tr("The reverse sides were cancelled: their document was closed.");
+        } else if stopped {
+            self.notify_tr("The scan was stopped: its document was closed.");
+        }
+    }
+
     /// The user gave up on the reverse sides: the document keeps the fronts as they are.
     pub(crate) fn cancel_reverse_sides(&mut self) {
         let Some(pending) = self.scan.duplex.take() else { return };
@@ -2952,6 +2999,11 @@ impl PdfCraftApp {
 
     fn insert_scanned_pdf(&mut self, id: DocId, pages: &[Page]) {
         let Some(index) = self.views.iter().position(|view| view.id == id) else {
+            // Its document was closed and the scan was stopped then (with a message): the pages still in flight
+            // are dropped quietly.
+            if self.scan.job.as_ref().is_some_and(|job| job.cancel.is_requested()) {
+                return;
+            }
             let message = tl!("The document is no longer open.").to_string();
             self.scan.draft.error = Some(message.clone());
             self.notify(message);
@@ -3925,6 +3977,45 @@ mod tests {
         assert_eq!(app.dialog, None);
         assert_eq!(widths(&app, id), vec![10, 11, 12]);
         assert!(app.scan.last_create_files >= 1);
+    }
+
+    #[test]
+    fn closing_the_document_cancels_the_reverse_sides_it_was_waiting_for() {
+        let mut app = crate::PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        let id = create_three_fronts(&mut app);
+        succeed_current(&mut app);
+        assert!(app.scan.duplex.is_some(), "the flip step waits for the reverse sides");
+        let index = app.views.iter().position(|view| view.id == id).unwrap();
+        app.close_tab(index);
+        assert!(app.scan.duplex.is_none(), "nothing is left to continue into");
+        assert!(app.scan.job.is_none());
+    }
+
+    #[test]
+    fn closing_the_document_stops_the_reverse_pass_that_is_scanning_into_it() {
+        let mut app = crate::PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        let id = create_three_fronts(&mut app);
+        app.scan.job = Some(test_job(ScanKind::ReverseSides, 0, Some(3)));
+        app.apply_scanned_pages(ScanKind::ReverseSides, vec![tagged(112)]);
+        let index = app.views.iter().position(|view| view.id == id).unwrap();
+        app.close_tab(index);
+        assert!(app.scan.job.as_ref().is_some_and(|job| job.cancel.is_requested()), "the scanner is told to stop");
+        assert!(app.scan.duplex.is_none());
+        // A back still in flight is dropped without a second message.
+        app.scan.draft.error = None;
+        app.apply_scanned_pages(ScanKind::ReverseSides, vec![tagged(111)]);
+        assert!(app.scan.draft.error.is_none());
+    }
+
+    #[test]
+    fn closing_another_document_leaves_the_reverse_sides_waiting() {
+        let mut app = crate::PdfCraftApp::new();
+        let id = create_three_fronts(&mut app);
+        succeed_current(&mut app);
+        app.scan_document_closed(pdfcraft_engine::DocId(u64::MAX));
+        assert_eq!(app.scan.duplex.map(|pending| pending.doc), Some(id));
     }
 
     #[test]

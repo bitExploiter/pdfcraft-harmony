@@ -2714,3 +2714,5 @@ animation effects	Off	Desactivados
 	{n} of {m} pages were scanned.	Se escanearon {n} de {m} páginas.
 	{n} pages were scanned.	Se escanearon {n} páginas.
 	{w} × {h} in, {pxw} × {pxh} pixels, {size}	{w} × {h} pulg., {pxw} × {pxh} píxeles, {size}
+	The reverse sides were cancelled: their document was closed.	Se cancelaron los reversos: se cerró su documento.
+	The scan was stopped: its document was closed.	Se detuvo el escaneo: se cerró su documento.

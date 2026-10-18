@@ -2823,3 +2823,6 @@ theme	Appearance	Išvaizda
 	The same printer is also available over the network.	Tas pats spausdintuvas pasiekiamas ir per tinklą.
 # Machine-drafted row for native-speaker review (scanner dialog without a backend, 2026-10-13).
 	Scanning needs Windows (WIA) in this version.	Šioje versijoje nuskaitymui reikia Windows (WIA).
+# Machine-drafted rows for native-speaker review (scanner dialog, 2026-10-18).
+	The reverse sides were cancelled: their document was closed.	Antrųjų pusių nuskaitymas atšauktas: jų dokumentas uždarytas.
+	The scan was stopped: its document was closed.	Nuskaitymas sustabdytas: jo dokumentas uždarytas.
