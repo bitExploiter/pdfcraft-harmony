@@ -895,7 +895,8 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         trace.phase("transfer_end", &[("mode", "file"), ("outcome", outcome), ("pages", &pages_n)]);
     }
     let received = pages.len();
-    let download_error = download.err().map(failed).map(|error| {
+    // After a cancel, whatever the driver returns is the stop, not a fault.
+    let download_error = download.err().filter(|_| !cancelled).map(failed).map(|error| {
         let pages_requested = usize::try_from(settings.pages).unwrap_or(0);
         rules::explain_transfer_failure(error, inferable(status_after, wsd_port), on_feeder, received, pages_requested)
     });
@@ -1693,8 +1694,12 @@ fn receive_bands(
     let status_after = status_from_bits(read_i4(root, WIA_DPS_DOCUMENT_HANDLING_STATUS).unwrap_or(0));
     let page_count = pages.len();
     let cancelled = cancel.as_ref().is_some_and(craft_scan::CancelToken::is_requested);
-    let download_error =
-        transfer.err().map(failed).map(|error| rules::explain_transfer_failure(error, status_after, feeder, page_count, pages_requested));
+    // After a cancel, whatever the driver returns is the stop, not a fault.
+    let download_error = transfer
+        .err()
+        .filter(|_| !cancelled)
+        .map(failed)
+        .map(|error| rules::explain_transfer_failure(error, status_after, feeder, page_count, pages_requested));
     // A jam with pages already in hand stays an error. An empty feeder after those pages does not.
     if let Err(error) = rules::after_transfer_checked(pages_requested, feeder, page_count, cancelled, download_error) {
         if pages.is_empty() {

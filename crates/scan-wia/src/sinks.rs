@@ -20,7 +20,7 @@ use windows::Win32::Devices::ImageAcquisition::{
     IT_MSG_DATA, IT_MSG_NEW_PAGE, IT_MSG_TERMINATION, IWiaDataCallback, IWiaDataCallback_Impl, IWiaItem2, IWiaTransfer, IWiaTransferCallback,
     IWiaTransferCallback_Impl, WIA_ERROR_PAPER_EMPTY, WIA_TRANSFER_MSG_END_OF_STREAM, WIA_TRANSFER_MSG_STATUS, WiaTransferParams,
 };
-use windows::Win32::Foundation::{E_FAIL, E_NOTIMPL};
+use windows::Win32::Foundation::{E_ABORT, E_FAIL, E_NOTIMPL, S_FALSE};
 use windows::Win32::System::Com::{
     ISequentialStream_Impl, IStream, IStream_Impl, STATFLAG_NONAME, STATSTG, STGTY_STREAM, STREAM_SEEK_CUR, STREAM_SEEK_END, STREAM_SEEK_SET,
 };
@@ -127,7 +127,9 @@ impl IWiaTransferCallback_Impl for Transfer_Impl {
     fn TransferCallback(&self, _flags: i32, params: *const WiaTransferParams) -> windows::core::Result<()> {
         if cancel_requested(&self.this.state) {
             halt_feeder(&self.this.state);
-            return Err(windows::core::Error::from(WIA_ERROR_PAPER_EMPTY));
+            // S_FALSE is WIA's cancel. The WSD class driver then sends CancelJob, as it does for Windows' own client;
+            // answering "paper empty" read as the end of the stack and left the scanner's job running.
+            return Err(windows::core::Error::from_hresult(S_FALSE));
         }
         let Some((message, percent, transferred)) = read_params(params) else {
             return Ok(());
@@ -178,7 +180,8 @@ impl IWiaTransferCallback_Impl for Transfer_Impl {
     fn GetNextStream(&self, _flags: i32, _name: &BSTR, _full: &BSTR) -> windows::core::Result<IStream> {
         if cancel_requested(&self.this.state) {
             halt_feeder(&self.this.state);
-            return Err(windows::core::Error::from(WIA_ERROR_PAPER_EMPTY));
+            // No stream to return, so not S_FALSE: an abort, which the backend reads as the cancel it is.
+            return Err(windows::core::Error::from(E_ABORT));
         }
         let mut state = self.this.state.try_borrow_mut().map_err(|_| windows::core::Error::from(E_FAIL))?;
         if state.offered >= state.limit {
@@ -456,8 +459,9 @@ impl IWiaDataCallback_Impl for BandSink_Impl {
                     let _ = ffi::stop_feeder(device);
                 }
             }
-            // Same answer as the file transfer's callback: the driver ends the stack.
-            return Err(windows::core::Error::from(WIA_ERROR_PAPER_EMPTY));
+            // S_FALSE is the documented cancel here too, the same answer as the file transfer's callback (not measured:
+            // a WSD port never bands).
+            return Err(windows::core::Error::from_hresult(S_FALSE));
         }
         if message == IT_MSG_NEW_PAGE || message == IT_MSG_TERMINATION {
             if let Err(error) = finish_band(&mut state) {
