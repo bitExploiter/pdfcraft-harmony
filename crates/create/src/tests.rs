@@ -1180,6 +1180,7 @@ fn a_jpeg_with_an_exif_orientation_becomes_an_upright_page() {
     assert!((m1[2] - 60.0).abs() < 0.01 && (m1[3] - 20.0).abs() < 0.01, "{m1:?}");
     let img = image_of(&doc, 1);
     assert_eq!((img.int(b"Width"), img.int(b"Height")), (Some(60), Some(20)));
+}
 
 // ---- 1-bit BMP fast path ----
 
