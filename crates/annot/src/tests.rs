@@ -1396,7 +1396,7 @@ fn adding_to_an_apple_markup_page_drops_apples_stale_copy() {
 stream
 
 endstream",
-        b"<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 21 >>
+        b"<< /Type /XObject /Subtype /Form /BBox [0 0 100 50] /Length 22 >>
 stream
 0 0 1 RG 1 1 m 9 9 l S
 endstream",
