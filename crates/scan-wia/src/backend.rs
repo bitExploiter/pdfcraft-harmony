@@ -1222,7 +1222,12 @@ fn write_format(props: &IWiaPropertyStorage, format: &str) -> Result<(), ScanErr
     };
     let offered = guid_list(props, WIA_IPA_FORMAT);
     if !offered.is_empty() && !offered.iter().any(|id| id == &guid) {
-        let shown = offered.iter().filter_map(|id| format_name(*id)).collect::<Vec<_>>().join(", ");
+        // Two listed formats can share a name (bmp came out twice on the fake WSD scanner): name each once, as the
+        // listing does.
+        let mut names = offered.iter().filter_map(|id| format_name(*id)).collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        let shown = names.join(", ");
         return Err(ScanError::Failed(format!("format {wanted} is not offered ({shown})")));
     }
     write_clsid(props, WIA_IPA_FORMAT, guid)
