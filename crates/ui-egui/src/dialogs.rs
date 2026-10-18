@@ -1437,9 +1437,13 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
             | crate::scan_ui::ScanClick::Create
             | crate::scan_ui::ScanClick::Insert
             | crate::scan_ui::ScanClick::ReverseSides
+            | crate::scan_ui::ScanClick::MoreFronts
             | crate::scan_ui::ScanClick::Stop
     ) {
         app.start_scan(scan_click);
+    }
+    if dialog == Dialog::Scanner && app.dialog != Some(Dialog::Scanner) {
+        app.scan_dialog_closed();
     }
     if compare_now {
         app.run_compare();

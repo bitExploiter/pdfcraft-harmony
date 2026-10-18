@@ -32,6 +32,8 @@ pub enum ScanClick {
     Insert,
     /// Second pass of manual duplex: reverse sides after the stack was flipped.
     ReverseSides,
+    /// After a scan: the next feeder load (or bed page) as more fronts, after the last one.
+    MoreFronts,
 }
 
 #[derive(Clone, Debug)]
@@ -692,6 +694,9 @@ struct DuplexAwait {
     fronts: usize,
     /// Reverse sides inserted so far; fewer than the fronts after an interruption.
     backs: usize,
+    /// The person ticked Reverse sides before scanning. Otherwise the fronts are just the pages of the scan that
+    /// ended, offered for reverse sides or more pages after the fact; closing the dialog then finishes the scan.
+    requested: bool,
 }
 
 struct JobSlot {
@@ -1229,12 +1234,23 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> Scan
     ui.horizontal(|ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if awaiting_flip {
+                // The bed scans one sheet at a time, so the reverse sides of several bed pages cannot be scanned in one go.
+                let reverse_possible = app.scan.duplex.is_some_and(|pending| pending.source == Source::Feeder || pending.fronts == 1);
                 if ui
-                    .add_enabled_ui(!busy && !checking && !handling_blocks, |ui| widgets::pill_button(ui, tl!("Scan reverse sides"), true))
+                    .add_enabled_ui(!busy && !checking && !handling_blocks && reverse_possible, |ui| {
+                        widgets::pill_button(ui, tl!("Scan reverse sides"), true)
+                    })
                     .inner
                     .clicked()
                 {
                     click = ScanClick::ReverseSides;
+                }
+                if ui
+                    .add_enabled_ui(!busy && !checking && !handling_blocks, |ui| widgets::pill_button(ui, tl!("Continue scanning fronts"), false))
+                    .inner
+                    .clicked()
+                {
+                    click = ScanClick::MoreFronts;
                 }
             } else {
                 if ui.add_enabled_ui(!busy && !checking && has_doc, |ui| widgets::pill_button(ui, tl!("Insert scanned pages"), true)).inner.clicked()
@@ -1261,7 +1277,8 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> Scan
             let cancel = if busy {
                 tl!("Stop")
             } else if awaiting_flip {
-                tl!("Cancel reverse sides")
+                // Keeps every page scanned; only the reverse sides are not scanned.
+                tl!("Finish")
             } else {
                 tl!("Cancel")
             };
@@ -2260,13 +2277,22 @@ impl PdfCraftApp {
                 settings.progress = Some(live.clone());
                 settings
             }
-            ScanClick::Create | ScanClick::Insert | ScanClick::ReverseSides => {
+            ScanClick::Create | ScanClick::Insert | ScanClick::ReverseSides | ScanClick::MoreFronts => {
                 let mut settings = final_settings(&self.scan.draft, &scanner, cancel.clone());
                 settings.progress = Some(live.clone());
                 settings
             }
             ScanClick::None | ScanClick::Close | ScanClick::Stop => return false,
         };
+        if matches!(click, ScanClick::MoreFronts) {
+            // More fronts come from where the first ones did, into the same document after the last one.
+            let Some(pending) = self.scan.duplex.filter(|pending| self.views.iter().any(|view| view.id == pending.doc)) else {
+                self.scan.duplex = None;
+                self.scan.draft.error = Some(tl!("The document is no longer open.").to_string());
+                return false;
+            };
+            settings.source = pending.source;
+        }
         if let Some(r) = &resume {
             // Once pages came in, keep the bed or feeder they came from (Auto would pick the bed
             // when the tray is now empty) and ask only for the pages still missing.
@@ -2339,6 +2365,10 @@ impl PdfCraftApp {
                 }
             },
             ScanClick::ReverseSides => ScanKind::ReverseSides,
+            ScanClick::MoreFronts => match self.scan.duplex {
+                Some(pending) => ScanKind::Insert(pending.doc),
+                None => return false,
+            },
             ScanClick::None | ScanClick::Close | ScanClick::Stop => return false,
         };
         let duplex_source = match effective_source(&self.scan.draft, &scanner) {
@@ -2351,7 +2381,11 @@ impl PdfCraftApp {
         } else {
             duplex_source
         };
-        let duplex_first_pass = self.scan.draft.manual_duplex
+        let duplex_source = match (click, self.scan.duplex) {
+            (ScanClick::MoreFronts, Some(pending)) => pending.source,
+            _ => duplex_source,
+        };
+        let duplex_first_pass = (self.scan.draft.manual_duplex || matches!(click, ScanClick::MoreFronts))
             && !scanner.duplex
             && matches!(kind, ScanKind::Create | ScanKind::Insert(_))
             && matches!(duplex_source, Source::Feeder | Source::Glass);
@@ -2521,10 +2555,11 @@ impl PdfCraftApp {
                 if matches!(kind, ScanKind::Create) {
                     self.scan.last_create_files = self.scan.job.as_ref().map(|job| job.create_file_index).unwrap_or(0).max(1);
                 }
-                let fronts_done = self.scan.job.as_ref().is_some_and(|job| job.duplex_source.is_some()) && self.scan.duplex.is_some();
+                let fronts_done = self.scan.duplex.is_some();
                 self.scan.job = None;
                 if fronts_done {
-                    // The fronts are in the document; the flip instruction stays on screen in the dialog.
+                    // The pages are in the document. The dialog stays on the next step: their reverse sides, more
+                    // pages, or Finish, whether or not Reverse sides was ticked before the scan.
                     self.dialog = Some(crate::Dialog::Scanner);
                 } else if streamed {
                     self.finish_scan_job(kind);
@@ -2687,6 +2722,15 @@ impl PdfCraftApp {
         }
     }
 
+    /// The scanner dialog was closed. Pages offered for reverse sides only after the fact (Reverse sides was not
+    /// ticked) are finished, so the offer does not come back the next time the dialog opens. A requested manual
+    /// duplex keeps waiting: the person may have closed the dialog to turn the stack over.
+    pub(crate) fn scan_dialog_closed(&mut self) {
+        if self.scan.job.is_none() && self.scan.duplex.is_some_and(|pending| !pending.requested) {
+            self.cancel_reverse_sides();
+        }
+    }
+
     /// The user gave up on the reverse sides: the document keeps the fronts as they are.
     pub(crate) fn cancel_reverse_sides(&mut self) {
         let Some(pending) = self.scan.duplex.take() else { return };
@@ -2744,7 +2788,9 @@ impl PdfCraftApp {
                     job.create_file_index = state.create_file_index;
                 }
                 self.scan.last_create_files = state.create_file_index.max(self.scan.last_create_files);
-                if fronts_pass {
+                // Every scan into one document is remembered as fronts, so its reverse sides or more pages can still
+                // be scanned after the fact. A scan split into several files cannot have them.
+                if fronts_pass || per.is_none() {
                     self.note_fronts(kind, state.create_doc, 0, count);
                 }
             }
@@ -2757,9 +2803,7 @@ impl PdfCraftApp {
                     self.place_next_insert(id, at);
                 }
                 self.insert_scanned_pdf(id, &pages);
-                if fronts_pass {
-                    self.note_fronts(kind, Some(id), first_hint, count);
-                }
+                self.note_fronts(kind, Some(id), first_hint, count);
             }
             ScanKind::Preview | ScanKind::ReverseSides => {}
         }
@@ -2778,10 +2822,15 @@ impl PdfCraftApp {
     fn note_fronts(&mut self, kind: ScanKind, doc: Option<DocId>, first: usize, count: usize) {
         let Some(doc) = doc.filter(|id| self.views.iter().any(|view| view.id == *id)) else { return };
         let first = if matches!(kind, ScanKind::Create) { 0 } else { first };
-        let source = self.scan.job.as_ref().and_then(|job| job.duplex_source).unwrap_or(Source::Glass);
+        let requested = self.scan.job.as_ref().is_some_and(|job| job.duplex_source.is_some());
+        // The source the fronts came from: the one locked for a requested duplex, else the one the scan used.
+        let source = self.scan.job.as_ref().map(|job| job.duplex_source.unwrap_or(job.source)).unwrap_or(Source::Glass);
         match &mut self.scan.duplex {
-            Some(pending) if pending.doc == doc => pending.fronts = pending.fronts.saturating_add(count),
-            _ => self.scan.duplex = Some(DuplexAwait { kind, source, doc, first, fronts: count, backs: 0 }),
+            Some(pending) if pending.doc == doc => {
+                pending.fronts = pending.fronts.saturating_add(count);
+                pending.requested |= requested;
+            }
+            _ => self.scan.duplex = Some(DuplexAwait { kind, source, doc, first, fronts: count, backs: 0, requested }),
         }
     }
 
@@ -3977,6 +4026,82 @@ mod tests {
         assert_eq!(app.dialog, None);
         assert_eq!(widths(&app, id), vec![10, 11, 12]);
         assert!(app.scan.last_create_files >= 1);
+    }
+
+    /// A plain Create of `widths` from the feeder, Reverse sides not ticked, the way a live scan delivers it.
+    fn create_without_reverse_sides(app: &mut crate::PdfCraftApp, widths: &[u32]) -> DocId {
+        app.scan.draft.manual_duplex = false;
+        app.scan.job = Some(test_job(ScanKind::Create, 0, None));
+        for width in widths {
+            app.apply_scanned_pages(ScanKind::Create, vec![tagged(*width)]);
+        }
+        let id = app.scan.duplex.expect("the pages are remembered as fronts").doc;
+        succeed_current(app);
+        id
+    }
+
+    #[test]
+    fn a_scan_without_reverse_sides_ticked_still_offers_them_afterwards() {
+        let mut app = crate::PdfCraftApp::new();
+        let id = create_without_reverse_sides(&mut app, &[10, 11, 12]);
+        assert!(app.scan.job.is_none());
+        assert_eq!(app.dialog, Some(crate::Dialog::Scanner), "the dialog stays on the next step instead of closing");
+        let pending = app.scan.duplex.expect("offered after the fact");
+        assert_eq!((pending.fronts, pending.backs, pending.requested, pending.source), (3, 0, false, Source::Feeder));
+        // The person turns the stack over and scans the backs: they land as if Reverse sides had been ticked.
+        scan_backs(&mut app, 0, &[112, 111, 110]);
+        assert_eq!(widths(&app, id), vec![10, 110, 11, 111, 12, 112]);
+    }
+
+    #[test]
+    fn finish_keeps_every_page_and_closes() {
+        let mut app = crate::PdfCraftApp::new();
+        let id = create_without_reverse_sides(&mut app, &[10, 11]);
+        app.cancel_reverse_sides();
+        assert!(app.scan.duplex.is_none());
+        assert_eq!(app.dialog, None);
+        assert_eq!(widths(&app, id), vec![10, 11]);
+    }
+
+    #[test]
+    fn closing_the_dialog_finishes_an_offer_but_keeps_a_requested_duplex_waiting() {
+        let mut app = crate::PdfCraftApp::new();
+        create_without_reverse_sides(&mut app, &[10]);
+        app.dialog = None;
+        app.scan_dialog_closed();
+        assert!(app.scan.duplex.is_none(), "the offer does not come back next time");
+
+        let mut app = crate::PdfCraftApp::new();
+        create_three_fronts(&mut app);
+        succeed_current(&mut app);
+        app.dialog = None;
+        app.scan_dialog_closed();
+        assert!(app.scan.duplex.is_some_and(|pending| pending.requested), "the stack may be turned over with the dialog closed");
+    }
+
+    #[test]
+    fn more_fronts_go_after_the_last_one_and_the_backs_still_find_them() {
+        let mut app = crate::PdfCraftApp::new();
+        let id = create_without_reverse_sides(&mut app, &[10, 11]);
+        // Continue scanning fronts: the next feeder load is an insert into the same document as a fronts pass.
+        app.scan.job = Some(fronts_job(ScanKind::Insert(id), 0));
+        app.apply_scanned_pages(ScanKind::Insert(id), vec![tagged(12), tagged(13)]);
+        succeed_current(&mut app);
+        assert_eq!(widths(&app, id), vec![10, 11, 12, 13]);
+        assert_eq!(app.scan.duplex.map(|pending| pending.fronts), Some(4));
+        scan_backs(&mut app, 0, &[113, 112, 111, 110]);
+        assert_eq!(widths(&app, id), vec![10, 110, 11, 111, 12, 112, 13, 113]);
+    }
+
+    #[test]
+    fn a_scan_split_into_several_files_is_not_offered_reverse_sides() {
+        let mut app = crate::PdfCraftApp::new();
+        app.scan.draft.pages_per_file = 1;
+        app.scan.job = Some(test_job(ScanKind::Create, 0, None));
+        app.apply_scanned_pages(ScanKind::Create, vec![tagged(10), tagged(11)]);
+        assert!(app.scan.duplex.is_none(), "the pages are in two documents");
+        succeed_current(&mut app);
+        assert_eq!(app.dialog, None);
     }
 
     #[test]
