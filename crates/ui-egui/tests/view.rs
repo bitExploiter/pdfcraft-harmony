@@ -818,6 +818,34 @@ fn rail_page_display_button_switches_layouts() {
 }
 
 #[test]
+fn view_menu_hides_rulers_until_a_document_is_open() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app
+    });
+    h.run_steps(6);
+
+    let open_view_menu = |h: &mut Harness<'static, PdfCraftApp>| {
+        h.get_by_label("Menu").click();
+        h.run_steps(2);
+        h.get_by_label("View ⏵").hover();
+        h.run_steps(3);
+    };
+    open_view_menu(&mut h);
+    assert!(h.query_by_label("Rulers").is_none(), "Rulers is absent when no document is open");
+
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    h.state_mut().open_bytes("pages.pdf", None, PAGES.to_vec()).expect("opens");
+    h.run_steps(8);
+
+    open_view_menu(&mut h);
+    assert!(h.query_by_label("Rulers").is_some(), "Rulers appears when a document is open");
+}
+
+#[test]
 fn view_menu_page_display_uses_the_same_commands() {
     use egui_kittest::kittest::Queryable;
     let mut h = harness(&[]);
