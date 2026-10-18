@@ -310,6 +310,55 @@ pub fn explain_transfer_failure(
     error
 }
 
+/// What the feeder item publishes for its own document handling select (WIA 2.0 item property 3088). The inbox WSD
+/// driver keeps duplex here, on the feeder item, not on the device root (where the property does not exist).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HandlingChoices {
+    /// The item has no such property: the device-level select is the only one.
+    NotPublished,
+    /// The values it accepts (for example `[FRONT_ONLY, FRONT_ONLY | DUPLEX]`).
+    List(Vec<i32>),
+    /// The flag bits it accepts.
+    Flags(i32),
+}
+
+/// `DUPLEX` in a document handling select.
+pub const HANDLING_DUPLEX: i32 = 0x4;
+/// `FRONT_ONLY` in a feeder item's document handling select.
+pub const HANDLING_FRONT_ONLY: i32 = 0x20;
+
+/// The value to write to the feeder item's document handling select, from what it publishes: `Ok(None)` writes
+/// nothing (the item has no such property, or it already holds what is wanted). Duplex asked of an item that
+/// publishes the property without a duplex value is an error, never a silent single-sided scan.
+pub fn item_handling_select(choices: &HandlingChoices, current: Option<i32>, duplex: bool) -> Result<Option<i32>, ScanError> {
+    let has_duplex = |value: i32| value & HANDLING_DUPLEX != 0;
+    let not_offered = || ScanError::Failed("this scanner's feeder does not offer two-sided scanning".into());
+    match choices {
+        HandlingChoices::NotPublished => Ok(None),
+        HandlingChoices::List(values) if duplex => {
+            if current.is_some_and(has_duplex) {
+                return Ok(None);
+            }
+            values.iter().copied().find(|value| has_duplex(*value)).map(Some).ok_or_else(not_offered)
+        }
+        HandlingChoices::List(values) => {
+            if current.is_none_or(|value| !has_duplex(value)) {
+                return Ok(None);
+            }
+            let single = values.iter().copied().filter(|value| !has_duplex(*value));
+            Ok(single.clone().find(|value| value & HANDLING_FRONT_ONLY != 0).or_else(|| single.clone().next()))
+        }
+        HandlingChoices::Flags(mask) if duplex => {
+            if mask & HANDLING_DUPLEX == 0 {
+                return Err(not_offered());
+            }
+            let current = current.unwrap_or(HANDLING_FRONT_ONLY);
+            Ok((!has_duplex(current)).then_some(current | HANDLING_DUPLEX))
+        }
+        HandlingChoices::Flags(_) => Ok(current.filter(|value| has_duplex(*value)).map(|value| value & !HANDLING_DUPLEX)),
+    }
+}
+
 /// Banded transfer is the wrong mode when the driver rejects it without naming a device fault.
 pub fn retry_with_file_transfer(error: &ScanError) -> bool {
     generic_scan_failure(error)

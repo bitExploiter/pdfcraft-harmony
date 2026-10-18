@@ -534,6 +534,11 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
     }
     let child = scan_item(&device, source)?;
     let item = properties(&child)?;
+    if source == Source::Feeder {
+        // Duplex on the feeder item: the inbox WSD driver has no device-level select (the root write above does
+        // nothing there), so without this a two-sided request scanned the fronts only.
+        select_item_duplex(&item, settings.duplex)?;
+    }
     if let Some(intent) = settings.intent {
         require_choice(&item, WIA_IPS_CUR_INTENT, intent.driver(), "intent")?;
         write_i4(&item, WIA_IPS_CUR_INTENT, intent.driver())?;
@@ -840,6 +845,8 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         progress: settings.progress.clone(),
         wire_byte_progress: wsd_port,
     }));
+    // Declared before the callback and the transfer, so it runs after both are dropped, on every return.
+    let _cleanup = TransferCleanup(Rc::clone(&state));
     let sink = transfer_callback(&state);
     let transfer: IWiaTransfer = child.cast().map_err(failed)?;
     {
@@ -947,6 +954,56 @@ fn write_handling_select(props: &IWiaPropertyStorage, source: Source, duplex: bo
             Source::Feeder => ScanError::Failed("the scanner did not select the feeder".into()),
             Source::Auto => ScanError::Failed("the scan source was not resolved".into()),
         });
+    }
+    Ok(())
+}
+
+/// Ends a file transfer cleanly whatever happened. The state holds the transfer object, which holds the callback,
+/// which holds the state: a cycle that kept [`TransferState`]'s own cleanup from ever running, so a cancelled or
+/// failed transfer left its partly written page in the temp folder for good. This breaks the cycle and removes that
+/// file.
+struct TransferCleanup(Rc<RefCell<TransferState>>);
+
+impl Drop for TransferCleanup {
+    fn drop(&mut self) {
+        let leftover = match self.0.try_borrow_mut() {
+            Ok(mut state) => {
+                state.transfer = None;
+                state.device = None;
+                state.stream = None;
+                state.path.take()
+            }
+            Err(_) => None,
+        };
+        if let Some(path) = leftover
+            && let Err(error) = std::fs::remove_file(&path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            log::warn!("scan: could not remove a partial page file ({error})");
+        }
+    }
+}
+
+/// What the feeder item publishes for its document handling select.
+fn item_handling_choices(item: &IWiaPropertyStorage) -> rules::HandlingChoices {
+    match property_numbers(item, WIA_DPS_DOCUMENT_HANDLING_SELECT) {
+        Ok((flags, raw)) if flags & WIA_PROP_LIST != 0 => rules::HandlingChoices::List(listed_values(&raw)),
+        Ok((flags, raw)) if flags & WIA_PROP_FLAG != 0 => rules::HandlingChoices::Flags(raw.last().copied().unwrap_or(0)),
+        _ => rules::HandlingChoices::NotPublished,
+    }
+}
+
+/// Set or clear duplex on the feeder item. A requested duplex must stick: the value is read back.
+fn select_item_duplex(item: &IWiaPropertyStorage, duplex: bool) -> Result<(), ScanError> {
+    let choices = item_handling_choices(item);
+    let current = read_i4(item, WIA_DPS_DOCUMENT_HANDLING_SELECT).ok();
+    let Some(value) = rules::item_handling_select(&choices, current, duplex)? else { return Ok(()) };
+    if !duplex {
+        return write_i4_soft(item, WIA_DPS_DOCUMENT_HANDLING_SELECT, value);
+    }
+    write_i4(item, WIA_DPS_DOCUMENT_HANDLING_SELECT, value)?;
+    if read_i4(item, WIA_DPS_DOCUMENT_HANDLING_SELECT).is_ok_and(|now| now & rules::HANDLING_DUPLEX == 0) {
+        return Err(ScanError::Failed("the scanner did not select duplex".into()));
     }
     Ok(())
 }

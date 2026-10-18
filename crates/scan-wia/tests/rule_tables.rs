@@ -350,3 +350,43 @@ fn a_status_with_nothing_set_reads_as_an_unready_feeder_not_an_unknown_one() {
     let status = rules::status_from_bits(0);
     assert_eq!(status, HandlingStatus { feeder_ready: Some(false), ..HandlingStatus::default() });
 }
+
+// ---- duplex on the feeder item -----------------------------------------------------------------
+
+#[test]
+fn duplex_is_selected_on_the_feeder_item_from_what_it_publishes() {
+    use rules::{HANDLING_DUPLEX as DUP, HANDLING_FRONT_ONLY as FRONT, HandlingChoices as C, item_handling_select as pick};
+    // The inbox WSD feeder item: FRONT_ONLY or FRONT_ONLY | DUPLEX, currently FRONT_ONLY.
+    let wsd = C::List(vec![FRONT, FRONT | DUP]);
+    assert_eq!(pick(&wsd, Some(FRONT), true).expect("offered"), Some(FRONT | DUP));
+    assert_eq!(pick(&wsd, Some(FRONT | DUP), true).expect("already"), None, "nothing to write when it already holds duplex");
+    assert_eq!(pick(&wsd, Some(FRONT | DUP), false).expect("single"), Some(FRONT), "a single-sided scan clears it");
+    assert_eq!(pick(&wsd, Some(FRONT), false).expect("single"), None);
+    // A feeder item without a duplex value: asking for duplex is an error, never a silent single-sided scan.
+    let simplex = C::List(vec![FRONT]);
+    assert!(pick(&simplex, Some(FRONT), true).is_err());
+    assert_eq!(pick(&simplex, Some(FRONT), false).expect("single"), None);
+    // Flag form.
+    assert_eq!(pick(&C::Flags(FRONT | DUP), Some(FRONT), true).expect("offered"), Some(FRONT | DUP));
+    assert_eq!(pick(&C::Flags(FRONT | DUP), Some(FRONT | DUP), false).expect("single"), Some(FRONT));
+    assert!(pick(&C::Flags(FRONT), Some(FRONT), true).is_err());
+    // An item without the property leaves the choice to the device-level select.
+    for duplex in [false, true] {
+        assert_eq!(pick(&C::NotPublished, None, duplex).expect("not published"), None);
+    }
+}
+
+#[test]
+fn the_feeder_item_choice_never_writes_a_value_it_did_not_publish() {
+    use rules::{HandlingChoices as C, item_handling_select as pick};
+    for list in [vec![0x20], vec![0x20, 0x24], vec![0x24], vec![0x1, 0x5, 0x20, 0x24], vec![0x8, 0xC]] {
+        for current in [None, Some(0x20), Some(0x24), Some(0x5), Some(0x8)] {
+            for duplex in [false, true] {
+                if let Ok(Some(value)) = pick(&C::List(list.clone()), current, duplex) {
+                    assert!(list.contains(&value), "{value:#x} not in {list:x?}");
+                    assert_eq!(value & 0x4 != 0, duplex, "{value:#x} for duplex={duplex}");
+                }
+            }
+        }
+    }
+}
