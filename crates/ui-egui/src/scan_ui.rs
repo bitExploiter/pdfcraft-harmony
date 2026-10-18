@@ -697,6 +697,9 @@ struct DuplexAwait {
     /// The person ticked Reverse sides before scanning. Otherwise the fronts are just the pages of the scan that
     /// ended, offered for reverse sides or more pages after the fact; closing the dialog then finishes the scan.
     requested: bool,
+    /// The pages came from the scanner's duplex unit and already hold both sides: only more pages or Finish are
+    /// offered, never reverse sides.
+    two_sided: bool,
 }
 
 struct JobSlot {
@@ -732,6 +735,10 @@ pub struct ScanJob {
     requested_source: Source,
     /// The scanner's display name, for the Scan interrupted dialog. Never an id, address or port.
     device_name: String,
+    /// The scanner's duplex unit scanned both sides in this pass: the pages already alternate front and back.
+    two_sided: bool,
+    /// Continue scanning: the pages go after the last page of the scan before, wherever the selection is.
+    continues: bool,
     live: ProgressToken,
     progress: Arc<Mutex<JobSlot>>,
     pub cancel: CancelToken,
@@ -1140,6 +1147,8 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> Scan
         // Persistent: the fronts are done (or stopped early) and the stack has to be turned over.
         let fronts = pending.fronts.to_string();
         let text = match pending.source {
+            // Both sides are in already: say how many pages, nothing to turn over.
+            _ if pending.two_sided => crate::i18n::fmt(tl!("{n} pages were scanned."), &[("n", &fronts)]),
             Source::Glass => {
                 crate::i18n::fmt(tl!("Fronts scanned: {n}. Flip the sheet on the bed, then choose Scan reverse sides."), &[("n", &fronts)])
             }
@@ -1236,20 +1245,20 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> Scan
             if awaiting_flip {
                 // The bed scans one sheet at a time, so the reverse sides of several bed pages cannot be scanned in one go.
                 let reverse_possible = app.scan.duplex.is_some_and(|pending| pending.source == Source::Feeder || pending.fronts == 1);
-                if ui
-                    .add_enabled_ui(!busy && !checking && !handling_blocks && reverse_possible, |ui| {
-                        widgets::pill_button(ui, tl!("Scan reverse sides"), true)
-                    })
-                    .inner
-                    .clicked()
+                let two_sided = app.scan.duplex.is_some_and(|pending| pending.two_sided);
+                // A duplex unit scanned the backs already: there are no reverse sides to add.
+                if !two_sided
+                    && ui
+                        .add_enabled_ui(!busy && !checking && !handling_blocks && reverse_possible, |ui| {
+                            widgets::pill_button(ui, tl!("Scan reverse sides"), true)
+                        })
+                        .inner
+                        .clicked()
                 {
                     click = ScanClick::ReverseSides;
                 }
-                if ui
-                    .add_enabled_ui(!busy && !checking && !handling_blocks, |ui| widgets::pill_button(ui, tl!("Continue scanning fronts"), false))
-                    .inner
-                    .clicked()
-                {
+                let more = if two_sided { tl!("Continue scanning") } else { tl!("Continue scanning fronts") };
+                if ui.add_enabled_ui(!busy && !checking && !handling_blocks, |ui| widgets::pill_button(ui, more, two_sided)).inner.clicked() {
                     click = ScanClick::MoreFronts;
                 }
             } else {
@@ -2264,7 +2273,7 @@ impl PdfCraftApp {
             self.scan.draft.error = Some(tl!("Preview uses the bed. Switch the source to Bed, or scan without a preview.").to_string());
             return false;
         }
-        if matches!(click, ScanClick::ReverseSides) && self.scan.duplex.is_none() {
+        if matches!(click, ScanClick::ReverseSides) && self.scan.duplex.is_none_or(|pending| pending.two_sided) {
             self.scan.draft.error = Some(tl!("Scan the fronts before the reverse sides.").to_string());
             return false;
         }
@@ -2481,6 +2490,8 @@ impl PdfCraftApp {
             source: duplex_source,
             requested_source: self.scan.draft.source,
             device_name: scanner.name.clone(),
+            two_sided: hardware_duplex,
+            continues: matches!(click, ScanClick::MoreFronts),
             live,
             progress: slot,
             cancel,
@@ -2755,7 +2766,8 @@ impl PdfCraftApp {
         let mut fronts_pass = false;
         if let Some(job) = &mut self.scan.job {
             first_hint = job.insert_cursor.unwrap_or(0);
-            fronts_pass = job.duplex_source.is_some();
+            // A continuation is placed like the fronts of a manual duplex: after the last page scanned so far.
+            fronts_pass = job.duplex_source.is_some() || job.continues;
             job.received = job.received.saturating_add(u32::try_from(count).unwrap_or(u32::MAX));
             job.insert_cursor = job.insert_cursor.map(|at| at.saturating_add(count));
         }
@@ -2823,14 +2835,16 @@ impl PdfCraftApp {
         let Some(doc) = doc.filter(|id| self.views.iter().any(|view| view.id == *id)) else { return };
         let first = if matches!(kind, ScanKind::Create) { 0 } else { first };
         let requested = self.scan.job.as_ref().is_some_and(|job| job.duplex_source.is_some());
+        let two_sided = self.scan.job.as_ref().is_some_and(|job| job.two_sided);
         // The source the fronts came from: the one locked for a requested duplex, else the one the scan used.
         let source = self.scan.job.as_ref().map(|job| job.duplex_source.unwrap_or(job.source)).unwrap_or(Source::Glass);
         match &mut self.scan.duplex {
             Some(pending) if pending.doc == doc => {
                 pending.fronts = pending.fronts.saturating_add(count);
                 pending.requested |= requested;
+                pending.two_sided |= two_sided;
             }
-            _ => self.scan.duplex = Some(DuplexAwait { kind, source, doc, first, fronts: count, backs: 0, requested }),
+            _ => self.scan.duplex = Some(DuplexAwait { kind, source, doc, first, fronts: count, backs: 0, requested, two_sided }),
         }
     }
 
@@ -3711,6 +3725,8 @@ mod tests {
             source: Source::Feeder,
             requested_source: Source::Auto,
             device_name: "Fake WSD scanner (ADF tray 5, letter)".to_string(),
+            two_sided: false,
+            continues: false,
             live: pdfcraft_platform::scan::ProgressToken::new(),
             progress: std::sync::Arc::new(std::sync::Mutex::new(super::JobSlot { result: None, error_kind: None })),
             cancel: pdfcraft_platform::scan::CancelToken::new(),
@@ -4091,6 +4107,35 @@ mod tests {
         assert_eq!(app.scan.duplex.map(|pending| pending.fronts), Some(4));
         scan_backs(&mut app, 0, &[113, 112, 111, 110]);
         assert_eq!(widths(&app, id), vec![10, 110, 11, 111, 12, 112, 13, 113]);
+    }
+
+    #[test]
+    fn a_duplex_unit_scan_is_offered_more_pages_and_finish_but_never_reverse_sides() {
+        let mut app = crate::PdfCraftApp::new();
+        // Two sheets through the duplex unit in one pass: front, back, front, back.
+        app.scan.job = Some(super::ScanJob { two_sided: true, ..test_job(ScanKind::Create, 0, None) });
+        app.apply_scanned_pages(ScanKind::Create, vec![tagged(10), tagged(110), tagged(11), tagged(111)]);
+        let id = app.scan.duplex.expect("the pages are remembered").doc;
+        succeed_current(&mut app);
+        assert_eq!(app.dialog, Some(crate::Dialog::Scanner));
+        let pending = app.scan.duplex.expect("offered more pages");
+        assert!(pending.two_sided && !pending.requested);
+        assert_eq!(pending.fronts, 4);
+        // Reverse sides are refused: the backs are already in.
+        assert!(!app.start_scan_with(super::ScanClick::ReverseSides, None));
+        assert_eq!(widths(&app, id), vec![10, 110, 11, 111]);
+        // Continue scanning: the next sheets, two-sided again, go after the last page wherever the selection is.
+        if let Some(view) = app.views.iter_mut().find(|view| view.id == id) {
+            view.insert_at = Some(0);
+        }
+        app.scan.job = Some(super::ScanJob { two_sided: true, continues: true, ..test_job(ScanKind::Insert(id), 0, None) });
+        app.apply_scanned_pages(ScanKind::Insert(id), vec![tagged(12), tagged(112)]);
+        succeed_current(&mut app);
+        assert_eq!(widths(&app, id), vec![10, 110, 11, 111, 12, 112]);
+        assert_eq!(app.scan.duplex.map(|pending| (pending.fronts, pending.two_sided)), Some((6, true)));
+        app.cancel_reverse_sides();
+        assert_eq!(app.dialog, None);
+        assert_eq!(widths(&app, id), vec![10, 110, 11, 111, 12, 112]);
     }
 
     #[test]
