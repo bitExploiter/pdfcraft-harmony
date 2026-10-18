@@ -2474,6 +2474,176 @@ fn growing_into_a_blank_line_keeps_the_neighbour_after_save() {
     }
 }
 
+/// No `TL`: `Td` does not set the leading (`TD` does). Three rows at one repeated step are one
+/// paragraph. A single large gap, with no third row at that step, stays a break.
+#[test]
+fn a_repeated_step_without_tl_is_the_paragraph_leading() {
+    let step = 27.6_f64;
+    let bodies = [
+        format!("BT /F1 12 Tf 1 0 0 1 72 700 Tm (One) Tj 0 -{step} Td (Two) Tj 0 -{step} Td (Three) Tj ET"),
+        format!(
+            "BT /F1 12 Tf 1 0 0 1 72 700 Tm (One) Tj ET BT /F1 12 Tf 1 0 0 1 72 {} Tm (Two) Tj ET BT /F1 12 Tf 1 0 0 1 72 {} Tm (Three) Tj ET",
+            700.0 - step,
+            700.0 - 2.0 * step
+        ),
+        format!(
+            "BT /F1 12 Tf 72 700 Td (One) Tj ET BT /F1 12 Tf 72 {} Td (Two) Tj ET BT /F1 12 Tf 72 {} Td (Three) Tj ET",
+            700.0 - step,
+            700.0 - 2.0 * step
+        ),
+    ];
+    for body in bodies {
+        let doc = text_page(&body);
+        let lines = text::text_lines(&doc, 0).unwrap();
+        let gaps: Vec<f64> = lines.windows(2).map(|w| w[0].origin_baseline() - w[1].origin_baseline()).collect();
+        assert!(gaps.iter().all(|gap| (gap - step).abs() < 0.05), "step {step} measured {gaps:?} in {body}");
+        let blocks = text::text_blocks(&doc, 0).unwrap();
+        assert_eq!(blocks.len(), 1, "{body} -> {:?}", blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+    }
+    // Two rows and nothing after them: one gap cannot be told from a paragraph break.
+    let pair = format!("BT /F1 12 Tf 72 700 Td (One) Tj ET BT /F1 12 Tf 72 {} Td (Two) Tj ET", 700.0 - step);
+    assert_eq!(text::text_blocks(&text_page(&pair), 0).unwrap().len(), 2);
+    // The original blank line, written with Td instead of TL: the inner step repeats, the break does not.
+    let inner = 14.4_f64;
+    let blank = format!(
+        "BT /F1 12 Tf 72 700 Td (One) Tj ET BT /F1 12 Tf 72 {} Td (Two) Tj ET \
+         BT /F1 12 Tf 72 {} Td (Neighbour) Tj ET BT /F1 12 Tf 72 {} Td (Line) Tj ET",
+        700.0 - inner,
+        700.0 - 3.0 * inner,
+        700.0 - 4.0 * inner
+    );
+    let doc = text_page(&blank);
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let break_gap = lines[1].origin_baseline() - lines[2].origin_baseline();
+    assert!((break_gap - 2.0 * inner).abs() < 0.05, "blank line measured {break_gap}");
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks.len(), 2, "{:?}", blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>());
+}
+
+/// The first row is unchanged, so the rewrite leaves it in the source stream and skips the
+/// paragraph marker. The added row then sits one leading above the neighbour.
+#[test]
+fn a_partial_rewrite_that_adds_a_row_keeps_the_neighbour() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Neighbor stays.) Tj ET";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "Alpha first row.\nTwo\nThree").unwrap();
+    let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
+    assert_eq!(texts(&doc), ["Alpha first row. Two Three", "Neighbor stays."], "{content}");
+    for saved in [reopen(&doc), Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap()] {
+        assert_eq!(texts(&saved), ["Alpha first row. Two Three", "Neighbor stays."]);
+        let mut again = saved;
+        text::replace_block(&mut again, 0, 0, "Alpha first row.\nTwo\nFour").unwrap();
+        assert_eq!(texts(&reopen(&again)), ["Alpha first row. Two Four", "Neighbor stays."]);
+    }
+}
+
+/// #2516's published steps: adding a row must not make the next edit-by-number rewrite Charlie.
+/// The issue also asks for a stable paragraph id. That is #2508, and this test does not add one.
+#[test]
+fn adding_a_row_does_not_make_the_next_paragraph_number_mean_charlie() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha paragraph, first row of text.) Tj T* (Alpha paragraph, second row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 650 Tm (Bravo paragraph, a single row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 600 Tm (Charlie paragraph, first row of text.) Tj T* (Charlie paragraph, second row.) Tj ET";
+    let mut doc = text_page(src);
+    let names = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    assert_eq!(names(&doc).len(), 3, "{:?}", names(&doc));
+    text::replace_block(&mut doc, 0, 0, "Alpha paragraph, first row of text.\nAlpha paragraph, second row.\nAlpha paragraph, a third row.").unwrap();
+    let after = names(&doc);
+    assert!(after.iter().any(|t| t.contains("Bravo") && !t.contains("Alpha")), "Bravo was absorbed: {after:?}");
+    assert!(after.iter().any(|t| t.contains("Charlie")), "Charlie is gone: {after:?}");
+    let bravo = after.iter().position(|t| t.contains("Bravo")).unwrap();
+    text::replace_block(&mut doc, 0, bravo, "Bravo paragraph, edited.").unwrap();
+    let done = names(&doc);
+    assert!(done.iter().any(|t| t.contains("Charlie")), "editing Bravo removed Charlie: {done:?}");
+    assert!(done.iter().any(|t| t.contains("Bravo paragraph, edited.")), "{done:?}");
+}
+
+/// A blank line is one extra leading, so the fourth row of a grown paragraph sits on the
+/// neighbour's baseline. Changing the box width must not treat that neighbour as a duplicate
+/// drawing and delete it.
+#[test]
+fn resizing_a_grown_paragraph_keeps_the_neighbour() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 410 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
+               BT /F1 12 Tf 14.4 TL 1 0 0 1 72 366.8 Tm (Neighbor stays.) Tj ET";
+    let mut doc = text_page(src);
+    let text = "Alpha first row.\nthis is another\nalpha test\nAlpha next row.";
+    text::replace_block(&mut doc, 0, 0, text).unwrap();
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let added = lines.iter().find(|l| l.text.contains("Alpha next row.")).unwrap();
+    let neighbour = lines.iter().find(|l| l.text.contains("Neighbor")).unwrap();
+    assert!((added.origin_baseline() - neighbour.origin_baseline()).abs() < 0.5, "the new row is not on the neighbour");
+    let width = text::text_blocks(&doc, 0).unwrap()[0].rect[2] - text::text_blocks(&doc, 0).unwrap()[0].rect[0];
+    for factor in [0.6_f64, 1.6] {
+        let mut copy = doc.clone();
+        text::rewrite_block(&mut copy, 0, 0, Some(text), &text::BlockStyle { width: Some((width * factor).max(40.0)), ..Default::default() })
+            .unwrap();
+        let texts = text::text_blocks(&copy, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+        assert!(texts.iter().any(|t| t.contains("Neighbor stays.")), "width ×{factor} removed the neighbour: {texts:?}");
+    }
+}
+
+/// The letter the screenshots edit. Widening example 1, or adding a row there, must leave the
+/// heading above it and both paragraphs under example 2 as they were.
+fn letter_page() -> &'static str {
+    "BT /F1 14 Tf 72 740 Td (1. Repeated step, no TL. Click Two.) Tj ET \
+     BT /F1 12 Tf 72 700 Td (One) Tj ET \
+     BT /F1 12 Tf 72 672.4 Td (Two) Tj ET \
+     BT /F1 12 Tf 72 644.8 Td (Three) Tj ET \
+     BT /F1 14 Tf 72 590 Td (2. Blank line. Edit the first paragraph.) Tj ET \
+     BT /F1 12 Tf 14.4 TL 1 0 0 1 72 550 Tm (First paragraph, first row.) Tj T* (First paragraph, second row.) Tj ET \
+     BT /F1 12 Tf 14.4 TL 1 0 0 1 72 506.8 Tm (Second paragraph, first row.) Tj T* (Second paragraph, second row.) Tj ET \
+     BT /F1 14 Tf 72 450 Td (3. Add a row under Alpha. Neighbor stays.) Tj ET \
+     BT /F1 12 Tf 14.4 TL 1 0 0 1 72 410 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
+     BT /F1 12 Tf 14.4 TL 1 0 0 1 72 366.8 Tm (Neighbor stays.) Tj ET"
+}
+
+fn block_texts(doc: &Document) -> Vec<String> {
+    text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect()
+}
+
+#[test]
+fn widening_example_one_does_not_swallow_the_heading_or_split_the_next_paragraph() {
+    let mut doc = text_page(letter_page());
+    let before = block_texts(&doc);
+    assert!(before.iter().any(|t| t == "1. Repeated step, no TL. Click Two."), "{before:?}");
+    assert!(before.iter().any(|t| t.contains("One") && t.contains("Three") && !t.contains("Repeated")), "{before:?}");
+    assert!(before.iter().any(|t| t.contains("First paragraph, first row") && t.contains("second row")), "{before:?}");
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    let idx = blocks.iter().position(|b| b.text.contains("One") && b.text.contains("Three")).unwrap();
+    // What the editor committed, including the line breaks. A later width change must keep them.
+    text::replace_block(&mut doc, 0, idx, "One\nTwo\nThree\nfour").unwrap();
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    let idx = blocks.iter().position(|b| b.text.contains("four") || b.editor_text.contains("four")).unwrap();
+    let shown = blocks[idx].editor_text.clone();
+    let width = blocks[idx].rect[2] - blocks[idx].rect[0];
+    text::rewrite_block(&mut doc, 0, idx, Some(&shown), &text::BlockStyle { width: Some((width * 6.0).max(180.0)), ..Default::default() }).unwrap();
+    let doc = reopen(&doc);
+    let after = block_texts(&doc);
+    let kept = text::text_blocks(&doc, 0).unwrap().into_iter().find(|b| b.editor_text.contains("four")).unwrap();
+    assert_eq!(kept.editor_text, "One\nTwo\nThree\nfour", "a wider box flattened the line breaks: {:?}", kept.editor_text);
+    assert!(after.iter().any(|t| t == "1. Repeated step, no TL. Click Two."), "the heading joined the resized box: {after:?}");
+    assert!(
+        after.iter().any(|t| t.contains("First paragraph, first row") && t.contains("First paragraph, second row")),
+        "widening example 1 split the next paragraph: {after:?}"
+    );
+    assert!(after.iter().any(|t| t.contains("Second paragraph, first row") && t.contains("second row")), "{after:?}");
+    assert!(after.iter().any(|t| t.contains("Neighbor stays.") && !t.contains("Alpha")), "{after:?}");
+}
+
+#[test]
+fn a_row_added_one_leading_above_the_neighbour_does_not_absorb_it() {
+    let mut doc = text_page(letter_page());
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    let idx = blocks.iter().position(|b| b.text.contains("Alpha first row")).unwrap();
+    text::replace_block(&mut doc, 0, idx, "Alpha first row.\ntest\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let after = block_texts(&doc);
+    assert!(after.iter().any(|t| t.contains("Neighbor stays.") && !t.contains("Alpha")), "the added row absorbed the neighbour: {after:?}");
+}
+
 #[test]
 fn paragraphs_are_found_and_rewrapped() {
     let mut doc = text_page(

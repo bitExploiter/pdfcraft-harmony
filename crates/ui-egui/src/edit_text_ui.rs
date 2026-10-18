@@ -1279,7 +1279,9 @@ pub(crate) fn page_input(
                 let width = (l.rect[2] - l.rect[0]) + (to[2] - to[0]) - (from[2] - from[0]);
                 let shift = to[0] - from[0];
                 let style = pdfcraft_engine::BlockStyle { width: Some(width), offset: (shift != 0.0).then_some([shift, 0.0]), ..Default::default() };
-                Edit::EditTextBlock { page, block: d.block, text: l.text.clone(), style }
+                // `text` joins rows with spaces. The editor text is what the paragraph actually
+                // is, line breaks included; a width change must not throw those breaks away.
+                Edit::EditTextBlock { page, block: d.block, text: l.editor_text.clone(), style }
             } else {
                 // Translation must keep the selected source operators. Rewriting unchanged text
                 // would also remove unrelated paragraphs that now overlap this one (#594).

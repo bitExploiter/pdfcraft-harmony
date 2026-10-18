@@ -2337,9 +2337,14 @@ fn coincident_ops(lines: &[TextLine], targets: &[&TextLine]) -> std::collections
     let area = |r: [f64; 4]| ((r[2] - r[0]) * (r[3] - r[1])).max(0.0);
     let mut drop = std::collections::HashSet::new();
     for line in lines {
+        // Same words: a second drawing of this line (fake bold, a duplicate text object). A
+        // different paragraph that a grown row has landed on is not a copy (#2517). An invisible
+        // OCR layer over the visible line is still that line's other drawing, even when the
+        // extracted strings differ.
         let copy = targets.iter().any(|target| {
-            let same_text = line.text.trim() == target.text.trim() || (line.origin.state.render_mode == 3) != (target.origin.state.render_mode == 3);
-            same_text && overlaps_half(line.rect, target.rect, area) && on_same_baseline(line, target)
+            let same_text = line.text.trim() == target.text.trim();
+            let ocr_pair = (line.origin.state.render_mode == 3) != (target.origin.state.render_mode == 3);
+            (same_text || ocr_pair) && overlaps_half(line.rect, target.rect, area) && on_same_baseline(line, target)
         });
         if copy {
             drop.extend(line.ops.iter().copied());
