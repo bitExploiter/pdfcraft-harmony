@@ -2724,7 +2724,6 @@ certificate	Version	الإصدار
 	Brightness	السطوع
 	Cancel reverse sides	إلغاء الوجه الخلفي
 	Clear region	مسح المنطقة
-	Color	اللون
 	Color document	مستند ملون
 	Connected by USB.	متصل عبر USB.
 	Connected over the network (Web Services). Options come from that driver, not the USB one.	متصل عبر الشبكة (خدمات الويب). الخيارات من ذلك المشغّل لا من USB.
@@ -2753,7 +2752,6 @@ certificate	Version	الإصدار
 	Photometric	ضوئي
 	Preview is for the bed. Set a region in inches below, or leave it empty for the whole sheet.	المعاينة للوحة. عيّن منطقة بالبوصة أدناه أو اتركها فارغة للورقة كلها.
 	Preview uses the bed. Switch the source to Bed, or scan without a preview.	المعاينة تستخدم اللوحة. غيّر المصدر إلى اللوحة أو امسح بلا معاينة.
-	Refresh	تحديث
 	Refresh lists scanners. It does not feed paper.	التحديث يعيد سرد الماسحات. لا يُدخل ورقاً.
 	Region in inches. Leave the width or the height at zero to scan the whole area.	المنطقة بالبوصة. اترك العرض أو الارتفاع صفراً لمسح المساحة كلها.
 	Reverse sides	الوجوه الخلفية
