@@ -1362,7 +1362,13 @@ fn refuse_a_folder_that_has_a_job(folder: &Path) -> Result<(), CliError> {
             .into());
         }
     }
-    let files = pdfcraft_automation::scan_jobs::page_numbers(folder).unwrap_or_default();
+    // A folder that does not exist yet holds nothing; one that cannot be read is an error, not an empty folder
+    // (a page file in it would collide with the first page written, after paper was pulled).
+    let files = match pdfcraft_automation::scan_jobs::page_numbers(folder) {
+        Ok(files) => files,
+        Err(_) if !folder.exists() => Vec::new(),
+        Err(error) => return Err(format!("scan: cannot read {}: {error}", folder.display()).into()),
+    };
     if !files.is_empty() {
         return Err(format!("scan: {} already holds {} page file(s); scan into an empty folder", folder.display(), files.len()).into());
     }
@@ -1484,7 +1490,22 @@ fn current_uid() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::control_file_problem;
+    use super::{control_file_problem, refuse_a_folder_that_has_a_job};
+
+    #[test]
+    fn a_fresh_scan_needs_an_empty_or_missing_folder_it_can_read() {
+        let base = std::env::temp_dir().join(format!("pdfcraft-cli-fresh-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(refuse_a_folder_that_has_a_job(&base).is_ok(), "a folder that does not exist yet");
+        std::fs::create_dir_all(&base).expect("folder");
+        assert!(refuse_a_folder_that_has_a_job(&base).is_ok(), "an empty folder");
+        std::fs::write(base.join("page-001.png"), b"x").expect("page");
+        assert!(refuse_a_folder_that_has_a_job(&base).unwrap_err().to_string().contains("1 page file(s)"));
+        // A path that cannot be listed (here a file) is an error, not an empty folder.
+        let error = refuse_a_folder_that_has_a_job(&base.join("page-001.png")).unwrap_err().to_string();
+        assert!(error.contains("cannot read"), "{error}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn a_control_file_must_be_yours_and_private() {

@@ -297,6 +297,16 @@ pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>
         if flags.append && record.can_add_sheets() {
             return Ok(Plan::AddSheets);
         }
+        // A backs pass that ran the feeder empty ended Completed with backs still missing: --append scans the next
+        // part of the flipped stack, as it does for an interrupted backs pass.
+        if flags.append && record.backs_remaining() {
+            return Ok(Plan::Continue(Continuation::Append));
+        }
+        if record.backs_remaining() {
+            return Err(
+                "scan --continue: the backs are not finished; put the next part of the flipped stack in the feeder and use --append".to_string()
+            );
+        }
         let more = if record.can_add_sheets() { "; --append adds the next feeder load" } else { "" };
         let backs = if record.can_turn() { "; --reverse scans the backs (flip the whole stack first)" } else { "" };
         return Err(format!("scan --continue: this job is complete{more}{backs}"));
@@ -624,6 +634,19 @@ mod tests {
         );
         let again = continuation_for(&backs, Ok(4), &ContinueFlags { reverse: true, ..NONE }).unwrap_err();
         assert!(again.contains("already being scanned"), "{again}");
+    }
+
+    #[test]
+    fn a_backs_pass_that_ran_the_feeder_empty_continues_with_append() {
+        // A whole-feeder backs pass ends Completed when the part of the stack in the feeder runs out.
+        let mut backs = record(ScanJobState::Terminal(Outcome::Completed), 4, None);
+        backs.manual_duplex = Some(ManualDuplex::backs_of(3).after(4));
+        assert_eq!(continuation_for(&backs, Ok(4), &ContinueFlags { append: true, ..NONE }), Ok(Plan::Continue(Continuation::Append)));
+        let told = continuation_for(&backs, Ok(4), &NONE).unwrap_err();
+        assert!(told.contains("backs are not finished") && told.contains("--append"), "{told}");
+        // Every back in: complete, nothing to append.
+        backs.manual_duplex = Some(ManualDuplex::backs_of(3).after(6));
+        assert!(continuation_for(&backs, Ok(4), &ContinueFlags { append: true, ..NONE }).unwrap_err().contains("complete"));
     }
 
     #[test]
