@@ -497,11 +497,10 @@ fn shared_scope(block: &TextBlock, lines: &[TextLine]) -> Option<usize> {
 /// Where an extra `/P` marker belongs.
 ///
 /// The marker is omitted when the paragraph is already one marked region and the next line is
-/// in a different one: an `EMC` at that line's `BT` lands after the other region has opened, so
-/// it would close the other region and leave its text outside. When nothing follows, `close` is
-/// the operator just after the paragraph's last `ET` (`ops.len()` means append it after the
-/// stream). Closing earlier, inside the rewritten operators, leaves a kept source row outside
-/// the marker and can put `EMC` inside a `BT`.
+/// in a different one. Otherwise it closes after the paragraph's last `ET` (`ops.len()` means
+/// append it after the stream). Closing at the next line's `BT` is too late when that line's
+/// region opened with `BDC` before the `BT`: the `EMC` would end the neighbour's region. Closing
+/// inside the rewritten operators leaves a kept source row outside the marker.
 fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option<(usize, Option<usize>, usize)> {
     let (start, next) = paragraph_span(block, lines)?;
     if let Some(region) = shared_scope(block, lines)
@@ -512,23 +511,18 @@ fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option
             return None;
         }
     }
-    let close = if next.is_none() {
-        let end = block
-            .lines
-            .iter()
-            .filter_map(|i| lines.get(*i))
-            .flat_map(|line| line.ops.iter().copied().chain(std::iter::once(line.origin.bt_op)))
-            .max()?;
-        ops.iter()
-            .enumerate()
-            .skip(end.saturating_add(1))
-            .find(|(_, op)| op.op.as_slice() == b"ET")
-            .map(|(index, _)| index.saturating_add(1))
-            .unwrap_or(ops.len())
-    } else {
-        0
-    };
-    Some((start, next, close))
+    let end =
+        block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|line| line.ops.iter().copied().chain(std::iter::once(line.origin.bt_op))).max()?;
+    let close = ops
+        .iter()
+        .enumerate()
+        .skip(end.saturating_add(1))
+        .find(|(_, op)| op.op.as_slice() == b"ET")
+        .map(|(index, _)| index.saturating_add(1))
+        .unwrap_or(ops.len());
+    // `None` is the next-line index: the close is after this paragraph's `ET`, not at the
+    // following line's `BT`.
+    Some((start, None, close))
 }
 
 /// Rewrite visual rows while keeping the source style on each surviving character. Resource

@@ -2632,6 +2632,23 @@ fn a_partial_rewrite_keeps_the_next_marked_region_closed() {
     assert!(!content[neighbour..close].contains("(One.)"), "the rewrite was pulled into the neighbour's marker: {content}");
 }
 
+/// The paragraph being edited is not in a marked region. The next one is. Closing the new
+/// marker at the neighbour's `BT` would land after that region's `BDC` and close it early.
+#[test]
+fn a_partial_rewrite_of_an_unmarked_paragraph_leaves_the_marked_neighbour_closed() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj ET \
+               /P << /MCID 1 >> BDC BT /F1 12 Tf 14.4 TL 1 0 0 1 72 656.8 Tm (Neighbor stays.) Tj ET EMC";
+    let mut doc = text_page(src);
+    assert_eq!(text::text_blocks(&doc, 0).unwrap().len(), 2);
+    text::replace_block(&mut doc, 0, 0, "One.\nAlpha next row.").unwrap();
+    let doc = reopen(&doc);
+    let texts: Vec<_> = text::text_blocks(&doc, 0).unwrap().into_iter().map(|b| b.text).collect();
+    assert_eq!(texts, ["One. Alpha next row.", "Neighbor stays."], "{texts:?}");
+    let content = page_content(&doc);
+    assert_marker_wraps(&content, "/MCID 1", "(Neighbor stays.)", "(Neighbor stays.)");
+    assert!(!region_through_matching_close(&content, "/MCID 1").contains("(One.)"), "the rewrite was pulled into the neighbour: {content}");
+}
+
 /// Both paragraphs already share one marked region, separated by a blank line. The extra marker
 /// around the edit has to close itself, not the region, so the neighbour stays inside it.
 #[test]
