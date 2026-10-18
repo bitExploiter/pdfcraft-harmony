@@ -85,7 +85,6 @@ pdfcraft-cli scan   --out DIR --yes [--dpi 200] [--color gray|rgb|bw]
                       [--page-length driver|size|auto|infer]  # size: the --page-size length; auto: scanner detection, else size; infer: approximate, from the image
                       [--deskew on|off] [--dpi-y N] [--orientation N] [--photometric N]
                       [--invert on|off] [--mirror on|off] [--lamp on|off] [--duplex]
-                      [--reverse]  # 2nd pass: flip stack, scan backs in reverse, interleave
                       [--left IN] [--top IN] [--width IN] [--height IN]
                       runs as one job: pages are saved to DIR as they arrive, DIR/scan-job.json records the job,
                       the result is one JSON line, and the exit status says how it ended:
@@ -96,12 +95,15 @@ pdfcraft-cli scan   jobs [DIR...] [--json]
                       list the scan-job.json journals in each DIR (default: here and the folders directly below); opens no scanner
 pdfcraft-cli scan   job DIR [--json]
                       one job in detail: state, pages kept and on disk, attempts, last error, next step; opens no scanner
-pdfcraft-cli scan   --continue DIR (--append | --restart) --yes [--i-checked-the-scanner]
+pdfcraft-cli scan   --continue DIR (--append | --restart | --reverse) --yes [--i-checked-the-scanner]
                       go on with a job from its journal and request. --append keeps the kept pages and scans the
                       missing ones; --restart moves the kept page files to DIR/discarded-N and scans again; one is
                       required when pages are kept. A job that needs attention (outcome unknown) is refused until you
                       have looked at the scanner and add --i-checked-the-scanner: a repeated acquire moves the carriage
                       and pulls paper
+                      a finished whole-feeder job: --append adds the next feeder load as more sheets; --reverse scans
+                      the backs (flip the whole stack first): one job, every page saved at its place (the back of
+                      sheet i is page 2i), continued with --append for each further part of the flipped stack
 pdfcraft-cli tools                                       automation tools and their JSON Schemas
 pdfcraft-cli run    <tool> [key=value …] [--root DIR] [--out image.png]
 pdfcraft-cli run    --script steps.json [--root DIR] [--report]
@@ -1161,9 +1163,10 @@ const SCAN_OPTIONS: &[OptionSpec] = &[
 /// returns their capabilities (`details: "loaded"`); `--details` opens all of them. A device that
 /// will not open stays listed with `details: "error"` and the reason.
 /// `scan devices --dump` prints every property the backend publishes, as text. Anything else
-/// pulls paper, and only with `--yes`. `--reverse` is manual duplex when the feeder has no duplex
-/// bit: fronts are already in `--out`; flip the whole stack (last sheet on top), scan the reverse
-/// sides (they arrive last-sheet-first), and rewrite `--out` interleaved.
+/// pulls paper, and only with `--yes`. A pile larger than the feeder is one job: `scan --continue DIR
+/// --append --yes` adds the next feeder load. Manual duplex (a feeder without a duplex unit) turns
+/// the same job: `scan --continue DIR --reverse --yes` with the whole stack flipped, then `--append`
+/// for each further part of it; every page is written to its place in the document as it arrives.
 /// Scanning is Windows/WIA only in this version: elsewhere a scan ends with one clear line (the
 /// device commands get the same sentence from the unsupported backend).
 /// This is a run-time answer; the code builds on every platform.
@@ -1251,11 +1254,13 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     if !args.iter().any(|arg| arg == "--yes") {
         return Err("scan: --yes is required, because this pulls paper".into());
     }
-    let reverse = args.iter().any(|arg| arg == "--reverse");
-    let duplex = args.iter().any(|arg| arg == "--duplex");
-    if reverse && duplex {
-        return Err("scan: --reverse is manual duplex; do not pass --duplex".into());
+    if args.iter().any(|arg| arg == "--reverse") {
+        return Err(format!(
+            "scan: the backs of a scan are part of the same job: flip the whole stack and run `pdfcraft-cli scan --continue {out} --reverse --yes`"
+        )
+        .into());
     }
+    let duplex = args.iter().any(|arg| arg == "--duplex");
     let dpi = match option_value(args, "--dpi")? {
         Some(text) => text.parse::<u32>().map_err(|_| "scan: --dpi is a whole number")?,
         None => 200,
@@ -1266,32 +1271,9 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     let source =
         pdfcraft_platform::scan::Source::parse(source_text).ok_or_else(|| format!("scan: --source is auto, feeder, or glass (got {source_text})"))?;
     let folder = PathBuf::from(out);
-    let front_files = if reverse {
-        let files = pdfcraft_platform::scan::listed_page_files(&folder).map_err(|error| format!("scan: {error}"))?;
-        if files.is_empty() {
-            return Err("scan: --reverse needs front pages already in --out (scan the fronts first, flip the stack, then --reverse)".into());
-        }
-        Some(files)
-    } else {
-        None
-    };
-    let pages = if let Some(files) = &front_files {
-        let n = u32::try_from(files.len()).map_err(|_| "scan: too many front pages")?;
-        match option_value(args, "--pages")? {
-            None | Some("all") => n,
-            Some(text) => {
-                let asked = text.parse::<u32>().map_err(|_| "scan: --pages is a whole number, or all")?;
-                if asked != n {
-                    return Err(format!("scan: --reverse expects {n} page(s) to match the fronts in --out (got --pages {asked})").into());
-                }
-                asked
-            }
-        }
-    } else {
-        match option_value(args, "--pages")?.unwrap_or("1") {
-            "all" => 0,
-            text => text.parse::<u32>().map_err(|_| "scan: --pages is a whole number, or all")?,
-        }
+    let pages = match option_value(args, "--pages")?.unwrap_or("1") {
+        "all" => 0,
+        text => text.parse::<u32>().map_err(|_| "scan: --pages is a whole number, or all")?,
     };
     let rotation = match option_value(args, "--rotation")? {
         None => None,
@@ -1356,22 +1338,20 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     };
     settings.checked().map_err(|error| format!("scan: {error}"))?;
     ensure_scanning_supported()?;
-    refuse_a_folder_that_has_a_job(&folder, reverse)?;
+    refuse_a_folder_that_has_a_job(&folder)?;
     // Only now: an option that did not parse must not leave an empty output folder behind.
     std::fs::create_dir_all(&folder).map_err(|error| format!("scan: {}: {error}", folder.display()))?;
-    scan_cmd::run(scan_cmd::Run { folder, settings, reverse, front_files, resume: None })
+    scan_cmd::run(scan_cmd::Run { folder, settings, resume: None, duplex: None })
 }
 
 /// One job per output folder. A fresh scan does not start in a folder that already holds a journal (it
-/// would overwrite the record of what happened there) or page files (the pages would collide). The one
-/// exception is `--reverse`, which belongs after a completed front pass in the same folder.
-fn refuse_a_folder_that_has_a_job(folder: &Path, reverse: bool) -> Result<(), CliError> {
+/// would overwrite the record of what happened there) or page files (the pages would collide). More sheets
+/// and the backs of a job go through `scan --continue`.
+fn refuse_a_folder_that_has_a_job(folder: &Path) -> Result<(), CliError> {
     use pdfcraft_automation::scan_jobs;
     if folder.join(scan_jobs::JOB_FILE).is_file() {
         let record = scan_jobs::read_record(folder).map_err(|error| format!("scan: {error}"))?;
-        let complete =
-            record.effective_state() == pdfcraft_platform::scan::job::ScanJobState::Terminal(pdfcraft_platform::scan::job::Outcome::Completed);
-        if !(reverse && complete) {
+        {
             return Err(format!(
                 "scan: {} already holds a scan job ({}). One job per folder: look at it with `pdfcraft-cli scan job {}`, go on with `scan --continue {}`, or scan into another folder",
                 folder.display(),
@@ -1382,22 +1362,20 @@ fn refuse_a_folder_that_has_a_job(folder: &Path, reverse: bool) -> Result<(), Cl
             .into());
         }
     }
-    if !reverse {
-        let files = pdfcraft_platform::scan::listed_page_files(folder).map_err(|error| format!("scan: {error}"))?;
-        if !files.is_empty() {
-            return Err(format!("scan: {} already holds {} page file(s); scan into an empty folder", folder.display(), files.len()).into());
-        }
+    let files = pdfcraft_automation::scan_jobs::page_numbers(folder).unwrap_or_default();
+    if !files.is_empty() {
+        return Err(format!("scan: {} already holds {} page file(s); scan into an empty folder", folder.display(), files.len()).into());
     }
     Ok(())
 }
 
 /// `scan --continue DIR`: the settings come from the job file, so no scan option may be given beside it.
 fn scan_continue(args: &[String]) -> Result<(), CliError> {
-    const ALLOWED: &[&str] = &["--continue", "--append", "--restart", "--yes", "--i-checked-the-scanner"];
+    const ALLOWED: &[&str] = &["--continue", "--append", "--restart", "--reverse", "--yes", "--i-checked-the-scanner"];
     let dir = option_value(args, "--continue")?.ok_or("scan: --continue needs DIR")?;
     if let Some(other) = args.iter().filter(|arg| arg.starts_with("--")).find(|arg| !ALLOWED.contains(&arg.as_str())) {
         return Err(format!(
-            "scan --continue takes only --append or --restart, --yes and --i-checked-the-scanner; the settings come from the job file (got {other})"
+            "scan --continue takes only --append, --restart or --reverse, --yes and --i-checked-the-scanner; the settings come from the job file (got {other})"
         )
         .into());
     }
@@ -1408,53 +1386,9 @@ fn scan_continue(args: &[String]) -> Result<(), CliError> {
         append: args.iter().any(|arg| arg == "--append"),
         restart: args.iter().any(|arg| arg == "--restart"),
         checked: args.iter().any(|arg| arg == "--i-checked-the-scanner"),
+        reverse: args.iter().any(|arg| arg == "--reverse"),
     };
     scan_cmd::continue_job(Path::new(dir), &flags)
-}
-
-/// Fronts already on disk; `backs` just scanned after the stack was flipped (last sheet first).
-/// Reverse the backs and rewrite `folder` as interleaved faces.
-fn save_reverse_pass(folder: &Path, front_files: &[PathBuf], backs: &[pdfcraft_platform::scan::Page]) -> Result<Vec<serde_json::Value>, CliError> {
-    let mut front_bytes = Vec::with_capacity(front_files.len());
-    for path in front_files {
-        front_bytes.push(std::fs::read(path).map_err(|error| format!("scan: {}: {error}", path.display()))?);
-    }
-    let back_bytes: Vec<Vec<u8>> = backs.iter().map(|page| page.bytes.clone()).collect();
-    let interleaved = pdfcraft_platform::scan::interleave_manual_duplex(front_bytes, back_bytes).map_err(|error| format!("scan: {error}"))?;
-    let staging = folder.join(".reverse-pass-staging");
-    if staging.exists() {
-        std::fs::remove_dir_all(&staging).map_err(|error| format!("scan: {}: {error}", staging.display()))?;
-    }
-    std::fs::create_dir_all(&staging).map_err(|error| format!("scan: {}: {error}", staging.display()))?;
-    let mut staged = Vec::new();
-    for (index, bytes) in interleaved.iter().enumerate() {
-        let format = pdfcraft_platform::scan::image_format(bytes);
-        let path = pdfcraft_platform::scan::page_path(&staging, index + 1, format);
-        std::fs::write(&path, bytes).map_err(|error| format!("scan: {}: {error}", path.display()))?;
-        staged.push(path);
-    }
-    for path in front_files {
-        std::fs::remove_file(path).map_err(|error| format!("scan: {}: {error}", path.display()))?;
-    }
-    let dpi = backs.first().map(|page| page.dpi).unwrap_or(0);
-    let mut saved = Vec::new();
-    for (index, staged_path) in staged.into_iter().enumerate() {
-        let format = staged_path.extension().and_then(|ext| ext.to_str()).unwrap_or("bin");
-        let final_path = pdfcraft_platform::scan::page_path(folder, index + 1, format);
-        std::fs::rename(&staged_path, &final_path).map_err(|error| format!("scan: {}: {error}", final_path.display()))?;
-        let (width, height) = pdfcraft_platform::scan::bmp_size(&interleaved[index]).unwrap_or((0, 0));
-        saved.push(serde_json::json!({
-            "path": final_path.display().to_string(),
-            "format": format,
-            "width": width,
-            "height": height,
-            "dpi": dpi,
-            "bytes": interleaved[index].len(),
-            "side": if index % 2 == 0 { "front" } else { "back" },
-        }));
-    }
-    let _ = std::fs::remove_dir_all(&staging);
-    Ok(saved)
 }
 
 fn page_json(path: &Path, page: &pdfcraft_platform::scan::Page) -> serde_json::Value {
@@ -1669,14 +1603,14 @@ mod tests {
     }
 
     #[test]
-    fn scan_reverse_needs_fronts_and_refuses_hardware_duplex() {
+    fn scan_reverse_is_a_continuation_of_the_job() {
         let duplex = super::scan(&["--out".into(), "pages".into(), "--yes".into(), "--reverse".into(), "--duplex".into()]).unwrap_err();
         assert!(duplex.to_string().contains("--reverse"), "{duplex}");
         let dir = std::env::temp_dir().join(format!("pdfcraft-scan-reverse-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(std::fs::create_dir_all(&dir).is_ok());
-        let missing = super::scan(&["--out".into(), dir.to_string_lossy().into_owned(), "--yes".into(), "--reverse".into()]).unwrap_err();
-        assert!(missing.to_string().contains("front"), "{missing}");
+        let fresh = super::scan(&["--out".into(), dir.to_string_lossy().into_owned(), "--yes".into(), "--reverse".into()]).unwrap_err();
+        assert!(fresh.to_string().contains("--continue") && fresh.to_string().contains("--reverse"), "{fresh}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

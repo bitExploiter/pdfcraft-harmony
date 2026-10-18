@@ -406,6 +406,11 @@ pub(crate) struct Bands {
     pub(crate) expected_bytes: Option<u64>,
     /// The caller's cancel token: a requested cancel stops the transfer at the next band.
     pub(crate) cancel: Option<CancelToken>,
+    /// The device and whether the scan is from the feeder: a cancel also stops the feeder, as the file
+    /// transfer's [`halt_feeder`] does, so it does not pull another sheet.
+    pub(crate) device: Option<IWiaItem2>,
+    pub(crate) feeder: bool,
+    pub(crate) halted: bool,
 }
 
 impl Drop for Bands {
@@ -443,6 +448,14 @@ impl IWiaDataCallback_Impl for BandSink_Impl {
         let message = u32::try_from(lmessage).unwrap_or(0);
         let mut state = self.this.state.try_borrow_mut().map_err(|_| windows::core::Error::from(E_FAIL))?;
         if state.cancel.as_ref().is_some_and(CancelToken::is_requested) {
+            if !state.halted {
+                state.halted = true;
+                if state.feeder
+                    && let Some(device) = &state.device
+                {
+                    let _ = ffi::stop_feeder(device);
+                }
+            }
             // Same answer as the file transfer's callback: the driver ends the stack.
             return Err(windows::core::Error::from(WIA_ERROR_PAPER_EMPTY));
         }

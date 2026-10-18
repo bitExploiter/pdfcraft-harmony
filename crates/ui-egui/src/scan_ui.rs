@@ -2460,7 +2460,7 @@ impl PdfCraftApp {
         let progress = Arc::clone(&job.progress);
         let Ok(mut slot) = progress.lock() else {
             self.scan.job = None;
-            self.progress_notice = None;
+            self.clear_job_progress(crate::widgets::ProgressOwner::Scan);
             return;
         };
         let finished = slot.result.take();
@@ -2483,13 +2483,13 @@ impl PdfCraftApp {
             let show_notice =
                 matches!(kind, ScanKind::Create | ScanKind::Insert(_) | ScanKind::ReverseSides) || self.dialog != Some(crate::Dialog::Scanner);
             if show_notice {
-                self.progress_notice = Some(crate::widgets::ProgressNotice {
+                let notice = crate::widgets::ProgressNotice {
                     label: if cancelling { tl!("Cancelling…").to_string() } else { label },
                     // No honest fraction yet (an unknown stack before the first update) rests at the start.
                     fraction: scan_bar_fraction(done, expected, page_percent).unwrap_or(0.0),
                     cancellable: !cancelling,
-                });
-                self.progress_owner = crate::widgets::ProgressOwner::Scan;
+                };
+                self.show_job_progress(crate::widgets::ProgressOwner::Scan, notice);
             }
             if let Some(ctx) = &self.ctx {
                 ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -2497,7 +2497,7 @@ impl PdfCraftApp {
             return;
         };
 
-        self.progress_notice = None;
+        self.clear_job_progress(crate::widgets::ProgressOwner::Scan);
         match (kind, result) {
             (ScanKind::Preview, Ok(pages)) => {
                 self.scan.job = None;

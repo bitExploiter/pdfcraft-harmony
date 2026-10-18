@@ -68,19 +68,27 @@ when an attempt begins, when pages arrive, when it ends. It never holds page byt
   "id": "scan-1760000000000-1a2b",
   "started": 1760000000000,
   "updated": 1760000012345,
-  "request": { "device": "wia:...", "source": "feeder", "dpi": 200, "color": "gray", "pages": 20, "duplex": false, "reverse": false },
+  "request": { "device": "wia:...", "source": "feeder", "dpi": 200, "color": "gray", "pages": 20, "duplex": false },
   "journal": { "version": 1, "title": "invoices", "state": "interrupted", "expected_pages": 20, "attempts_total": 1, "pages": [ ... ], "last_error": { ... }, "warnings": [] },
   "view": { "kind": "scan", "state": "needs_attention", "progress": { "done": 12, "total": 20 }, ... },
-  "attempts": [ { "number": 1, "outcome": "interrupted", "pages_gained": 12, ... } ]
+  "attempts": [ { "number": 1, "outcome": "interrupted", "pages_gained": 12, ... } ],
+  "manual_duplex": { "sheets": 10, "direction": "backs", "cursor": 4 }
 }
 ```
+
+`manual_duplex` is present only once a job has turned for its backs (`scan --continue DIR --reverse`): the sheets in the stack, the
+direction (`backs`; `fronts` is reserved for scanning further batches of sheets after a turn) and the cursor, the sheet whose back is
+next (0 when every back is in). The job keeps its pages in scan order; each page file is at its place in the document (front of sheet
+`i` at `page-(2i-1)`, back at `page-2i`), so the folder is checked against exactly those numbers. The turn writes the journal first and
+then renumbers the fronts highest first, which a later `--continue` finishes if it was cut off.
 
 `request` is every scan setting the command line gave (optional ones only when set), so `--continue` can repeat them; the craft-scan
 journal does not carry settings. `journal` is `ScanJobJournal`, `view` is `craft_job::JobView`, `attempts` is the attempt timeline
 across every run of the job (the journal itself keeps only the count and the last error). Times are milliseconds since the Unix epoch.
 A reader ignores fields it does not know and defaults ones an older writer lacked; a `version` newer than the reader's is refused with a
-message to upgrade. The journal does not verify the page files: `scan jobs` and `scan job` count `page-NNN.*` in the folder and say
-when the number differs from the journal, and `--continue` refuses to go on until they agree.
+message to upgrade. The journal does not verify the page files: `scan jobs` and `scan job` count `page-NNN.*` in the folder (for a
+manual-duplex job, the numbers the kept pages belong at) and say when they differ from the journal, and `--continue` refuses to go on
+until they agree.
 
 **Exit status.** 0 `completed`, 10 `needs_attention`, 11 `failed`, 12 `cancelled` (craft-scan's `ExitClass`); 1 is a failure of the
 command itself (arguments, files). A job left `acquiring` (the process was killed) reads as `needs_attention`. The final stdout line
@@ -94,6 +102,9 @@ job as an unknown outcome: look at the scanner, then `scan --continue DIR --appe
 its `request`. When pages are kept it asks you to choose: `--append` scans only the remaining count, `--restart` moves the kept page
 files to `DIR/discarded-N` first (nothing is deleted) and scans everything again. A job in `needs_attention` is refused until
 `--i-checked-the-scanner` is given, because a duplicate acquire moves the carriage and pulls paper; the job never decides that for you.
+A completed whole-feeder job takes `--append` for another feeder load of sheets, and any completed job takes `--reverse` to scan its
+backs: it becomes one job of twice the pages, continued with `ScanJob::continuing` and `Continuation::Append` like any other, going
+down the flipped stack (see `manual_duplex` above).
 
 ### Scheduling
 

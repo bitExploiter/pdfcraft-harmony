@@ -72,7 +72,8 @@ callback transfer. Whole-stack feeder jobs may need a large ticket page cap when
 continue when the port is WSD and a multi-page job was requested.
 
 **Duplex:** hardware duplex is `ScanSettings.duplex` (`FEEDER|DUPLEX`). Manual duplex is two
-feeder passes plus `interleave_manual_duplex` / CLI `--reverse`. In the scan dialog (UI **Reverse sides**)
+feeder passes: in the CLI one job, `scan --continue DIR --reverse` after the fronts (each pass may take several feeder loads; every
+page is written to its place as it arrives, see [cli.md](cli.md)); the dialog uses `interleave_manual_duplex`. In the scan dialog (UI **Reverse sides**)
 nothing is buffered: the fronts enter the document as they arrive, and in the second pass each back is
 inserted right after its front (the stack is flipped as a whole, so the first back goes after the last
 front). Cancelling, or never scanning the backs, leaves the fronts in the document. Manual duplex

@@ -3,6 +3,13 @@
 //! (`scan-job.json`) is rewritten at every state change. Also `scan jobs`, `scan job DIR` and
 //! `scan --continue DIR`. See docs/scan-stack.md.
 //!
+//! A pile larger than the feeder is one job scanned in batches: `--continue --append` adds the next feeder
+//! load of fronts. Manual duplex is the same job going the other way: `--continue --reverse` turns it (the
+//! whole stack flipped, the last sheet first) and every later `--continue --append` scans the next part of
+//! the flipped stack, the backs of the sheets below the cursor. Every page is written to its place in the
+//! document as it arrives (see `craft_devices::scan_jobs::duplex_page_number`), so nothing is held back
+//! and nothing is rearranged at the end.
+//!
 //! No Ctrl-C handler: std has none, and a safe one needs a dependency or `unsafe` (this crate forbids
 //! the latter). Terminating the process leaves the journal as it was at the last change (state
 //! `acquiring`), which every reader treats as an unknown outcome.
@@ -11,9 +18,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use craft_job::{RetryAdvice, Timestamp};
-use pdfcraft_automation::scan_jobs::{self, JobRecord};
+use pdfcraft_automation::scan_jobs::{self, JobRecord, ManualDuplex};
 use pdfcraft_platform::scan::{
-    self, Page, ScanError, ScanSettings,
+    self, ScanError, ScanSettings,
     job::{Continuation, ExitClass, Outcome, ScanJob, ScanJobConfig, ScanJobError, ScanJobState},
 };
 use serde_json::{Value, json};
@@ -24,11 +31,10 @@ use crate::{CliError, stdout_line};
 pub struct Run {
     pub folder: PathBuf,
     pub settings: ScanSettings,
-    pub reverse: bool,
-    /// Fronts of a manual-duplex pass, already in the folder.
-    pub front_files: Option<Vec<PathBuf>>,
     /// Set by `--continue`: the journal that is being continued and what to do with its pages.
     pub resume: Option<(JobRecord, Continuation)>,
+    /// Set once the job has turned for its backs: where the pages go and how far down the stack it is.
+    pub duplex: Option<ManualDuplex>,
 }
 
 fn now() -> Timestamp {
@@ -42,18 +48,11 @@ struct Journal<'a> {
     started: u64,
     request: Value,
     prior_attempts: Vec<Value>,
-    /// Off for a reverse (manual duplex) pass: the folder's journal is the completed front pass's record, and the
-    /// backs are held in memory and interleaved only when the pass completes. Writing a journal of `n` backs over
-    /// it would lose the front record, make the next `--reverse` run refuse the folder, and disagree with the `2n`
-    /// page files after a successful pass. A failed pass leaves the folder as it was.
-    enabled: bool,
+    duplex: Option<ManualDuplex>,
 }
 
 impl Journal<'_> {
     fn save(&self, job: &ScanJob) -> Result<(), CliError> {
-        if !self.enabled {
-            return Ok(());
-        }
         let snapshot = job.snapshot();
         let mut attempts = self.prior_attempts.clone();
         attempts.extend(snapshot.attempts.iter().filter_map(|attempt| serde_json::to_value(attempt).ok()));
@@ -65,21 +64,43 @@ impl Journal<'_> {
             journal: snapshot.into_journal(),
             view: serde_json::to_value(job.view()).unwrap_or(Value::Null),
             attempts,
+            manual_duplex: self.duplex.map(|duplex| duplex.after(job.page_count())),
         };
         scan_jobs::write_record(self.folder, &record).map_err(|error| CliError::from(format!("scan: cannot write the job file: {error}")))
     }
 }
 
-/// Write pages `*written..` of the job's held pages into the folder, never over an existing file.
-fn flush_pages(job: &ScanJob, folder: &Path, base: usize, written: &mut usize, saved: &mut Vec<Value>) -> Result<(), String> {
+/// Where the job's page `index` (0-based, scan order) is written: `page-(index+1)` for a single-sided job,
+/// its place in the document for a manual-duplex one.
+fn page_number(duplex: Option<ManualDuplex>, index: usize) -> usize {
+    match duplex {
+        Some(duplex) => scan_jobs::duplex_page_number(duplex.sheets, index),
+        None => index + 1,
+    }
+}
+
+/// Write pages `*written..` of the job's held pages into the folder, never over an existing file. `base` is the
+/// number of pages the job kept before this run.
+fn flush_pages(
+    job: &ScanJob,
+    folder: &Path,
+    base: usize,
+    duplex: Option<ManualDuplex>,
+    written: &mut usize,
+    saved: &mut Vec<Value>,
+) -> Result<(), String> {
     use std::io::Write;
     for (index, page) in job.pages().iter().enumerate().skip(*written) {
-        let path = scan::page_path(folder, base + index + 1, page.format);
+        let path = scan::page_path(folder, page_number(duplex, base + index), page.format);
         let mut file =
             std::fs::OpenOptions::new().write(true).create_new(true).open(&path).map_err(|error| format!("{}: {error}", path.display()))?;
         file.write_all(&page.bytes).map_err(|error| format!("{}: {error}", path.display()))?;
         eprintln!("pdfcraft-cli: saved {}", path.display());
-        saved.push(crate::page_json(&path, page));
+        let mut row = crate::page_json(&path, page);
+        if let Some(duplex) = duplex {
+            row["side"] = json!(if base + index < usize::try_from(duplex.sheets).unwrap_or(usize::MAX) { "front" } else { "back" });
+        }
+        saved.push(row);
         *written = index + 1;
     }
     Ok(())
@@ -92,7 +113,7 @@ fn job_error(error: &ScanJobError) -> CliError {
 /// Run the job to its end (or to the point where a person must act) and exit by its class.
 pub fn run(spec: Run) -> Result<(), CliError> {
     crate::ensure_scanning_supported()?;
-    let Run { folder, settings, reverse, front_files, resume } = spec;
+    let Run { folder, settings, resume, duplex } = spec;
     let started_at = scan_jobs::now_millis();
     let title = folder.file_name().and_then(|name| name.to_str()).filter(|name| !name.is_empty()).unwrap_or("Scan").to_string();
     let config = ScanJobConfig::default().with_title(title).with_created(now());
@@ -106,7 +127,7 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         }
         None => (format!("scan-{started_at}-{:x}", std::process::id()), started_at, Vec::new(), None, ScanJob::new(settings.clone(), config)),
     };
-    let journal = Journal { folder: &folder, id, started, request: scan_jobs::request_json(&settings, reverse), prior_attempts, enabled: !reverse };
+    let journal = Journal { folder: &folder, id, started, request: scan_jobs::request_json(&settings), prior_attempts, duplex };
 
     let mut saved: Vec<Value> = Vec::new();
     let mut written = 0usize;
@@ -124,9 +145,8 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         while !worker.is_finished() {
             let got = job.record_progress(&plan.progress);
             if got > 0 {
-                if !reverse
-                    && write_error.is_none()
-                    && let Err(error) = flush_pages(&job, &folder, base, &mut written, &mut saved)
+                if write_error.is_none()
+                    && let Err(error) = flush_pages(&job, &folder, base, duplex, &mut written, &mut saved)
                 {
                     // Out of space or a file in the way: stop the transfer rather than pull more paper.
                     write_error = Some(error);
@@ -138,9 +158,8 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         }
         let result = worker.join().unwrap_or_else(|_| Err(ScanError::Failed("the scan worker stopped unexpectedly".into())));
         job.finish_attempt(result, now()).map_err(|error| job_error(&error))?;
-        if !reverse
-            && write_error.is_none()
-            && let Err(error) = flush_pages(&job, &folder, base, &mut written, &mut saved)
+        if write_error.is_none()
+            && let Err(error) = flush_pages(&job, &folder, base, duplex, &mut written, &mut saved)
         {
             write_error = Some(error);
         }
@@ -160,25 +179,15 @@ pub fn run(spec: Run) -> Result<(), CliError> {
     let snapshot = job.snapshot();
     let state = job.state();
     let class = state.exit_class();
-    let mut reverse_note = None;
-    if reverse {
-        if state == ScanJobState::Terminal(Outcome::Completed) {
-            let backs: Vec<Page> = job.take_pages().map_err(|error| job_error(&error))?;
-            match crate::save_reverse_pass(&folder, front_files.as_deref().unwrap_or(&[]), &backs) {
-                Ok(pages) => saved = pages,
-                Err(error) => reverse_note = Some(error.to_string()),
-            }
-        } else {
-            reverse_note = Some("the reverse pass did not finish: the fronts in the folder are unchanged and the backs scanned so far were not kept; run --reverse again".to_string());
-        }
-    }
-    let class = if write_error.is_some() || reverse_note.is_some() { ExitClass::Failed } else { class };
+    let position = duplex.map(|duplex| duplex.after(job.page_count()));
+    let class = if write_error.is_some() { ExitClass::Failed } else { class };
     let code = scan_jobs::exit_code(class);
     let source = snapshot.source_in_use.map_or(settings.source.name(), |source| source.name());
     let result = json!({
         "source": source,
         "requested_source": settings.source.name(),
-        "reverse": reverse,
+        "reverse": duplex.is_some(),
+        "manual_duplex": position.map_or(Value::Null, |p| json!({ "sheets": p.sheets, "direction": p.direction.as_str(), "cursor": p.cursor })),
         "count": saved.len(),
         "pages": saved,
         "state": state.name(),
@@ -188,22 +197,31 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         "job": serde_json::to_value(job.view()).unwrap_or(Value::Null),
     });
     stdout_line(format_args!("{}", serde_json::to_string(&result).map_err(|error| format!("scan: {error}"))?))?;
+    let d = folder.display();
     if code == 0 {
+        // A whole-feeder job may be one load of a larger pile, and its backs may follow.
+        if duplex.is_none() && settings.pages == 0 {
+            eprintln!(
+                "pdfcraft-cli: more sheets: scan --continue {d} --append --yes; the backs: flip the whole stack, then scan --continue {d} --reverse --yes"
+            );
+        }
         return Ok(());
     }
-    let (message, json) = match (&write_error, &reverse_note, &snapshot.last_error) {
-        (Some(error), _, _) => (format!("scan: could not save a page: {error}"), None),
-        (None, Some(note), _) => (format!("scan: {note}"), None),
-        (None, None, Some(failure)) => {
+    let (message, json) = match (&write_error, &snapshot.last_error) {
+        (Some(error), _) => (format!("scan: could not save a page: {error}"), None),
+        (None, Some(failure)) => {
             let info = error_line(&failure.info);
             (format!("scan: {}", failure.info.message), Some(info))
         }
-        (None, None, None) => (format!("scan: {}", snapshot.summary_line()), None),
+        (None, None) => (format!("scan: {}", snapshot.summary_line()), None),
     };
-    let hint = match class {
-        ExitClass::NeedsAttention | ExitClass::Failed => {
-            format!("\n  job: {}\n  see: pdfcraft-cli scan job {}", snapshot.summary_line(), folder.display())
-        }
+    let hint = match (class, position) {
+        (ExitClass::NeedsAttention | ExitClass::Failed, Some(position)) if position.cursor > 0 => format!(
+            "\n  job: {}\n  backs: put the next part of the flipped stack in the feeder (the back of sheet {} is next), then scan --continue {d} --append --yes",
+            snapshot.summary_line(),
+            position.cursor
+        ),
+        (ExitClass::NeedsAttention | ExitClass::Failed, _) => format!("\n  job: {}\n  see: pdfcraft-cli scan job {d}", snapshot.summary_line()),
         _ => String::new(),
     };
     Err(CliError::Exit { code, message: format!("{message}{hint}"), json })
@@ -221,27 +239,57 @@ pub struct ContinueFlags {
     pub append: bool,
     pub restart: bool,
     pub checked: bool,
+    /// `--reverse`: the fronts are all in; flip the whole stack and scan the backs from the last sheet.
+    pub reverse: bool,
 }
 
-/// Apply the continuation rules. `Ok(how)` is what to do with the kept pages; an `Err` is the sentence to
-/// show, and nothing has been touched.
-pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>, flags: &ContinueFlags) -> Result<Continuation, String> {
+/// What `--continue` will do.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Plan {
+    /// Go on with an unfinished job: the person's choice for the kept pages. For a manual-duplex job in its backs
+    /// pass, `Restart` scans the backs again and keeps the fronts.
+    Continue(Continuation),
+    /// A finished whole-feeder job: scan the next feeder load as more sheets.
+    AddSheets,
+    /// A finished single-sided job: turn it for its backs.
+    Turn,
+}
+
+/// Apply the continuation rules. `Ok(plan)` is what to do; an `Err` is the sentence to show, and nothing has been
+/// touched.
+pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>, flags: &ContinueFlags) -> Result<Plan, String> {
     if flags.append && flags.restart {
         return Err("scan --continue: give --append or --restart, not both".to_string());
     }
+    if flags.reverse && (flags.append || flags.restart) {
+        return Err("scan --continue: --reverse starts the backs; give it alone (later parts of the flipped stack use --append)".to_string());
+    }
     let state = record.effective_state();
-    if state == ScanJobState::Terminal(Outcome::Completed) {
-        return Err("scan --continue: this job is complete; there is nothing to continue (scan into a new folder)".to_string());
-    }
-    if record.is_reverse() {
-        return Err("scan --continue: a manual-duplex --reverse pass cannot be continued; run --reverse again (the fronts are untouched)".to_string());
-    }
     let kept = record.pages_kept();
     let on_disk = files_on_disk.map_err(|reason| format!("scan --continue: {reason}"))?;
     if on_disk != kept {
         return Err(format!(
             "scan --continue: the journal keeps {kept} page(s) but {on_disk} page file(s) are in the folder; the journal does not verify files, so fix the folder (or start over in a new one) before continuing"
         ));
+    }
+    if flags.reverse {
+        if record.can_turn() {
+            return Ok(Plan::Turn);
+        }
+        return Err(if record.manual_duplex.is_some() {
+            "scan --continue: the backs of this job are already being scanned; put the next part of the flipped stack in the feeder and use --append"
+                .to_string()
+        } else {
+            "scan --continue: --reverse needs the fronts to be finished first (this job is not complete)".to_string()
+        });
+    }
+    if state == ScanJobState::Terminal(Outcome::Completed) {
+        if flags.append && record.can_add_sheets() {
+            return Ok(Plan::AddSheets);
+        }
+        let more = if record.can_add_sheets() { "; --append adds the next feeder load" } else { "" };
+        let backs = if record.can_turn() { "; --reverse scans the backs (flip the whole stack first)" } else { "" };
+        return Err(format!("scan --continue: this job is complete{more}{backs}"));
     }
     if state == ScanJobState::NeedsAttention && !flags.checked {
         let why = if record.was_cut_off() {
@@ -255,7 +303,7 @@ pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>
     }
     if kept == 0 {
         // Nothing is kept, so append and restart are the same.
-        return Ok(Continuation::Restart);
+        return Ok(Plan::Continue(Continuation::Restart));
     }
     match (flags.append, flags.restart) {
         (true, _) => {
@@ -266,18 +314,45 @@ pub fn continuation_for(record: &JobRecord, files_on_disk: Result<usize, String>
                     "scan --continue: all {wanted} wanted page(s) are already kept; nothing to append (--restart scans everything again)"
                 ));
             }
-            Ok(Continuation::Append)
+            Ok(Plan::Continue(Continuation::Append))
         }
-        (_, true) => Ok(Continuation::Restart),
-        _ => Err(format!(
-            "scan --continue: {kept} page(s) are kept, so say what to do with them:\n  --append   keep them and scan only the missing ones (put the remaining sheets in the feeder)\n  --restart  scan everything again; the kept page files are moved aside into discarded-N, not deleted"
-        )),
+        (_, true) => Ok(Plan::Continue(Continuation::Restart)),
+        _ => Err(match record.manual_duplex {
+            Some(duplex) => format!(
+                "scan --continue: {} back(s) are kept, so say what to do with them:\n  --append   keep them and scan the next part of the flipped stack (the back of sheet {} is next)\n  --restart  scan the backs again; the kept backs are moved aside into discarded-N, the fronts stay",
+                duplex.backs_scanned(),
+                duplex.cursor
+            ),
+            None => format!(
+                "scan --continue: {kept} page(s) are kept, so say what to do with them:\n  --append   keep them and scan only the missing ones (put the remaining sheets in the feeder)\n  --restart  scan everything again; the kept page files are moved aside into discarded-N, not deleted"
+            ),
+        }),
     }
 }
 
 /// Move the kept page files (and a copy of the journal) into `DIR/discarded-<n>`; never deletes anything.
 pub fn move_aside(folder: &Path) -> Result<PathBuf, String> {
     let files = scan::listed_page_files(folder).map_err(|error| error.to_string())?;
+    move_files_aside(folder, files)
+}
+
+/// The backs of a manual-duplex job (the even page files) into `DIR/discarded-<n>`; the fronts stay.
+pub fn move_backs_aside(folder: &Path) -> Result<PathBuf, String> {
+    let backs =
+        scan_jobs::page_numbers(folder)?.into_iter().filter(|number| number % 2 == 0).filter_map(|number| find_page(folder, number)).collect();
+    move_files_aside(folder, backs)
+}
+
+fn find_page(folder: &Path, number: usize) -> Option<PathBuf> {
+    let prefix = format!("page-{number:03}.");
+    std::fs::read_dir(folder)
+        .ok()?
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefix)))
+}
+
+fn move_files_aside(folder: &Path, files: Vec<PathBuf>) -> Result<PathBuf, String> {
     let mut n = 1;
     let aside = loop {
         let candidate = folder.join(format!("discarded-{n}"));
@@ -300,17 +375,57 @@ pub fn move_aside(folder: &Path) -> Result<PathBuf, String> {
 
 /// `scan --continue DIR`: read the journal and request, apply the rules, then run the same job loop.
 pub fn continue_job(folder: &Path, flags: &ContinueFlags) -> Result<(), CliError> {
-    let record = scan_jobs::read_record(folder).map_err(|error| format!("scan --continue: {error}"))?;
-    let on_disk = scan_jobs::page_files_on_disk(folder);
-    let how = continuation_for(&record, on_disk, flags)?;
-    let settings = scan_jobs::settings_from_request(&record.request).map_err(|error| format!("scan --continue: {error}"))?;
-    settings.checked().map_err(|error| format!("scan --continue: {error}"))?;
-    crate::ensure_scanning_supported()?;
-    if how == Continuation::Restart && record.pages_kept() > 0 {
-        let aside = move_aside(folder).map_err(|error| format!("scan --continue: {error}"))?;
-        eprintln!("pdfcraft-cli: moved the kept pages aside into {}", aside.display());
+    let fail = |error: String| CliError::from(format!("scan --continue: {error}"));
+    let mut record = scan_jobs::read_record(folder).map_err(fail)?;
+    if let Some(duplex) = record.manual_duplex {
+        // A turn that was cut off has its fronts placed first (a no-op when they already are), so the folder
+        // can be checked against the journal.
+        scan_jobs::place_fronts_for_duplex(folder, duplex.sheets).map_err(fail)?;
     }
-    run(Run { folder: folder.to_path_buf(), settings, reverse: false, front_files: None, resume: Some((record, how)) })
+    let on_disk = scan_jobs::page_files_for(folder, &record);
+    let plan = continuation_for(&record, on_disk, flags)?;
+    let mut settings = scan_jobs::settings_from_request(&record.request).map_err(fail)?;
+    settings.checked().map_err(|error| fail(error.to_string()))?;
+    crate::ensure_scanning_supported()?;
+    let folder_buf = folder.to_path_buf();
+    match plan {
+        Plan::AddSheets => run(Run { folder: folder_buf, settings, resume: Some((record, Continuation::Append)), duplex: None }),
+        Plan::Turn => {
+            // One job, now twice as long: the fronts are kept and the backs follow from the last sheet down. The
+            // journal says so before any file moves, so a turn that is cut off is finished by the next --continue.
+            let sheets = u32::try_from(record.pages_kept()).map_err(|_| fail("too many pages".into()))?;
+            let duplex = ManualDuplex::backs_of(sheets);
+            settings.pages = sheets.saturating_mul(2);
+            record.request = scan_jobs::request_json(&settings);
+            record.journal.expected_pages = Some(settings.pages);
+            record.journal.state = ScanJobState::Interrupted;
+            record.manual_duplex = Some(duplex);
+            record.updated = scan_jobs::now_millis();
+            scan_jobs::write_record(folder, &record).map_err(fail)?;
+            scan_jobs::place_fronts_for_duplex(folder, sheets).map_err(fail)?;
+            eprintln!("pdfcraft-cli: the fronts are now the odd pages; scanning the backs from sheet {sheets} down");
+            run(Run { folder: folder_buf, settings, resume: Some((record, Continuation::Append)), duplex: Some(duplex) })
+        }
+        Plan::Continue(how) => match record.manual_duplex {
+            Some(duplex) => {
+                // The job is the whole stack, both sides: that, not the request of the fronts, is what it wants.
+                settings.pages = duplex.sheets.saturating_mul(2);
+                if how == Continuation::Restart && duplex.backs_scanned() > 0 {
+                    let aside = move_backs_aside(folder).map_err(fail)?;
+                    eprintln!("pdfcraft-cli: moved the backs aside into {}; the fronts stay", aside.display());
+                    record.journal.pages.truncate(usize::try_from(duplex.sheets).unwrap_or(usize::MAX));
+                }
+                run(Run { folder: folder_buf, settings, resume: Some((record, Continuation::Append)), duplex: Some(duplex) })
+            }
+            None => {
+                if how == Continuation::Restart && record.pages_kept() > 0 {
+                    let aside = move_aside(folder).map_err(fail)?;
+                    eprintln!("pdfcraft-cli: moved the kept pages aside into {}", aside.display());
+                }
+                run(Run { folder: folder_buf, settings, resume: Some((record, how)), duplex: None })
+            }
+        },
+    }
 }
 
 /// `scan jobs [DIR...] [--json]`: list the journals. Opens nothing but files.
@@ -365,6 +480,7 @@ pub fn job(args: &[String]) -> Result<(), CliError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pdfcraft_platform::scan::Page;
     use pdfcraft_platform::scan::job::ScanJobJournal;
 
     fn record(state: ScanJobState, kept: usize, expected: Option<u32>) -> JobRecord {
@@ -377,10 +493,11 @@ mod tests {
             id: "scan-1".into(),
             started: 1,
             updated: 2,
-            request: scan_jobs::request_json(&settings, false),
+            request: scan_jobs::request_json(&settings),
             journal,
             view: Value::Null,
             attempts: Vec::new(),
+            manual_duplex: None,
         }
     }
 
@@ -403,23 +520,23 @@ mod tests {
         assert_eq!((info["retryable"].clone(), info["resumable"].clone()), (json!(true), json!(false)));
     }
 
-    const NONE: ContinueFlags = ContinueFlags { append: false, restart: false, checked: false };
+    const NONE: ContinueFlags = ContinueFlags { append: false, restart: false, checked: false, reverse: false };
 
     #[test]
     fn continuing_with_pages_kept_needs_an_explicit_choice() {
         let record = record(ScanJobState::Interrupted, 2, Some(5));
         let message = continuation_for(&record, Ok(2), &NONE).unwrap_err();
         assert!(message.contains("--append") && message.contains("--restart"), "{message}");
-        assert_eq!(continuation_for(&record, Ok(2), &ContinueFlags { append: true, ..NONE }), Ok(Continuation::Append));
-        assert_eq!(continuation_for(&record, Ok(2), &ContinueFlags { restart: true, ..NONE }), Ok(Continuation::Restart));
-        let both = ContinueFlags { append: true, restart: true, checked: false };
+        assert_eq!(continuation_for(&record, Ok(2), &ContinueFlags { append: true, ..NONE }), Ok(Plan::Continue(Continuation::Append)));
+        assert_eq!(continuation_for(&record, Ok(2), &ContinueFlags { restart: true, ..NONE }), Ok(Plan::Continue(Continuation::Restart)));
+        let both = ContinueFlags { append: true, restart: true, checked: false, reverse: false };
         assert!(continuation_for(&record, Ok(2), &both).unwrap_err().contains("not both"));
     }
 
     #[test]
     fn continuing_with_nothing_kept_needs_no_choice() {
         let record = record(ScanJobState::Terminal(Outcome::Failed), 0, Some(5));
-        assert_eq!(continuation_for(&record, Ok(0), &NONE), Ok(Continuation::Restart));
+        assert_eq!(continuation_for(&record, Ok(0), &NONE), Ok(Plan::Continue(Continuation::Restart)));
     }
 
     #[test]
@@ -428,8 +545,8 @@ mod tests {
         let flags = ContinueFlags { append: true, ..NONE };
         let message = continuation_for(&record, Ok(2), &flags).unwrap_err();
         assert!(message.contains("--i-checked-the-scanner") && message.contains("carriage"), "{message}");
-        let checked = ContinueFlags { append: true, checked: true, restart: false };
-        assert_eq!(continuation_for(&record, Ok(2), &checked), Ok(Continuation::Append));
+        let checked = ContinueFlags { append: true, checked: true, restart: false, reverse: false };
+        assert_eq!(continuation_for(&record, Ok(2), &checked), Ok(Plan::Continue(Continuation::Append)));
     }
 
     #[test]
@@ -438,16 +555,15 @@ mod tests {
         let message = continuation_for(&record, Ok(0), &NONE).unwrap_err();
         assert!(message.contains("ended without finishing"), "{message}");
         let checked = ContinueFlags { checked: true, ..NONE };
-        assert_eq!(continuation_for(&record, Ok(0), &checked), Ok(Continuation::Restart));
+        assert_eq!(continuation_for(&record, Ok(0), &checked), Ok(Plan::Continue(Continuation::Restart)));
     }
 
     #[test]
-    fn a_complete_job_a_reverse_pass_and_a_changed_folder_are_refused() {
+    fn a_complete_job_and_a_changed_folder_are_refused() {
         let done = record(ScanJobState::Terminal(Outcome::Completed), 5, Some(5));
-        assert!(continuation_for(&done, Ok(5), &NONE).unwrap_err().contains("complete"));
-        let mut reverse = record(ScanJobState::Interrupted, 1, Some(2));
-        reverse.request["reverse"] = json!(true);
-        assert!(continuation_for(&reverse, Ok(1), &NONE).unwrap_err().contains("--reverse"));
+        let message = continuation_for(&done, Ok(5), &NONE).unwrap_err();
+        assert!(message.contains("complete") && message.contains("--reverse") && !message.contains("--append"), "{message}");
+        assert!(continuation_for(&done, Ok(5), &ContinueFlags { append: true, ..NONE }).is_err(), "a counted job does not grow");
         let interrupted = record(ScanJobState::Interrupted, 2, Some(5));
         let flags = ContinueFlags { append: true, ..NONE };
         assert!(continuation_for(&interrupted, Ok(3), &flags).unwrap_err().contains("3 page file(s)"));
@@ -459,7 +575,34 @@ mod tests {
         let record = record(ScanJobState::Terminal(Outcome::CompletedWithWarnings), 5, Some(5));
         let flags = ContinueFlags { append: true, ..NONE };
         assert!(continuation_for(&record, Ok(5), &flags).unwrap_err().contains("nothing to append"));
-        assert_eq!(continuation_for(&record, Ok(5), &ContinueFlags { restart: true, ..NONE }), Ok(Continuation::Restart));
+        assert_eq!(continuation_for(&record, Ok(5), &ContinueFlags { restart: true, ..NONE }), Ok(Plan::Continue(Continuation::Restart)));
+    }
+
+    #[test]
+    fn a_finished_whole_feeder_job_takes_more_sheets_or_turns_for_its_backs() {
+        let done = record(ScanJobState::Terminal(Outcome::Completed), 3, None);
+        assert_eq!(continuation_for(&done, Ok(3), &ContinueFlags { append: true, ..NONE }), Ok(Plan::AddSheets));
+        assert_eq!(continuation_for(&done, Ok(3), &ContinueFlags { reverse: true, ..NONE }), Ok(Plan::Turn));
+        let alone = continuation_for(&done, Ok(3), &ContinueFlags { reverse: true, append: true, ..NONE }).unwrap_err();
+        assert!(alone.contains("give it alone"), "{alone}");
+        let unfinished = record(ScanJobState::Interrupted, 2, None);
+        assert!(continuation_for(&unfinished, Ok(2), &ContinueFlags { reverse: true, ..NONE }).unwrap_err().contains("finished first"));
+        assert!(continuation_for(&done, Ok(2), &ContinueFlags { reverse: true, ..NONE }).unwrap_err().contains("2 page file(s)"));
+    }
+
+    #[test]
+    fn the_backs_pass_continues_down_the_stack() {
+        let mut backs = record(ScanJobState::Interrupted, 4, Some(6));
+        backs.manual_duplex = Some(ManualDuplex::backs_of(3).after(4));
+        assert_eq!(continuation_for(&backs, Ok(4), &ContinueFlags { append: true, ..NONE }), Ok(Plan::Continue(Continuation::Append)));
+        assert_eq!(continuation_for(&backs, Ok(4), &ContinueFlags { restart: true, ..NONE }), Ok(Plan::Continue(Continuation::Restart)));
+        let choose = continuation_for(&backs, Ok(4), &NONE).unwrap_err();
+        assert!(
+            choose.contains("1 back(s) are kept") && choose.contains("the back of sheet 2 is next") && choose.contains("the fronts stay"),
+            "{choose}"
+        );
+        let again = continuation_for(&backs, Ok(4), &ContinueFlags { reverse: true, ..NONE }).unwrap_err();
+        assert!(again.contains("already being scanned"), "{again}");
     }
 
     #[test]
@@ -491,6 +634,10 @@ mod tests {
     enum Step {
         /// All of the pages asked for arrive.
         Complete,
+        /// The feeder holds this many sheets: they arrive and the transfer ends normally (a whole-feeder scan).
+        Load(usize),
+        /// This many pages arrive, then the feeder runs empty before the count asked for.
+        EmptyAfter(usize),
         /// This many pages arrive, then the feeder jams.
         JamAfter(usize),
         /// The link drops with no page in hand.
@@ -499,13 +646,20 @@ mod tests {
 
     static SCRIPT: Mutex<VecDeque<Step>> = Mutex::new(VecDeque::new());
     static ASKED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+    /// Sheets fed so far in a test: each page's bytes are its feed number, so tests can see where it landed.
+    static FED: Mutex<u8> = Mutex::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
 
     struct Mock;
 
-    fn page(n: u8) -> Page {
+    fn page(_: u8) -> Page {
+        let fed = {
+            let mut fed = FED.lock().unwrap();
+            *fed += 1;
+            *fed
+        };
         Page {
-            bytes: vec![n; 8],
+            bytes: vec![fed; 8],
             format: "bmp",
             width: 2,
             height: 2,
@@ -549,6 +703,24 @@ mod tests {
                     }
                     Ok(Acquired { source: Source::Feeder, pages })
                 }
+                Step::Load(n) => {
+                    let pages: Vec<Page> = (0..n).map(|k| page(k as u8)).collect();
+                    for page in &pages {
+                        progress.push_page(page.clone());
+                    }
+                    Ok(Acquired { source: Source::Feeder, pages })
+                }
+                Step::EmptyAfter(n) => {
+                    let pages: Vec<Page> = (0..n).map(|k| page(k as u8)).collect();
+                    for page in &pages {
+                        progress.push_page(page.clone());
+                    }
+                    Err(ScanError::Incomplete {
+                        message: "The feeder ran out of paper.".into(),
+                        acquired: Acquired { source: Source::Feeder, pages },
+                        cause: Some(Cause { kind: InterruptKind::FeederEmpty, native: None }),
+                    })
+                }
                 Step::JamAfter(n) => {
                     let pages: Vec<Page> = (0..n).map(|k| page(k as u8)).collect();
                     for page in &pages {
@@ -573,6 +745,7 @@ mod tests {
         let guard = SERIAL.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         SCRIPT.lock().unwrap().clear();
         ASKED.lock().unwrap().clear();
+        *FED.lock().unwrap() = 0;
         guard
     }
 
@@ -589,7 +762,7 @@ mod tests {
 
     fn start(folder: &Path, pages: u32) -> Result<(), CliError> {
         let settings = ScanSettings { device: "mock:1".into(), source: scan::Source::Feeder, pages, ..ScanSettings::default() };
-        run(Run { folder: folder.to_path_buf(), settings, reverse: false, front_files: None, resume: None })
+        run(Run { folder: folder.to_path_buf(), settings, resume: None, duplex: None })
     }
 
     fn exit_code_of(result: Result<(), CliError>) -> u8 {
@@ -607,7 +780,7 @@ mod tests {
     }
 
     fn refuse(dir: &Path) -> String {
-        crate::refuse_a_folder_that_has_a_job(dir, false).unwrap_err().to_string()
+        crate::refuse_a_folder_that_has_a_job(dir).unwrap_err().to_string()
     }
 
     #[test]
@@ -685,7 +858,7 @@ mod tests {
         assert!(refused.contains("--i-checked-the-scanner"), "{refused}");
         assert_eq!(ASKED.lock().unwrap().len(), 1);
         script(vec![Step::Complete]);
-        let checked = ContinueFlags { append: true, checked: true, restart: false };
+        let checked = ContinueFlags { append: true, checked: true, restart: false, reverse: false };
         assert_eq!(exit_code_of(continue_job(&dir, &checked)), 0);
         assert_eq!(names(&dir), ["page-001.bmp", "page-002.bmp", "scan-job.json"]);
         let _ = std::fs::remove_dir_all(&dir);
@@ -703,5 +876,91 @@ mod tests {
         let refused = continue_job(&dir, &NONE).unwrap_err().to_string();
         assert!(refused.contains("ended without finishing"), "{refused}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    const APPEND: ContinueFlags = ContinueFlags { append: true, ..NONE };
+    const REVERSE: ContinueFlags = ContinueFlags { reverse: true, ..NONE };
+
+    /// The feed number of each page file, in page order.
+    fn feed_order(dir: &Path) -> Vec<u8> {
+        scan::listed_page_files(dir).unwrap().iter().map(|path| std::fs::read(path).unwrap()[0]).collect()
+    }
+
+    #[test]
+    fn a_large_pile_goes_in_as_batches_of_fronts_then_batches_of_backs_down_the_stack() {
+        let _serial = mock_lock();
+        let dir = fresh("pile");
+        // Fronts in two feeder loads: sheets 1-2, then sheet 3.
+        script(vec![Step::Load(2)]);
+        assert_eq!(exit_code_of(start(&dir, 0)), 0);
+        script(vec![Step::Load(1)]);
+        assert_eq!(exit_code_of(continue_job(&dir, &APPEND)), 0);
+        let record = scan_jobs::read_record(&dir).unwrap();
+        assert_eq!((record.pages_kept(), record.journal.state), (3, ScanJobState::Terminal(Outcome::Completed)));
+        assert_eq!(feed_order(&dir), [1, 2, 3]);
+        // Turn: the whole stack flipped; the first part of it holds the backs of sheets 3 and 2, then the feeder is empty.
+        script(vec![Step::EmptyAfter(2)]);
+        assert_eq!(exit_code_of(continue_job(&dir, &REVERSE)), 10, "a part of the stack is done; the rest needs loading");
+        let record = scan_jobs::read_record(&dir).unwrap();
+        assert_eq!(record.manual_duplex, Some(ManualDuplex { sheets: 3, direction: scan_jobs::Direction::Backs, cursor: 1 }));
+        assert_eq!((record.pages_kept(), record.journal.expected_pages), (5, Some(6)));
+        assert_eq!(scan_jobs::page_numbers(&dir).unwrap(), [1, 3, 4, 5, 6], "every page is already in its place");
+        assert!(scan_jobs::page_mismatch(&dir, &record).is_none());
+        assert!(scan_jobs::detail_text("pdfcraft-cli", &dir, &record).contains("the back of sheet 1 is next"));
+        // The next part of the flipped stack: the back of sheet 1.
+        script(vec![Step::Complete]);
+        assert_eq!(exit_code_of(continue_job(&dir, &APPEND)), 0);
+        assert_eq!(*ASKED.lock().unwrap(), [0, 0, 3, 1], "each pass asks only for what is left");
+        // Fronts 1, 2, 3 were fed first, then the backs of sheets 3, 2, 1 as feeds 4, 5, 6.
+        assert_eq!(feed_order(&dir), [1, 6, 2, 5, 3, 4]);
+        let record = scan_jobs::read_record(&dir).unwrap();
+        assert_eq!(record.journal.state, ScanJobState::Terminal(Outcome::Completed));
+        assert_eq!(record.manual_duplex.map(|d| d.cursor), Some(0));
+        assert!(scan_jobs::page_mismatch(&dir, &record).is_none());
+        assert_eq!(record.attempts.len(), 4, "one job, one timeline");
+        assert!(continuation_for(&record, Ok(6), &APPEND).unwrap_err().contains("complete"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn restarting_the_backs_moves_only_the_backs_aside() {
+        let _serial = mock_lock();
+        let dir = fresh("backs-restart");
+        script(vec![Step::Complete]);
+        assert_eq!(exit_code_of(start(&dir, 3)), 0);
+        script(vec![Step::JamAfter(1)]);
+        assert_eq!(exit_code_of(continue_job(&dir, &REVERSE)), 10);
+        assert_eq!(scan_jobs::page_numbers(&dir).unwrap(), [1, 3, 5, 6]);
+        script(vec![Step::Complete]);
+        assert_eq!(exit_code_of(continue_job(&dir, &ContinueFlags { restart: true, ..NONE })), 0);
+        assert_eq!(names(&dir.join("discarded-1")), ["page-006.bmp", "scan-job.json"]);
+        assert_eq!(*ASKED.lock().unwrap(), [3, 3, 3], "the restart asks for every back again, not for the fronts");
+        assert_eq!(feed_order(&dir), [1, 7, 2, 6, 3, 5], "fronts 1-3 kept; the discarded back was feed 4");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_turn_cut_off_while_placing_the_fronts_is_finished_by_the_next_continue() {
+        let _serial = mock_lock();
+        let dir = fresh("turn-cut");
+        script(vec![Step::Complete]);
+        assert_eq!(exit_code_of(start(&dir, 3)), 0);
+        // What the turn writes before it moves anything, and the first move only.
+        let mut record = scan_jobs::read_record(&dir).unwrap();
+        record.manual_duplex = Some(ManualDuplex::backs_of(3));
+        record.journal.expected_pages = Some(6);
+        record.journal.state = ScanJobState::Interrupted;
+        scan_jobs::write_record(&dir, &record).unwrap();
+        std::fs::rename(dir.join("page-003.bmp"), dir.join("page-005.bmp")).unwrap();
+        script(vec![Step::Complete]);
+        assert_eq!(exit_code_of(continue_job(&dir, &APPEND)), 0);
+        assert_eq!(feed_order(&dir), [1, 6, 2, 5, 3, 4]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fresh_scan_with_reverse_points_at_continue() {
+        let message = crate::scan(&["--out".into(), "pages".into(), "--yes".into(), "--reverse".into()]).unwrap_err().to_string();
+        assert!(message.contains("scan --continue pages --reverse --yes"), "{message}");
     }
 }

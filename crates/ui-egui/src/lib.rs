@@ -2054,6 +2054,21 @@ impl PdfCraftApp {
         self.desktop_theme_enabled = true;
     }
 
+    /// Show a job's progress card and remember whose it is, so Cancel reaches that job.
+    pub(crate) fn show_job_progress(&mut self, owner: widgets::ProgressOwner, notice: widgets::ProgressNotice) {
+        self.progress_notice = Some(notice);
+        self.progress_owner = owner;
+    }
+
+    /// Remove the progress card if it is `owner`'s. A job that ends must not take away the card of another job
+    /// that is still running.
+    pub(crate) fn clear_job_progress(&mut self, owner: widgets::ProgressOwner) {
+        if self.progress_owner == owner {
+            self.progress_notice = None;
+            self.progress_owner = widgets::ProgressOwner::Other;
+        }
+    }
+
     /// Draw the running job's progress card and pass a Cancel click on to the job.
     fn show_progress(&mut self, ctx: &egui::Context) {
         if widgets::progress_notice(self, ctx) {

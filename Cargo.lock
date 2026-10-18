@@ -1145,7 +1145,7 @@ dependencies = [
 [[package]]
 name = "craft-devices"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#ec174461f0d067509da7f3f4b0a1a91e6ac84e17"
 dependencies = [
  "craft-job",
  "craft-scan",
@@ -1160,7 +1160,7 @@ source = "git+https://github.com/storytold/craft-libs?rev=82a24b006eefa036b43c09
 [[package]]
 name = "craft-job"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#ec174461f0d067509da7f3f4b0a1a91e6ac84e17"
 dependencies = [
  "serde",
 ]
@@ -1192,7 +1192,7 @@ dependencies = [
 [[package]]
 name = "craft-scan"
 version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#1acaa33d622b5053f1afabd05679348b84d1c34c"
+source = "git+https://github.com/storytold/craft-libs?rev=refs%2Fpull%2F144%2Fhead#ec174461f0d067509da7f3f4b0a1a91e6ac84e17"
 dependencies = [
  "craft-job",
  "image",

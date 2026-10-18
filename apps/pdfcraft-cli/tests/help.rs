@@ -46,7 +46,7 @@ fn usage_lists_mcp_only_when_built_with_it() {
     assert!(stdout.contains("pdfcraft-cli ui     --control FILE"), "{stdout}");
     assert!(stdout.contains("pdfcraft-cli scan   devices"), "{stdout}");
     assert!(stdout.contains("pdfcraft-cli scan   --out DIR --yes"), "{stdout}");
-    assert!(stdout.contains("[--reverse]"), "{stdout}");
+    assert!(stdout.contains("(--append | --restart | --reverse)"), "{stdout}");
     assert!(stdout.contains("[--duplex]"), "{stdout}");
 }
 

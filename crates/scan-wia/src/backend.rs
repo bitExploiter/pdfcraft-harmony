@@ -784,6 +784,7 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
                 pages_requested,
                 settings.progress.clone(),
                 settings.cancel.clone(),
+                &device,
                 &root,
                 on_feeder,
             ) {
@@ -1594,6 +1595,7 @@ fn receive_bands(
     pages_requested: usize,
     progress: Option<craft_scan::ProgressToken>,
     cancel: Option<craft_scan::CancelToken>,
+    device: &IWiaItem2,
     root: &IWiaPropertyStorage,
     feeder: bool,
 ) -> Result<Vec<Page>, ScanError> {
@@ -1611,6 +1613,9 @@ fn receive_bands(
         progress,
         expected_bytes,
         cancel: cancel.clone(),
+        device: Some(device.clone()),
+        feeder,
+        halted: false,
     }));
     let sink = band_callback(&state);
     let transfer = ffi::banded_transfer(data, band_bytes(width, depth), &sink);

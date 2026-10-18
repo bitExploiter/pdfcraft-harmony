@@ -601,6 +601,21 @@ pub fn icon_pill(ui: &mut egui::Ui, icon: &str, label: &str, primary: bool) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_job_that_ends_leaves_another_jobs_progress_card_alone() {
+        let notice = |label: &str| ProgressNotice { label: label.into(), fraction: 0.5, cancellable: true };
+        let mut app = PdfCraftApp::new();
+        app.show_job_progress(ProgressOwner::Scan, notice("Scanning…"));
+        app.show_job_progress(ProgressOwner::Optimize, notice("Optimizing…"));
+        // The scan ends while the optimize card is shown: the card stays, and it is still the optimize's.
+        app.clear_job_progress(ProgressOwner::Scan);
+        assert_eq!(app.progress_notice.as_ref().map(|p| p.label.as_str()), Some("Optimizing…"));
+        assert_eq!(app.progress_owner, ProgressOwner::Optimize);
+        app.clear_job_progress(ProgressOwner::Optimize);
+        assert!(app.progress_notice.is_none());
+        assert_eq!(app.progress_owner, ProgressOwner::Other);
+    }
     use egui::Pos2;
 
     #[test]

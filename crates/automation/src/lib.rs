@@ -2803,10 +2803,11 @@ mod tests {
             id: "scan-9".into(),
             started: 1_760_000_000_000,
             updated: 1_760_000_001_000,
-            request: request_json(&settings, false),
+            request: request_json(&settings),
             journal: ScanJob::new(settings.clone(), ScanJobConfig::default().with_title("T")).snapshot().into_journal(),
             view: Value::Null,
             attempts: Vec::new(),
+            manual_duplex: None,
         };
         for dir in [root.join("a"), root.join("b").join("deep"), outside.clone()] {
             write_record(&dir, &record()).unwrap();
