@@ -274,6 +274,7 @@ fn format_label(unit: Unit, value: f64) -> String {
 pub const DEFAULT_RULER_THICKNESS: f32 = 18.0;
 const HORIZONTAL_LABEL_OUTER_PADDING: f32 = 1.0;
 const HORIZONTAL_LABEL_TICK_GAP: f32 = 1.0;
+const VERTICAL_LABEL_TICK_GAP: f32 = 1.0;
 const RULER_LABEL_SIZE: f32 = 9.0;
 
 /// Read-only paint input for one ruler band.
@@ -425,8 +426,8 @@ fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick,
             painter.line_segment([egui::pos2(input.rect.right(), at), egui::pos2(input.rect.right() - length, at)], stroke);
             if let Some(label) = &tick.label {
                 painter.text(
-                    egui::pos2(input.rect.left() + 2.0, at),
-                    egui::Align2::LEFT_CENTER,
+                    egui::pos2(input.rect.right() - length - VERTICAL_LABEL_TICK_GAP, at),
+                    egui::Align2::RIGHT_CENTER,
                     label,
                     crate::theme::regular(RULER_LABEL_SIZE),
                     style.label,
@@ -728,6 +729,14 @@ mod tests {
         let major_tick_top = rect.bottom() - tick_length(rect, RulerOrientation::Horizontal, TickKind::Major);
         assert!(label_top > rect.top());
         assert!(major_tick_top - label_bottom >= HORIZONTAL_LABEL_TICK_GAP);
+    }
+
+    #[test]
+    fn vertical_labels_have_a_gap_before_major_ticks() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(DEFAULT_RULER_THICKNESS, 300.0));
+        let major_tick_left = rect.right() - tick_length(rect, RulerOrientation::Vertical, TickKind::Major);
+        let label_right = major_tick_left - VERTICAL_LABEL_TICK_GAP;
+        assert!(major_tick_left - label_right >= VERTICAL_LABEL_TICK_GAP);
     }
 
     #[test]
