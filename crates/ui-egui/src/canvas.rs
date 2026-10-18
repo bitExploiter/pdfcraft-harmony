@@ -2480,7 +2480,7 @@ pub fn document_area_with_rulers(app: &mut PdfCraftApp, index: usize, ui: &mut e
     }
 
     let outer = ui.available_rect_before_wrap();
-    let layout = RulerLayout::new(outer, crate::ruler::DEFAULT_RULER_THICKNESS);
+    let layout = RulerLayout::new(outer, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH);
     ui.scope_builder(egui::UiBuilder::new().id_salt("document-canvas").max_rect(layout.canvas), |ui| {
         document_canvas(app, index, ui);
     });
@@ -2501,9 +2501,10 @@ struct RulerLayout {
 }
 
 impl RulerLayout {
-    fn new(outer: Rect, thickness: f32) -> Self {
-        let thickness = thickness.max(0.0).min(outer.width()).min(outer.height());
-        let split = outer.min + vec2(thickness, thickness);
+    fn new(outer: Rect, horizontal_height: f32, vertical_width: f32) -> Self {
+        let horizontal_height = horizontal_height.max(0.0).min(outer.height());
+        let vertical_width = vertical_width.max(0.0).min(outer.width());
+        let split = outer.min + vec2(vertical_width, horizontal_height);
         Self {
             outer,
             corner: Rect::from_min_max(outer.min, split),
@@ -6795,22 +6796,22 @@ trailer << /Root 1 0 R >>
     #[test]
     fn ruler_layout_reserves_only_the_top_and_left_bands() {
         let outer = Rect::from_min_max(pos2(10.0, 20.0), pos2(810.0, 620.0));
-        let layout = RulerLayout::new(outer, 18.0);
-        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(28.0, 38.0)));
-        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(28.0, 20.0), pos2(810.0, 38.0)));
-        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(28.0, 620.0)));
-        assert_eq!(layout.canvas, Rect::from_min_max(pos2(28.0, 38.0), pos2(810.0, 620.0)));
+        let layout = RulerLayout::new(outer, 18.0, 32.0);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(42.0, 38.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(42.0, 20.0), pos2(810.0, 38.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(42.0, 620.0)));
+        assert_eq!(layout.canvas, Rect::from_min_max(pos2(42.0, 38.0), pos2(810.0, 620.0)));
     }
 
     #[test]
     fn ruler_layout_clamps_safely_in_a_tiny_viewport() {
         let outer = Rect::from_min_max(pos2(5.0, 7.0), pos2(15.0, 15.0));
-        let layout = RulerLayout::new(outer, crate::ruler::DEFAULT_RULER_THICKNESS);
-        assert_eq!(layout.corner, Rect::from_min_max(pos2(5.0, 7.0), pos2(13.0, 15.0)));
-        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(13.0, 7.0), pos2(15.0, 15.0)));
-        assert_eq!(layout.vertical, Rect::from_min_max(pos2(5.0, 15.0), pos2(13.0, 15.0)));
-        assert_eq!(layout.canvas, Rect::from_min_max(pos2(13.0, 15.0), pos2(15.0, 15.0)));
-        assert!(layout.horizontal.is_positive());
+        let layout = RulerLayout::new(outer, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH);
+        assert_eq!(layout.corner, outer);
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(15.0, 7.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(5.0, 15.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.canvas, Rect::from_min_max(pos2(15.0, 15.0), pos2(15.0, 15.0)));
+        assert!(!layout.horizontal.is_positive());
         assert!(!layout.vertical.is_positive());
         assert!(!layout.canvas.is_positive());
     }
@@ -6818,12 +6819,12 @@ trailer << /Root 1 0 R >>
     #[test]
     fn ruler_layout_tracks_the_actual_scroll_viewport_edges() {
         let outer = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
-        let base = RulerLayout::new(outer, 18.0);
-        let viewport = Rect::from_min_max(pos2(18.0, 18.0), pos2(786.0, 586.0));
+        let base = RulerLayout::new(outer, 18.0, 32.0);
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
         let layout = base.fit_to_viewport(viewport);
         assert_eq!(layout.corner, Rect::from_min_max(outer.min, viewport.min));
-        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(18.0, 0.0), pos2(786.0, 18.0)));
-        assert_eq!(layout.vertical, Rect::from_min_max(pos2(0.0, 18.0), pos2(18.0, 586.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(32.0, 0.0), pos2(786.0, 18.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(0.0, 18.0), pos2(32.0, 586.0)));
         assert_eq!(layout.canvas, base.canvas);
     }
 

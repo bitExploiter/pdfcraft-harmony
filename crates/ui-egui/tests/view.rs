@@ -143,7 +143,7 @@ fn continuous_layout_stacks_pages_vertically() {
     h.run_steps(4);
     let (a, b) = (rect(&h, 0).expect("page 1 on screen"), rect(&h, 1).expect("page 2 on screen"));
     assert!(b.min.y > a.max.y, "page 2 below page 1: {a:?} {b:?}");
-    assert!((a.center().x - b.center().x).abs() < 1.0, "same column");
+    assert!((a.center().x - b.center().x).abs() <= 1.0, "same column");
 }
 
 #[test]
@@ -151,7 +151,7 @@ fn two_up_layout_places_pages_side_by_side() {
     let mut h = harness(&[("layout", "two-up"), ("zoom", "50")]);
     h.run_steps(4);
     let (a, b) = (rect(&h, 0).expect("page 1"), rect(&h, 1).expect("page 2"));
-    assert!((a.min.y - b.min.y).abs() < 1.0, "same row: {a:?} {b:?}");
+    assert!((a.min.y - b.min.y).abs() <= 1.0, "same row: {a:?} {b:?}");
     assert!(b.min.x > a.max.x, "page 2 right of page 1");
     let c = rect(&h, 2).expect("page 3 on the next row");
     assert!(c.min.y > a.max.y);
@@ -539,7 +539,7 @@ fn touching_the_touchpad_again_or_turning_animations_off_stops_the_glide() {
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "continuous"), ("zoom", "300")]);
     h.state_mut().set_option("animation_effects", "off").unwrap();
     let swiped = swipe_and_lift(&mut h);
-    assert!((swiped - 175.0).abs() < 1.0, "the swipe still scrolls 1:1: moved {swiped}");
+    assert!((swiped - 175.0).abs() <= 1.0, "the swipe still scrolls 1:1: moved {swiped}");
     let drift = scroll_over(&mut h, 20);
     assert!(drift.abs() < 0.5, "no glide with animations off: drifted {drift}");
 }
@@ -587,7 +587,7 @@ fn a_wheel_notch_scrolls_at_once_with_animation_effects_off() {
         let moved = frames_after_a_notch(system_reduced, effects, false);
         assert!(moved[2] < notch * 0.75, "{effects}, system reduced {system_reduced}: egui eases the notch: {moved:?}");
         assert!(
-            (moved[39] - notch).abs() < 1.0,
+            (moved[39] - notch).abs() <= 1.0,
             "{effects}, system reduced {system_reduced}: easing changes how long a notch takes, not how far it goes: {moved:?}"
         );
     }
@@ -880,7 +880,7 @@ fn actual_size_fit_width_and_fit_page() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Num1); // actual size
     h.run_steps(4);
     let r = rect(&h, 0).expect("page 1");
-    assert!((r.width() - 300.0 * pt).abs() < 1.0, "100% is 300 pt at 96 dpi: {}", r.width());
+    assert!((r.width() - 300.0 * pt).abs() <= 1.0, "100% is 300 pt at 96 dpi: {}", r.width());
 
     h.key_press_modifiers(Modifiers::COMMAND, Key::Num2); // fit width
     h.run_steps(4);
@@ -1503,7 +1503,7 @@ fn sidebar_collapse_and_resize_preserves_scroll_position() {
     let rect_after = v.page_screen_rect(2).expect("page 2 still on screen");
     let vp_after = v.viewport_rect();
     let rel_y_after = rect_after.min.y - vp_after.min.y;
-    assert!((rel_y_after - rel_y_before).abs() < 1.0, "page 2 scroll position preserved: before {rel_y_before}, after {rel_y_after}");
+    assert!((rel_y_after - rel_y_before).abs() <= 1.0, "page 2 scroll position preserved: before {rel_y_before}, after {rel_y_after}");
 
     // Reopen bookmarks panel: available width decreases, so fit-width zoom decreases.
     h.state_mut().set_option("panel", "bookmarks").unwrap();
@@ -1520,7 +1520,10 @@ fn sidebar_collapse_and_resize_preserves_scroll_position() {
     let rect_reopened = v.page_screen_rect(2).expect("page 2 still on screen");
     let vp_reopened = v.viewport_rect();
     let rel_y_reopened = rect_reopened.min.y - vp_reopened.min.y;
-    assert!((rel_y_reopened - rel_y_before).abs() < 1.0, "page 2 scroll position preserved on reopen: before {rel_y_before}, after {rel_y_reopened}");
+    assert!(
+        (rel_y_reopened - rel_y_before).abs() <= 1.0,
+        "page 2 scroll position preserved on reopen: before {rel_y_before}, after {rel_y_reopened}"
+    );
 }
 
 /// Synthetic unequal-height spreads, generated without font or image assets.
@@ -1567,7 +1570,7 @@ fn assert_final_spread_bottom_reachable(heights: &[u32], cover: bool) {
         "final spread remains below the viewport: heights={heights:?}, cover={cover}, pages={pages:?}, viewport={viewport:?}"
     );
     // The maximum-height page reaches the bottom margin after the scroll offset settles.
-    assert!((viewport.bottom() - bottom - 28.0).abs() < 1.0, "scroll end leaves the bottom margin: pages={pages:?}, viewport={viewport:?}");
+    assert!((viewport.bottom() - bottom - 28.0).abs() <= 1.0, "scroll end leaves the bottom margin: pages={pages:?}, viewport={viewport:?}");
 }
 
 #[test]

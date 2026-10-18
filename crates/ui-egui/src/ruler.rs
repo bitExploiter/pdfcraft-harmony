@@ -270,8 +270,11 @@ fn format_label(unit: Unit, value: f64) -> String {
     }
 }
 
-/// Suggested logical-point thickness for either ruler band.
-pub const DEFAULT_RULER_THICKNESS: f32 = 18.0;
+/// Suggested logical-point height for the horizontal ruler band.
+pub const HORIZONTAL_RULER_HEIGHT: f32 = 18.0;
+/// Suggested logical-point width for the vertical ruler band. The extra width keeps multi-digit
+/// labels readable beside the inward-facing major ticks.
+pub const VERTICAL_RULER_WIDTH: f32 = 32.0;
 const HORIZONTAL_LABEL_OUTER_PADDING: f32 = 1.0;
 const HORIZONTAL_LABEL_TICK_GAP: f32 = 1.0;
 const VERTICAL_LABEL_TICK_GAP: f32 = 1.0;
@@ -684,22 +687,22 @@ mod tests {
 
     #[test]
     fn horizontal_and_vertical_page_spans_are_clipped_to_the_ruler() {
-        let horizontal_rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, DEFAULT_RULER_THICKNESS));
+        let horizontal_rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, HORIZONTAL_RULER_HEIGHT));
         let mut horizontal = paint_input(RulerOrientation::Horizontal, horizontal_rect);
         horizontal.page_origin = -50.0;
         horizontal.page_length_pdf_points = 500.0;
         assert_eq!(page_span(horizontal), Some(horizontal_rect));
 
-        let vertical_rect = egui::Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(DEFAULT_RULER_THICKNESS, 240.0));
+        let vertical_rect = egui::Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(VERTICAL_RULER_WIDTH, 240.0));
         let mut vertical = paint_input(RulerOrientation::Vertical, vertical_rect);
         vertical.page_origin = 100.0;
         vertical.page_length_pdf_points = 60.0;
-        assert_eq!(page_span(vertical), Some(egui::Rect::from_min_max(egui::pos2(30.0, 100.0), egui::pos2(30.0 + DEFAULT_RULER_THICKNESS, 160.0))));
+        assert_eq!(page_span(vertical), Some(egui::Rect::from_min_max(egui::pos2(30.0, 100.0), egui::pos2(30.0 + VERTICAL_RULER_WIDTH, 160.0))));
     }
 
     #[test]
     fn invalid_page_spans_are_not_painted() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, DEFAULT_RULER_THICKNESS));
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, HORIZONTAL_RULER_HEIGHT));
         let mut input = paint_input(RulerOrientation::Horizontal, rect);
         for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
             input.screen_points_per_pdf_point = scale;
@@ -712,7 +715,7 @@ mod tests {
 
     #[test]
     fn tick_hierarchy_has_strictly_increasing_lengths() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
         for orientation in [RulerOrientation::Horizontal, RulerOrientation::Vertical] {
             let minor = tick_length(rect, orientation, TickKind::Minor);
             let medium = tick_length(rect, orientation, TickKind::Medium);
@@ -723,7 +726,7 @@ mod tests {
 
     #[test]
     fn horizontal_labels_have_outer_padding_and_a_gap_before_major_ticks() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
         let label_top = rect.top() + HORIZONTAL_LABEL_OUTER_PADDING;
         let label_bottom = label_top + RULER_LABEL_SIZE;
         let major_tick_top = rect.bottom() - tick_length(rect, RulerOrientation::Horizontal, TickKind::Major);
@@ -732,21 +735,23 @@ mod tests {
     }
 
     #[test]
-    fn vertical_labels_have_a_gap_before_major_ticks() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(DEFAULT_RULER_THICKNESS, 300.0));
+    fn vertical_labels_have_room_and_a_gap_before_major_ticks() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 300.0));
         let major_tick_left = rect.right() - tick_length(rect, RulerOrientation::Vertical, TickKind::Major);
         let label_right = major_tick_left - VERTICAL_LABEL_TICK_GAP;
+        let available_label_width = label_right - rect.left();
         assert!(major_tick_left - label_right >= VERTICAL_LABEL_TICK_GAP);
+        assert!(available_label_width >= 18.0, "multi-digit labels need room beside the major tick");
     }
 
     #[test]
     fn pointer_markers_point_toward_the_canvas_edge() {
-        let horizontal = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, DEFAULT_RULER_THICKNESS));
+        let horizontal = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
         let h = pointer_marker_points(RulerOrientation::Horizontal, horizontal, 100.0);
         assert_eq!(h[2], egui::pos2(100.0, horizontal.bottom() - 7.0));
         assert_eq!(h[0].y, horizontal.bottom() - 1.0);
 
-        let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(DEFAULT_RULER_THICKNESS, 300.0));
+        let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 300.0));
         let v = pointer_marker_points(RulerOrientation::Vertical, vertical, 100.0);
         assert_eq!(v[2], egui::pos2(vertical.right() - 7.0, 100.0));
         assert_eq!(v[0].x, vertical.right() - 1.0);
@@ -759,9 +764,9 @@ mod tests {
             ctx.set_fonts(crate::theme::font_definitions());
             crate::theme::apply(&ctx, kind);
             let output = ctx.run_ui(egui::RawInput::default(), |ui| {
-                let corner = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::Vec2::splat(DEFAULT_RULER_THICKNESS));
-                let horizontal = egui::Rect::from_min_size(egui::pos2(DEFAULT_RULER_THICKNESS, 0.0), egui::vec2(400.0, DEFAULT_RULER_THICKNESS));
-                let vertical = egui::Rect::from_min_size(egui::pos2(0.0, DEFAULT_RULER_THICKNESS), egui::vec2(DEFAULT_RULER_THICKNESS, 400.0));
+                let corner = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, HORIZONTAL_RULER_HEIGHT));
+                let horizontal = egui::Rect::from_min_size(egui::pos2(VERTICAL_RULER_WIDTH, 0.0), egui::vec2(400.0, HORIZONTAL_RULER_HEIGHT));
+                let vertical = egui::Rect::from_min_size(egui::pos2(0.0, HORIZONTAL_RULER_HEIGHT), egui::vec2(VERTICAL_RULER_WIDTH, 400.0));
                 paint_corner(ui, corner, Unit::Points);
                 paint_ruler(ui, paint_input(RulerOrientation::Horizontal, horizontal));
                 paint_ruler(ui, paint_input(RulerOrientation::Vertical, vertical));
