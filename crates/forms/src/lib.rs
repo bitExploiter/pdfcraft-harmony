@@ -257,7 +257,12 @@ fn name_obj(text: &str) -> Object {
 const MAX_LAYER_STATE: usize = 1024;
 
 /// A push button's mouse-up action (`/A`, or `/AA /U`, on the field or its widget).
-fn button_action(doc: &Document, d: &Dict, widgets: &[ObjRef]) -> Option<af::ButtonAction> {
+fn button_action(
+    doc: &Document,
+    d: &Dict,
+    widgets: &[ObjRef],
+    imported_names: &std::collections::HashMap<ObjRef, Option<String>>,
+) -> Option<af::ButtonAction> {
     // A button PdfCraft generated for an XFA image field (`/PCXfaImage true`, no PDF action):
     // clicking it picks a picture, as `buttonImportIcon()` does.
     if matches!(d.get(b"PCXfaImage").map(|o| doc.resolve(o)).as_deref(), Some(Object::Bool(true))) {
@@ -278,11 +283,13 @@ fn button_action(doc: &Document, d: &Dict, widgets: &[ObjRef]) -> Option<af::But
                 .and_then(|f| f.as_array().cloned())
                 .unwrap_or_default()
                 .iter()
-                .filter_map(|o| match o {
-                    Object::Ref(r) => doc.get(*r).as_dict().and_then(|fd| fd.get(b"T").and_then(|t| text_of(&doc.resolve(t)))),
+                .map(|o| match o {
+                    Object::Ref(r) => qualified_name_with_completion(doc, *r, true)
+                        .filter(|name| imported_names.get(r).and_then(|owned| owned.as_deref()) == Some(name.as_str()))
+                        .or_else(|| text_of(&doc.resolve(o))),
                     other => text_of(&doc.resolve(other)),
                 })
-                .collect();
+                .collect::<Option<Vec<_>>>()?;
             let exclude = a.get(b"Flags").and_then(|f| doc.resolve(f).as_int()).unwrap_or(0) & 1 != 0;
             af::ButtonAction::Reset { fields, exclude }
         }
@@ -346,11 +353,18 @@ fn button_action(doc: &Document, d: &Dict, widgets: &[ObjRef]) -> Option<af::But
 /// The fully qualified name of the field that `r` (a field or one of its widgets) belongs to,
 /// from the partial names (`/T`) up its `/Parent` chain.
 fn qualified_name(doc: &Document, r: ObjRef) -> Option<String> {
+    qualified_name_with_completion(doc, r, false)
+}
+
+fn qualified_name_with_completion(doc: &Document, r: ObjRef, require_complete: bool) -> Option<String> {
     let mut parts = Vec::new();
     let mut seen = std::collections::HashSet::new();
     let mut cur = Some(r);
     while let Some(c) = cur {
         if seen.len() > 64 || !seen.insert(c) {
+            if require_complete {
+                return None;
+            }
             break;
         }
         let obj = doc.get(c);
@@ -361,7 +375,9 @@ fn qualified_name(doc: &Document, r: ObjRef) -> Option<String> {
         cur = d.get(b"Parent").and_then(|p| p.as_ref());
     }
     parts.reverse();
-    (!parts.is_empty()).then(|| parts.join("."))
+    // Match walk: leading empty partial names leave the accumulated name empty.
+    let first = parts.iter().position(|part| !part.is_empty()).unwrap_or(parts.len());
+    (!parts.is_empty()).then(|| parts.get(first..).unwrap_or_default().join("."))
 }
 
 /// The JavaScript of an action dictionary (`/JS` string or stream).
@@ -520,6 +536,27 @@ pub fn fields_with_adopted(doc: &Document) -> Fields {
     Fields { items, adopted_page_fields }
 }
 
+// Names accepted by the same traversal that constructs the imported fields.
+// A reference with conflicting owners is not safe as a Reset target.
+#[derive(Default)]
+struct ImportedNames {
+    seen: std::collections::HashSet<ObjRef>,
+    names: std::collections::HashMap<ObjRef, Option<String>>,
+}
+
+impl ImportedNames {
+    fn remember(&mut self, r: ObjRef, name: &str) {
+        self.names
+            .entry(r)
+            .and_modify(|owned| {
+                if owned.as_deref() != Some(name) {
+                    *owned = None;
+                }
+            })
+            .or_insert_with(|| Some(name.to_owned()));
+    }
+}
+
 fn enumerate(doc: &Document) -> (Vec<Field>, usize) {
     let af = acroform(doc);
     let mut page_of = std::collections::HashMap::new();
@@ -544,17 +581,25 @@ fn enumerate(doc: &Document) -> (Vec<Field>, usize) {
         None => Inherited::default(),
     };
     let mut out = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut imported = ImportedNames::default();
     if let Some(af) = &af {
         for f in af.get(b"Fields").map(|o| doc.resolve(o)).and_then(|o| o.as_array().cloned()).unwrap_or_default() {
             if let Some(r) = f.as_ref() {
-                walk(doc, r, &base, &page_of, &mut seen, &mut out, 0);
+                walk(doc, r, &base, &page_of, &mut imported, &mut out, 0);
             }
         }
     }
     let listed = out.len();
-    adopt_page_fields(doc, &pages, &base, &page_of, &mut seen, &mut out);
+    adopt_page_fields(doc, &pages, &base, &page_of, &mut imported, &mut out);
     let adopted = out.len() - listed;
+    // Resolve against all listed and adopted ownership, without re-entering enumeration.
+    for field in &mut out {
+        if field.kind == FieldKind::PushButton {
+            let object = doc.get(field.obj);
+            let widgets: Vec<_> = field.widgets.iter().map(|w| w.obj).collect();
+            field.button = object.as_dict().and_then(|d| button_action(doc, d, &widgets, &imported.names));
+        }
+    }
     rank_tabs(doc, &pages, &annot_index, &mut out);
     (out, adopted)
 }
@@ -568,7 +613,7 @@ fn adopt_page_fields(
     pages: &[ObjRef],
     base: &Inherited,
     page_of: &std::collections::HashMap<ObjRef, usize>,
-    seen: &mut std::collections::HashSet<ObjRef>,
+    imported: &mut ImportedNames,
     out: &mut Vec<Field>,
 ) {
     for p in pages {
@@ -577,7 +622,7 @@ fn adopt_page_fields(
         let Some(annots) = annots.as_array() else { continue };
         for e in annots {
             let Some(r) = e.as_ref() else { continue };
-            if seen.contains(&r) {
+            if imported.seen.contains(&r) {
                 continue;
             }
             let obj = doc.get(r);
@@ -588,8 +633,8 @@ fn adopt_page_fields(
             if !d.contains(b"FT") && !d.contains(b"T") && !d.contains(b"Parent") {
                 continue;
             }
-            if let Some(root) = unlisted_root(doc, r, seen) {
-                walk(doc, root, base, page_of, seen, out, 0);
+            if let Some(root) = unlisted_root(doc, r, &imported.seen) {
+                walk(doc, root, base, page_of, imported, out, 0);
             }
         }
     }
@@ -723,11 +768,11 @@ fn walk(
     r: ObjRef,
     parent: &Inherited,
     page_of: &std::collections::HashMap<ObjRef, usize>,
-    seen: &mut std::collections::HashSet<ObjRef>,
+    imported: &mut ImportedNames,
     out: &mut Vec<Field>,
     depth: usize,
 ) {
-    if depth > 64 || !seen.insert(r) {
+    if depth > 64 || !imported.seen.insert(r) {
         return;
     }
     let obj = doc.get(r);
@@ -761,15 +806,17 @@ fn walk(
     // Kids with /T are fields; kids without are this field's widgets.
     let field_kids: Vec<ObjRef> = kids.iter().copied().filter(|k| doc.get(*k).as_dict().is_some_and(|kd| kd.contains(b"T"))).collect();
     if !field_kids.is_empty() {
+        let before = out.len();
         for k in field_kids {
-            walk(doc, k, &inh, page_of, seen, out, depth + 1);
+            walk(doc, k, &inh, page_of, imported, out, depth + 1);
+        }
+        if out.len() > before {
+            imported.remember(r, &inh.name);
         }
         return;
     }
     let widget_refs: Vec<ObjRef> = if d.contains(b"Rect") { vec![r] } else { kids };
     let actions = actions_of(doc, d, &widget_refs);
-    let button =
-        (inh.ft.as_deref() == Some(b"Btn") && inh.ff.unwrap_or(0) & flags::PUSH_BUTTON != 0).then(|| button_action(doc, d, &widget_refs)).flatten();
     let ff = inh.ff.unwrap_or(0);
     let kind = match inh.ft.as_deref() {
         Some(b"Tx") => FieldKind::Text,
@@ -781,7 +828,7 @@ fn walk(
         Some(b"Sig") => FieldKind::Signature,
         _ => return,
     };
-    let widgets = widget_refs
+    let widgets: Vec<Widget> = widget_refs
         .into_iter()
         .filter_map(|w| {
             let wo = doc.get(w);
@@ -826,6 +873,10 @@ fn walk(
             other => text_of(other).map(|t| (t.clone(), t)),
         })
         .collect();
+    imported.remember(r, &inh.name);
+    for widget in &widgets {
+        imported.remember(widget.obj, &inh.name);
+    }
     out.push(Field {
         name: inh.name.clone(),
         obj: r,
@@ -840,7 +891,7 @@ fn walk(
         tooltip: d.get(b"TU").and_then(|o| text_of(&doc.resolve(o))),
         widgets,
         actions,
-        button,
+        button: None,
     });
 }
 
