@@ -2433,3 +2433,8 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+	Rotate object	Objektum forgatása
+	Rotate corner {n}	Forgatás a(z) {n}. sarokból
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Húzza a forgatáshoz. Shift: 15°-os lépések; Esc: megszakítás.
+Scale object	Objektum méretezése
+Scale corner {n}	Méretezés a(z) {n}. sarokból

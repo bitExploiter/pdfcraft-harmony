@@ -2440,3 +2440,8 @@ animation effects	Off	Ανενεργά
 	Make properties default	Ορισμός ιδιοτήτων ως προεπιλογή
 	Pages selected	Επιλεγμένες σελίδες
 	Page properties	Ιδιότητες σελίδας
+	Rotate object	Περιστροφή αντικειμένου
+	Rotate corner {n}	Περιστροφή από γωνία {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Σύρετε για περιστροφή. Shift: βήματα 15°· Esc: ακύρωση.
+Scale object	Κλιμάκωση αντικειμένου
+Scale corner {n}	Κλιμάκωση γωνίας {n}

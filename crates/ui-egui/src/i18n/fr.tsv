@@ -2434,3 +2434,8 @@ animation effects	Off	Désactivés
 	Make properties default	Définir comme propriétés par défaut
 	Pages selected	Pages sélectionnées
 	Page properties	Propriétés de la page
+	Rotate object	Pivoter un objet
+	Rotate corner {n}	Pivoter depuis le coin {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Faites glisser pour pivoter. Maj : pas de 15° ; Échap : annuler.
+Scale object	Redimensionner l’objet
+Scale corner {n}	Redimensionner depuis le coin {n}

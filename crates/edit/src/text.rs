@@ -2687,6 +2687,61 @@ fn vertical_encoding(doc: &Document, font: &Dict) -> Result<bool, EditError> {
     Err(EditError::Invalid("the text encoding is nested too deeply".into()))
 }
 
+/// Transform only the chosen paragraph's show operators. q/Q restores graphics state,
+/// but deliberately does not restore text matrices: the original glyph advances and T*
+/// still position following, unselected text exactly as before (ISO 32000, 9.4).
+pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, transform: Matrix) -> Result<(), EditError> {
+    let p = page_dict(doc, page)?;
+    let streams = content_streams(doc, &p.dict);
+    let lines = text_lines(doc, page)?;
+    let blocks = group_blocks(&lines);
+    let block = blocks.get(index).ok_or_else(|| EditError::Invalid("the selected paragraph no longer exists".into()))?;
+    let selected: std::collections::BTreeSet<_> = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|l| l.ops.iter().copied()).collect();
+    let res = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
+    let fonts = res.get(b"Font").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
+    let pieces = Pieces::join(&streams.iter().map(|(_, d)| d.as_slice()).collect::<Vec<_>>());
+    let ops = pieces.parse().ops;
+    let shown = interpret(doc, &ops, &fonts, &mut HashMap::new(), &mut Carry::new(), None, None);
+    let mut patches = HashMap::new();
+    for s in shown.into_iter().filter(|s| selected.contains(&s.op)) {
+        if !(0..=3).contains(&s.state.render_mode) {
+            return Err(EditError::Invalid("text used as a clipping path cannot be transformed".into()));
+        }
+        let inverse = s.state.ctm.invert().ok_or_else(|| EditError::Invalid("the selected paragraph has no area".into()))?;
+        let local = s.state.ctm.then(&transform).then(&inverse);
+        if !local.0.iter().all(|v| v.is_finite() && v.abs() <= 1e12) {
+            return Err(EditError::Invalid("the paragraph transform is too large".into()));
+        }
+        let original = ops.get(s.op).ok_or_else(|| EditError::Invalid("a selected text operation is missing".into()))?;
+        let mut replacement = Vec::new();
+        let show = if original.is("'") || original.is("\"") {
+            if original.is("\"") {
+                let spacing = original
+                    .operands
+                    .get(..2)
+                    .filter(|a| a.iter().all(|o| o.as_f64().is_some()))
+                    .ok_or_else(|| EditError::Invalid("a text operation has invalid spacing".into()))?;
+                for (operator, operand) in ["Tw", "Tc"].into_iter().zip(spacing) {
+                    replacement.push(Op::new(operator, vec![operand.clone()]));
+                }
+            }
+            replacement.push(Op::new("T*", vec![]));
+            Op::new("Tj", vec![original.operands.last().cloned().ok_or_else(|| EditError::Invalid("a text operation has no string".into()))?])
+        } else {
+            original.clone()
+        };
+        replacement.extend([Op::new("q", vec![]), Op::new("cm", local.0.map(Object::Real).to_vec()), show, Op::new("Q", vec![])]);
+        patches.insert(s.op, replacement);
+    }
+    if patches.len() != selected.len() || patches.is_empty() {
+        return Err(EditError::Invalid("the selected text cannot be transformed".into()));
+    }
+    let data = splice(&pieces, &ops, |i| patches.remove(&i).map_or((Vec::new(), true), |v| (v, false)));
+    let contents = rewritten_contents(doc, &streams, data);
+    doc.update_dict(p.obj, |d| d.set(b"Contents".to_vec(), contents))?;
+    Ok(())
+}
+
 /// Translate paragraphs together without re-encoding glyphs, changing fonts or reflowing.
 /// Numeric TJ offsets and text rise temporarily move each selected show operation, then
 /// restore both advances and rise. The PDF reader advances the original glyph bytes itself:

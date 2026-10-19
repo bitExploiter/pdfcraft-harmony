@@ -2410,3 +2410,8 @@ animation effects	Off	Wyłączone
 	Make properties default	Ustaw właściwości jako domyślne
 	Pages selected	Zaznaczone strony
 	Page properties	Właściwości strony
+	Rotate object	Obróć obiekt
+	Rotate corner {n}	Obróć od narożnika {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Przeciągnij, aby obrócić. Shift: kroki co 15°; Esc: anuluj.
+Scale object	Skaluj obiekt
+Scale corner {n}	Skaluj od narożnika {n}

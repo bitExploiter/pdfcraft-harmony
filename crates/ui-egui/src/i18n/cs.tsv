@@ -2508,3 +2508,8 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+	Rotate object	Otočit objekt
+	Rotate corner {n}	Otočit z rohu {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Tažením otočíte. Shift: kroky po 15°; Esc: zrušit.
+Scale object	Změnit měřítko objektu
+Scale corner {n}	Změnit měřítko z rohu {n}

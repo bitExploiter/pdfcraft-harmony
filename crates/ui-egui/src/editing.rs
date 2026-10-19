@@ -948,7 +948,9 @@ impl PdfCraftApp {
 /// these leave every other page's bytes, geometry and text alone, so their rasters stay valid.
 fn content_page(edit: &Edit) -> Option<usize> {
     match edit {
-        Edit::MoveObjects { page, .. }
+        Edit::ScaleObject { page, .. }
+        | Edit::RotateObject { page, .. }
+        | Edit::MoveObjects { page, .. }
         | Edit::EditTextLine { page, .. }
         | Edit::EditTextBlock { page, .. }
         | Edit::EditPageImage { page, .. }

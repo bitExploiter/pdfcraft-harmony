@@ -209,10 +209,20 @@ impl Content {
 /// An added item on a page.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Added {
+    /// Clockwise rotation about the content box centre, in displayed degrees.
+    pub rotation: f64,
     pub page: usize,
     /// The item's content stream.
     pub obj: ObjRef,
     pub content: Content,
+}
+
+impl Added {
+    /// Axis-aligned visible selection bounds in display space, including arbitrary rotation.
+    pub fn display_rect(&self) -> [f64; 4] {
+        let r = self.content.rect();
+        crate::objects::rotation_matrix([(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], self.rotation).bbox(r)
+    }
 }
 
 /// PdfCraft-owned page content discovered in one page/content traversal.
@@ -974,7 +984,12 @@ pub fn scan_markers(doc: &Document) -> MarkerScan {
                             .and_then(Object::as_f64)
                             .filter(|u| u.is_finite() && *u >= 1.0)
                             .map_or(1.0, |u| u.min(pdfcraft_model::MAX_USER_UNIT));
-                        scan.added.push(Added { page: pi, obj, content: content.scaled(page.user_unit(doc) / written) });
+                        scan.added.push(Added {
+                            rotation: params.get(b"RotationDegrees").and_then(Object::as_f64).filter(|v| v.is_finite()).unwrap_or(0.0),
+                            page: pi,
+                            obj,
+                            content: content.scaled(page.user_unit(doc) / written),
+                        });
                     }
                 });
             });
@@ -1032,7 +1047,20 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
     let all = page_list(doc);
     check(&[page], all.len())?;
     let p = &all[page];
-    let view = p.view_matrix(doc);
+    let rotation = obj
+        .and_then(|r| {
+            doc.get(r)
+                .as_dict()
+                .and_then(|d| d.get(b"PCAdded"))
+                .and_then(Object::as_dict)
+                .and_then(|d| d.get(b"RotationDegrees"))
+                .and_then(Object::as_f64)
+        })
+        .filter(|v| v.is_finite())
+        .unwrap_or(0.0);
+    let r = c.rect();
+    let view =
+        crate::objects::rotation_matrix([(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], rotation).then(&pdfcraft_content::Matrix(p.view_matrix(doc))).0;
     let user_unit = p.user_unit(doc);
     // The page gets its own copy of its resources with the item's fonts and images added, and
     // without the Arabic fonts of the version it replaces.
@@ -1053,6 +1081,9 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
     let mut sd = Dict::new();
     sd.set(b"PCMark".to_vec(), Object::name(TAG));
     let mut added = params(c);
+    if rotation != 0.0 {
+        added.set(b"RotationDegrees".to_vec(), Object::Real(rotation));
+    }
     if user_unit != 1.0 {
         added.set(b"UserUnit".to_vec(), Object::Real(user_unit));
     }
@@ -1101,6 +1132,20 @@ pub fn update_content(doc: &mut Document, page: usize, index: usize, c: &Content
         return Err(EditError::Invalid("an item can't change between text and image".into()));
     }
     write(doc, page, c, Some(a.obj))?;
+    Ok(())
+}
+
+/// Write transformed editable parameters together with their displayed rotation.
+pub(crate) fn update_transformed_content(doc: &mut Document, page: usize, index: usize, content: &Content, rotation: f64) -> Result<(), EditError> {
+    let a = find(doc, page, index)?;
+    doc.update_dict(a.obj, |d| {
+        if let Some(Object::Dict(params)) = d.get(b"PCAdded").cloned() {
+            let mut params = params;
+            params.set(b"RotationDegrees".to_vec(), Object::Real(rotation.rem_euclid(360.0)));
+            d.set(b"PCAdded".to_vec(), Object::Dict(params));
+        }
+    })?;
+    write(doc, page, content, Some(a.obj))?;
     Ok(())
 }
 

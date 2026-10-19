@@ -512,6 +512,7 @@ pub struct DocView {
     pub picked_image: Option<crate::image_pick::PickedImage>,
     /// A paragraph box being dragged (moved, or resized from its right edge) in Edit text.
     pub block_drag: Option<crate::edit_text_ui::BlockDrag>,
+    pub(crate) object_rotation: crate::rotation_ui::Rotation,
     /// Commenting state: selected comment, gestures, composer.
     pub comments: crate::comments::CommentView,
     pub measure: crate::measure_ui::MeasureView,
@@ -777,6 +778,7 @@ impl DocView {
             image_selection: None,
             picked_image: None,
             block_drag: None,
+            object_rotation: Default::default(),
             pending_action: None,
             insert_at: None,
             grid_gap: None,
@@ -2806,6 +2808,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     } else {
         view.prepare.selected = None;
     }
+    let rotating_content = (editing_content || tool == QuickTool::Select) && can_modify && !preparing && !page_covered;
+    view.object_rotation.prepare(doc, rotating_content, ui.ctx());
     view.objects.prepare(doc, tool == QuickTool::EditText && can_modify, ui.ctx());
     view.text_background.prepare(ui.ctx(), doc, view.line_editor.as_ref(), view.content.draft.as_ref(), scale);
     let added = if editing_content { doc.added().to_vec() } else { Vec::new() };
@@ -3167,9 +3171,13 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 };
                 crate::redact_ui::page_input(ui, &resp, &xf, i, info, over_text, view)
             };
+            let on_rotation = rotating_content && crate::rotation_ui::page_input(ui, &resp, &xf, i, doc, view, tool == QuickTool::Select);
             let image_owns_pointer = tool == QuickTool::EditText && crate::edit_text_ui::image_owns_pointer(ui, &xf, i, info, view);
-            let on_objects =
-                !image_owns_pointer && tool == QuickTool::EditText && can_modify && crate::object_ui::page_input(ui, &resp, &xf, i, doc, view);
+            let on_objects = !on_rotation
+                && !image_owns_pointer
+                && tool == QuickTool::EditText
+                && can_modify
+                && crate::object_ui::page_input(ui, &resp, &xf, i, doc, view);
             let lines = if matches!(tool, QuickTool::AddText | QuickTool::EditText) && can_modify {
                 let generation = doc.edit_generation();
                 match view.edit_lines.get(&i) {
@@ -3195,7 +3203,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 }
                 view.content.selected = None;
             }
-            let on_content = !on_objects && editing_content && can_modify && {
+            let on_content = !on_rotation && !on_objects && editing_content && can_modify && {
                 source_blocked
                     || crate::content_ui::page_input(
                         ui,
@@ -3216,8 +3224,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // input waits while selected objects or added content own the pointer, or while page
             // input is blocked (another tab, a dialog, the window unfocused): the boxes stay drawn
             // instead of vanishing until the pointer comes back.
-            let others_own_pointer = on_objects || on_content;
-            let on_edit_text = (tool == QuickTool::EditText || over_source) && can_modify && {
+            let others_own_pointer = on_rotation || on_objects || on_content;
+            let on_edit_text = !view.object_rotation.dragging(i) && (tool == QuickTool::EditText || over_source) && can_modify && {
                 let generation = doc.edit_generation();
                 let images = match view.edit_images.get(&i) {
                     Some((g, l)) if *g == generation => l.clone(),
@@ -3252,7 +3260,14 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             {
                 view.links.context = Some((i, l.index));
             }
-            let consumed = on_objects || on_edit_text || on_link || on_content || boxing || on_field || comments::page_input(ui, &resp, &pcx, view);
+            let consumed = on_rotation
+                || on_objects
+                || on_edit_text
+                || on_link
+                || on_content
+                || boxing
+                || on_field
+                || comments::page_input(ui, &resp, &pcx, view);
 
             let preview_target =
                 (matches!(tool, QuickTool::Select | QuickTool::Fill(_)) && !comments_hidden).then_some(view.comments.selected).flatten();

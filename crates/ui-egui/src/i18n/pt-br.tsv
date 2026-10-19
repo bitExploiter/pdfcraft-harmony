@@ -2448,3 +2448,8 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	Rotate object	Girar objeto
+	Rotate corner {n}	Girar pelo canto {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Arraste para girar. Shift: incrementos de 15°; Esc: cancelar.
+Scale object	Redimensionar objeto
+Scale corner {n}	Redimensionar pelo canto {n}

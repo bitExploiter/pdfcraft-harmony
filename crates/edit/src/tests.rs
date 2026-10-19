@@ -5218,3 +5218,132 @@ fn a_clipping_copy_on_the_same_baseline_is_refused() {
     assert!(matches!(&block, Err(EditError::Invalid(m)) if m.contains("clipping path")), "{block:?}");
     assert_eq!(text::text_lines(&doc, 0).unwrap().len(), 2, "refused means untouched");
 }
+
+#[test]
+fn object_rotation_preserves_glyph_bytes_and_unselected_text_state() {
+    for content in [
+        "BT /F1 12 Tf 1.3 Tc 2 Tw 80 Tz 14 TL 1 0.2 -0.1 1 50 600 Tm (A\\101) Tj 1 0 0 rg (Neighbour) Tj T* (Next) Tj ET",
+        "BT /F1 12 Tf 14 TL 50 600 Td (Before) Tj 0 0 1 rg (Quoted) ' 1 0 0 rg (After) Tj ET",
+        "BT /F1 12 Tf 14 TL 50 600 Td (Before) Tj 0 0 1 rg 2 1 (Quoted) \" 1 0 0 rg [(After) -120 (wards)] TJ T* (Last) Tj ET",
+        "q 1.2 0.3 -0.1 0.9 20 30 cm BT /F1 12 Tf 50 600 Td [(A) -120 (B)] TJ 1 0 0 rg (After) Tj ET Q %keep-this-comment\n",
+        "BT /F1 12.3456789 Tf 81.23456789 Tz 0.123456789 Ts 14 TL 50 600 Td (Before) Tj 0 0 1 rg 2.123456789 1.987654321 (Quoted) \" 1 0 0 rg (After) Tj ET",
+    ] {
+        let mut doc = text_page(content);
+        let before = text::text_lines(&doc, 0).unwrap();
+        let blocks = text::text_blocks(&doc, 0).unwrap();
+        let index = blocks.iter().position(|b| b.text.contains("Quoted")).unwrap_or(0);
+        let selected: Vec<_> = blocks[index].lines.iter().map(|i| before[*i].text.clone()).collect();
+        let glyph_bytes = |doc: &Document| {
+            pdfcraft_content::parse(&page_content_bytes(doc, 0))
+                .ops
+                .iter()
+                .flat_map(|op| {
+                    op.operands
+                        .iter()
+                        .flat_map(|o| match o {
+                            Object::String(s) => vec![s.bytes.clone()],
+                            Object::Array(a) => a.iter().filter_map(|v| v.as_string().map(|s| s.bytes.clone())).collect(),
+                            _ => Vec::new(),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        };
+        let original_bytes = glyph_bytes(&doc);
+        let target = ObjectTarget { kind: ObjectKind::Text, index };
+        rotate_object(&mut doc, 0, target, 37.0).unwrap();
+        let doc = reopen(&doc);
+        assert_eq!(glyph_bytes(&doc), original_bytes, "original codes and kerning strings survive");
+        let after = text::text_lines(&doc, 0).unwrap();
+        assert_eq!(after.len(), before.len(), "{content}");
+        for old in before {
+            let new = after.iter().find(|l| l.text == old.text).unwrap();
+            if selected.contains(&old.text) {
+                assert_ne!(new.rect, old.rect);
+            } else {
+                assert!(new.rect.iter().zip(old.rect).all(|(a, b)| (a - b).abs() < 1e-6), "unselected text moved: {}", old.text);
+            }
+            assert_eq!((new.font.clone(), new.color), (old.font, old.color));
+        }
+        if content.contains("%keep-this-comment") {
+            assert!(String::from_utf8_lossy(&page_content_bytes(&doc, 0)).contains("%keep-this-comment"));
+        }
+    }
+}
+
+#[test]
+fn object_rotation_refuses_clipping_text_atomically() {
+    for mode in 4..=7 {
+        let mut doc = clipping_text_page(mode);
+        let before = page_content_bytes(&doc, 0);
+        let error = rotate_object(&mut doc, 0, ObjectTarget { kind: ObjectKind::Text, index: 0 }, 23.0).unwrap_err();
+        assert!(error.to_string().contains("clipping"), "{error}");
+        assert_eq!(page_content_bytes(&doc, 0), before);
+    }
+}
+
+#[test]
+fn object_rotation_image_keeps_the_pivot_and_survives_reopen() {
+    let mut doc = image_page();
+    let old = images::page_images(&doc, 0).unwrap()[0].clone();
+    let rect = old.visible_rect.unwrap();
+    let center = [(rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0];
+    rotate_object(&mut doc, 0, ObjectTarget { kind: ObjectKind::Image, index: 0 }, 33.0).unwrap();
+    let doc = reopen(&doc);
+    let new = images::page_images(&doc, 0).unwrap()[0].clone();
+    assert_eq!(new.object, old.object, "image pixels are not rewritten");
+    let matrix = pdfcraft_content::Matrix(new.matrix);
+    let pivot = matrix.apply(0.5, 0.5);
+    assert!((pivot.0 - center[0]).abs() < 1e-5 && (pivot.1 - center[1]).abs() < 1e-5);
+    assert_ne!(new.matrix, old.matrix);
+}
+
+#[test]
+fn object_scale_preserves_source_bytes_pivot_rotation_and_neighbours() {
+    let mut doc = text_page("BT /F1 12 Tf 20 600 Td (Scale me) Tj ET BT /F1 12 Tf 20 100 Td (Neighbour) Tj ET");
+    let target = ObjectTarget { kind: ObjectKind::Text, index: 0 };
+    rotate_object(&mut doc, 0, target, 25.0).unwrap();
+    let before = text::text_blocks(&doc, 0).unwrap();
+    let r = before[0].rect;
+    scale_object(&mut doc, 0, target, 1.5, [r[0], r[1]]).unwrap();
+    let doc = reopen(&doc);
+    let after = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(after[0].text, before[0].text);
+    assert!((after[0].rotation - before[0].rotation).abs() < 1e-5);
+    assert_eq!(after[1].rect, before[1].rect);
+    for i in 0..4 {
+        let pivot = if i % 2 == 0 { r[0] } else { r[1] };
+        assert!((after[0].rect[i] - (pivot + (r[i] - pivot) * 1.5)).abs() < 1e-4);
+    }
+    assert!(String::from_utf8_lossy(&page_content_bytes(&doc, 0)).contains("(Scale me) Tj"));
+    let mut doc = image_page();
+    let target = ObjectTarget { kind: ObjectKind::Image, index: 0 };
+    rotate_object(&mut doc, 0, target, 31.0).unwrap();
+    let before = images::page_images(&doc, 0).unwrap()[0].clone();
+    scale_object(&mut doc, 0, target, 0.6, [10.0, 20.0]).unwrap();
+    let doc = reopen(&doc);
+    let after = images::page_images(&doc, 0).unwrap()[0].clone();
+    assert_eq!(after.object, before.object);
+    for i in 0..4 {
+        assert!((after.matrix[i] - before.matrix[i] * 0.6).abs() < 1e-5);
+    }
+}
+
+#[test]
+fn object_scale_refuses_invalid_or_clipping_edits_atomically() {
+    let target = ObjectTarget { kind: ObjectKind::Text, index: 0 };
+    for mode in 4..=7 {
+        let mut doc = clipping_text_page(mode);
+        let before = page_content_bytes(&doc, 0);
+        assert!(scale_object(&mut doc, 0, target, 1.5, [0.0, 0.0]).is_err());
+        assert_eq!(page_content_bytes(&doc, 0), before);
+    }
+    let mut doc = text_page("BT /F1 12 Tf 20 600 Td (Scale me) Tj ET");
+    let before = page_content_bytes(&doc, 0);
+    for factor in [f64::NAN, f64::INFINITY, 0.0, -1.0, 101.0] {
+        assert!(scale_object(&mut doc, 0, target, factor, [0.0, 0.0]).is_err());
+        assert_eq!(page_content_bytes(&doc, 0), before);
+    }
+    assert!(scale_object(&mut doc, 0, target, 2.0, [f64::NAN, 0.0]).is_err());
+    assert_eq!(page_content_bytes(&doc, 0), before);
+}

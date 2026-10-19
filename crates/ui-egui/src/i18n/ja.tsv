@@ -2434,3 +2434,8 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	Rotate object	オブジェクトを回転
+	Rotate corner {n}	角 {n} から回転
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	ドラッグして回転。Shiftで15°刻み、Escでキャンセル。
+Scale object	オブジェクトを拡大縮小
+Scale corner {n}	角 {n} で拡大縮小

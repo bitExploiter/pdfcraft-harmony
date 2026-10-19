@@ -2384,3 +2384,8 @@ animation effects	Off	關
 	Make properties default	將內容設為預設
 	Pages selected	選取的頁面
 	Page properties	頁面屬性
+	Rotate object	旋轉物件
+	Rotate corner {n}	從角 {n} 旋轉
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	拖曳以旋轉。按住 Shift 以 15° 為步長；按 Esc 取消。
+Scale object	縮放物件
+Scale corner {n}	從角 {n} 縮放

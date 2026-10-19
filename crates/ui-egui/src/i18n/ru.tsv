@@ -2347,3 +2347,8 @@ animation effects	Off	Выкл
 	Make properties default	Сделать свойства стандартными
 	Pages selected	Выделенные страницы
 	Page properties	Свойства страницы
+	Rotate object	Повернуть объект
+	Rotate corner {n}	Поворот за угол {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Перетащите для поворота. Shift: шаг 15°; Esc: отмена.
+Scale object	Масштабировать объект
+Scale corner {n}	Масштабировать от угла {n}
