@@ -810,8 +810,12 @@ impl PdfCraftApp {
     }
 
     /// Close every tab but `keep` (File ▸ Close all scoped to the anchor): clean tabs close at
-    /// once; each one with unsaved changes asks. The anchor never closes, dirty or not.
+    /// once; each one with unsaved changes asks. The anchor never closes, dirty or not. A `keep`
+    /// that names no open tab closes nothing, as in `close_tabs_right_of`.
     pub fn close_others(&mut self, keep: DocId) {
+        if !self.views.iter().any(|v| v.id == keep) {
+            return;
+        }
         for i in (0..self.views.len()).rev() {
             if self.views.get(i).is_some_and(|v| v.id != keep) && !self.has_unsaved_work(i) {
                 self.close_tab(i);
@@ -1516,6 +1520,17 @@ mod tests {
         assert_eq!(app.close_request, None);
         assert_eq!(app.views.len(), 1);
         assert_eq!(app.views[0].id, anchor);
+    }
+
+    #[test]
+    fn close_others_with_a_gone_anchor_closes_nothing() {
+        // The anchor's own tab is closed before the call, so its DocId names no open tab.
+        let mut app = app_with_docs(&["a.pdf", "b.pdf", "anchor.pdf", "c.pdf"], &[2, 3]);
+        let anchor = app.views[2].id;
+        app.close_tab(2);
+        app.close_others(anchor);
+        assert_eq!(app.views.len(), 3, "a gone anchor closes no tab, clean or dirty");
+        assert_eq!(app.close_request, None, "and queues no prompt");
     }
 
     #[test]
