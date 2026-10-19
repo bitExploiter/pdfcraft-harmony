@@ -2435,5 +2435,5 @@ animation effects	Off	Өшірулі
 	Rotate object	Нысанды бұру
 	Rotate corner {n}	{n} бұрышынан бұру
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Бұру үшін сүйреңіз. Shift: 15° қадам; Esc: бас тарту.
-Scale object	Нысанды масштабтау
-Scale corner {n}	{n} бұрышынан масштабтау
+	Scale object	Нысанды масштабтау
+	Scale corner {n}	{n} бұрышынан масштабтау

@@ -2400,5 +2400,5 @@ animation effects	Off	Изключени
 	Rotate object	Завъртане на обект
 	Rotate corner {n}	Завъртане от ъгъл {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Плъзнете за завъртане. Shift: стъпки от 15°; Esc: отказ.
-Scale object	Мащабиране на обект
-Scale corner {n}	Мащабиране от ъгъл {n}
+	Scale object	Мащабиране на обект
+	Scale corner {n}	Мащабиране от ъгъл {n}

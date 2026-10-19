@@ -2442,5 +2442,5 @@ animation effects	Off	Izklopljeni
 	Rotate object	Zavrti predmet
 	Rotate corner {n}	Vrtenje iz vogala {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Povlecite za vrtenje. Shift: koraki po 15°; Esc: preklic.
-Scale object	Spremeni merilo predmeta
-Scale corner {n}	Spremeni merilo iz vogala {n}
+	Scale object	Spremeni merilo predmeta
+	Scale corner {n}	Spremeni merilo iz vogala {n}

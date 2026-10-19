@@ -2433,5 +2433,5 @@ animation effects	Off	Kapalı
 	Rotate object	Nesneyi döndür
 	Rotate corner {n}	{n}. köşeden döndür
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Döndürmek için sürükleyin. Shift: 15° adımlar; Esc: iptal.
-Scale object	Nesneyi ölçeklendir
-Scale corner {n}	{n}. köşeden ölçeklendir
+	Scale object	Nesneyi ölçeklendir
+	Scale corner {n}	{n}. köşeden ölçeklendir

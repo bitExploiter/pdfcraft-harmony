@@ -2413,5 +2413,5 @@ animation effects	Off	Wyłączone
 	Rotate object	Obróć obiekt
 	Rotate corner {n}	Obróć od narożnika {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Przeciągnij, aby obrócić. Shift: kroki co 15°; Esc: anuluj.
-Scale object	Skaluj obiekt
-Scale corner {n}	Skaluj od narożnika {n}
+	Scale object	Skaluj obiekt
+	Scale corner {n}	Skaluj od narożnika {n}

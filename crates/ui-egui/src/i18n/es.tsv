@@ -2577,5 +2577,5 @@ animation effects	Off	Desactivados
 	Rotate object	Girar objeto
 	Rotate corner {n}	Girar desde la esquina {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Arrastre para girar. Mayús: pasos de 15°; Esc: cancelar.
-Scale object	Escalar objeto
-Scale corner {n}	Escalar desde la esquina {n}
+	Scale object	Escalar objeto
+	Scale corner {n}	Escalar desde la esquina {n}

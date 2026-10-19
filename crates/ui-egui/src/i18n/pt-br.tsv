@@ -2451,5 +2451,5 @@ animation effects	Off	Desativados
 	Rotate object	Girar objeto
 	Rotate corner {n}	Girar pelo canto {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Arraste para girar. Shift: incrementos de 15°; Esc: cancelar.
-Scale object	Redimensionar objeto
-Scale corner {n}	Redimensionar pelo canto {n}
+	Scale object	Redimensionar objeto
+	Scale corner {n}	Redimensionar pelo canto {n}

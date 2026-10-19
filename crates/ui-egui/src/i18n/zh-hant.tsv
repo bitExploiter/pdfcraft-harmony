@@ -2387,5 +2387,5 @@ animation effects	Off	關
 	Rotate object	旋轉物件
 	Rotate corner {n}	從角 {n} 旋轉
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	拖曳以旋轉。按住 Shift 以 15° 為步長；按 Esc 取消。
-Scale object	縮放物件
-Scale corner {n}	從角 {n} 縮放
+	Scale object	縮放物件
+	Scale corner {n}	從角 {n} 縮放

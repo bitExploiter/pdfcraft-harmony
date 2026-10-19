@@ -2714,5 +2714,5 @@ certificate	Version	الإصدار
 	Rotate object	تدوير الكائن
 	Rotate corner {n}	تدوير الزاوية {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	اسحب للتدوير. اضغط Shift لخطوات 15°؛ وEsc للإلغاء.
-Scale object	تحجيم الكائن
-Scale corner {n}	تحجيم الزاوية {n}
+	Scale object	تحجيم الكائن
+	Scale corner {n}	تحجيم الزاوية {n}

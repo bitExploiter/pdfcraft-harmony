@@ -19,7 +19,7 @@ angle when it is subsequently retyped or moved. A grouped Form is one artwork
 item. This does not add selection or editing of individual objects inside a Form,
 or rotation of a mixed multi-selection. Added items with inherited surrounding
 transforms or non-uniform placement are refused rather than repositioned. Text
-used as a clipping path is refused
+in a text object containing a clipping path, or with vertical writing, is refused
 without changing the document. A scanned picture of text remains a picture.
 
 Scaling keeps the existing angle. Extremely small/large results are refused
@@ -52,3 +52,7 @@ regressions exercise the actual corner widgets, release-only mutation, Escape,
 source text, Select-tool images, Shift snapping, and rotate → scale → move →
 undo/redo → save/reopen for both source and added text/images. The automation regression
 checks stale references and save/reopen through the shared tool table.
+
+Review regressions check PDF 1.7 operator context (q/cm/Q outside BT/ET),
+restore the text and line matrices for following glyphs and line moves, and
+retain added-object rotation through indirect metadata, retyping and save/reopen.

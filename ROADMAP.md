@@ -595,3 +595,5 @@ Newest first: the date, what moved, and the new overall estimate.
 - **2026-10-18 (M8, #1350):** Published the history-preserving integration; simplified the inherited-form resource guard for Rust 1.96 Clippy. Formatting, 64 redaction tests, scoped Clippy, layering, assets and the scoped wasm check pass locally. CI remains pending; estimates unchanged.
 
 - 2026-10-19 (local M7 candidate): orient each rotation dial to its corner; add proportional glyph/image scaling and Select-tool translation, with shared engine/automation operations and transform-sequence regressions. Right-click menus unchanged.
+
+- 2026-10-19 (M7, PR #3544 review): correct scale-label catalog rows; preserve indirect added-object rotation; emit source-text transforms outside text objects and restore both text matrices. Add save/reopen, operator-context and shared-clipping refusal regressions. Estimates unchanged.

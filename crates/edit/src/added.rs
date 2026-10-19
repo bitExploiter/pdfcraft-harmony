@@ -1042,22 +1042,15 @@ fn validate(c: &Content) -> Result<(), EditError> {
 }
 
 /// Write an item's stream (new, or replacing `obj`) and make its resources available to the page.
-fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
+fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>, rotation: f64) -> Result<ObjRef, EditError> {
     validate(c)?;
     let all = page_list(doc);
     check(&[page], all.len())?;
     let p = &all[page];
-    let rotation = obj
-        .and_then(|r| {
-            doc.get(r)
-                .as_dict()
-                .and_then(|d| d.get(b"PCAdded"))
-                .and_then(Object::as_dict)
-                .and_then(|d| d.get(b"RotationDegrees"))
-                .and_then(Object::as_f64)
-        })
-        .filter(|v| v.is_finite())
-        .unwrap_or(0.0);
+    if !rotation.is_finite() {
+        return Err(EditError::Invalid("the object rotation must be finite".into()));
+    }
+    let rotation = rotation.rem_euclid(360.0);
     let r = c.rect();
     let view =
         crate::objects::rotation_matrix([(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], rotation).then(&pdfcraft_content::Matrix(p.view_matrix(doc))).0;
@@ -1113,7 +1106,7 @@ pub fn list_added(doc: &Document) -> Vec<Added> {
 
 /// Add an item to a page (0-based). Returns its index among the page's added items.
 pub fn add_content(doc: &mut Document, page: usize, c: &Content) -> Result<usize, EditError> {
-    write(doc, page, c, None)?;
+    write(doc, page, c, None, 0.0)?;
     Ok(list_added(doc).iter().filter(|a| a.page == page).count() - 1)
 }
 
@@ -1131,21 +1124,14 @@ pub fn update_content(doc: &mut Document, page: usize, index: usize, c: &Content
     if std::mem::discriminant(&a.content) != std::mem::discriminant(c) {
         return Err(EditError::Invalid("an item can't change between text and image".into()));
     }
-    write(doc, page, c, Some(a.obj))?;
+    write(doc, page, c, Some(a.obj), a.rotation)?;
     Ok(())
 }
 
 /// Write transformed editable parameters together with their displayed rotation.
 pub(crate) fn update_transformed_content(doc: &mut Document, page: usize, index: usize, content: &Content, rotation: f64) -> Result<(), EditError> {
     let a = find(doc, page, index)?;
-    doc.update_dict(a.obj, |d| {
-        if let Some(Object::Dict(params)) = d.get(b"PCAdded").cloned() {
-            let mut params = params;
-            params.set(b"RotationDegrees".to_vec(), Object::Real(rotation.rem_euclid(360.0)));
-            d.set(b"PCAdded".to_vec(), Object::Dict(params));
-        }
-    })?;
-    write(doc, page, content, Some(a.obj))?;
+    write(doc, page, content, Some(a.obj), rotation)?;
     Ok(())
 }
 

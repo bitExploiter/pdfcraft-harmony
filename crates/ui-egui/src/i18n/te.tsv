@@ -2346,5 +2346,5 @@ animation effects	Off	ఆఫ్
 	Rotate object	వస్తువును తిప్పు
 	Rotate corner {n}	{n} మూల నుండి తిప్పు
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	తిప్పడానికి లాగండి. Shift: 15° చొప్పున; Esc: రద్దు.
-Scale object	వస్తువు పరిమాణం మార్చు
-Scale corner {n}	మూల {n} నుండి పరిమాణం మార్చు
+	Scale object	వస్తువు పరిమాణం మార్చు
+	Scale corner {n}	మూల {n} నుండి పరిమాణం మార్చు

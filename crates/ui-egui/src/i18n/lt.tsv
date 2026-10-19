@@ -2688,5 +2688,5 @@ theme	Appearance	Išvaizda
 	Rotate object	Pasukti objektą
 	Rotate corner {n}	Sukti iš kampo {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Vilkite, kad pasuktumėte. Shift: 15° žingsniai; Esc: atšaukti.
-Scale object	Keisti objekto mastelį
-Scale corner {n}	Keisti mastelį nuo kampo {n}
+	Scale object	Keisti objekto mastelį
+	Scale corner {n}	Keisti mastelį nuo kampo {n}

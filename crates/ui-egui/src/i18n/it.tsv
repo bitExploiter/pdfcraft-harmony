@@ -2649,5 +2649,5 @@ certificate	SHA-256 digest	Impronta SHA-256
 	Rotate object	Ruota oggetto
 	Rotate corner {n}	Ruota dall’angolo {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Trascina per ruotare. Maiusc: incrementi di 15°; Esc: annulla.
-Scale object	Ridimensiona oggetto
-Scale corner {n}	Ridimensiona dall’angolo {n}
+	Scale object	Ridimensiona oggetto
+	Scale corner {n}	Ridimensiona dall’angolo {n}

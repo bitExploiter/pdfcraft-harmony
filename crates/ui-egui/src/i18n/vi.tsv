@@ -2690,5 +2690,5 @@ key	Space	Space
 	Rotate object	Xoay đối tượng
 	Rotate corner {n}	Xoay từ góc {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Kéo để xoay. Shift: mỗi bước 15°; Esc: hủy.
-Scale object	Đổi tỷ lệ đối tượng
-Scale corner {n}	Đổi tỷ lệ từ góc {n}
+	Scale object	Đổi tỷ lệ đối tượng
+	Scale corner {n}	Đổi tỷ lệ từ góc {n}

@@ -2437,5 +2437,5 @@ animation effects	Off	Désactivés
 	Rotate object	Pivoter un objet
 	Rotate corner {n}	Pivoter depuis le coin {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Faites glisser pour pivoter. Maj : pas de 15° ; Échap : annuler.
-Scale object	Redimensionner l’objet
-Scale corner {n}	Redimensionner depuis le coin {n}
+	Scale object	Redimensionner l’objet
+	Scale corner {n}	Redimensionner depuis le coin {n}

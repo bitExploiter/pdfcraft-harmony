@@ -3135,6 +3135,7 @@ fn added_thai_text_wraps_clusters_and_survives_reopen() {
 #[test]
 fn group_moves_preserve_glyph_bytes_and_unselected_text_state() {
     for content in [
+        "BT /F1 12 Tf 1.3 Tc 2 Tw 80 Tz 14 TL 1 0.2 -0.1 1 50 600 Tm (Before) Tj 0 0 1 rg [(Quoted) -120 ( text)] TJ 1 0 0 rg (After) Tj T* (Next) Tj 10 -50 TD (Final) Tj ET",
         "BT /F1 12 Tf 1.3 Tc 2 Tw 80 Tz 14 TL 1 0.2 -0.1 1 50 600 Tm (A\\101) Tj 1 0 0 rg (Neighbour) Tj T* (Next) Tj ET",
         "BT /F1 12 Tf 14 TL 50 600 Td (Before) Tj 0 0 1 rg (Quoted) ' 1 0 0 rg (After) Tj ET",
         "BT /F1 12 Tf 14 TL 50 600 Td (Before) Tj 0 0 1 rg 2 1 (Quoted) \" 1 0 0 rg [(After) -120 (wards)] TJ T* (Last) Tj ET",
@@ -5253,6 +5254,7 @@ fn object_rotation_preserves_glyph_bytes_and_unselected_text_state() {
         let target = ObjectTarget { kind: ObjectKind::Text, index };
         rotate_object(&mut doc, 0, target, 37.0).unwrap();
         let doc = reopen(&doc);
+        assert_transform_text_context(&doc);
         assert_eq!(glyph_bytes(&doc), original_bytes, "original codes and kerning strings survive");
         let after = text::text_lines(&doc, 0).unwrap();
         assert_eq!(after.len(), before.len(), "{content}");
@@ -5346,4 +5348,132 @@ fn object_scale_refuses_invalid_or_clipping_edits_atomically() {
     }
     assert!(scale_object(&mut doc, 0, target, 2.0, [f64::NAN, 0.0]).is_err());
     assert_eq!(page_content_bytes(&doc, 0), before);
+}
+
+/// PDF 1.7 graphics-state operators belong outside BT/ET, even when readers tolerate them.
+fn assert_transform_text_context(doc: &Document) {
+    let mut in_text = false;
+    let mut depth = 0;
+    for op in pdfcraft_content::parse(&page_content_bytes(doc, 0)).ops {
+        match op.op.as_slice() {
+            b"BT" => {
+                assert!(!in_text);
+                in_text = true;
+            }
+            b"ET" => {
+                assert!(in_text);
+                in_text = false;
+            }
+            b"q" | b"Q" | b"cm" => {
+                assert!(!in_text, "special graphics operator inside text: {:?}", op.op);
+                if op.is("q") {
+                    depth += 1;
+                }
+                if op.is("Q") {
+                    depth -= 1;
+                    assert!(depth >= 0);
+                }
+            }
+            _ => {}
+        }
+    }
+    assert!(!in_text);
+    assert_eq!(depth, 0);
+}
+
+#[test]
+fn object_rotation_indirect_metadata_survives_transform_retype_and_reopen() {
+    fn indirect(doc: &mut Document) {
+        let item = added::list_added(doc)[0].clone();
+        let metadata = doc.get(item.obj).as_dict().unwrap().get(b"PCAdded").unwrap().clone();
+        let reference = doc.add(metadata);
+        doc.update_dict(item.obj, |d| d.set(b"PCAdded".to_vec(), Object::Ref(reference))).unwrap();
+    }
+    let mut doc = text_page("");
+    added::add_content(
+        &mut doc,
+        0,
+        &Content::Text(added::AddedText { text: "Original".into(), rect: [50.0, 300.0, 200.0, 330.0], ..Default::default() }),
+    )
+    .unwrap();
+    let target = ObjectTarget { kind: ObjectKind::Added, index: 0 };
+    indirect(&mut doc);
+    rotate_object(&mut doc, 0, target, 37.0).unwrap();
+    doc = reopen(&doc);
+    assert!((added::list_added(&doc)[0].rotation - 37.0).abs() < 1e-6);
+    let before = text::text_blocks(&doc, 0).unwrap()[0].rotation;
+    indirect(&mut doc);
+    let Content::Text(mut text) = added::list_added(&doc)[0].content.clone() else { panic!("text") };
+    text.text = "Retyped".into();
+    added::update_content(&mut doc, 0, 0, &Content::Text(text)).unwrap();
+    doc = reopen(&doc);
+    assert!((added::list_added(&doc)[0].rotation - 37.0).abs() < 1e-6);
+    let block = &text::text_blocks(&doc, 0).unwrap()[0];
+    assert_eq!(block.text, "Retyped");
+    assert!((block.rotation - before).abs() < 1e-6);
+    indirect(&mut doc);
+    scale_object(&mut doc, 0, target, 1.2, [50.0, 300.0]).unwrap();
+    doc = reopen(&doc);
+    assert!((added::list_added(&doc)[0].rotation - 37.0).abs() < 1e-6);
+}
+
+#[test]
+fn object_rotation_retyping_indirect_metadata_retains_existing_angle() {
+    let mut doc = text_page("");
+    added::add_content(
+        &mut doc,
+        0,
+        &Content::Text(added::AddedText { text: "Original".into(), rect: [50.0, 300.0, 200.0, 330.0], ..Default::default() }),
+    )
+    .unwrap();
+    rotate_object(&mut doc, 0, ObjectTarget { kind: ObjectKind::Added, index: 0 }, 41.0).unwrap();
+    let item = added::list_added(&doc)[0].clone();
+    let metadata = doc.get(item.obj).as_dict().unwrap().get(b"PCAdded").unwrap().clone();
+    let reference = doc.add(metadata);
+    doc.update_dict(item.obj, |d| d.set(b"PCAdded".to_vec(), Object::Ref(reference))).unwrap();
+    let Content::Text(mut text) = item.content else { panic!("text") };
+    text.text = "Retyped".into();
+    added::update_content(&mut doc, 0, 0, &Content::Text(text)).unwrap();
+    let doc = reopen(&doc);
+    assert!((added::list_added(&doc)[0].rotation - 41.0).abs() < 1e-6);
+}
+
+#[test]
+fn object_rotation_refuses_shared_clipping_text_objects_atomically() {
+    for content in
+        ["BT /F1 12 Tf 20 600 Td 7 Tr (Clip) Tj 0 Tr 0 -200 Td (Selected) Tj ET", "BT /F1 12 Tf 20 600 Td (Selected) Tj 0 -200 Td 7 Tr (Clip) Tj ET"]
+    {
+        let mut doc = text_page(content);
+        let index = text::text_blocks(&doc, 0).unwrap().iter().position(|b| b.text == "Selected").unwrap();
+        let before = write_full(&doc, &SaveOptions::default()).unwrap();
+        assert!(rotate_object(&mut doc, 0, ObjectTarget { kind: ObjectKind::Text, index }, 20.0).is_err());
+        assert_eq!(write_full(&doc, &SaveOptions::default()).unwrap(), before);
+    }
+}
+
+#[test]
+fn object_rotation_restores_prior_advances_and_line_matrix() {
+    for content in [
+        "BT /F1 12 Tf 1.3 Tc 2 Tw 80 Tz 120 TL 1 .2 -.1 1 50 600 Tm (Before) Tj [-5000] TJ 0 0 1 rg [(Chosen) -120 ( label)] TJ [-5000] TJ 1 0 0 rg (After) Tj T* (Next) Tj ET",
+        "BT /F1 12 Tf 120 TL 50 600 Td (Before) Tj 0 0 1 rg (Chosen label) ' [-5000] TJ 1 0 0 rg (After) Tj T* (Next) Tj ET",
+        "BT /F1 12.3456789 Tf 81.23456789 Tz .123456789 Ts 120 TL 50 600 Td (Before) Tj 0 0 1 rg 2.123456789 1.987654321 (Chosen label) \" [-5000] TJ 1 0 0 rg (After) Tj T* (Next) Tj ET",
+    ] {
+        let mut doc = text_page(content);
+        let before = text::text_blocks(&doc, 0).unwrap();
+        let index = before.iter().position(|b| b.text == "Chosen label").expect("independent selected block");
+        assert_eq!(before.len(), 4, "three genuinely unselected neighbours");
+        let target = ObjectTarget { kind: ObjectKind::Text, index };
+        rotate_object(&mut doc, 0, target, 30.0).unwrap();
+        scale_object(&mut doc, 0, target, 1.25, [200.0, 200.0]).unwrap();
+        let doc = reopen(&doc);
+        assert_transform_text_context(&doc);
+        let after = text::text_blocks(&doc, 0).unwrap();
+        assert_eq!(before.len(), after.len());
+        for old in &before {
+            let new = after.iter().find(|b| b.text == old.text).unwrap();
+            if old.text != "Chosen label" {
+                assert!(old.rect.iter().zip(new.rect).all(|(a, b)| (a - b).abs() < 1e-6), "{} moved: {:?} -> {:?}", old.text, old.rect, new.rect);
+            }
+        }
+    }
 }

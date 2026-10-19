@@ -2687,9 +2687,9 @@ fn vertical_encoding(doc: &Document, font: &Dict) -> Result<bool, EditError> {
     Err(EditError::Invalid("the text encoding is nested too deeply".into()))
 }
 
-/// Transform only the chosen paragraph's show operators. q/Q restores graphics state,
-/// but deliberately does not restore text matrices: the original glyph advances and T*
-/// still position following, unselected text exactly as before (ISO 32000, 9.4).
+/// Transform only the chosen paragraph's show operators. Close the text object before
+/// q/cm/Q (ISO 32000-1, 8.2), then restore both text matrices on re-entry (9.4).
+/// The line matrix and numeric TJ advance retain following text and T* positioning.
 pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, transform: Matrix) -> Result<(), EditError> {
     let p = page_dict(doc, page)?;
     let streams = content_streams(doc, &p.dict);
@@ -2702,15 +2702,40 @@ pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, tra
     let pieces = Pieces::join(&streams.iter().map(|(_, d)| d.as_slice()).collect::<Vec<_>>());
     let ops = pieces.parse().ops;
     let shown = interpret(doc, &ops, &fonts, &mut HashMap::new(), &mut Carry::new(), None, None);
+    // ET commits accumulated text clipping. Splitting anywhere in such a text object
+    // could clip selected or neighbouring glyphs earlier than the original ET.
+    let selected_bt: std::collections::BTreeSet<_> = shown.iter().filter(|s| selected.contains(&s.op)).map(|s| s.bt).collect();
+    if shown.iter().any(|s| selected_bt.contains(&s.bt) && !(0..=3).contains(&s.state.render_mode)) {
+        return Err(EditError::Invalid("text objects containing a clipping path cannot be transformed".into()));
+    }
     let mut patches = HashMap::new();
     for s in shown.into_iter().filter(|s| selected.contains(&s.op)) {
-        if !(0..=3).contains(&s.state.render_mode) {
-            return Err(EditError::Invalid("text used as a clipping path cannot be transformed".into()));
-        }
         let inverse = s.state.ctm.invert().ok_or_else(|| EditError::Invalid("the selected paragraph has no area".into()))?;
         let local = s.state.ctm.then(&transform).then(&inverse);
         if !local.0.iter().all(|v| v.is_finite() && v.abs() <= 1e12) {
             return Err(EditError::Invalid("the paragraph transform is too large".into()));
+        }
+        let font = fonts.get(&s.font).and_then(|f| doc.dict(f)).ok_or_else(|| EditError::Invalid("a selected paragraph has no font".into()))?;
+        if vertical_encoding(doc, &font)? {
+            return Err(EditError::Invalid("vertical text cannot be transformed".into()));
+        }
+        // Tm restores both matrices to the original line start; TJ restores just Tm.
+        // Include advances from earlier shows on this line, not only this operator.
+        let line_inverse = s.tlm.invert().ok_or_else(|| EditError::Invalid("the selected text line has no area".into()))?;
+        let start = s.tm.then(&line_inverse);
+        let advance = start.0[4] + s.advance;
+        let denominator = s.state.size * s.state.scale;
+        let adjustment = if denominator.abs() > 1e-12 {
+            -1000.0 * advance / denominator
+        } else if advance == 0.0 {
+            0.0
+        } else {
+            return Err(EditError::Invalid("the paragraph's text advance cannot be restored".into()));
+        };
+        if !s.tm.0.iter().chain(s.tlm.0.iter()).chain(start.0.iter()).chain([adjustment].iter()).all(|v| v.is_finite() && v.abs() <= 1e12)
+            || start.0[5].abs() > 1e-6
+        {
+            return Err(EditError::Invalid("the paragraph's text matrices cannot be restored".into()));
         }
         let original = ops.get(s.op).ok_or_else(|| EditError::Invalid("a selected text operation is missing".into()))?;
         let mut replacement = Vec::new();
@@ -2730,7 +2755,19 @@ pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, tra
         } else {
             original.clone()
         };
-        replacement.extend([Op::new("q", vec![]), Op::new("cm", local.0.map(Object::Real).to_vec()), show, Op::new("Q", vec![])]);
+        replacement.extend([
+            Op::new("ET", vec![]),
+            Op::new("q", vec![]),
+            Op::new("cm", local.0.map(Object::Real).to_vec()),
+            Op::new("BT", vec![]),
+            Op::new("Tm", s.tm.0.map(Object::Real).to_vec()),
+            show,
+            Op::new("ET", vec![]),
+            Op::new("Q", vec![]),
+            Op::new("BT", vec![]),
+            Op::new("Tm", s.tlm.0.map(Object::Real).to_vec()),
+            Op::new("TJ", vec![Object::Array(vec![Object::Real(adjustment)])]),
+        ]);
         patches.insert(s.op, replacement);
     }
     if patches.len() != selected.len() || patches.is_empty() {

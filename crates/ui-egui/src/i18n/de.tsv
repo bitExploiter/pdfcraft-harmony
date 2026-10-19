@@ -2438,5 +2438,5 @@ animation effects	Off	Aus
 	Rotate object	Objekt drehen
 	Rotate corner {n}	Drehen an Ecke {n}
 	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Zum Drehen ziehen. Umschalt: 15°-Schritte; Esc: abbrechen.
-Scale object	Objekt skalieren
-Scale corner {n}	Ecke {n} skalieren
+	Scale object	Objekt skalieren
+	Scale corner {n}	Ecke {n} skalieren
