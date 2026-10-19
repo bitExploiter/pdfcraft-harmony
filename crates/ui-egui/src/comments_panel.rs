@@ -285,7 +285,7 @@ fn card(
 ) -> Option<Edit> {
     let mut edit = None;
     let key = (a.page, a.index);
-    let selected = view.comments.selected == Some(key);
+    let selected = view.comments.is_selected(key);
     let color = a.color.map(|c| color32(c.map(f64::from))).unwrap_or(t.accent);
     let status = thread.iter().rev().filter(|r| !r.is_mark()).find_map(|r| r.state.as_deref());
     let marked = is_marked(thread);
@@ -440,7 +440,12 @@ fn card(
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(crate::i18n::fmt(tl!("{kind} — click to show it on the page"), &[("kind", tl!(kind_label(a)))]));
     if click.clicked() {
-        view.comments.selected = Some(key);
+        // ⌘/Ctrl-click (or ⇧-click) adds the comment to the selection, as on the page.
+        if ui.input(|i| i.modifiers.command || i.modifiers.shift) {
+            view.comments.toggle(key);
+        } else {
+            view.comments.select_only(key);
+        }
         view.comments.reply.clear();
         *nav = Some(Nav::Flash(a.page, a.rect));
     }
@@ -488,9 +493,15 @@ fn card(
                 view.comments.default_request = Some((a.page, a.index));
                 ui.close();
             }
+            if ui.button(tl!("Copy comment")).clicked() {
+                // The card's comment alone (the page's menu copies the whole selection).
+                view.comments.select_only(key);
+                view.comments.copy_request = true;
+                ui.close();
+            }
             ui.separator();
             if ui.add_enabled(!a.locked, egui::Button::new(tl!("Delete"))).clicked() {
-                view.comments.selected = None;
+                view.comments.clear_selection();
                 edit = Some(Edit::DeleteAnnotation { page: a.page, index: a.index });
                 ui.close();
             }

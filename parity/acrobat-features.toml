@@ -3788,8 +3788,8 @@ milestone = "M5"
 status = "shipped"
 commands = ["comment.polyline"]
 tools = ["comment_add"]
-evidence = ["crates/annot/src/tests.rs::polygons_clouds_connected_lines_callouts_and_carets_are_drawn", "crates/ui-egui/tests/it/comments.rs::polygons_clouds_connected_lines_callouts_and_inserted_text", "crates/automation/tests/it/automation.rs::drawing_comments_through_tools"]
-notes = ""
+evidence = ["crates/annot/src/tests.rs::polygons_clouds_connected_lines_callouts_and_carets_are_drawn", "crates/ui-egui/tests/it/comments.rs::polygons_clouds_connected_lines_callouts_and_inserted_text", "crates/ui-egui/tests/it/comments.rs::connected_lines_are_completed_from_the_context_menu", "crates/automation/tests/it/automation.rs::drawing_comments_through_tools"]
+notes = "Click the corners; Enter, a double-click or the right-click menu's Complete finishes the lines (the menu also takes the last point back and cancels the drawing), Backspace takes a point back."
 
 [[feature]]
 id = "comment.cloud"
@@ -4193,11 +4193,35 @@ title = "Export selected comments"
 area = "E"
 tier = "P2"
 milestone = "M5"
-status = "planned"
+status = "partial"
+commands = ["comment.copy"]
+tools = ["comments_copy"]
+evidence = ["crates/xfdf/src/tests.rs::exporting_selected_comments_takes_them_and_their_replies", "crates/automation/tests/it/automation.rs::comments_copy_and_paste_between_documents_through_tools"]
+notes = "The selected comments, each with its replies, as XFDF: Copy puts it on the clipboard (desktop) and comments_copy returns it headlessly. Not yet: a Save as… to a data file from the interface."
+
+[[feature]]
+id = "comment.multi-select"
+title = "Select several comments (⌘-click, ⇧-click)"
+area = "E"
+tier = "P1"
+milestone = "M5"
+status = "shipped"
 commands = []
 tools = []
-evidence = []
-notes = ""
+evidence = ["crates/ui-egui/tests/it/comments.rs::ctrl_click_selects_several_comments_and_delete_removes_them_all"]
+notes = "On the page and in the Comments panel, ⌘-click (Ctrl on Windows and Linux) or ⇧-click adds a comment to the selection or takes it out again; the one clicked last has the handles and is what Properties, Reply and the quick bar act on. Delete (key or menu) removes every selected comment as one undo step, dragging one of them moves them all (text markup stays with its text), and the context menu copies them all. Escape and a plain click select one alone again. Not yet: a rubber-band (marquee) selection, ⇧-click as a range in the panel."
+
+[[feature]]
+id = "comment.copy-paste"
+title = "Copy and paste comments, within and between documents"
+area = "E"
+tier = "P1"
+milestone = "M5"
+status = "shipped"
+commands = ["comment.copy", "comment.paste"]
+tools = ["comments_copy", "comments_paste"]
+evidence = ["crates/ui-egui/tests/it/comments.rs::copied_comments_paste_into_another_document", "crates/engine/src/tests.rs::pasting_copied_comments_adds_copies_that_undo_as_one_step", "crates/xfdf/src/tests.rs::importing_comments_as_copies_adds_them_on_the_page_with_fresh_names", "crates/automation/tests/it/automation.rs::comments_copy_and_paste_between_documents_through_tools"]
+notes = "⌘C with comments selected (and no text selected) copies them as XFDF, each with its replies, to the app's clipboard (every tab and window) and as text to the system clipboard. ⌘V or Edit ▸ Paste comments hangs the copies on the pointer as one bundle (their box, with a count); a click places them, centred there, on the page clicked, so a copy never lands on its original and a bundle from an A0 page goes where it fits on an A4 one (placed as it is when larger than the page, with a notice); Escape or a right-click lets the bundle go. The page's context menu places the bundle at the point the menu was opened at. The copies are new comments under names of their own (nothing is replaced; pasting twice gives two sets) and are selected afterwards. XFDF with comments on the system clipboard pastes too, so comments travel between PdfCraft processes. The Comments panel's card menu copies that card's comment. Headless: comments_copy / comments_paste (`at` places the bundle's centre), undoable as one step. Not yet: appearance streams (the copies are drawn again), file attachments' data (the attachment comment is copied without its file), pasting in the web build's other tabs through the system clipboard."
 
 [[feature]]
 id = "comment.import-from-pdf"
