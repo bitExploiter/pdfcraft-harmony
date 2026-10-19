@@ -454,6 +454,8 @@ struct PendingOpen {
     after_open: Option<pdfcraft_render::RemoteDestination>,
     recovered: Option<RecoveryMeta>,
     then: Option<&'static str>,
+    /// The window the open was asked in: its tab goes there, whichever window is focused by then.
+    window: WindowId,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1262,6 +1264,7 @@ impl PdfCraftApp {
             after_open: request.after_open,
             recovered: request.recovered,
             then: request.then,
+            window: self.current_window(),
         });
         Ok(token)
     }
@@ -1280,7 +1283,11 @@ impl PdfCraftApp {
                 break;
             }
             match pending.receiver.try_recv() {
-                Ok(result) if result.token == pending.token => self.finish_pending_open(pending, result.kind),
+                Ok(result) if result.token == pending.token => {
+                    // In the window that asked (the current one when that window has closed).
+                    let window = if self.has_window(pending.window) { pending.window } else { self.current_window() };
+                    self.with_window(window, |app| app.finish_pending_open(pending, result.kind));
+                }
                 Ok(_) => waiting.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Empty) => waiting.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -2179,11 +2186,16 @@ impl PdfCraftApp {
     /// Colors). A document the change actually touches re-renders.
     pub fn set_reading_colors(&mut self, colors: pdfcraft_render::ReadingColors) {
         self.reading_colors = colors;
-        for i in 0..self.views.len() {
-            // Idempotent per document: the engine says whether anything changed.
-            if self.session.set_reading_colors(self.views[i].id, colors) {
-                self.views[i].invalidate_content();
-            }
+        // The documents of every window, not only the current one's.
+        for window in self.window_ids() {
+            self.with_window(window, |app| {
+                for i in 0..app.views.len() {
+                    // Idempotent per document: the engine says whether anything changed.
+                    if app.session.set_reading_colors(app.views[i].id, colors) {
+                        app.views[i].invalidate_content();
+                    }
+                }
+            });
         }
     }
 
