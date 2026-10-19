@@ -2918,25 +2918,32 @@ impl eframe::App for PdfCraftApp {
         // E-sign dialog: capability probe and inbox, even when closed.
         esign::pump(&mut self.esign, ctx);
         if let Some(send) = esign::take_send(&mut self.esign) {
-            let bytes = self
-                .esign_doc
-                .filter(|id| self.views.iter().any(|v| v.id == *id))
-                .and_then(|id| self.session.save_full_bytes(id).ok().map(|b| (*b).clone()));
-            match bytes {
-                Some(bytes) => {
-                    self.esign.submit_request(craft_ui::esign::Request::Create {
-                        draft: Box::new(send.draft),
-                        document: bytes,
-                        idempotency_key: send.idempotency_key,
-                        send: true,
-                    });
+            if let Some(id) = self.esign_doc.filter(|id| self.views.iter().any(|v| v.id == *id)) {
+                if self.commit_typing_in(id) {
+                    match self.session.save_full_bytes(id).ok().map(|b| (*b).clone()) {
+                        Some(bytes) => {
+                            self.esign.submit_request(craft_ui::esign::Request::Create {
+                                draft: Box::new(send.draft),
+                                document: bytes,
+                                idempotency_key: send.idempotency_key,
+                                send: true,
+                            });
+                        }
+                        None => {
+                            esign::note_create(
+                                &mut self.esign,
+                                Err("the document for this request is no longer open".into()),
+                            );
+                        }
+                    }
+                } else {
+                    esign::note_create(&mut self.esign, Err(String::new()));
                 }
-                None => {
-                    esign::note_create(
-                        &mut self.esign,
-                        Err("the document for this request is no longer open".into()),
-                    );
-                }
+            } else {
+                esign::note_create(
+                    &mut self.esign,
+                    Err("the document for this request is no longer open".into()),
+                );
             }
         }
         // After pump: if we were on the cloud Open page and a new document tab appeared

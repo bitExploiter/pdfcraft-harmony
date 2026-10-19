@@ -33,7 +33,7 @@ pub use craft_ui::cloud::{
     Account, Busy, CloudApp, CloudBackend, CloudFiles, Conflict, CopyFormat, Destination, DocumentKind, Event, Fault, Folder, Job, Link, Origin,
     Post, Source, UNAVAILABLE, available, browse, can_converse, conflict_modal, destination_name, has_target, link, load_shared, open_entry,
     open_page, origin, parent_of, prefers_cloud, progress, reload_active, save, save_as, save_page, share_button, shares, sign_in, sign_out, start,
-    who, work_together,
+    work_together,
 };
 
 use crate::PdfCraftApp;
@@ -235,21 +235,26 @@ impl CloudApp for PdfCraftApp {
     }
 }
 
-/// Drain cloud worker events and, in the browser build, open the login popup when
-/// the user chose Sign in (same frame as the click, while user activation lasts).
-pub fn pump(app: &mut PdfCraftApp, ctx: &egui::Context) {
+/// The title-bar account badge and menu (`craft_ui::cloud::who`), plus the browser
+/// login popup on Sign in while the click's user activation still holds.
+pub fn who(app: &mut PdfCraftApp, ui: &mut Ui) {
     let status_before = app.cloud.status.clone();
-    craft_ui::cloud::pump(app, ctx);
+    craft_ui::cloud::who(app, ui);
     #[cfg(target_arch = "wasm32")]
     if status_before.is_none()
         && app.cloud.status.is_some()
         && app.cloud.account.is_none()
     {
+        let ctx = ui.ctx();
         let popup_retry = egui::Id::new("pdfcraft:popup_retry");
-        if !ctx.memory(|m| m.data.get_temp::<bool>(popup_retry).unwrap_or(false)) {
-            crate::web_auth::offer_login_popup(ctx);
-        }
+        ctx.memory_mut(|m| m.data.remove::<bool>(popup_retry));
+        crate::web_auth::offer_login_popup(ctx);
     }
+}
+
+/// Drain cloud worker events from the background thread.
+pub fn pump(app: &mut PdfCraftApp, ctx: &egui::Context) {
+    craft_ui::cloud::pump(app, ctx);
 }
 
 #[cfg(test)]
