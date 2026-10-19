@@ -509,7 +509,10 @@ fn jpeg_fill_bytes_and_metadata_after_frame_are_preserved() {
     assert!(image.contains(b"Decode"), "APP14 after SOF still inverts CMYK");
     assert_eq!(extract_images(&doc, &[0], 0).images[0].data, bytes);
 
-    let embedded = jpeg("density.jpg", &jpeg_frame_first(jpeg_bytes())).unwrap();
+    // The resolution is read in one place (`embed`, through `density`), not by the JPEG parser: `jpeg` alone says 72.
+    let frame_first = jpeg_frame_first(jpeg_bytes());
+    assert_eq!(jpeg("density.jpg", &frame_first).unwrap().dpi, (72.0, 72.0));
+    let embedded = embed("density.jpg", &frame_first).unwrap().remove(0);
     assert_eq!(embedded.px, (3, 2));
     assert_eq!(embedded.dpi, (300.0, 300.0), "JFIF after SOF is read");
 

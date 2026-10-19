@@ -223,12 +223,14 @@ fn jpx(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
     Ok(Embedded { dict: d, data: bytes.to_vec(), filtered: true, smask: None, icc: None, px: (w, h), dpi })
 }
 
+/// A JPEG as a pass-through image: size, colour space, Adobe inversion and ICC profile from its segments. The resolution is
+/// left at 72 dpi; `with_density` is the one place that reads what the file carries.
 fn jpeg(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
     let bad = |m: &str| CreateError::Image(name.into(), m.into());
     if bytes.len() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8 {
         return Err(bad("not a JPEG file"));
     }
-    let (mut i, mut size, mut comps, mut dpi, mut adobe) = (2usize, None, 0u8, (72.0, 72.0), false);
+    let (mut i, mut size, mut comps, mut adobe) = (2usize, None, 0u8, false);
     let mut icc_chunks = Vec::new();
     while let Some(&byte) = bytes.get(i) {
         if byte != 0xFF {
@@ -256,17 +258,6 @@ fn jpeg(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
         let end = i.checked_add(len).ok_or_else(|| bad("JPEG segment length overflow"))?;
         let seg = bytes.get(i + 2..end).ok_or_else(|| bad("truncated JPEG segment"))?;
         match marker {
-            // APP0 JFIF density.
-            0xE0 if seg.starts_with(b"JFIF\0") && seg.len() >= 12 => {
-                let (unit, x, y) = (seg[7], u16::from_be_bytes([seg[8], seg[9]]) as f64, u16::from_be_bytes([seg[10], seg[11]]) as f64);
-                if x > 0.0 && y > 0.0 {
-                    dpi = match unit {
-                        1 => (x, y),
-                        2 => (x * 2.54, y * 2.54),
-                        _ => dpi,
-                    };
-                }
-            }
             0xEE if seg.starts_with(b"Adobe") => adobe = true,
             // APP2 ICC profile, possibly split over several chunks.
             0xE2 => {
@@ -303,18 +294,16 @@ fn jpeg(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
     d.set(b"BitsPerComponent".to_vec(), Object::Int(8));
     d.set(b"Filter".to_vec(), Object::name("DCTDecode"));
     let icc = jpeg_icc(icc_chunks);
-    Ok(Embedded { dict: d, data: bytes.to_vec(), filtered: true, smask: None, icc, px: (w, h), dpi })
+    Ok(Embedded { dict: d, data: bytes.to_vec(), filtered: true, smask: None, icc, px: (w, h), dpi: (72.0, 72.0) })
 }
 
+/// A PNG decoded to an image XObject (alpha as a soft mask, 16-bit reduced to 8). The resolution is left at 72 dpi;
+/// `with_density` is the one place that reads what the file carries.
 fn png_image(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
     let bad = |m: String| CreateError::Image(name.into(), m);
     let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
     dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
     let mut reader = dec.read_info().map_err(|e| bad(e.to_string()))?;
-    let dpi = match reader.info().pixel_dims {
-        Some(png::PixelDimensions { xppu, yppu, unit: png::Unit::Meter }) if xppu > 0 && yppu > 0 => (xppu as f64 * 0.0254, yppu as f64 * 0.0254),
-        _ => (72.0, 72.0),
-    };
     let icc = reader.info().icc_profile.as_ref().map(|p| p.to_vec());
     // The decoded size comes from the header alone, so a file of a few bytes can claim any
     // size: keep the ceiling, and ask for the memory fallibly (a failed allocation would abort
@@ -362,7 +351,7 @@ fn png_image(name: &str, bytes: &[u8]) -> Result<Embedded, CreateError> {
         m.set(b"BitsPerComponent".to_vec(), Object::Int(8));
         (m, alpha)
     });
-    Ok(Embedded { dict: d, data: colour, filtered: false, smask, icc, px: (w, h), dpi })
+    Ok(Embedded { dict: d, data: colour, filtered: false, smask, icc, px: (w, h), dpi: (72.0, 72.0) })
 }
 
 /// 8-bit RGBA pixels → an image (gray when every pixel is, with a soft mask when any pixel is
