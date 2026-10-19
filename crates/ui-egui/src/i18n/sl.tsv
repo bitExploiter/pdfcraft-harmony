@@ -22,6 +22,7 @@
 	 (page {p})	 (stran {p})
 	 (searching… {s} of {p} pages)	 (iskanje… {s} od {p} strani)
 	 ({s} not exported: {first})	 (neizvoženih: {s}; {first})
+	 ({s} warnings: {first})	 ({s} opozoril: {first})
 	 on page {p}	 na strani {p}
 	 · password-protected	 · zaščiteno z geslom
 	% of all commits	% vseh commitov
@@ -736,6 +737,7 @@
 	Export stopped: {e}	Izvoz se je ustavil: {e}
 	Export to	Izvozi v
 	Export to HTML…	Izvozi v HTML…
+	Export to PostScript…	Izvozi v PostScript…
 	Export to Image	Izvozi v sliko
 	Export to RTF…	Izvozi v RTF…
 	Export to Text	Izvozi v besedilo

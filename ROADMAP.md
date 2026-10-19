@@ -20,6 +20,8 @@
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M3 #2080 candidate: explicit search jumps join per-tab history; rail and control-channel Back/Forward; estimates unchanged)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M4 #1910: Organize Pages opens on the current page; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M3 candidate: coordinate control clicks keep press/release together on slow frames and preserve text multi-click selection; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** M10: PostScript/EPS export Layer A (#1561) — DSC-structured program, Ghostscript fidelity oracle (≤ 2/255 mean delta), transparency unflattened and TrueType vectorized as recorded degradations; estimates unchanged · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** M14 #307 Plan 3 uses one marker traversal on open and full refresh, and the combined scanner borrows metadata instead of cloning scan-only containers; includes a behavior-preserving `organize` binding for the workspace Clippy gate · earlier: minor (localized shortcut labels, #496; readiness table with hours per audience; full number as weighted sum 49%; second look: ready 40% → 47%, mainstream 55% added; core-workflow gate applied → alpha) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M3 candidate: native opens retain chosen tools through password retries and defer startup intake while preparation is pending; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (M4 #1310 #1311 #1312: undo, revert and the next save keep the last saved revision; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M3 #1980: exact quit modifiers preserve Ctrl+Alt+Q email input; M3 candidate: native opens retain chosen tools through password retries and defer startup intake while preparation is pending; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -67,7 +69,7 @@ and add a line to the [progress log](#progress-log); when a gap closes, remove i
 
 | | Value | Kind |
 |---|---|---|
-| **Feature breadth** | **≈ 67%** tier-weighted (56.9% unweighted: 423 shipped + 74 partial of 808; P0 94.2%) | measured, `parity/acrobat-features.toml` |
+| **Feature breadth** | **≈ 67%** tier-weighted (59.6% unweighted: 438 shipped + 96 partial of 815; P0 94.6%) | measured, `parity/acrobat-features.toml` |
 | Feature breadth, mainstream practitioner | ≈ 70% tier-weighted (63.2% unweighted; P0 95.3%) | measured ([split](docs/target-app-parity.md#mainstream-practitioner-vs-full-acrobat-pro)) |
 | **Ready for real work**, full Acrobat Pro | **≈ 50%** (45–53%) | estimated, weighted sum over [dimensions](#by-dimension) |
 | **Ready for real work**, mainstream practitioner | **≈ 55%** (50–60%) | estimated ([split](docs/target-app-parity.md#mainstream-practitioner-vs-full-acrobat-pro)) |
@@ -113,20 +115,20 @@ Hours are calibrated as in [Effort and calibration](docs/target-app-parity.md#ef
 
 | Area | Breadth (measured) | Ready (estimated) | Remaining (h) |
 |---|---|---|---|
-| A Core model and fidelity | 76.8% | 70% | 25–45 |
-| B View and navigation | 62.5% | 55% | 110–190 |
-| C Content editing | 53.3% | 30% | 100–180 |
-| D Organize pages | 61.2% | 70% | 12–25 |
+| A Core model and fidelity | 77.6% | 70% | 25–45 |
+| B View and navigation | 63.2% | 55% | 110–190 |
+| C Content editing | 57.4% | 30% | 100–180 |
+| D Organize pages | 65.6% | 70% | 12–25 |
 | E Comments and review | 77.7% | 70% | 12–25 |
-| F Forms and JavaScript | 78.5% | 65% | 40–75 |
-| G Protect, redact, sanitize | 58.5% | 55% | 15–30 |
+| F Forms and JavaScript | 79.7% | 65% | 40–75 |
+| G Protect, redact, sanitize | 59.5% | 55% | 15–30 |
 | H Digital signatures | 62.2% | 45% | 40–70 |
-| I Scan and OCR | 23.1% | 15% | 40–75 |
-| J Create and export | 39.7% | 25% | 55–100 |
+| I Scan and OCR | 32.7% | 15% | 40–75 |
+| J Create and export | 44.1% | 25% | 55–100 |
 | K Optimize and standards | 34.5% | 20% | 65–115 |
-| L Print | 39.7% | 35% | 30–55 |
-| M Accessibility | 63.1% | 30% | 40–70 |
-| N Automation, preferences, misc | 30.0% | 35% | 25–45 |
+| L Print | 43.6% | 35% | 30–55 |
+| M Accessibility | 72.1% | 30% | 40–70 |
+| N Automation, preferences, misc | 32.7% | 35% | 25–45 |
 
 What's strong and missing in each: [target-app-parity.md](docs/target-app-parity.md#by-feature-area).
 
@@ -171,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-19 (M10, PR #1785 review):** PostScript/EPS export review fixes: the exporter opens protected documents with the password the document was opened with; a Type 3 (stitching) function dictionary closes with `>>`, so multi-stop gradients emit a parseable program; invisible (`3 Tr`) Type 3 glyph procedures no longer paint; a UI `.eps` export takes the page being viewed instead of failing on multi-page documents. Parity summaries recomputed from the merged checklist: unweighted breadth 56.9% → 59.6% (438 shipped + 96 partial of 815), area J 39.7% → 44.1%. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
@@ -319,6 +323,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 Newest first: the date, what moved, and the new overall estimate.
 
+- **2026-10-12 (M10, #1561):** PostScript/EPS export shipped as Layer A: a new `pdfcraft-ps-export` crate implements hayro-interpret's `Device` as a PostScript emitter through the same page-drive entry `page_render` uses, so export semantics match the raster renderer by construction. Output is a DSC-structured program (header/`%%Page`/prolog/trailer, EPSF-3.0 with guarded `showpage` for EPS) covering geometry with both fill rules, stroke props and clips, JPEG/Flate/CCITT image passthrough (decode + ASCII85-Flate re-encode otherwise, `imagemask` for stencils), axial/radial/mesh shadings via Level 3 `shfill`, Type 1 text passthrough (font program in the prolog, re-encoded under assigned codes, `xyshow` runs), and annotations; reachable as `export.ps`, the `doc_export_postscript` tool and the export dialog. Every degradation is both a returned warning and a `%%PdfCraftNote:` comment. Two degradations define the layer: transparency is unflattened (blend modes, soft masks, group opacity — flattening is Layer C) and embedded TrueType vectorizes, because the Task 7 Ghostscript gate proved gs resolves Type 42 character codes through the font's own `cmap`, so emitted Type 42 with our assigned codes drew nothing for a real font (Inter) while hand-editing to the cmap's codes drew the same glyphs; text-as-text waits for cmap synthesis over the assigned codes. Correctness is measured, not asserted: a Ghostscript oracle (`crates/ps-export/tests/oracle.rs`, skipping where gs is absent) rasterizes the exported program (`png16m`, 50 dpi, `-dGraphicsAlphaBits=4 -dTextAlphaBits=4` to match the raster renderer's antialiasing; gs's 1-bit default overstated divergence 3×) and compares it with `pdfcraft_render` at the same dpi over geometry, JPEG image, text (Type 1 + synthetic and real Inter TrueType + substitute), shading and EPS fixtures: mean per-channel delta ≤ 2/255 (worst observed 0.87 on real-font TrueType; geometry pixel-exact — delta 0.000 — against gs rendering the source PDF). `create.export-ps`/`create.export-eps` partial. Estimates unchanged.
 - **2026-10-12 (M3, GNOME title bar, #553):** On GNOME's Wayland session, whose compositor draws no window frames (it offers no `zxdg_decoration_manager_v1`), PdfCraft no longer shows winit's fallback title bar: it turns the frame off and the tab strip becomes the header bar, as in GNOME's own apps. Minimize, maximize/restore and close are drawn in Adwaita's style, in the order and on the side GNOME's `button-layout` names (Fedora's default shows only close); the window's edges and corners resize it, and a hairline outlines it while it isn't maximized. Preferences ▸ Use system title bar (shown only there) gives the window back winit's frame at once, without a restart (part of #1001), and `PDFCRAFT_TITLEBAR=app|system` overrides the choice. KDE, Sway, Hyprland, COSMIC and X11 keep the frame their desktop draws. Not done: right-clicking the header bar doesn't open GNOME's window menu (egui can't ask for it), the window has no shadow or rounded corners, the resize edges lie just inside the window rather than outside it, and Windows still uses its system frame (the rest of #1001). Estimates unchanged.
 - **2026-10-12 (M0, build label):** A local or patched build can carry a label, set at compile time with `PDFCRAFT_BUILD_LABEL`: `pdfcraft --version`, `pdfcraft-cli --version`, About and the log show `0.7.1 (titlebar)`, and `packaging/linux/package.sh` names the files `pdfcraft-0.7.1-titlebar-…` and makes the .rpm/.deb release `1.titlebar`, which upgrades over the release of the same version (and the next release over it). The version itself is unchanged, so the update check still compares it with published releases. Unlabelled builds are as before. Estimates unchanged.
 - **2026-10-11 (M6, #1208):** Dropdown and list-box Field Properties expose the existing Left/Center/Right alignment picker. Existing alignment stays intact until changed; cancel, undo/redo and save/reopen are covered through the real UI without changing options, values or flags. Estimates unchanged.
