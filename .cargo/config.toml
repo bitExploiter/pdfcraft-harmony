@@ -1,2 +1,6 @@
 [alias]
 xtask = "run -p xtask --"
+
+[env]
+CRAFT_FONTS_DIR = { value = "craft-fonts", relative = true }
+
