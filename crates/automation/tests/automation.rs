@@ -6937,12 +6937,37 @@ fn doc_extract_original_out_writes_the_inner_pdf() {
     );
     assert!(copy["doc"].as_u64().is_some(), "the editable copy is opened too: {copy}");
 
-    // A path outside the root is refused, and nothing is written there.
+    // A path outside the root is refused, and nothing is written there. The refusal happens
+    // before the extraction, so no half-done copy is left open either.
     for bad in ["../outside.pdf", "sub/../../outside.pdf"] {
         let e = a.call("doc_extract_original", &json!({ "doc": env, "out": bad })).unwrap_err();
         assert!(e.to_string().contains("outside the allowed directory"), "{bad}: {e}");
     }
     assert!(!dir.parent().unwrap().join("outside.pdf").exists(), "nothing may land outside the root");
+    let list = ok(&mut a, "doc_list", json!({}));
+    assert_eq!(list["documents"].as_array().unwrap().len(), 2, "the envelope and the first copy only: {list}");
+
+    // A write that fails (the destination's parent is a file) closes the extracted copy: the
+    // tool errors without leaving an unannounced document behind.
+    let e = a.call("doc_extract_original", &json!({ "doc": env, "out": "a.pdf/inner.pdf" })).unwrap_err();
+    assert!(e.to_string().contains("a.pdf"), "says where the writing stopped: {e}");
+    let list = ok(&mut a, "doc_list", json!({}));
+    assert_eq!(list["documents"].as_array().unwrap().len(), 2, "the failed write left no copy behind: {list}");
+}
+
+#[test]
+fn doc_save_of_an_envelope_document_writes_the_envelope() {
+    let dir = envelope_dir("envelope-save", &["cades-envelope.pdf.p7m"]);
+    let mut a = auto(&dir);
+    let env = ok(&mut a, "doc_open", json!({ "path": "cades-envelope.pdf.p7m" }))["doc"].as_u64().unwrap();
+    let fixture = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sign/tests/data/cades-envelope.pdf.p7m")).unwrap();
+
+    // Saving the read-only document — even straight over the source `.p7m` — writes the
+    // signed envelope, never the unsigned PDF inside it.
+    let saved = ok(&mut a, "doc_save", json!({ "doc": env, "path": "cades-envelope.pdf.p7m", "full": false }));
+    assert_eq!(saved["bytes"].as_u64(), Some(fixture.len() as u64), "{saved}");
+    assert_eq!(std::fs::read(dir.join("cades-envelope.pdf.p7m")).unwrap(), fixture, "the signed envelope, byte-identical");
+    assert_ne!(std::fs::read(dir.join("cades-envelope.pdf.p7m")).unwrap(), openssl_signed_pdf(), "never the unsigned PDF inside");
 }
 
 #[test]
