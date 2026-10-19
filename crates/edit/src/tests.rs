@@ -55,6 +55,96 @@ fn cx() -> Context {
 }
 
 #[test]
+fn added_unicode_font_roundtrip_keeps_program_text_and_editability() {
+    let mut fonts = vec![None, Some(Arc::new(pdfcraft_fonts::INTER_REGULAR.to_vec()))];
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_OTF_FONT") {
+        fonts.push(Some(Arc::new(std::fs::read(path).unwrap())));
+    }
+    for font in fonts {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: "Привет, мир! Ελληνικά e\u{301} office".into(),
+            rect: [20.0, 100.0, 580.0, 300.0],
+            size: 16.0,
+            font,
+            ..AddedText::default()
+        };
+        assert_eq!(first_undrawable(&t), None);
+        add_content(&mut doc, 1, &Content::Text(t.clone())).unwrap();
+        for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+            let mut reopened = Document::open(Arc::new(bytes)).unwrap();
+            let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+            assert_eq!(saved.text, t.text);
+            assert_eq!(saved.font.as_deref().unwrap().as_slice(), t.font_bytes().unwrap());
+            assert!(text::text_lines(&reopened, 1).unwrap().iter().any(|l| l.text == t.text));
+            let updated = AddedText { text: "До свидания!".into(), ..saved };
+            update_content(&mut reopened, 1, 0, &Content::Text(updated.clone())).unwrap();
+            let reopened = reopen(&reopened);
+            assert!(text::text_lines(&reopened, 1).unwrap().iter().any(|l| l.text == updated.text));
+        }
+    }
+}
+
+#[test]
+fn added_document_font_errors_do_not_mutate_or_substitute() {
+    let mut doc = fixture();
+    let t = AddedText {
+        text: "Привет".into(),
+        rect: [20.0, 100.0, 400.0, 300.0],
+        font: Some(Arc::new(pdfcraft_fonts::INTER_REGULAR.to_vec())),
+        ..AddedText::default()
+    };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let saved = write_incremental(&doc, &SaveOptions::default()).unwrap();
+    for bad in [AddedText { text: "日本語".into(), ..t.clone() }, AddedText { font: Some(Arc::new(vec![0; 12])), ..t.clone() }] {
+        assert!(update_content(&mut doc, 0, 0, &Content::Text(bad)).is_err());
+        assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), saved);
+    }
+    let oversized_cluster = AddedText { text: format!("First row\ne{}", "\u{301}".repeat(2200)), ..t.clone() };
+    assert!(update_content(&mut doc, 0, 0, &Content::Text(oversized_cluster)).is_err());
+    assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), saved, "a later embedding failure must roll back earlier rows");
+    // Simulate an unavailable program in a damaged saved item.
+    let item = list_added(&doc).remove(0);
+    let Object::Stream(mut stream) = doc.get(item.obj).as_ref().clone() else { panic!() };
+    let mut params = stream.dict.get(b"PCAdded").unwrap().as_dict().unwrap().clone();
+    params.set(b"CustomFont".to_vec(), Object::Null);
+    stream.dict.set(b"PCAdded".to_vec(), Object::Dict(params));
+    doc.set(item.obj, Object::Stream(stream));
+    let item = list_added(&doc).remove(0);
+    let Content::Text(missing) = item.content else { panic!() };
+    assert!(missing.font.is_some());
+    assert!(update_content(&mut doc, 0, 0, &Content::Text(missing)).is_err());
+}
+
+#[test]
+fn added_custom_thai_font_shapes_marks_and_keeps_logical_clusters() {
+    // Font programs remain optional external inputs, never committed fixtures (AGENTS §1.4).
+    let bytes = std::env::var_os("PDFCRAFT_TEST_THAI_FONT")
+        .map(|p| std::fs::read(p).unwrap())
+        .or_else(|| pdfcraft_fonts::document_thai_font().filter(|f| pdfcraft_fonts::embedding::validate(f.bytes).is_ok()).map(|f| f.bytes.to_vec()));
+    let Some(bytes) = bytes else { return };
+    pdfcraft_fonts::embedding::validate_document_input(&bytes).unwrap();
+    let mut doc = fixture();
+    let t = AddedText {
+        text: "Hello กิ่ น้ำ ผู้ใช้ ปู่ ๑๒๓".into(),
+        rect: [20.0, 100.0, 580.0, 300.0],
+        size: 24.0,
+        font: Some(Arc::new(bytes.clone())),
+        ..AddedText::default()
+    };
+    assert_eq!(first_undrawable(&t), None);
+    let shaped = pdfcraft_fonts::source_shaping::shape(&bytes, &t.text).unwrap();
+    assert!(shaped.glyphs.iter().any(|g| g.position[1] != 0.0 || g.text.chars().count() > 1));
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let doc = reopen(&doc);
+    assert!(text::text_lines(&doc, 0).unwrap().iter().any(|l| l.text == t.text));
+    let narrow = AddedText { text: "กิ่กิ่กิ่".into(), rect: [0.0, 0.0, 24.0, 200.0], ..t };
+    let rows = super::added::lines(&narrow);
+    assert_eq!(rows.concat(), narrow.text);
+    assert!(rows.iter().all(|s| s.starts_with('ก')));
+}
+
+#[test]
 fn tokens_expand() {
     let c = cx();
     assert_eq!(expand("Page <<1>> of <<n>>", 3, 10, 0, &c), "Page 3 of 10");

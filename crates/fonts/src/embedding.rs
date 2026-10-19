@@ -1,4 +1,4 @@
-//! Unicode embedding of an explicitly supplied, embeddable TrueType face. Font files are
+//! Unicode embedding of an explicitly supplied, embeddable TrueType/OpenType-CFF face. Font files are
 //! document inputs or the optional craft-fonts build input, never system-interface fallbacks.
 
 use std::fmt::Write as _;
@@ -59,11 +59,18 @@ pub fn validate_document_input(bytes: &[u8]) -> Result<(), String> {
         return Err("Adobe-authored font assets are excluded by the project's asset policy".into());
     }
     let license: String = f.localized_strings(StringId::LICENSE_DESCRIPTION).map(|s| s.to_string()).collect();
+    // User-selected document input can declare a font-embedding exception (e.g. TH Sarabun
+    // New). This does not add the font to the application's shipped/build-input assets.
+    let font_exception = license.contains("GNU General Public License")
+        && license.contains("As a special exception")
+        && license.contains("embed this font")
+        && license.contains("does not by itself cause the resulting document");
     if !["SIL OPEN FONT", "SIL Open Font", "Apache License", "Ubuntu Font Licence", "Bitstream Vera", "MIT License"]
         .iter()
         .any(|l| license.contains(l))
+        && !font_exception
     {
-        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera or MIT)".into());
+        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera, MIT or GPL with a font-embedding exception)".into());
     }
     Ok(())
 }
@@ -98,6 +105,23 @@ pub fn validate(bytes: &[u8]) -> Result<(), String> {
 
 fn stream(doc: &mut Document, bytes: Vec<u8>) -> Object {
     Object::Ref(doc.add(Object::Stream(Stream::from_raw(Dict::new(), bytes))))
+}
+
+fn cid_system(ordering: &str) -> Dict {
+    let mut system = Dict::new();
+    system.set(b"Registry".to_vec(), Object::String(PdfString::literal(b"Adobe".to_vec())));
+    system.set(b"Ordering".to_vec(), Object::String(PdfString::literal(ordering.as_bytes().to_vec())));
+    system.set(b"Supplement".to_vec(), Object::Int(0));
+    system
+}
+
+/// ISO 32000 CMap stream metadata must agree with the CMap program and descendant font.
+fn cmap_stream(doc: &mut Document, bytes: Vec<u8>, name: &str, ordering: &str) -> Object {
+    let mut dict = Dict::new();
+    dict.set(b"Type".to_vec(), Object::name("CMap"));
+    dict.set(b"CMapName".to_vec(), Object::name(name));
+    dict.set(b"CIDSystemInfo".to_vec(), Object::Dict(cid_system(ordering)));
+    Object::Ref(doc.add(Object::Stream(Stream::from_raw(dict, bytes))))
 }
 
 /// Embed the complete font once and provide separate CIDs for Unicode aliases. /ToUnicode,
@@ -135,13 +159,13 @@ pub fn embed_mapping(
     let scale = 1000.0 / f64::from(m.units_per_em);
     let advances = font.glyph_metrics(Size::unscaled(), loc);
     let mut cid_encoding = String::from(
-        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CMapName /PCGlyphs def\n/CMapType 1 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def\n/CMapName /PCGlyphs def\n/CMapType 1 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
     );
     let mut cff_widths = std::collections::BTreeMap::new();
     let mut gids = vec![0, 0];
     let mut widths = Vec::with_capacity(mappings.len());
     let mut cmap = String::from(
-        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CMapName /PCUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PCUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n",
     );
     for (chunk_index, chunk) in mappings.chunks(100).enumerate() {
         let _ = writeln!(cmap, "{} beginbfchar", chunk.len());
@@ -210,15 +234,11 @@ pub fn embed_mapping(
     });
     descriptor.set(if cff { b"FontFile3".to_vec() } else { b"FontFile2".to_vec() }, program);
     let desc = Object::Ref(doc.add(Object::Dict(descriptor)));
-    let mut system = Dict::new();
-    system.set(b"Registry".to_vec(), Object::String(PdfString::literal(b"Adobe".to_vec())));
-    system.set(b"Ordering".to_vec(), Object::String(PdfString::literal(b"Identity".to_vec())));
-    system.set(b"Supplement".to_vec(), Object::Int(0));
     let mut cid = Dict::new();
     cid.set(b"Type".to_vec(), Object::name("Font"));
     cid.set(b"Subtype".to_vec(), Object::name(if cff { "CIDFontType0" } else { "CIDFontType2" }));
     cid.set(b"BaseFont".to_vec(), Object::name(&name));
-    cid.set(b"CIDSystemInfo".to_vec(), Object::Dict(system));
+    cid.set(b"CIDSystemInfo".to_vec(), Object::Dict(cid_system("Identity")));
     cid.set(b"FontDescriptor".to_vec(), desc);
     if cff {
         cid.set(
@@ -234,9 +254,9 @@ pub fn embed_mapping(
     top.set(b"Type".to_vec(), Object::name("Font"));
     top.set(b"Subtype".to_vec(), Object::name("Type0"));
     top.set(b"BaseFont".to_vec(), Object::name(&name));
-    top.set(b"Encoding".to_vec(), if cff { stream(doc, cid_encoding.into_bytes()) } else { Object::name("Identity-H") });
+    top.set(b"Encoding".to_vec(), if cff { cmap_stream(doc, cid_encoding.into_bytes(), "PCGlyphs", "Identity") } else { Object::name("Identity-H") });
     top.set(b"DescendantFonts".to_vec(), Object::Array(vec![descendant]));
-    top.set(b"ToUnicode".to_vec(), stream(doc, cmap.into_bytes()));
+    top.set(b"ToUnicode".to_vec(), cmap_stream(doc, cmap.into_bytes(), "PCUnicode", "UCS"));
     let mut index = 0usize;
     while fonts.contains(format!("PCFull{index}").as_bytes()) {
         index = index.saturating_add(1);
@@ -315,6 +335,11 @@ mod tests {
         let mut fonts = Dict::new();
         let name = embed(&mut doc, &mut fonts, bytes, "Inter").unwrap();
         let font = doc.dict(fonts.get(name.as_bytes()).unwrap()).unwrap();
+        let unicode = doc.resolve(font.get(b"ToUnicode").unwrap());
+        let Object::Stream(unicode) = unicode.as_ref() else { panic!() };
+        assert_eq!(unicode.dict.name(b"Type"), Some(b"CMap".as_slice()));
+        assert_eq!(unicode.dict.name(b"CMapName"), Some(b"PCUnicode".as_slice()));
+        assert!(unicode.dict.get(b"CIDSystemInfo").is_some());
         let m = Metrics::from_dict(&doc, &font);
         let text = "Aé ΩЖ €";
         let codes = m.encode(text).unwrap();
@@ -337,6 +362,27 @@ mod tests {
         embed(&mut doc, &mut second, bytes, "Inter").unwrap();
         assert_eq!(doc.scan_objects().filter(|(_, o)| matches!(o.as_ref(), Object::Stream(s) if s.dict.get(b"PCFullFont").is_some())).count(), 1);
         assert_eq!(face_key("ABCDEF+Droid-Sans-Fallback"), face_key("Droid Sans Fallback"));
+    }
+
+    #[test]
+    fn cff_encoding_cmap_declares_its_character_collection() {
+        let Some(path) = std::env::var_os("PDFCRAFT_TEST_OTF_FONT") else { return };
+        let bytes = std::fs::read(path).unwrap();
+        let (_, family) = names(&bytes).unwrap();
+        let mut doc = Document::new_empty();
+        let mut fonts = Dict::new();
+        let resource = embed(&mut doc, &mut fonts, &bytes, &family).unwrap();
+        let font = doc.dict(fonts.get(resource.as_bytes()).unwrap()).unwrap();
+        let encoding = doc.resolve(font.get(b"Encoding").unwrap());
+        let Object::Stream(encoding) = encoding.as_ref() else { panic!("select an OpenType CFF test face") };
+        assert_eq!(encoding.dict.name(b"Type"), Some(b"CMap".as_slice()));
+        assert_eq!(encoding.dict.name(b"CMapName"), Some(b"PCGlyphs".as_slice()));
+        assert_eq!(encoding.dict.get(b"CIDSystemInfo"), Some(&Object::Dict(cid_system("Identity"))));
+        let program = String::from_utf8(encoding.decoded().unwrap()).unwrap();
+        assert!(program.contains("/CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> def"));
+        let metrics = Metrics::from_dict(&doc, &font);
+        let text = "Привет Ελληνικά";
+        assert_eq!(metrics.decode(&metrics.encode(text).unwrap()), text);
     }
 
     #[test]

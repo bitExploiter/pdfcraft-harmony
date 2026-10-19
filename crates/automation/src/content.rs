@@ -65,6 +65,24 @@ fn style(a: &Args, t: &mut AddedText) -> Result<()> {
 }
 
 impl Automation {
+    fn added_font(&self, a: &Args, page: usize, t: &mut AddedText) -> Result<()> {
+        if let Some(resource) = a.opt_str("font_resource")? {
+            if a.get("font").is_some() {
+                return Err(bad("choose font or font_resource, not both"));
+            }
+            let font = self
+                .doc(a)?
+                .text_editor_fonts(page)
+                .into_iter()
+                .find(|f| f.resource == resource)
+                .ok_or_else(|| bad("font_resource is missing on this page; use text_font_import or text_fonts"))?;
+            t.font = Some(std::sync::Arc::new(font.bytes));
+        } else if a.get("font").is_some() {
+            t.font = None;
+        }
+        Ok(())
+    }
+
     pub(crate) fn content_list(&self, a: &Args) -> Result<Value> {
         let doc = self.doc(a)?;
         let mut per_page: std::collections::HashMap<usize, usize> = Default::default();
@@ -81,7 +99,7 @@ impl Automation {
                     AddedContent::Text(t) => {
                         v["type"] = json!("text");
                         v["text"] = json!(t.text);
-                        v["font"] = json!(t.family.label());
+                        v["font"] = json!(t.font_label());
                         v["size"] = json!(t.size);
                         v["bold"] = json!(t.bold);
                         v["italic"] = json!(t.italic);
@@ -109,6 +127,7 @@ impl Automation {
         };
         let mut t = AddedText { rect, text: a.str("text")?.to_string(), ..AddedText::default() };
         style(a, &mut t)?;
+        self.added_font(a, page, &mut t)?;
         let mut out = self.apply(a, Edit::AddText { page, text: t })?;
         out["index"] = json!(self.doc(a)?.added().iter().filter(|x| x.page == page).count());
         Ok(out)
@@ -156,6 +175,7 @@ impl Automation {
                     t.text = s.to_string();
                 }
                 style(a, t)?;
+                self.added_font(a, page, t)?;
                 if ["rotate", "flip_h", "flip_v", "crop", "image"].iter().any(|k| a.get(k).is_some()) {
                     return Err(bad("rotate, flip, crop and image apply to images"));
                 }
@@ -164,7 +184,7 @@ impl Automation {
                 if a.get("text").is_some() {
                     return Err(bad("images have no text"));
                 }
-                if ["font", "size", "bold", "italic", "color", "align"].iter().any(|k| a.get(k).is_some()) {
+                if ["font", "font_resource", "size", "bold", "italic", "color", "align"].iter().any(|k| a.get(k).is_some()) {
                     return Err(bad("font, size, bold, italic, color and align apply to text"));
                 }
                 if let Some(deg) = a.opt_int("rotate")? {

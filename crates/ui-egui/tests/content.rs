@@ -77,6 +77,81 @@ fn texts(h: &Harness<'static, PdfCraftApp>) -> Vec<String> {
 }
 
 #[test]
+fn add_text_accepts_cyrillic_and_selected_font_survives_reopen() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let p = at(&h, 40.0, 60.0);
+    click(&mut h, p);
+    h.event(egui::Event::Text("Привет, мир!".into()));
+    h.run_steps(3);
+    h.get_by_label("Done adding text").click();
+    h.run_steps(4);
+    assert_eq!(texts(&h), ["Привет, мир!"]);
+    let state = h.state();
+    let bytes = state.session.save_bytes(state.views[0].id).unwrap();
+    let mut reopened = pdfcraft_engine::Session::new();
+    let id = reopened.open("again.pdf", None, bytes, None).unwrap();
+    let pdfcraft_engine::AddedContent::Text(text) = &reopened.get(id).unwrap().added()[0].content else { panic!() };
+    assert_eq!(text.text, "Привет, мир!");
+    assert_eq!(text.font.as_deref().unwrap().as_slice(), pdfcraft_fonts::INTER_REGULAR);
+}
+
+#[test]
+fn choosing_a_document_font_keeps_the_add_text_draft_open() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let p = at(&h, 40.0, 60.0);
+    click(&mut h, p);
+    h.event(egui::Event::Text("Draft".into()));
+    h.run_steps(3);
+    h.get_by(|n| n.role() == egui::accesskit::Role::ComboBox && n.value().as_deref() == Some("Helvetica")).click();
+    h.run_steps(2);
+    h.get_by_label("Inter").click();
+    h.run_steps(3);
+    let draft = h.state().views[0].content.draft.as_ref().expect("formatting keeps the editor open");
+    assert_eq!(draft.text, "Draft");
+    assert_eq!(draft.style.font.as_deref().unwrap().as_slice(), pdfcraft_fonts::INTER_REGULAR);
+    assert!(texts(&h).is_empty());
+    h.event(egui::Event::Text(" Привет".into()));
+    h.run_steps(3);
+    if let Ok(dir) = std::env::var("PDFCRAFT_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/add-text-custom-font.png")).unwrap();
+    }
+    h.get_by_label("Done adding text").click();
+    h.run_steps(3);
+    assert_eq!(texts(&h), ["Draft Привет"]);
+}
+
+#[test]
+fn typing_with_a_custom_thai_font_keeps_marks_and_saves_the_face() {
+    let Some(path) = std::env::var_os("PDFCRAFT_TEST_THAI_FONT") else { return };
+    let bytes = std::fs::read(path).unwrap();
+    let mut h = harness();
+    h.state_mut().text_style.font = Some(std::sync::Arc::new(bytes.clone()));
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let p = at(&h, 40.0, 60.0);
+    click(&mut h, p);
+    let text = "สวัสดี น้ำ ผู้ใช้ ปู่ ๑๒๓";
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(4);
+    if let Ok(dir) = std::env::var("PDFCRAFT_SHOTS") {
+        h.render().unwrap().save(format!("{dir}/add-text-custom-thai.png")).unwrap();
+    }
+    h.get_by_label("Done adding text").click();
+    h.run_steps(4);
+    assert_eq!(texts(&h), [text]);
+    let state = h.state();
+    let saved = state.session.save_bytes(state.views[0].id).unwrap();
+    let mut reopened = pdfcraft_engine::Session::new();
+    let id = reopened.open("again.pdf", None, saved, None).unwrap();
+    let pdfcraft_engine::AddedContent::Text(text) = &reopened.get(id).unwrap().added()[0].content else { panic!() };
+    assert_eq!(text.font.as_deref().unwrap(), &bytes);
+}
+
+#[test]
 fn text_tool_drafts_grow_for_latin_and_arabic() {
     for text in ["Wide words ".repeat(8), "سلام عليكم ".repeat(8)] {
         let mut h = harness();

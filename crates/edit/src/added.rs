@@ -19,6 +19,30 @@ use unicode_bidi::{Level, ParagraphBidiInfo};
 use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, place_tagged};
 
 const TAG: &str = "Added";
+mod font;
+
+/// The selected document program, or the bundled Unicode face when the standard encoding
+/// cannot represent the text. Coverage, rather than a language list, chooses that fallback.
+fn selected_font(t: &AddedText) -> Option<&[u8]> {
+    t.font.as_deref().map(Vec::as_slice).or_else(|| {
+        (!t.text.contains('\r')
+            && t.text.split('\n').any(|s| pdfcraft_fonts::first_non_win_ansi(s).is_some())
+            && pdfcraft_fonts::embedding::covers(pdfcraft_fonts::INTER_REGULAR, &t.text))
+        .then_some(pdfcraft_fonts::INTER_REGULAR)
+    })
+}
+
+impl AddedText {
+    pub fn font_bytes(&self) -> Option<&[u8]> {
+        selected_font(self)
+    }
+
+    pub fn font_label(&self) -> String {
+        selected_font(self)
+            .map(|b| pdfcraft_fonts::embedding::names(b).map(|(_, n)| n).unwrap_or_else(|_| "Missing document font".into()))
+            .unwrap_or_else(|| self.family.label().into())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Family {
@@ -111,6 +135,9 @@ pub struct AddedText {
     pub rect: [f64; 4],
     pub text: String,
     pub family: Family,
+    /// Explicit static TTF/OTF document face. Its complete program is embedded and retained
+    /// when the item is reopened; never an interface/system fallback or a filesystem path.
+    pub font: Option<std::sync::Arc<Vec<u8>>>,
     pub bold: bool,
     pub italic: bool,
     pub size: f64,
@@ -124,6 +151,7 @@ impl Default for AddedText {
             rect: [0.0; 4],
             text: String::new(),
             family: Family::Helvetica,
+            font: None,
             bold: false,
             italic: false,
             size: 12.0,
@@ -238,6 +266,11 @@ pub fn lines(t: &AddedText) -> Vec<String> {
 /// [`lines`], each with whether its paragraph runs right to left (its first strong character
 /// does).
 fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
+    if let Some(bytes) = selected_font(t) {
+        return font::layout(t, bytes)
+            .map(|rows| rows.into_iter().map(|r| (r.text, r.rtl)).collect())
+            .unwrap_or_else(|_| t.text.split('\n').map(|s| (s.to_string(), false)).collect());
+    }
     let width = (t.rect[2] - t.rect[0]).max(t.size);
     let mut out = Vec::new();
     for para in t.text.split('\n') {
@@ -327,6 +360,12 @@ fn is_hebrew(c: char) -> bool {
 /// draw (or that has no face to draw it). Page-content tools refuse such text; the Add-text editor
 /// keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
+    if let Some(bytes) = selected_font(t) {
+        if font::layout(t, bytes).is_ok() {
+            return None;
+        }
+        return t.text.chars().find(|c| !pdfcraft_fonts::embedding::covers(bytes, &c.to_string())).or_else(|| t.text.chars().next());
+    }
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
             return Some(c);
@@ -503,6 +542,14 @@ pub fn text_rect(t: &AddedText) -> [f64; 4] {
 
 /// The widest explicit line before wrapping, measured with the PDF writing fonts.
 pub fn text_width(t: &AddedText) -> f64 {
+    if let Some(bytes) = selected_font(t) {
+        return t
+            .text
+            .split('\n')
+            .filter_map(|s| pdfcraft_fonts::source_shaping::shape(bytes, s).ok())
+            .map(|r| r.advance * t.size)
+            .fold(0.0, f64::max);
+    }
     t.text.split('\n').map(|line| shaped_width(t, line, unicode_bidi::get_base_direction(line) == unicode_bidi::Direction::Rtl)).fold(0.0, f64::max)
 }
 
@@ -755,6 +802,12 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
     .into_bytes();
     match c {
         Content::Text(t) => {
+            if let Some(bytes) = selected_font(t) {
+                let fonts = font::draw(doc, t, bytes, taken, &mut out)?;
+                res.set(b"Font".to_vec(), Object::Dict(fonts));
+                out.extend_from_slice(b"Q\n");
+                return Ok((out, res));
+            }
             let base = t.family.base_font(t.bold, t.italic);
             let name = font_name(base);
             let mut font = Dict::new();
@@ -886,6 +939,11 @@ fn parse(doc: &Document, d: &Dict) -> Option<Content> {
                 rect,
                 text: d.get(b"Text").and_then(|t| doc.resolve(t).as_string().map(|s| s.to_text())).unwrap_or_default(),
                 family,
+                // A missing/corrupt saved program stays explicit: editing must report the
+                // missing font rather than silently switching to a standard face.
+                font: d
+                    .get(b"CustomFont")
+                    .map(|f| std::sync::Arc::new(doc.dict(f).and_then(|f| pdfcraft_fonts::pdf::embedded_sfnt(doc, &f)).unwrap_or_default())),
                 bold,
                 italic,
                 size: d.get(b"Size").and_then(Object::as_f64).unwrap_or(12.0),
@@ -999,6 +1057,11 @@ fn validate(c: &Content) -> Result<(), EditError> {
             if (r[2] - r[0]).abs() < 1.0 {
                 return Err(EditError::Invalid("the text box is too narrow".into()));
             }
+            if let Some(bytes) = selected_font(t) {
+                pdfcraft_fonts::embedding::validate(bytes).map_err(EditError::Invalid)?;
+                font::layout(t, bytes)?;
+                return Ok(());
+            }
             if t.text.chars().any(is_thai) && pdfcraft_fonts::document_thai_font().is_none() {
                 return Err(thai_error(GlyphError::NoFont, &t.text));
             }
@@ -1028,6 +1091,19 @@ fn validate(c: &Content) -> Result<(), EditError> {
 
 /// Write an item's stream (new, or replacing `obj`) and make its resources available to the page.
 fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
+    if matches!(c, Content::Text(t) if selected_font(t).is_some()) {
+        // Embedding and appending page content form one edit. Work on the cheap COS
+        // copy-on-write snapshot so direct crate callers also get an atomic failure.
+        let mut staged = doc.clone();
+        let result = write_item(&mut staged, page, c, obj)?;
+        *doc = staged;
+        Ok(result)
+    } else {
+        write_item(doc, page, c, obj)
+    }
+}
+
+fn write_item(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
     validate(c)?;
     let all = page_list(doc);
     check(&[page], all.len())?;
@@ -1053,6 +1129,13 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
     let mut sd = Dict::new();
     sd.set(b"PCMark".to_vec(), Object::name(TAG));
     let mut added = params(c);
+    if let Content::Text(t) = c
+        && selected_font(t).is_some()
+        && let Some(fonts) = res.get(b"Font").and_then(Object::as_dict)
+        && let Some((_, face)) = fonts.iter().next()
+    {
+        added.set(b"CustomFont".to_vec(), face.clone());
+    }
     if user_unit != 1.0 {
         added.set(b"UserUnit".to_vec(), Object::Real(user_unit));
     }

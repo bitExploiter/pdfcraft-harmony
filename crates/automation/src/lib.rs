@@ -583,13 +583,9 @@ impl Automation {
                 if bytes.len() > 16 << 20 {
                     return Err(ToolError::InvalidArgs("font input exceeds 16 MiB".into()));
                 }
-                let before: Vec<_> = self.doc(&a)?.text_editor_fonts(page).into_iter().map(|f| f.resource).collect();
-                let mut out = self.apply(&a, Edit::RegisterTextFont { page, bytes: Arc::new(bytes) })?;
-                let added = self
-                    .doc(&a)?
-                    .text_editor_fonts(page)
-                    .into_iter()
-                    .find(|f| !before.contains(&f.resource) && !f.resource.starts_with("PCApproved"));
+                let bytes = Arc::new(bytes);
+                let mut out = self.apply(&a, Edit::RegisterTextFont { page, bytes: bytes.clone() })?;
+                let added = self.doc(&a)?.text_editor_fonts(page).into_iter().find(|f| f.bytes == *bytes && !f.resource.starts_with("PCApproved"));
                 if let Some(f) = added {
                     out["resource"] = json!(f.resource);
                     out["font"] = json!(f.face);

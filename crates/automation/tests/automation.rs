@@ -6112,6 +6112,64 @@ fn thai_text_through_tools_saves_reopens_extracts_and_renders() {
 }
 
 #[test]
+fn added_unicode_document_fonts_through_tools() {
+    let dir = workdir("added-unicode-font");
+    let mut cases = vec![(None, "Привет, мир!", "До свидания!")];
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_THAI_FONT") {
+        cases.push((Some(std::fs::read(path).unwrap()), "Hello น้ำ ผู้ใช้ ปู่", "แก้ไข น้ำ"));
+    }
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_OTF_FONT") {
+        cases.push((Some(std::fs::read(path).unwrap()), "Привет office Ελληνικά", "Unicode CFF Привет"));
+    }
+    for (case, (bytes, text, replacement)) in cases.into_iter().enumerate() {
+        let mut a = auto(&dir);
+        let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+        let mut args = json!({"doc":doc,"page":1,"text":text,"at":[10,20],"width":180,"size":10});
+        if let Some(bytes) = bytes {
+            std::fs::write(dir.join("input.ttf"), bytes).unwrap();
+            let imported = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+            let again = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+            assert_eq!(again["resource"], imported["resource"]);
+            args["font_resource"] = imported["resource"].clone();
+            assert!(args["font_resource"].is_string());
+        }
+        ok(&mut a, "page_add_text", args);
+        assert!(page_text(&mut a, doc)[0].contains(text));
+        assert_eq!(ok(&mut a, "text_find", json!({"doc":doc,"query":text}))["count"], 1);
+        let saved_name = format!("unicode-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":doc,"path":saved_name}));
+        if dir.join("input.ttf").exists() {
+            std::fs::remove_file(dir.join("input.ttf")).unwrap();
+        }
+        let reopened = ok(&mut a, "doc_open", json!({"path":saved_name}))["doc"].as_u64().unwrap();
+        assert!(page_text(&mut a, reopened)[0].contains(text));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        let rendered = a.call("page_render", &json!({"doc":reopened,"page":1,"dpi":144})).unwrap();
+        assert!(rendered.iter().any(|c| matches!(c, Content::Png { data, width, height } if !data.is_empty() && *width>0 && *height>0)));
+        for content in &rendered {
+            if let Content::Png { data, .. } = content {
+                let image = image::load_from_memory(data).unwrap().to_rgba8();
+                let ink = image
+                    .enumerate_pixels()
+                    .filter(|(x, y, p)| *x < 380 && (35..80).contains(y) && p.0[0] < 160 && p.0[1] < 160 && p.0[2] < 160 && p.0[3] > 0)
+                    .count();
+                assert!(ink > 20, "the added text must paint visible ink in the otherwise blank top of the page");
+                std::fs::write(dir.join(format!("render-{case}.png")), data).unwrap();
+            }
+        }
+        ok(&mut a, "content_update", json!({"doc":reopened,"page":1,"index":1,"text":replacement}));
+        assert!(page_text(&mut a, reopened)[0].contains(replacement));
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert!(page_text(&mut a, reopened)[0].contains(text));
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert!(page_text(&mut a, reopened)[0].contains(replacement));
+        let before = ok(&mut a, "content_list", json!({"doc":reopened}));
+        assert!(a.call("content_update", &json!({"doc":reopened,"page":1,"index":1,"font_resource":"missing"})).is_err());
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened})), before);
+    }
+}
+
+#[test]
 fn hebrew_text_through_tools_saves_reopens_extracts_and_renders() {
     let dir = workdir("hebrew-content");
     let mut a = auto(&dir);

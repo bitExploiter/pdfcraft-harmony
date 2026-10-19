@@ -526,7 +526,7 @@ pub fn tools() -> Vec<ToolDef> {
         t(
             "page_add_text",
             "Add text to a page",
-            "Add text as page content (not a comment). Place it with at [x, y] (top-left, points from the top-left of the displayed page) and width (wrap width, default 200), or rect. Newlines start new lines; long lines wrap. Style: font helvetica/times/courier, size, bold, italic, color (#RRGGBB or a name), align left/center/right. Text must be Western European (WinAnsi) characters, or Arabic, Hebrew or Thai when the build has their craft-fonts faces (drawn right to left where the text is); others are refused. It stays editable with content_update. Undoable.",
+            "Add text as page content (not a comment). Place it with at [x, y] (top-left, points from the top-left of the displayed page) and width (wrap width, default 200), or rect. Newlines start new lines; long lines wrap. Style: font helvetica/times/courier, size, bold, italic, color (#RRGGBB or a name), align left/center/right. Use font_resource from text_font_import/text_fonts for a complete TTF/OTF face with Unicode, OpenType shaping and bidi. The font is embedded for offline reopening, search and copy. Without an explicit face, supported Unicode text uses bundled Inter; existing script fallbacks remain available. Missing glyphs are refused. It stays editable with content_update. Undoable.",
         )
         .cmd("edit.text")
         .with(schema(
@@ -535,6 +535,7 @@ pub fn tools() -> Vec<ToolDef> {
                 "at": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 },
                 "width": { "type": "number", "exclusiveMinimum": 0 },
                 "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
+                "font_resource": { "type": "string", "description": "Page font resource from text_font_import/text_fonts; mutually exclusive with font. The selected face supplies its own weight/style." },
                 "font": { "type": "string", "enum": ["helvetica", "times", "courier"] }, "size": { "type": "number", "minimum": 1, "maximum": 500 },
                 "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "color": { "type": "string" },
                 "align": { "type": "string", "enum": ["left", "center", "right", "justify"] },
@@ -551,11 +552,12 @@ pub fn tools() -> Vec<ToolDef> {
             json!({ "doc": doc(), "page": { "type": "integer", "minimum": 1 }, "path": { "type": "string" }, "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 } }),
             &["doc", "page", "path"],
         )),
-        t("content_update", "Edit added content", "Move/resize (rect), retype (text) or restyle (font, size, bold, italic, color, align) an added item (page, index from content_list). Images: rotate (degrees, multiple of 90, counter-clockwise), flip_h / flip_v (toggle), crop [left, bottom, right, top] as fractions trimmed, image (a file that replaces the picture). Undoable.")
+        t("content_update", "Edit added content", "Move/resize (rect), retype (text) or restyle (font or font_resource, size, bold, italic, color, align) an added item (page, index from content_list). Images: rotate (degrees, multiple of 90, counter-clockwise), flip_h / flip_v (toggle), crop [left, bottom, right, top] as fractions trimmed, image (a file that replaces the picture). Undoable.")
             .with(schema(
                 json!({
                     "doc": doc(), "page": { "type": "integer", "minimum": 1 }, "index": { "type": "integer", "minimum": 1 },
                     "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 }, "text": { "type": "string" },
+                    "font_resource": { "type": "string", "description": "Page font resource from text_font_import/text_fonts; mutually exclusive with font. The selected face supplies its own weight/style." },
                     "font": { "type": "string", "enum": ["helvetica", "times", "courier"] }, "size": { "type": "number", "minimum": 1, "maximum": 500 },
                     "bold": { "type": "boolean" }, "italic": { "type": "boolean" }, "color": { "type": "string" },
                     "align": { "type": "string", "enum": ["left", "center", "right", "justify"] },

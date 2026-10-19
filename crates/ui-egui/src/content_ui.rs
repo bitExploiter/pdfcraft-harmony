@@ -37,7 +37,7 @@ pub(crate) type UndrawableMemo = std::cell::RefCell<Option<(AddedText, Option<ch
 /// The warning shown for text with `c` in it.
 pub(crate) fn undrawable_message(c: char) -> String {
     crate::i18n::fmt(
-        tl!("The PDF text fonts can't draw “{c}” ({code}). Choose supported text."),
+        tl!("The PDF text fonts can't draw “{c}” ({code}). Load a font with the required glyphs."),
         &[("c", &c.to_string()), ("code", &format!("U+{:04X}", u32::from(c)))],
     )
 }
@@ -84,6 +84,7 @@ pub struct ContentView {
     pub draft: Option<TextDraft>,
     /// Select the item an add creates (the page's item count before it).
     pub select_added: Option<(usize, usize)>,
+    pub(crate) format_focus: bool,
     grab: Option<(usize, Grab, Pos2)>,
     undrawable: UndrawableMemo,
     layout: Option<(AddedText, f32, f64, [f64; 4])>,
@@ -234,6 +235,29 @@ impl MoveBackground {
 /// Text style for new text (the panel's Format controls set it).
 pub fn default_style() -> AddedText {
     AddedText { size: 12.0, ..AddedText::default() }
+}
+
+/// Keep the selected PDF face in its own editor family, never in the interface fallback stack.
+fn added_editor_font(ctx: &egui::Context, text: &AddedText, size: f32) -> egui::FontId {
+    let Some(bytes) = text.font_bytes().filter(|b| pdfcraft_fonts::embedding::validate(b).is_ok()) else {
+        return crate::edit_text_ui::editor_font(text, size);
+    };
+    let family = egui::FontFamily::Name("pdf-added-font".into());
+    let installed = ctx.fonts(|f| {
+        f.definitions().families.contains_key(&family) && f.definitions().font_data.get("pdf-added-font").is_some_and(|d| d.font.as_ref() == bytes)
+    });
+    if !installed {
+        let mut definitions = ctx.fonts(|f| f.definitions().clone());
+        let name = "pdf-added-font".to_string();
+        definitions.font_data.insert(name.clone(), std::sync::Arc::new(egui::FontData::from_owned(bytes.to_vec())));
+        definitions.families.insert(family.clone(), vec![name]);
+        ctx.set_fonts(definitions);
+        ctx.request_repaint();
+        // set_fonts takes effect at the next pass. A new named family would panic in
+        // epaint if used immediately. Theme/locale resets must also reinstall this face.
+        return crate::edit_text_ui::editor_font(text, size);
+    }
+    egui::FontId::new(size, family)
 }
 
 /// Display-space rect → screen.
@@ -489,12 +513,13 @@ pub(crate) fn after_refresh(view: &mut DocView, added: &[Added]) {
 /// committed (a click away, or Done), and whether Done finished adding text. Discard or Escape
 /// throws the draft away.
 pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, added: &[Added]) -> (Option<Edit>, bool) {
+    let format_focus = std::mem::take(&mut view.content.format_focus);
     let Some(page) = view.content.draft.as_ref().map(|d| d.page) else { return (None, false) };
     let Some(xf) = view.page_xform(page) else { return (None, false) };
     let zoom = xf.rect.width() / xf.pw.max(1.0);
     let Some(draft) = view.content.draft.as_mut() else { return (None, false) };
-    let font = crate::edit_text_ui::editor_font(&draft.style, (draft.style.size as f32 * zoom).clamp(1.0, 300.0));
     let text = AddedText { text: draft.text.clone(), ..draft.style.clone() };
+    let font = added_editor_font(ctx, &text, (draft.style.size as f32 * zoom).clamp(1.0, 300.0));
     let Some(page_width) = info.pages.get(page).map(|p| p.width as f64) else { return (None, false) };
     if let Some((key, z, width, rect)) = &view.content.layout
         && *key == text
@@ -504,7 +529,11 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
         draft.rect = *rect;
     } else {
         let source = draft.style.rect;
-        if draft.index.is_some() && draft.text == draft.style.text {
+        let unchanged = draft
+            .index
+            .and_then(|index| added.iter().filter(|a| a.page == page).nth(index))
+            .is_some_and(|a| matches!(&a.content, AddedContent::Text(old) if draft.text == old.text && draft.style == *old));
+        if unchanged {
             draft.rect = source;
         } else {
             let natural = ctx.fonts_mut(|f| f.layout_no_wrap(draft.text.clone(), font.clone(), Color32::BLACK).size().x) as f64 / zoom as f64;
@@ -565,9 +594,9 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             // Pressing a button takes the focus from the text: that is not a click away.
             let on_buttons = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| buttons.contains(p));
             cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
-            commit = done || resp.lost_focus() && !on_buttons && !view.objects.hold_editor;
+            commit = done || resp.lost_focus() && !on_buttons && !view.objects.hold_editor && !format_focus;
         });
-        // Page text is drawn with the standard fonts; anything else would be saved as `?` (#125).
+        // Keep the draft open when its selected PDF face cannot draw the text (#125).
         undrawable = self::undrawable(t, memo);
         if let Some(c) = undrawable {
             ui.label(egui::RichText::new(undrawable_message(c)).small().color(UNDRAWABLE));
@@ -607,13 +636,21 @@ fn finish(cv: &mut ContentView, d: TextDraft, added: &[Added]) -> Option<Edit> {
 
 /// Format text (shown in the Edit panel while a text item is selected, or for new text).
 /// Returns the changed style; for a selected item the caller turns it into an update.
-pub(crate) fn format_panel(ui: &mut egui::Ui, t: &Tokens, style: &AddedText) -> Option<AddedText> {
+pub(crate) fn format_panel(ui: &mut egui::Ui, t: &Tokens, style: &AddedText, fonts: &[(String, std::sync::Arc<Vec<u8>>)]) -> Option<AddedText> {
     let mut s = style.clone();
     widgets::section_title(ui, tl!("Format text"));
     ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("font-family").selected_text(s.family.label()).width(110.0).show_ui(ui, |ui| {
+        egui::ComboBox::from_id_salt("font-family").selected_text(s.font_label()).width(110.0).show_ui(ui, |ui| {
             for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                ui.selectable_value(&mut s.family, f, f.label());
+                if ui.selectable_label(s.font.is_none() && s.family == f, f.label()).clicked() {
+                    s.family = f;
+                    s.font = None;
+                }
+            }
+            for (name, bytes) in fonts {
+                if ui.selectable_label(s.font.as_ref() == Some(bytes), name).clicked() {
+                    s.font = Some(bytes.clone());
+                }
             }
         });
         // A list rather than a drag value: every change is an undo step.
@@ -624,10 +661,18 @@ pub(crate) fn format_panel(ui: &mut egui::Ui, t: &Tokens, style: &AddedText) -> 
         });
     });
     ui.horizontal(|ui| {
-        if ui.selectable_label(s.bold, egui::RichText::new("B").strong()).on_hover_text(tl!("Bold")).clicked() {
+        if ui
+            .add_enabled(s.font.is_none(), egui::Button::new(egui::RichText::new("B").strong()).selected(s.bold))
+            .on_hover_text(tl!("Bold"))
+            .clicked()
+        {
             s.bold = !s.bold;
         }
-        if ui.selectable_label(s.italic, egui::RichText::new("I").italics()).on_hover_text(tl!("Italic")).clicked() {
+        if ui
+            .add_enabled(s.font.is_none(), egui::Button::new(egui::RichText::new("I").italics()).selected(s.italic))
+            .on_hover_text(tl!("Italic"))
+            .clicked()
+        {
             s.italic = !s.italic;
         }
         ui.separator();
@@ -646,7 +691,9 @@ pub(crate) fn format_panel(ui: &mut egui::Ui, t: &Tokens, style: &AddedText) -> 
     if let Some(picked) = crate::comments::swatch_grid(ui, Some(c)) {
         s.color = picked;
     }
-    ui.label(egui::RichText::new(tl!("Thai and Arabic use regular fallback fonts when available.")).small().color(t.text_faint));
+    if s.font.is_none() {
+        ui.label(egui::RichText::new(tl!("Thai and Arabic use regular fallback fonts when available.")).small().color(t.text_faint));
+    }
     (s != *style).then_some(s)
 }
 
@@ -910,6 +957,48 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+
+    #[test]
+    fn unicode_editor_font_waits_for_the_font_atlas() {
+        let text = AddedText { text: "Привет".into(), ..Default::default() };
+        let mut h = egui_kittest::Harness::new_ui(move |ui| {
+            let font = added_editor_font(ui.ctx(), &text, 16.0);
+            ui.label(egui::RichText::new(&text.text).font(font));
+        });
+        h.run();
+        h.run();
+        assert!(h.ctx.fonts(|f| f.definitions().font_data.contains_key("pdf-added-font")));
+        h.ctx.set_fonts(egui::FontDefinitions::default());
+        h.run();
+        h.run();
+        assert!(h.ctx.fonts(|f| f.definitions().font_data.contains_key("pdf-added-font")));
+    }
+
+    #[test]
+    fn loading_a_font_updates_the_open_add_text_draft() {
+        let mut app = crate::PdfCraftApp::new();
+        app.open_bytes("form.pdf", None, include_bytes!("../tests/data/form.pdf").to_vec()).unwrap();
+        let (bytes, text) = std::env::var_os("PDFCRAFT_TEST_THAI_FONT")
+            .map(|p| (std::fs::read(p).unwrap(), "น้ำ ผู้ใช้"))
+            .unwrap_or_else(|| (pdfcraft_fonts::INTER_REGULAR.to_vec(), "Привет"));
+        app.views[0].content.draft =
+            Some(TextDraft { page: 0, index: None, rect: [20.0, 100.0, 250.0, 250.0], text: text.into(), style: AddedText::default(), focus: false });
+        app.use_files(crate::files::FilePurpose::AddedTextFont { page: 0 }, vec![("input.ttf".into(), bytes.clone())]);
+        let cv = &app.views[0].content;
+        assert_eq!(cv.draft.as_ref().unwrap().text, text);
+        assert_eq!(cv.draft.as_ref().unwrap().style.font.as_deref().unwrap(), &bytes);
+        assert_eq!(cv.blocked(), None);
+        let id = app.views[0].id;
+        let added = app.session.get(id).unwrap().added().to_vec();
+        let edit = app.views[0].content.finish_draft(&added).unwrap();
+        assert!(app.apply_edit(edit));
+        let saved = app.session.save_bytes(id).unwrap();
+        let mut reopened = pdfcraft_engine::Session::new();
+        let id = reopened.open("again.pdf", None, saved, None).unwrap();
+        let AddedContent::Text(t) = &reopened.get(id).unwrap().added()[0].content else { panic!() };
+        assert_eq!(t.text, text);
+        assert_eq!(t.font.as_deref().unwrap(), &bytes);
+    }
 
     /// The image a flip button leaves behind, as the panel returns it.
     fn flipped(tooltip: &str) -> pdfcraft_engine::AddedImage {
