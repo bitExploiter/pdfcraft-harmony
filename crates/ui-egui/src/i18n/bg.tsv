@@ -2478,3 +2478,7 @@ animation effects	Off	Изключени
 	field names can't contain a period: {name}	имената на полетата не може да съдържат точка: {name}
 	two cells would both be named {name}	две клетки биха имали едно и също име {name}
 	a field named {name} already exists	вече съществува поле с име {name}
+
+# Snap to drawing for the drawing tools (M5).
+	Snap to drawing: on	Прилепване към чертежа: включено
+	Snap to drawing: off	Прилепване към чертежа: изключено

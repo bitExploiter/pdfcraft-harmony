@@ -2521,3 +2521,7 @@ animation effects	Off	Ανενεργά
 	field names can't contain a period: {name}	τα ονόματα πεδίων δεν μπορούν να περιέχουν τελεία: {name}
 	two cells would both be named {name}	δύο κελιά θα είχαν το ίδιο όνομα {name}
 	a field named {name} already exists	υπάρχει ήδη πεδίο με όνομα {name}
+
+# Snap to drawing for the drawing tools (M5).
+	Snap to drawing: on	Προσκόλληση στο σχέδιο: ενεργή
+	Snap to drawing: off	Προσκόλληση στο σχέδιο: ανενεργή

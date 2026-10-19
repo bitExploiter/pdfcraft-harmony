@@ -13,7 +13,7 @@
 //! applied by the app, so each change is one undo step.
 
 use egui::{Color32, CornerRadius, Pos2, Rect, Sense, Stroke, pos2, vec2};
-use pdfcraft_engine::{Edit, LineEnding, Markup, NewAnnotation, NoteIcon, ReviewState, Rgb, Shape, Style};
+use pdfcraft_engine::{Document, Edit, LineEnding, Markup, NewAnnotation, NoteIcon, ReviewState, Rgb, Shape, Style, measure};
 use pdfcraft_render::{Annotation, DocInfo, PageInfo, PageText};
 
 use crate::canvas::{DocView, PageXform};
@@ -186,6 +186,12 @@ impl CommentTool {
         matches!(self, Self::Polygon | Self::PolyLine | Self::Cloud)
     }
 
+    /// Tools whose points snap to the page's drawing when snapping is on (M5): the ones that
+    /// set points or corners, not freehand drawing.
+    pub fn snaps(self) -> bool {
+        self.clicks_points() || matches!(self, Self::Line | Self::Arrow | Self::Rectangle | Self::Oval)
+    }
+
     /// Whether the line-thickness control applies.
     pub fn has_width(self) -> bool {
         self.draws() || self.clicks_points() || matches!(self, Self::TextBox | Self::Callout)
@@ -257,6 +263,10 @@ pub struct CommentPrefs {
     pub group_tool: [CommentTool; 3],
     /// Hide hover previews on highlight annotations when they contain no comment text beyond the author.
     pub hide_empty_highlight_hover: bool,
+    /// Snap to drawing (F3): points of the drawing tools land on the page's own vector paths
+    /// (endpoints, midpoints, intersections, paths), as the measuring tools do and as CAD's
+    /// object snap does.
+    pub snap: bool,
 }
 
 impl Default for CommentPrefs {
@@ -267,7 +277,43 @@ impl Default for CommentPrefs {
             pinned: false,
             group_tool: [CommentTool::Note, CommentTool::Highlight, CommentTool::Ink],
             hide_empty_highlight_hover: false,
+            snap: false,
         }
+    }
+}
+
+/// How close (screen points) the pointer must be to a path for a drawing tool's point to snap.
+pub const SNAP_SENSITIVITY: f64 = 6.0;
+
+/// The page's vector paths for snapping, kept per page and edit generation (extraction is
+/// bounded but not free), shared by every drawing tool.
+#[derive(Clone, Debug, Default)]
+pub struct SnapCache {
+    paths: Option<(usize, u64, Option<std::sync::Arc<measure::snap::Geometry>>)>,
+    warned: Option<(usize, u64)>,
+}
+
+impl SnapCache {
+    /// The paths of `page` as the document is now (`None` when the page can't be read). A page
+    /// whose extraction hit a limit says so once, through `notice`.
+    pub fn geometry(&mut self, doc: &Document, page: usize, notice: &mut Option<&'static str>) -> Option<std::sync::Arc<measure::snap::Geometry>> {
+        let generation = doc.edit_generation();
+        if self.paths.as_ref().is_none_or(|(p, g, _)| *p != page || *g != generation) {
+            let geometry = doc.measurement_paths(page).ok().map(std::sync::Arc::new);
+            if let Some(g) = &geometry
+                && (g.truncated || g.unreadable > 0)
+                && self.warned != Some((page, generation))
+            {
+                *notice = Some(if g.truncated {
+                    "This drawing exceeds the snapping limit; only the first paths are used."
+                } else {
+                    "Some page content couldn't be read; snapping uses the rest."
+                });
+                self.warned = Some((page, generation));
+            }
+            self.paths = Some((page, generation, geometry));
+        }
+        self.paths.as_ref().and_then(|(_, _, g)| g.clone())
     }
 }
 
@@ -531,6 +577,13 @@ pub struct CommentView {
     pub tool_done: bool,
     /// What the inline editor (`editing`) does with the keyboard the next time it is drawn.
     pub(crate) editor_focus: Option<EditorFocus>,
+    /// A notice for the app to show (the page input has no app).
+    pub notice: Option<&'static str>,
+    /// The page's paths for snapping (see [`SnapCache`]).
+    pub snap_cache: SnapCache,
+    /// Where the pointer would snap to right now: (page, point in user space, what it is), for
+    /// the marker on the page.
+    pub snap_hover: Option<(usize, [f64; 2], measure::snap::SnapKind)>,
 }
 
 /// A one-off change to the keyboard focus of the Comments panel's inline editor. The editor
@@ -604,9 +657,27 @@ pub(crate) struct PageCx<'a> {
     pub allowed: bool,
     /// Comments are hidden (Hide all comments): nothing to select.
     pub hidden: bool,
+    /// The page's paths, when the tool's points snap to the drawing (Snap to drawing is on and
+    /// the tool sets points or corners).
+    pub snap: Option<std::sync::Arc<measure::snap::Geometry>>,
 }
 
 impl PageCx<'_> {
+    /// A pointer position as a point in user space, moved onto the page's drawing when snapping
+    /// is on and a path, endpoint, midpoint or intersection lies within reach; with what it
+    /// snapped to.
+    fn snapped(&self, p: Pos2) -> ([f64; 2], Option<measure::snap::SnapKind>) {
+        let u = self.to_user(p);
+        let Some(geometry) = &self.snap else { return (u, None) };
+        // The reach in user units: the screen distance of one user unit, at this zoom.
+        let pixels_per_unit = self.to_screen([u[0] + 1.0, u[1]]).distance(self.to_screen(u)).max(1e-6);
+        let tolerance = (SNAP_SENSITIVITY / f64::from(pixels_per_unit)).min(10_000.0);
+        match geometry.snap(u, tolerance, measure::snap::SnapOptions::default()) {
+            Ok(Some(hit)) => (hit.point, Some(hit.kind)),
+            _ => (u, None),
+        }
+    }
+
     fn to_user(&self, p: Pos2) -> [f64; 2] {
         let (vx, vy) = self.xf.screen_to_view(p);
         let u = self.info.pages[self.page].view_to_user(vx, vy);
@@ -814,6 +885,9 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
     let draw_grab = draw_grabs(ui, cx, view);
     let caret_text = if cx.tool == QuickTool::Comment(CommentTool::Caret) { view.page_text(cx.page) } else { None };
     let cv = &mut view.comments;
+    if cv.snap_hover.is_some_and(|(page, _, _)| page == cx.page) {
+        cv.snap_hover = None;
+    }
     if cv.gesture.is_some() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         cv.gesture = None;
         cv.cancelled_drag = true;
@@ -839,11 +913,20 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             if over_page {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             }
+            // Snapping (shapes and lines, not freehand): the marker shows where a point would
+            // land; Shift holds a line to the nearest 45°.
+            if tool.snaps()
+                && let Some(p) = pointer.filter(|_| over_page)
+                && let (u, Some(kind)) = cx.snapped(p)
+            {
+                cv.snap_hover = Some((cx.page, u, kind));
+            }
             if resp.drag_started()
                 && pressed_here
                 && let Some(o) = origin
             {
-                cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)] });
+                let first = if tool.snaps() { cx.snapped(o).0 } else { cx.to_user(o) };
+                cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![first] });
                 cv.selected = None;
             }
             if let Some(Gesture::Draw { page, tool, points }) = cv.gesture.as_mut()
@@ -851,13 +934,20 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 && let Some(p) = pointer
             {
                 let p = clamp_to(page_rect, p);
-                let u = cx.to_user(p);
                 if matches!(*tool, CommentTool::Ink | CommentTool::Eraser) {
+                    let u = cx.to_user(p);
                     let last = points.last().map(|l| cx.to_screen(*l)).unwrap_or(p);
                     if last.distance(p) >= 1.5 {
                         points.push(u);
                     }
                 } else {
+                    let mut u = cx.snapped(p).0;
+                    if matches!(*tool, CommentTool::Line | CommentTool::Arrow)
+                        && ui.input(|i| i.modifiers.shift)
+                        && let Some(first) = points.first()
+                    {
+                        u = measure::snap::constrain(*first, u);
+                    }
                     points.truncate(1);
                     points.push(u);
                 }
@@ -898,6 +988,11 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             if over_page {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             }
+            if let Some(p) = pointer.filter(|_| over_page)
+                && let (u, Some(kind)) = cx.snapped(p)
+            {
+                cv.snap_hover = Some((cx.page, u, kind));
+            }
             let finish = resp.double_clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter));
             // Backspace (or Delete) takes back the last point, e.g. after a wrong click; Undo does too.
             // Only while a drawing is in progress: otherwise Delete belongs to the selected comment.
@@ -914,7 +1009,14 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 && over_page
                 && let Some(p) = pointer
             {
-                let u = cx.to_user(p);
+                let mut u = cx.snapped(p).0;
+                // Shift holds the next segment to the nearest 45° from the last point.
+                if ui.input(|i| i.modifiers.shift)
+                    && let Some(Gesture::Draw { points, .. }) = &cv.gesture
+                    && let Some(last) = points.last()
+                {
+                    u = measure::snap::constrain(*last, u);
+                }
                 match cv.gesture.as_mut() {
                     Some(Gesture::Draw { page, tool: t, points }) if *page == cx.page && *t == tool => {
                         // Clicking the first point again closes a polygon.
@@ -1366,6 +1468,7 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
             }
         }
     }
+    paint_snap_marker(painter, cx, view);
     paint_gesture(painter, cx, view);
 }
 
@@ -1417,6 +1520,30 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
         painter.circle(c, 4.5, Color32::WHITE, Stroke::new(1.0, SELECT_BLUE));
     }
     paint_gesture(painter, cx, view);
+}
+
+/// Where a drawing tool's next point would snap to: a ring and the kind of target, as the
+/// measuring tools show it.
+fn paint_snap_marker(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
+    if let Some((page, point, kind)) = view.comments.snap_hover
+        && page == cx.page
+    {
+        let at = cx.to_screen(point);
+        let green = Color32::from_rgb(46, 158, 92);
+        painter.circle_stroke(at, 6.0, Stroke::new(1.5, green));
+        painter.text(
+            at + vec2(10.0, -10.0),
+            egui::Align2::LEFT_BOTTOM,
+            tl!(match kind {
+                measure::snap::SnapKind::Endpoint => "Endpoint",
+                measure::snap::SnapKind::Midpoint => "Midpoint",
+                measure::snap::SnapKind::Intersection => "Intersection",
+                measure::snap::SnapKind::Path => "Path",
+            }),
+            crate::theme::regular(11.0),
+            green,
+        );
+    }
 }
 
 fn paint_gesture(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
@@ -1562,7 +1689,17 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
         // Scrolled away: keep the draft until the page is back.
         return None;
     };
-    let cx = PageCx { page, xf: &xf, info, tool: QuickTool::Select, prefs, allowed: true, hidden: false, redact_mark: ([0.89, 0.13, 0.13], 1.0) };
+    let cx = PageCx {
+        page,
+        xf: &xf,
+        info,
+        tool: QuickTool::Select,
+        prefs,
+        allowed: true,
+        hidden: false,
+        snap: None,
+        redact_mark: ([0.89, 0.13, 0.13], 1.0),
+    };
     let anchor = cx.to_screen(c.at);
     let t = Tokens::get(ctx);
     let mut post = false;
@@ -2086,6 +2223,13 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
     let mut selected_color = None;
     if icons::button(ui, "pin", 32.0, prefs.pinned, if prefs.pinned { tl!("Keep tool selected: on") } else { tl!("Keep tool selected") }).clicked() {
         prefs.pinned = !prefs.pinned;
+    }
+    if tool.snaps() {
+        let key = crate::commands::command_shortcut_label(ui.ctx(), "comment.snap");
+        let tip = format!("{} ({key})", tl!(if prefs.snap { "Snap to drawing: on" } else { "Snap to drawing" }));
+        if icons::button(ui, "circle-dot", 32.0, prefs.snap, &tip).clicked() {
+            prefs.snap = !prefs.snap;
+        }
     }
     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     ui.painter().circle_filled(r.center(), 9.0, color32(style.color));

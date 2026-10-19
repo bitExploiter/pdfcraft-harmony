@@ -2537,3 +2537,7 @@ animation effects	Off	Вимкнено
 	field names can't contain a period: {name}	імена полів не можуть містити крапку: {name}
 	two cells would both be named {name}	дві клітинки мали б однакове ім'я {name}
 	a field named {name} already exists	поле з іменем {name} уже існує
+
+# Snap to drawing for the drawing tools (M5).
+	Snap to drawing: on	Прив’язка до креслення: увімкнено
+	Snap to drawing: off	Прив’язка до креслення: вимкнено

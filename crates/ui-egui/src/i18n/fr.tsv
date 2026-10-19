@@ -2781,3 +2781,7 @@ certificate	Version	Version
 	field names can't contain a period: {name}	les noms de champ ne peuvent pas contenir de point : {name}
 	two cells would both be named {name}	deux cellules porteraient le nom {name}
 	a field named {name} already exists	un champ nommé {name} existe déjà
+
+# Snap to drawing for the drawing tools (M5).
+	Snap to drawing: on	Accrochage au dessin : activé
+	Snap to drawing: off	Accrochage au dessin : désactivé
