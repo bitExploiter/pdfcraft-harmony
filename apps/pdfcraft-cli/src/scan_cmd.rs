@@ -37,6 +37,7 @@ pub struct Run {
     pub duplex: Option<ManualDuplex>,
 }
 
+/// The current wall-clock time as a job timestamp.
 fn now() -> Timestamp {
     Timestamp::from_millis(scan_jobs::now_millis())
 }
@@ -52,6 +53,8 @@ struct Journal<'a> {
 }
 
 impl Journal<'_> {
+    /// Rewrite the job file from the job's current snapshot, adding this run's attempts after the earlier runs'. The
+    /// pages are renumbered by the file each one is saved in.
     fn save(&self, job: &ScanJob) -> Result<(), CliError> {
         let snapshot = job.snapshot();
         let mut attempts = self.prior_attempts.clone();
@@ -108,6 +111,7 @@ fn flush_pages(
     Ok(())
 }
 
+/// A job error as a plain `scan: ...` CLI error (exit status 1).
 fn job_error(error: &ScanJobError) -> CliError {
     CliError::from(format!("scan: {error}"))
 }
@@ -363,6 +367,8 @@ pub fn move_backs_aside(folder: &Path) -> Result<PathBuf, String> {
     move_files_aside(folder, backs)
 }
 
+/// The page file for page `number` (`page-NNN.<extension>`), whatever its extension, or `None` when the folder
+/// has none or cannot be read.
 fn find_page(folder: &Path, number: usize) -> Option<PathBuf> {
     let prefix = format!("page-{number:03}.");
     std::fs::read_dir(folder)
@@ -372,6 +378,8 @@ fn find_page(folder: &Path, number: usize) -> Option<PathBuf> {
         .find(|path| path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with(&prefix)))
 }
 
+/// Move `files` and a copy of the job file into a new `discarded-<n>` folder (the first number not in use)
+/// inside `folder`, and return that folder. Nothing is deleted.
 fn move_files_aside(folder: &Path, files: Vec<PathBuf>) -> Result<PathBuf, String> {
     let mut n = 1;
     let aside = loop {
@@ -503,6 +511,7 @@ mod tests {
     use pdfcraft_platform::scan::Page;
     use pdfcraft_platform::scan::job::ScanJobJournal;
 
+    /// A journal record in `state` that holds `kept` saved 2x2 pages and asked for `expected` pages (None: all).
     fn record(state: ScanJobState, kept: usize, expected: Option<u32>) -> JobRecord {
         let settings = ScanSettings { pages: expected.unwrap_or(0), ..ScanSettings::default() };
         let mut journal: ScanJobJournal = ScanJob::new(settings.clone(), ScanJobConfig::default()).snapshot().into_journal();
@@ -696,6 +705,7 @@ mod tests {
 
     struct Mock;
 
+    /// A 2x2 page whose bytes are the running number of pages fed so far, so a test can tell where it ended up.
     fn page(_: u8) -> Page {
         let fed = {
             let mut fed = FED.lock().unwrap();
@@ -781,6 +791,8 @@ mod tests {
         }
     }
 
+    /// Register the mock backend once, take the lock that serialises tests (it tolerates a poisoned lock), and reset the
+    /// script, the page requests and the feed counter.
     fn mock_lock() -> MutexGuard<'static, ()> {
         static ONCE: Once = Once::new();
         ONCE.call_once(|| {
@@ -793,10 +805,12 @@ mod tests {
         guard
     }
 
+    /// Queue the steps the mock backend plays, one per `acquire` call.
     fn script(steps: Vec<Step>) {
         *SCRIPT.lock().unwrap() = steps.into();
     }
 
+    /// A new empty folder for a test, named by `name` and the process id.
     fn fresh(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("pdfcraft-scan-run-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -804,11 +818,13 @@ mod tests {
         dir
     }
 
+    /// Run a fresh feeder job of `pages` pages into `folder` against the mock backend.
     fn start(folder: &Path, pages: u32) -> Result<(), CliError> {
         let settings = ScanSettings { device: "mock:1".into(), source: scan::Source::Feeder, pages, ..ScanSettings::default() };
         run(Run { folder: folder.to_path_buf(), settings, resume: None, duplex: None })
     }
 
+    /// The exit status of a finished job: 0 for success, the job's code for `CliError::Exit`; any other error panics.
     fn exit_code_of(result: Result<(), CliError>) -> u8 {
         match result {
             Ok(()) => 0,
@@ -817,12 +833,14 @@ mod tests {
         }
     }
 
+    /// The sorted names of the entries in `dir`.
     fn names(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = std::fs::read_dir(dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
     }
 
+    /// The message with which a fresh scan into `dir` is refused.
     fn refuse(dir: &Path) -> String {
         crate::refuse_a_folder_that_has_a_job(dir).unwrap_err().to_string()
     }

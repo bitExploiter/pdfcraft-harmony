@@ -5,6 +5,7 @@ use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_pdfcraft-cli");
 
+/// Run the CLI with `args`: whether it succeeded, its stdout and its stderr.
 fn run(args: &[&str]) -> (bool, String, String) {
     let out = Command::new(BIN).args(args).output().expect("run cli");
     (out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())

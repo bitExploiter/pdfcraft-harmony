@@ -6,11 +6,13 @@ use std::process::Command;
 
 const BIN: &str = env!("CARGO_BIN_EXE_pdfcraft-cli");
 
+/// Run the CLI with `args`: its exit code (None when killed by a signal), stdout and stderr.
 fn run(args: &[&str]) -> (Option<i32>, String, String) {
     let out = Command::new(BIN).args(args).output().expect("run cli");
     (out.status.code(), String::from_utf8_lossy(&out.stdout).into_owned(), String::from_utf8_lossy(&out.stderr).into_owned())
 }
 
+/// A new empty folder for a test, named by `name` and the process id.
 fn folder(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("pdfcraft-cli-scan-jobs-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -45,6 +47,7 @@ fn write_job(dir: &Path, state: &str, version: u32) {
     std::fs::write(dir.join("scan-job.json"), text.to_string()).unwrap();
 }
 
+/// Write `count` placeholder page files (`page-001.bmp` ...) into `dir`.
 fn pages(dir: &Path, count: usize) {
     for n in 1..=count {
         std::fs::write(dir.join(format!("page-{n:03}.bmp")), b"x").unwrap();

@@ -55,6 +55,7 @@ pub enum Prop {
 }
 
 impl Prop {
+    /// Whether the driver allows writing this property.
     pub fn writable(&self) -> bool {
         match self {
             Self::Value { writable, .. } | Self::List { writable, .. } | Self::Range { writable, .. } => *writable,
@@ -85,16 +86,20 @@ impl PropTable {
         Self { read, props: Vec::new() }
     }
 
+    /// Add the property to the table, replacing any earlier entry with the same id.
     pub fn with(mut self, id: u32, prop: Prop) -> Self {
         self.props.retain(|(known, _)| *known != id);
         self.props.push((id, prop));
         self
     }
 
+    /// The property with this id, if the table has it.
     pub fn get(&self, id: u32) -> Option<&Prop> {
         self.props.iter().find(|(known, _)| *known == id).map(|(_, prop)| prop)
     }
 
+    /// Whether the item's property storage was read. A missing property only means "not published" when this is
+    /// true.
     pub fn was_read(&self) -> bool {
         self.read
     }
@@ -112,6 +117,7 @@ pub enum DeviceDetect {
 }
 
 impl DeviceDetect {
+    /// The short name used in logs and the page-length report.
     pub fn name(self) -> &'static str {
         match self {
             Self::AutoCrop => "auto-crop",
@@ -291,10 +297,12 @@ mod tests {
             .with(WIA_IPS_MAX_VERTICAL_SIZE, Prop::Value { value: 14_000, writable: false })
     }
 
+    /// A range from `min` to `max` in steps of 1.
     fn span(min: i32, max: i32) -> ValueSpan {
         ValueSpan { min, max, step: 1 }
     }
 
+    /// A length request of `mode` for a feeder or glass item, with `size` as the page size and no region.
     fn ask(mode: PageLength, size: Option<PageSize>, feeder: bool) -> Request {
         Request { mode, page_size: size, region: false, feeder }
     }

@@ -144,6 +144,9 @@ fn scanners() -> Result<Vec<Scanner>, ScanError> {
     Ok(out)
 }
 
+/// Open one device and read its capabilities: handling bits and status, port and connection, optical
+/// resolution, page range, bed and sheet areas and the choices of the glass and feeder items. Properties the
+/// device does not answer stay unknown rather than failing the read.
 fn read_scanner(mgr: &IWiaDevMgr2, id: &str, name: &str) -> Result<Scanner, ScanError> {
     let device = open_device(mgr, id)?;
     let root = properties(&device)?;
@@ -237,6 +240,8 @@ fn keep_opened<T>(out: &mut Vec<T>, id: &str, name: &str, opened: Result<T, Scan
     }
 }
 
+/// The sentence logged when a device is left out of a full listing: its name and id when both differ, otherwise
+/// whichever exists, and the open error.
 fn skip_open_warning(id: &str, name: &str, error: &ScanError) -> String {
     let device = if !name.is_empty() && !id.is_empty() && name != id {
         format!("{name} ({id})")
@@ -250,6 +255,7 @@ fn skip_open_warning(id: &str, name: &str, error: &ScanError) -> String {
     format!("scan: skipped {device}: {error}")
 }
 
+/// The value as unsigned when it is present and above zero; zero, negative and missing readings are `None`.
 fn positive_u32(value: Option<i32>) -> Option<u32> {
     value.filter(|n| *n > 0).and_then(|n| u32::try_from(n).ok())
 }
@@ -307,6 +313,8 @@ fn dump_devices(filter: &str) -> Result<String, ScanError> {
     Ok(out)
 }
 
+/// Append the dump of one device to `out`: a header line, then one line per item and one per property with its
+/// id, name, type, flags, access and value.
 fn render_dump(out: &mut String, device: &DeviceDump) {
     out.push_str(&format!(
         "device {} ({})
@@ -329,6 +337,8 @@ fn render_dump(out: &mut String, device: &DeviceDump) {
     }
 }
 
+/// Open one device and read every property of its root and of each child item, labelling the children `feeder`,
+/// `glass` or `child`. Nothing is transferred.
 fn dump_one_device(mgr: &IWiaDevMgr2, id: &str, name: &str) -> Result<DeviceDump, ScanError> {
     let device = open_device(mgr, id)?;
     let mut items = vec![ItemDump { kind: "root".into(), name: "root".into(), properties: dump_properties(&properties(&device)?) }];
@@ -351,6 +361,8 @@ thread_local! {
     static WIA_FAILURE_LOGGED: Cell<bool> = const { Cell::new(false) };
 }
 
+/// Acquire pages: run the transfer, and when Auto chose a feeder that turned out to be empty, try the glass
+/// once for one page. The failure is logged unless `failed` already logged it.
 fn acquire(settings: &ScanSettings) -> Result<Acquired, ScanError> {
     WIA_FAILURE_LOGGED.set(false);
     log_acquire_start(settings);
@@ -404,6 +416,7 @@ fn feeder_gave_nothing(requested: Source, resolved: Source, has_glass: bool, pag
     requested == Source::Auto && resolved == Source::Feeder && has_glass && pages == 0 && rules::no_usable_page(error)
 }
 
+/// Log the whole request at debug level, so a failing scan can be reproduced from the log.
 fn log_acquire_start(settings: &ScanSettings) {
     let device = if settings.device.is_empty() { "default" } else { settings.device.as_str() };
     let region =
@@ -433,6 +446,7 @@ fn log_acquire_start(settings: &ScanSettings) {
     );
 }
 
+/// Log the page count, source, resolution, first page size and total bytes of a finished scan.
 fn log_acquire_ok(acquired: &Acquired) {
     let bytes: usize = acquired.pages.iter().map(|page| page.bytes.len()).sum();
     let size = acquired.pages.first().map(|page| format!("{}x{}", page.width, page.height)).unwrap_or_else(|| "0x0".into());
@@ -933,6 +947,8 @@ struct HandlingHold {
     _item: IWiaItem,
 }
 
+/// The document-handling select value for the source (feeder or flatbed, plus duplex when asked). An unresolved
+/// `Auto` source is an error.
 fn handling_select_value(source: Source, duplex: bool) -> Result<i32, ScanError> {
     let mut value = match source {
         Source::Feeder => FEEDER,
@@ -945,6 +961,8 @@ fn handling_select_value(source: Source, duplex: bool) -> Result<i32, ScanError>
     as_i32(value)
 }
 
+/// Write the document-handling select value for the source and read it back; a device that does not keep the
+/// value is an error naming the source asked for.
 fn write_handling_select(props: &IWiaPropertyStorage, source: Source, duplex: bool) -> Result<(), ScanError> {
     let value = handling_select_value(source, duplex)?;
     write_i4(props, WIA_DPS_DOCUMENT_HANDLING_SELECT, value)?;
@@ -1009,6 +1027,8 @@ fn select_item_duplex(item: &IWiaPropertyStorage, duplex: bool) -> Result<(), Sc
     Ok(())
 }
 
+/// Select the source on the legacy WIA 1.0 device of `id`. The returned hold keeps that device open; drop it
+/// only after the transfer.
 fn select_source(id: &str, source: Source, duplex: bool) -> Result<HandlingHold, ScanError> {
     let mgr: IWiaDevMgr = ffi::create_instance(&WiaDevMgr).map_err(failed)?;
     let item: IWiaItem = ffi::create_legacy_device(&mgr, id).map_err(failed)?;
@@ -1017,18 +1037,24 @@ fn select_source(id: &str, source: Source, duplex: bool) -> Result<HandlingHold,
     Ok(HandlingHold { _item: item })
 }
 
+/// Create the WIA 2.0 device manager. COM must already be initialised on this thread.
 fn device_manager() -> Result<IWiaDevMgr2, ScanError> {
     ffi::create_instance(&WiaDevMgr2).map_err(failed)
 }
 
+/// Open the device with this exact id (`CreateDevice`).
 fn open_device(mgr: &IWiaDevMgr2, id: &str) -> Result<IWiaItem2, ScanError> {
     ffi::create_device(mgr, id).map_err(failed)
 }
 
+/// The device-info property storages of every connected device.
 fn enum_devices(mgr: &IWiaDevMgr2) -> Result<Vec<IWiaPropertyStorage>, ScanError> {
     ffi::device_infos(mgr).map_err(failed)?.map(|info| info.map_err(failed)).collect()
 }
 
+/// Pick the device named by `wanted` (an id or name): the first one when it is empty, an exact id or name match
+/// if there is one, otherwise the single device that contains the text. More than one match, or none, is an
+/// error.
 fn choose<'a>(devices: &'a [IWiaPropertyStorage], wanted: &str) -> Result<&'a IWiaPropertyStorage, ScanError> {
     if devices.is_empty() {
         return Err(ScanError::Failed("no scanner is connected".into()));
@@ -1056,10 +1082,13 @@ fn choose<'a>(devices: &'a [IWiaPropertyStorage], wanted: &str) -> Result<&'a IW
     matched.ok_or_else(|| ScanError::Failed(format!("no scanner matches {wanted:?}")))
 }
 
+/// All child items of the root item.
 fn enum_children(root: &IWiaItem2) -> Result<Vec<IWiaItem2>, ScanError> {
     ffi::child_items(root).map_err(failed)?.map(|item| item.map_err(failed)).collect()
 }
 
+/// The transfer item for the source: the one whose category or name matches, or the only transfer item when
+/// there is just one. Fails when this scanner has no such source.
 fn scan_item(root: &IWiaItem2, source: Source) -> Result<IWiaItem2, ScanError> {
     let transfer_bit = as_i32(WiaItemTypeTransfer)?;
     let mut items = Vec::new();
@@ -1081,6 +1110,8 @@ fn scan_item(root: &IWiaItem2, source: Source) -> Result<IWiaItem2, ScanError> {
     })
 }
 
+/// Whether an item with this category and name is the given source's: by category GUID, or by the item name
+/// (`feeder`, `flatbed` or `glass`, any case). `Auto` matches nothing.
 fn source_matches(source: Source, category: Option<&GUID>, name: &str) -> bool {
     let feeder_name = name.eq_ignore_ascii_case("feeder");
     let glass_name = name.eq_ignore_ascii_case("flatbed") || name.eq_ignore_ascii_case("glass");
@@ -1094,14 +1125,19 @@ fn source_matches(source: Source, category: Option<&GUID>, name: &str) -> bool {
     }
 }
 
+/// The item's name property, or an empty string when it cannot be read.
 fn item_name(item: &IWiaItem2) -> String {
     properties(item).ok().and_then(|props| read_string(&props, WIA_IPA_ITEM_NAME).ok()).unwrap_or_default()
 }
 
+/// The item's category GUID, if it publishes one.
 fn item_category(item: &IWiaItem2) -> Option<GUID> {
     read_guid(&properties(item).ok()?, WIA_IPA_ITEM_CATEGORY)
 }
 
+/// Read what one transfer item offers: resolutions, colours, rotations, formats, compression, intents, page
+/// sizes, adjustment ranges and the on/off options the item has. A storage that cannot be read gives empty
+/// choices.
 fn image_choices(item: &IWiaItem2) -> ImageChoices {
     let Ok(props) = properties(item) else {
         return ImageChoices::default();
@@ -1141,6 +1177,7 @@ fn image_choices(item: &IWiaItem2) -> ImageChoices {
     }
 }
 
+/// The intents the item offers, from its list or, for a flag-style property, from the bits of the mask.
 fn intent_choices(props: &IWiaPropertyStorage) -> Vec<Intent> {
     let Ok((flags, raw)) = property_numbers(props, WIA_IPS_CUR_INTENT) else {
         return Vec::new();
@@ -1163,6 +1200,8 @@ fn intents_from_flag_mask(mask: i32) -> Vec<Intent> {
         .collect()
 }
 
+/// Names of the formats the item offers, sorted and without duplicates. Falls back to the preferred format and
+/// then to the file extension when no list is published.
 fn format_names(props: &IWiaPropertyStorage) -> Vec<String> {
     let mut names = guid_list(props, WIA_IPA_FORMAT).into_iter().filter_map(format_name).map(str::to_string).collect::<Vec<_>>();
     if names.is_empty()
@@ -1183,6 +1222,8 @@ fn format_names(props: &IWiaPropertyStorage) -> Vec<String> {
     names
 }
 
+/// Write the compression named `name` (any case) after checking the item offers it. An unknown name is an
+/// error.
 fn write_compression(props: &IWiaPropertyStorage, name: &str) -> Result<(), ScanError> {
     let wanted = name.trim().to_ascii_lowercase();
     let Some(value) = compression_value(&wanted) else {
@@ -1192,6 +1233,7 @@ fn write_compression(props: &IWiaPropertyStorage, name: &str) -> Result<(), Scan
     write_i4(props, WIA_IPA_COMPRESSION, value)
 }
 
+/// The driver value of a compression name, or `None` for a name that is not known.
 fn compression_value(name: &str) -> Option<i32> {
     let code = match Compression::parse(name)? {
         Compression::None => WIA_COMPRESSION_NONE,
@@ -1207,6 +1249,8 @@ fn compression_value(name: &str) -> Option<i32> {
     i32::try_from(code).ok()
 }
 
+/// Write an on/off option when one was asked for, after checking the item offers the value. `None` writes
+/// nothing.
 fn write_flag_bool(props: &IWiaPropertyStorage, id: u32, value: Option<bool>, label: &str) -> Result<(), ScanError> {
     let Some(on) = value else {
         return Ok(());
@@ -1216,6 +1260,8 @@ fn write_flag_bool(props: &IWiaPropertyStorage, id: u32, value: Option<bool>, la
     write_i4(props, id, coded)
 }
 
+/// Write the image format named `format` (a leading dot and any case are accepted) after checking the item
+/// lists it. An unknown or unoffered format is an error.
 fn write_format(props: &IWiaPropertyStorage, format: &str) -> Result<(), ScanError> {
     let wanted = format.trim().trim_start_matches('.').to_ascii_lowercase();
     let Some(guid) = format_guid(&wanted) else {
@@ -1234,10 +1280,12 @@ fn write_format(props: &IWiaPropertyStorage, format: &str) -> Result<(), ScanErr
     write_clsid(props, WIA_IPA_FORMAT, guid)
 }
 
+/// The format GUID for a format name, or `None` when the name is not known.
 fn format_guid(name: &str) -> Option<GUID> {
     Some(guid_of(ImageFormat::parse(name)?))
 }
 
+/// The format GUID of an image format.
 fn guid_of(format: ImageFormat) -> GUID {
     match format {
         ImageFormat::Bmp => WiaImgFmt_BMP,
@@ -1248,14 +1296,17 @@ fn guid_of(format: ImageFormat) -> GUID {
     }
 }
 
+/// The name of a format GUID, or `None` for a format the engine does not handle.
 fn format_name(guid: GUID) -> Option<&'static str> {
     ImageFormat::ALL.iter().find(|format| guid_of(**format) == guid).map(|format| format.as_str())
 }
 
+/// The name of a compression driver value, or `None` when it is not one the engine knows.
 fn compression_name(value: i32) -> Option<&'static str> {
     Compression::ALL.iter().find(|name| compression_value(name.as_str()) == Some(value)).map(|name| name.as_str())
 }
 
+/// The values of a property that publishes a list; empty when it publishes anything else or cannot be read.
 fn choice_list(props: &IWiaPropertyStorage, id: u32) -> Vec<i32> {
     let Ok((flags, raw)) = property_numbers(props, id) else {
         return Vec::new();
@@ -1263,6 +1314,7 @@ fn choice_list(props: &IWiaPropertyStorage, id: u32) -> Vec<i32> {
     if flags & WIA_PROP_LIST == 0 { Vec::new() } else { listed_values(&raw) }
 }
 
+/// A width and height read from two properties; both must be present and positive.
 fn area_of(props: &IWiaPropertyStorage, x_id: u32, y_id: u32) -> Option<(u32, u32)> {
     positive_pair(read_i4(props, x_id).ok(), read_i4(props, y_id).ok())
 }
@@ -1304,11 +1356,14 @@ fn write_stepped(props: &IWiaPropertyStorage, id: u32, value: u32, positive: boo
     u32::try_from(number).map_err(|_| ScanError::Failed("a scanner value does not fit".into()))
 }
 
+/// The range (min, max, step) a property publishes, or `None` when it publishes anything but a range.
 fn choice_span(props: &IWiaPropertyStorage, id: u32) -> Option<ValueSpan> {
     let (flags, raw) = property_numbers(props, id).ok()?;
     if flags & WIA_PROP_RANGE == 0 { None } else { spanned_values(&raw) }
 }
 
+/// Fail unless the property accepts `value`: a published list must contain it, a flag mask must cover it, and a
+/// range must include it. A property that cannot be read is accepted (the write decides).
 fn require_choice(props: &IWiaPropertyStorage, id: u32, value: i32, label: &str) -> Result<(), ScanError> {
     let Ok((flags, raw)) = property_numbers(props, id) else {
         return Ok(());
@@ -1335,6 +1390,8 @@ fn require_choice(props: &IWiaPropertyStorage, id: u32, value: i32, label: &str)
     Ok(())
 }
 
+/// Fail unless the colour's data type is in the item's published list. No list, or an unreadable property,
+/// accepts anything.
 fn require_color(props: &IWiaPropertyStorage, color: Color) -> Result<(), ScanError> {
     let Ok((flags, raw)) = property_numbers(props, WIA_IPA_DATATYPE) else {
         return Ok(());
@@ -1350,6 +1407,7 @@ fn require_color(props: &IWiaPropertyStorage, color: Color) -> Result<(), ScanEr
     Err(ScanError::Failed(format!("color {} is not offered ({names})", color.name())))
 }
 
+/// Write an optional integer after checking the item offers it; `None` writes nothing.
 fn write_optional(props: &IWiaPropertyStorage, id: u32, value: Option<i32>, label: &str) -> Result<(), ScanError> {
     let Some(value) = value else {
         return Ok(());
@@ -1358,16 +1416,19 @@ fn write_optional(props: &IWiaPropertyStorage, id: u32, value: Option<i32>, labe
     write_i4(props, id, value)
 }
 
+/// The attribute flags of a property and its valid values as integers. A failing attribute call is an error.
 fn property_numbers(props: &IWiaPropertyStorage, id: u32) -> Result<(u32, Vec<i32>), ScanError> {
     let attributes = ffi::property_attributes(props, id);
     attributes.status.map_err(failed)?;
     Ok((attributes.flags, ffi::variant_i32_vector(&attributes.valid)))
 }
 
+/// The property storage of an item.
 fn properties(item: &IWiaItem2) -> Result<IWiaPropertyStorage, ScanError> {
     item.cast().map_err(failed)
 }
 
+/// Read an integer property. Any integer variant type is accepted; other types are an error.
 fn read_i4(props: &IWiaPropertyStorage, id: u32) -> Result<i32, ScanError> {
     i4_of(&ffi::read_property(props, id).map_err(failed)?)
 }
@@ -1382,6 +1443,8 @@ fn write_i4_soft(props: &IWiaPropertyStorage, id: u32, value: i32) -> Result<(),
     Ok(())
 }
 
+/// Write an integer unless it already holds `value`. With `soft`, a rejected write is only logged; without it,
+/// a missing property is tolerated but a rejected one is an error.
 fn write_i4_if_needed(props: &IWiaPropertyStorage, id: u32, value: i32, soft: bool) -> Result<(), ScanError> {
     match read_i4(props, id) {
         Ok(current) if current == value => Ok(()),
@@ -1503,6 +1566,7 @@ fn apply_device_detect(item: &IWiaPropertyStorage, method: DeviceDetect, wsd: bo
     written
 }
 
+/// Write an integer property. A rejected write is logged and mapped to the engine's error for the code.
 fn write_i4(props: &IWiaPropertyStorage, id: u32, value: i32) -> Result<(), ScanError> {
     ffi::write_i32_property(props, id, value).map_err(|e| {
         let text = describe_error(&e);
@@ -1524,6 +1588,7 @@ fn property_error(id: u32, code: u32, text: String) -> ScanError {
     }
 }
 
+/// Write a GUID property, mapping a rejected write to the engine's error for the code.
 fn write_clsid(props: &IWiaPropertyStorage, id: u32, guid: GUID) -> Result<(), ScanError> {
     ffi::write_guid_property(props, id, guid).map_err(|e| {
         let text = describe_error(&e);
@@ -1532,15 +1597,19 @@ fn write_clsid(props: &IWiaPropertyStorage, id: u32, guid: GUID) -> Result<(), S
     })
 }
 
+/// Read a GUID property, or `None` when it is missing or of another type.
 fn read_guid(props: &IWiaPropertyStorage, id: u32) -> Option<GUID> {
     ffi::variant_guid(&ffi::read_property(props, id).ok()?)
 }
 
+/// The GUIDs of a property that publishes a list; empty otherwise.
 fn guid_list(props: &IWiaPropertyStorage, id: u32) -> Vec<GUID> {
     let attributes = ffi::property_attributes(props, id);
     if attributes.status.is_ok() && attributes.flags & WIA_PROP_LIST != 0 { ffi::variant_guid_vector(&attributes.valid) } else { Vec::new() }
 }
 
+/// Read the properties of a storage for the dump, sorted by id. When the storage cannot be enumerated, the
+/// well-known properties are probed one by one instead.
 fn dump_properties(props: &IWiaPropertyStorage) -> Vec<PropertyInfo> {
     let mut probed = Vec::new();
     for id in [
@@ -1582,6 +1651,8 @@ fn dump_properties(props: &IWiaPropertyStorage) -> Vec<PropertyInfo> {
     out
 }
 
+/// The flags, the `r`/`w`/`rw` access label and the valid values (as names where the GUIDs are known) of one
+/// property, for the dump.
 fn dump_attributes(props: &IWiaPropertyStorage, id: u32) -> (u32, String, String) {
     let attributes = ffi::property_attributes(props, id);
     let access = access_label(attributes.flags);
@@ -1601,6 +1672,7 @@ fn dump_attributes(props: &IWiaPropertyStorage, id: u32) -> (u32, String, String
     (attributes.flags, access, attrs)
 }
 
+/// The access of a property from its flags: `r`, `w`, `rw` or `none`.
 fn access_label(flags: u32) -> String {
     let read = flags & WIA_PROP_READ != 0;
     let write = flags & WIA_PROP_WRITE != 0;
@@ -1612,6 +1684,8 @@ fn access_label(flags: u32) -> String {
     }
 }
 
+/// A property value as dump text: integers, strings and GUIDs by their type, the variant type for anything
+/// else, and a dash when it cannot be read.
 fn dump_value(props: &IWiaPropertyStorage, id: u32, vt: u16) -> String {
     if vt == VT_I4.0 || vt == VT_UI4.0 || vt == VT_UI2.0 {
         return read_i4(props, id).map(|n| n.to_string()).unwrap_or_else(|_| "—".into());
@@ -1628,10 +1702,12 @@ fn dump_value(props: &IWiaPropertyStorage, id: u32, vt: u16) -> String {
     }
 }
 
+/// Read a text property.
 fn read_string(props: &IWiaPropertyStorage, id: u32) -> Result<String, ScanError> {
     string_of(&ffi::read_property(props, id).map_err(failed)?)
 }
 
+/// The variant as `i32`; a non-integer type or an out-of-range number is an error.
 fn i4_of(value: &PROPVARIANT) -> Result<i32, ScanError> {
     let Some(wide) = ffi::variant_integer(value) else {
         return Err(ScanError::Failed(format!("a scanner property was type {}, not an integer", value.vt().0)));
@@ -1639,6 +1715,7 @@ fn i4_of(value: &PROPVARIANT) -> Result<i32, ScanError> {
     i32::try_from(wide).map_err(|_| ScanError::Failed("a scanner value does not fit".into()))
 }
 
+/// The variant as text; another type is an error.
 fn string_of(value: &PROPVARIANT) -> Result<String, ScanError> {
     match ffi::variant_text(value) {
         Some(text) => text.map_err(ScanError::Failed),
@@ -1711,14 +1788,18 @@ fn receive_bands(
     Ok(pages.into_iter().take(limit).collect())
 }
 
+/// Whether bit `bit` is set in `value` (negative values count as no bits).
 fn flag(value: i32, bit: u32) -> bool {
     u32::try_from(value).unwrap_or(0) & bit != 0
 }
 
+/// The value as `i32`, or an error when it does not fit.
 fn as_i32(value: u32) -> Result<i32, ScanError> {
     i32::try_from(value).map_err(|_| ScanError::Failed("a scanner value does not fit".into()))
 }
 
+/// Turn a Windows error into the engine's error for its code, logging the code and the call site. Marks the
+/// failure as logged so `acquire` does not log it again.
 #[track_caller]
 fn failed(error: impl Into<windows::core::Error>) -> ScanError {
     let error = error.into();
@@ -1731,6 +1812,7 @@ fn failed(error: impl Into<windows::core::Error>) -> ScanError {
     rules::from_hresult(code, &error.message())
 }
 
+/// The Windows error's message in the engine's wording for its code.
 fn describe_error(error: &windows::core::Error) -> String {
     describe_windows_error(error.code().0 as u32, &error.message())
 }

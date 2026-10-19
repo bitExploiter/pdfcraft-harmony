@@ -167,6 +167,7 @@ impl ScanDraft {
         self.snapped_device.clear();
     }
 
+    /// Drop the preview image and the region that was chosen on it.
     pub fn clear_preview(&mut self) {
         self.preview = None;
         self.clear_region();
@@ -205,6 +206,8 @@ impl ScanDraft {
         }
     }
 
+    /// Set colour, resolution, intent, brightness, contrast and rotation to the preset's values where the scanner
+    /// offers them (the nearest it does offer otherwise), and clear the region.
     fn apply_preset(&mut self, choices: &ImageChoices, color: Color, dpi: Option<u32>, intents: &[Intent]) {
         if let Some(dpi) = dpi {
             self.dpi = dpi;
@@ -234,6 +237,8 @@ impl ScanDraft {
         region_from_inches(self.left_in, self.top_in, self.width_in, self.height_in).ok()
     }
 
+    /// Keep a drag as the selection (ignoring one under 2 pixels either way) and copy its region into the inch
+    /// fields; with no selection the fields are cleared.
     fn remember_selection(&mut self, selection: Option<(u32, u32, u32, u32)>) {
         self.selection = selection.filter(|(x0, y0, x1, y1)| x1.saturating_sub(*x0) >= 2 && y1.saturating_sub(*y0) >= 2);
         if let Some(region) = self.region() {
@@ -281,10 +286,12 @@ impl Devices {
         (discover, load)
     }
 
+    /// Whether the scanner list is being read.
     pub fn loading(&self) -> bool {
         self.state.loading()
     }
 
+    /// Whether the selected scanner's details are being read.
     pub fn checking(&self) -> bool {
         self.state.checking()
     }
@@ -331,6 +338,7 @@ fn list_result(list: &scan::Listing<ScannerRef>) -> Result<Vec<shared::Scanner>,
     }
 }
 
+/// The scanner list in the shared component's form, with the connection kind of each device.
 fn scanners_of(list: &[ScannerRef]) -> Vec<shared::Scanner> {
     list.iter()
         .map(|item| shared::Scanner {
@@ -345,6 +353,8 @@ fn scanners_of(list: &[ScannerRef]) -> Vec<shared::Scanner> {
         .collect()
 }
 
+/// Conservative scanner for a device whose details could not be read: bed and feeder offered, no duplex and no
+/// ranges.
 fn fallback_scanner(item: &shared::Scanner) -> Scanner {
     Scanner {
         id: item.id.clone(),
@@ -372,6 +382,7 @@ fn fallback_scanner(item: &shared::Scanner) -> Scanner {
     }
 }
 
+/// The shared component's source for the engine's source.
 fn shared_source(source: Source) -> shared::Source {
     match source {
         Source::Auto => shared::Source::Auto,
@@ -380,6 +391,7 @@ fn shared_source(source: Source) -> shared::Source {
     }
 }
 
+/// The engine's source for the shared component's source.
 fn source_of(source: shared::Source) -> Source {
     match source {
         shared::Source::Auto => Source::Auto,
@@ -388,6 +400,7 @@ fn source_of(source: shared::Source) -> Source {
     }
 }
 
+/// The shared component's colour mode for the engine's.
 fn shared_color(color: Color) -> shared::Color {
     match color {
         Color::Gray => shared::Color::Gray,
@@ -396,6 +409,7 @@ fn shared_color(color: Color) -> shared::Color {
     }
 }
 
+/// The engine's colour mode for the shared component's.
 fn color_of(color: shared::Color) -> Color {
     match color {
         shared::Color::Gray => Color::Gray,
@@ -858,6 +872,7 @@ impl Interrupted {
         self.expected.map(|expected| expected.saturating_sub(self.received))
     }
 
+    /// Whether any page of this scan was received.
     fn has_pages(&self) -> bool {
         self.received > 0
     }
@@ -896,6 +911,8 @@ impl Interrupted {
         actions
     }
 
+    /// The button that starts the next leg of this interrupted scan: the reverse-sides pass, an insert, or a
+    /// create.
     fn click(&self) -> ScanClick {
         match (self.pass, self.scan_kind) {
             (Pass::Backs, _) => ScanClick::ReverseSides,
@@ -904,6 +921,8 @@ impl Interrupted {
         }
     }
 
+    /// What the next leg carries over: the scan kind, the pages still wanted, the pages already kept and where they
+    /// go.
     fn resume(&self) -> Resume {
         Resume {
             scan_kind: self.scan_kind,
@@ -920,6 +939,7 @@ impl Interrupted {
         }
     }
 
+    /// The sentence for the cause of the stop.
     fn headline(&self) -> &'static str {
         match self.kind {
             InterruptKind::CoverOpen => tl!("A cover on the scanner is open."),
@@ -973,6 +993,7 @@ impl Interrupted {
         }
     }
 
+    /// The label of the primary button, by action and pass.
     fn primary_label(&self) -> &'static str {
         match (self.primary(), self.pass) {
             (Some(InterruptAction::TryAgain), _) => tl!("Try again"),
@@ -982,6 +1003,7 @@ impl Interrupted {
         }
     }
 
+    /// The label of the button that scans the reverse sides now, with the number of fronts scanned.
     fn reverse_now_label(&self) -> String {
         if self.received == 1 {
             tl!("Scan reverse side now (1 front)").to_string()
@@ -1069,6 +1091,7 @@ impl ScanJob {
         }
     }
 
+    /// The pass this job is in: reverse sides, fronts of a manual-duplex scan, or a direct scan.
     fn pass(&self) -> Pass {
         if matches!(self.kind, ScanKind::ReverseSides) {
             Pass::Backs
@@ -1114,6 +1137,8 @@ fn unavailable_notice(supported: bool) -> Option<&'static str> {
     (!supported).then(|| tl!("Scanning needs Windows (WIA) in this version."))
 }
 
+/// The scanner dialog's content. Returns the button the user pressed; where scanning is not available it shows
+/// a notice and only offers Close.
 pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> ScanClick {
     if let Some(notice) = unavailable_notice(scan::supported()) {
         ui.label(egui::RichText::new(tl!("From scanner…")).font(theme::semibold(18.0)));
@@ -1345,6 +1370,7 @@ pub(crate) fn interrupted_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
     chosen
 }
 
+/// The advanced settings window for the selected scanner. Closes itself when the scanner is not known.
 fn advanced_modal(ctx: &egui::Context, app: &mut PdfCraftApp, t: &Tokens, busy: bool) {
     let Some(scanner) = app.scan.devices.scanner_selected(&app.scan.draft.device) else {
         app.scan.advanced = None;
@@ -1448,6 +1474,8 @@ fn handling_notes(ui: &mut egui::Ui, draft: &mut ScanDraft, t: &Tokens, scanner:
     }
 }
 
+/// Extra options the source offers (formats, compression, intents, page size, deskew, orientation, photometric,
+/// invert, mirror, lamp) with notes about the connection and optical resolution.
 fn more_options(ui: &mut egui::Ui, draft: &mut ScanDraft, t: &Tokens, choices: &ImageChoices, scanner: &Scanner, busy: bool) {
     let mut notes = Vec::new();
     if let (Some(x), Some(y)) = (scanner.optical_x, scanner.optical_y) {
@@ -1639,6 +1667,8 @@ fn span_slider(ui: &mut egui::Ui, span: ValueSpan, slot: &mut Option<i32>, busy:
     });
 }
 
+/// The preview and the region fields. With the feeder there is no preview to drag on, so only the inch fields
+/// apply.
 fn preview_block(ui: &mut egui::Ui, draft: &mut ScanDraft, t: &Tokens, busy: bool, feeder: bool) {
     if feeder {
         ui.label(
@@ -1667,6 +1697,7 @@ fn preview_block(ui: &mut egui::Ui, draft: &mut ScanDraft, t: &Tokens, busy: boo
     });
 }
 
+/// One region field in inches (0 to 30). Editing it discards a region that was dragged.
 fn inch_field(ui: &mut egui::Ui, label: &str, value: &mut f64, selection: &mut Option<(u32, u32, u32, u32)>, busy: bool) {
     ui.label(label);
     let response = ui.add_enabled(!busy, egui::DragValue::new(value).range(0.0..=30.0).speed(0.01).suffix(" in"));
@@ -1675,6 +1706,8 @@ fn inch_field(ui: &mut egui::Ui, label: &str, value: &mut f64, selection: &mut O
     }
 }
 
+/// Draw the preview scaled to fit, let a drag select a region of it (not while busy) and outline the current
+/// region.
 fn paint_preview(ui: &mut egui::Ui, draft: &mut ScanDraft, t: &Tokens, preview: &PreviewImage, busy: bool) {
     let max = Vec2::new(360.0, 420.0);
     let native = Vec2::new(preview.width.max(1) as f32, preview.height.max(1) as f32);
@@ -1714,6 +1747,8 @@ fn effective_source(draft: &ScanDraft, scanner: &Scanner) -> Source {
     draft.source.resolve(scanner.feeder_ready, has_feeder, has_glass).unwrap_or(Source::Glass)
 }
 
+/// The size of the next scan: the area in inches, its pixels at the chosen resolution and the estimated bitmap
+/// size. "Full area" alone when the size is not known.
 fn size_line(draft: &ScanDraft, scanner: &Scanner) -> String {
     let region = draft.region();
     let (width, height, full) = if let Some(region) = region {
@@ -1757,6 +1792,8 @@ fn size_line(draft: &ScanDraft, scanner: &Scanner) -> String {
     line
 }
 
+/// The region to outline on the preview in preview pixels: the drag, or else the inch fields converted at the
+/// preview's resolution.
 fn overlay(draft: &ScanDraft, preview: &PreviewImage) -> Option<(u32, u32, u32, u32)> {
     if let Some(selection) = draft.selection {
         return Some(selection);
@@ -1766,6 +1803,7 @@ fn overlay(draft: &ScanDraft, preview: &PreviewImage) -> Option<(u32, u32, u32, 
     Some((px.x, px.y, px.x.saturating_add(px.width).min(preview.width), px.y.saturating_add(px.height).min(preview.height)))
 }
 
+/// The preview pixel under a pointer position, clamped to the image.
 fn pixel_at(rect: Rect, width: u32, height: u32, pos: Pos2) -> (u32, u32) {
     if width == 0 || height == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return (0, 0);
@@ -1777,18 +1815,23 @@ fn pixel_at(rect: Rect, width: u32, height: u32, pos: Pos2) -> (u32, u32) {
     (px.min(width - 1), py.min(height - 1))
 }
 
+/// The rectangle between two pixels, both included, as `(x0, y0, x1, y1)` with the far edge exclusive and
+/// clamped to the image.
 fn pixel_rect(a: (u32, u32), b: (u32, u32), width: u32, height: u32) -> (u32, u32, u32, u32) {
     let (x0, x1) = (a.0.min(b.0), a.0.max(b.0).saturating_add(1).min(width));
     let (y0, y1) = (a.1.min(b.1), a.1.max(b.1).saturating_add(1).min(height));
     (x0, y0, x1, y1)
 }
 
+/// The on-screen rectangle that a preview-pixel rectangle covers inside the drawn image.
 fn widget_rect(image: Rect, width: u32, height: u32, sel: (u32, u32, u32, u32)) -> Rect {
     let sx = image.width() / width.max(1) as f32;
     let sy = image.height() / height.max(1) as f32;
     Rect::from_min_max(image.min + Vec2::new(sel.0 as f32 * sx, sel.1 as f32 * sy), image.min + Vec2::new(sel.2 as f32 * sx, sel.3 as f32 * sy))
 }
 
+/// The page counts a scanner offers from its range (at most 64), and whether it accepts 0 for all pages.
+/// Without a range only 1 is offered.
 fn page_values(span: Option<ValueSpan>) -> (Vec<u32>, bool) {
     let Some(span) = span else {
         return (vec![1], false);
@@ -1811,6 +1854,7 @@ fn page_values(span: Option<ValueSpan>) -> (Vec<u32>, bool) {
     (values, span.contains(0))
 }
 
+/// 300 dpi if listed, else 200, else the first listed value.
 fn preferred_dpi(listed: &[u32]) -> Option<u32> {
     [300, 200].into_iter().find(|dpi| listed.contains(dpi)).or_else(|| listed.first().copied())
 }
@@ -1824,6 +1868,9 @@ fn photo_dpi(listed: &[u32]) -> Option<u32> {
         .or_else(|| listed.first().copied())
 }
 
+/// Bring the draft in line with what the scanner offers for the resolved source: resolution, colour and the
+/// adjustments that are not listed are reset or dropped. Runs once per scanner and source, and drops the
+/// preview when Auto changes between bed and feeder.
 fn snap_choices(draft: &mut ScanDraft, scanner: &Scanner, choices: &ImageChoices) {
     let resolved = effective_source(draft, scanner);
     if draft.snapped_device == scanner.id && draft.snapped_source == draft.source && draft.snapped_resolved == resolved {
@@ -1921,6 +1968,7 @@ fn snap_choices(draft: &mut ScanDraft, scanner: &Scanner, choices: &ImageChoices
     }
 }
 
+/// The choices of the bed (also for Auto) or the feeder; empty when the scanner lists none.
 fn source_choices(scanner: &Scanner, source: Source) -> ImageChoices {
     match source {
         Source::Glass | Source::Auto => scanner.glass.clone(),
@@ -1929,6 +1977,7 @@ fn source_choices(scanner: &Scanner, source: Source) -> ImageChoices {
     .unwrap_or_default()
 }
 
+/// The label for a turn.
 fn rotation_label(turn: Rotation) -> String {
     match turn {
         Rotation::Portrait => tl!("Portrait").to_string(),
@@ -1952,6 +2001,7 @@ fn rotation_examples(ui: &mut egui::Ui, t: &Tokens, turns: &[Rotation], selected
     });
 }
 
+/// A selectable sketch of a page turned as the driver would turn it. Returns the response for the click.
 fn orientation_thumb(ui: &mut egui::Ui, t: &Tokens, turn: Rotation, selected: bool) -> egui::Response {
     let size = Vec2::new(52.0, 64.0);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
@@ -1990,6 +2040,7 @@ fn orientation_thumb(ui: &mut egui::Ui, t: &Tokens, turn: Rotation, selected: bo
     response
 }
 
+/// Turn a point about `center` by the turn's rotation.
 fn turn_point(point: Pos2, center: Pos2, turn: Rotation) -> Pos2 {
     let v = point - center;
     let (x, y) = match turn {
@@ -2001,6 +2052,8 @@ fn turn_point(point: Pos2, center: Pos2, turn: Rotation) -> Pos2 {
     center + Vec2::new(x, y)
 }
 
+/// Settings for a preview: one low-resolution page from the bed, in the dialog's colour where the bed offers
+/// it, with a preview or matching intent. No region and no adjustments.
 fn preview_settings(draft: &ScanDraft, scanner: &Scanner) -> ScanSettings {
     // Preview always uses the bed. Callers must refuse the feeder before reaching here.
     // Color follows the dialog so a Color choice is not previewed as gray; dpi stays low.
@@ -2080,6 +2133,8 @@ fn length_note(record: &scan::LengthRecord) -> Option<String> {
     }
 }
 
+/// Settings for the final scan from the draft. The bed always takes one page, duplex applies only to a duplex
+/// feeder, and the threshold only to black and white.
 fn final_settings(draft: &ScanDraft, scanner: &Scanner, cancel: CancelToken) -> ScanSettings {
     let effective = effective_source(draft, scanner);
     ScanSettings {
@@ -2111,6 +2166,8 @@ fn final_settings(draft: &ScanDraft, scanner: &Scanner, cancel: CancelToken) -> 
     }
 }
 
+/// The progress sentence of a running scan: which page or side, of how many when known, and the share of the
+/// page received.
 fn scan_status_label(job: &ScanJob) -> String {
     let done = job.live.pages_done();
     let page_pct = job.live.page_percent();
@@ -2230,6 +2287,8 @@ pub fn bmp_rgba(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     scan::bmp::to_rgba(bytes)
 }
 
+/// Run `work` on a new named thread; `false` when the thread could not start. On wasm it runs at once on the
+/// caller.
 fn spawn_named(name: &str, work: impl FnOnce() + Send + 'static) -> bool {
     #[cfg(target_arch = "wasm32")]
     {
@@ -2249,6 +2308,7 @@ impl PdfCraftApp {
         self.scan.devices.scanner_selected(&self.scan.draft.device).map(|scanner| scanner.name).unwrap_or_default()
     }
 
+    /// Start a scan for the button pressed. Does nothing while a scan is running.
     pub fn start_scan(&mut self, click: ScanClick) {
         self.start_scan_with(click, None);
     }
@@ -2500,6 +2560,8 @@ impl PdfCraftApp {
         true
     }
 
+    /// Collect the running scan's progress: adopt the source it used and take its finished result, if any, into the
+    /// document, the preview or the interruption dialog.
     pub(crate) fn poll_scan(&mut self) {
         let Some(job) = &self.scan.job else { return };
         let kind = job.kind;
@@ -3017,6 +3079,7 @@ impl PdfCraftApp {
         }
     }
 
+    /// Show the first page of a preview scan. A page that cannot be decoded sets an error instead.
     fn take_preview(&mut self, pages: Vec<Page>) {
         let Some(page) = pages.into_iter().next() else {
             self.scan.draft.error = Some(tl!("The preview could not be shown.").to_string());
@@ -3033,6 +3096,7 @@ impl PdfCraftApp {
         }
     }
 
+    /// Build a PDF from the scanned pages, sized by the first page's resolution. No pages is an error.
     fn scanned_pdf(&self, pages: &[Page]) -> Result<Vec<u8>, String> {
         let Some(first) = pages.first() else {
             return Err(tl!("The scan produced no pages.").to_string());
@@ -3046,6 +3110,8 @@ impl PdfCraftApp {
         Ok(pdf.as_ref().clone())
     }
 
+    /// Open the scanned pages as a new document called `name`, closing the scanner dialog; failures are shown in
+    /// the dialog.
     fn open_scanned_pdf_named(&mut self, name: &str, pages: &[Page]) {
         match self.scanned_pdf(pages) {
             Ok(bytes) => {
@@ -3060,6 +3126,8 @@ impl PdfCraftApp {
         }
     }
 
+    /// Insert the scanned pages into the document `id`. When it was closed the pages are dropped, with a message
+    /// unless the scan was stopped.
     fn insert_scanned_pdf(&mut self, id: DocId, pages: &[Page]) {
         let Some(index) = self.views.iter().position(|view| view.id == id) else {
             // Its document was closed and the scan was stopped then (with a message): the pages still in flight
@@ -3528,6 +3596,7 @@ mod tests {
     const GREEN: [u8; 4] = [0, 255, 0, 255];
     const BLUE: [u8; 4] = [0, 0, 255, 255];
 
+    /// The pixels of an RGBA buffer as four-byte groups.
     fn pixels(rgba: &[u8]) -> Vec<[u8; 4]> {
         rgba.chunks(4).map(|px| [px[0], px[1], px[2], px[3]]).collect()
     }
@@ -3625,6 +3694,7 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
+    /// A 2x2 24-bit bitmap as a scanned page.
     fn tiny_bmp_page() -> pdfcraft_platform::scan::Page {
         // 2x2 24-bit BMP (rows padded to 8 bytes).
         let mut bytes = vec![0u8; 54 + 16];
@@ -3710,6 +3780,7 @@ mod tests {
     use super::{InterruptAction as A, InterruptKind as K, Pass, ScanKind};
     use pdfcraft_engine::DocId;
 
+    /// A job of `kind` that has received `received` pages out of `expected_total`, on a feeder.
     fn test_job(kind: ScanKind, received: u32, expected_total: Option<u32>) -> super::ScanJob {
         super::ScanJob {
             kind,
@@ -3733,6 +3804,7 @@ mod tests {
         }
     }
 
+    /// Give the job a failed result with `error`, make it the app's current job and poll it.
     fn finish_with(app: &mut crate::PdfCraftApp, job: super::ScanJob, error: &str) {
         if let Ok(mut slot) = job.progress.lock() {
             slot.result = Some(Err(error.to_string()));
@@ -3937,16 +4009,19 @@ mod tests {
         }
     }
 
+    /// The rounded widths of the pages of document `id`.
     fn widths(app: &crate::PdfCraftApp, id: DocId) -> Vec<u32> {
         app.session.get(id).map(|doc| doc.info.pages.iter().map(|page| page.width.round() as u32).collect()).unwrap_or_default()
     }
 
+    /// A job of the front pass of a manual-duplex scan.
     fn fronts_job(kind: ScanKind, received: u32) -> super::ScanJob {
         let mut job = test_job(kind, received, None);
         job.duplex_source = Some(Source::Feeder);
         job
     }
 
+    /// Fail the app's current job with `error` and poll it.
     fn fail_current(app: &mut crate::PdfCraftApp, error: &str) {
         if let Some(job) = &app.scan.job
             && let Ok(mut slot) = job.progress.lock()
@@ -3956,6 +4031,7 @@ mod tests {
         app.poll_scan();
     }
 
+    /// Finish the app's current job with no further pages and poll it.
     fn succeed_current(app: &mut crate::PdfCraftApp) {
         if let Some(job) = &app.scan.job
             && let Ok(mut slot) = job.progress.lock()
@@ -4386,10 +4462,12 @@ mod tests {
 mod host_tests {
     use super::*;
 
+    /// Choices listing these resolutions and colours.
     fn choices(dpi: &[u32], colors: &[Color]) -> ImageChoices {
         ImageChoices { dpi: dpi.to_vec(), colors: colors.to_vec(), ..ImageChoices::default() }
     }
 
+    /// A scanner with the given choices for the bed and the feeder; both sources are present.
     fn scanner(glass: Option<ImageChoices>, feeder: Option<ImageChoices>, duplex: bool) -> Scanner {
         Scanner { glass, feeder_choices: feeder, duplex, flatbed: true, feeder: true, ..fallback_scanner(&shared::Scanner::default()) }
     }

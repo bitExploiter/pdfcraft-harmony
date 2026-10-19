@@ -180,6 +180,7 @@ fn touches_scanners(tool: &str) -> bool {
     tool == "scan_acquire" || (tool.starts_with("scan_") && std::env::var_os("PDFCRAFT_TEST_REAL_SCANNERS").is_none())
 }
 
+/// Call `tool` with `args`; any `ToolError` is accepted (the caller was told what was wrong), a panic is an `Err`.
 fn guarded(a: &mut Automation, tool: &str, args: &Value) -> std::result::Result<(), String> {
     let result = catch_unwind(AssertUnwindSafe(|| a.call(tool, args)));
     match result {

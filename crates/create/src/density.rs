@@ -48,19 +48,23 @@ pub fn tiff_tag_density(unit: u32, x: Option<f64>, y: Option<f64>) -> Option<Den
     sane((x? * scale, y? * scale))
 }
 
+/// The density when both axes lie within `MIN_DPI..=MAX_DPI` and are finite; otherwise `None`.
 fn sane((x, y): Density) -> Option<Density> {
     let ok = |v: f64| v.is_finite() && (MIN_DPI..=MAX_DPI).contains(&v);
     (ok(x) && ok(y)).then_some((x, y))
 }
 
+/// The big-endian `u16` at byte `at`, or `None` when it runs past the end.
 fn be16(b: &[u8], at: usize) -> Option<u16> {
     Some(u16::from_be_bytes(b.get(at..at.checked_add(2)?)?.try_into().ok()?))
 }
 
+/// The big-endian `u32` at byte `at`, or `None` when it runs past the end.
 fn be32(b: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_be_bytes(b.get(at..at.checked_add(4)?)?.try_into().ok()?))
 }
 
+/// Convert pixels per metre to dots per inch; `None` when either axis is zero.
 fn per_metre((x, y): (u32, u32)) -> Option<Density> {
     (x != 0 && y != 0).then(|| (f64::from(x) * 0.0254, f64::from(y) * 0.0254))
 }
@@ -192,6 +196,7 @@ fn tiff_density(t: &[u8]) -> Option<Density> {
 mod tests {
     use super::*;
 
+    /// A 62-byte bitmap with a 2x2 pixel size, the given pixels-per-metre and info-header size.
     fn bmp(x: i32, y: i32, header: u32) -> Vec<u8> {
         let mut b = vec![0u8; 62];
         b[..2].copy_from_slice(b"BM");
@@ -203,6 +208,7 @@ mod tests {
         b
     }
 
+    /// A minimal PNG signature and header, with a `pHYs` chunk of `unit`, `x` and `y` when `phys` is set.
     fn png(unit: u8, x: u32, y: u32, phys: bool) -> Vec<u8> {
         let mut b = b"\x89PNG\r\n\x1a\n".to_vec();
         b.extend_from_slice(&13u32.to_be_bytes());
@@ -244,6 +250,8 @@ mod tests {
         b
     }
 
+    /// A TIFF with two rational resolutions `x` and `y` (numerator, denominator) and, when given, a resolution unit tag,
+    /// in little- or big-endian byte order.
     fn tiff(little: bool, unit: Option<u16>, x: (u32, u32), y: (u32, u32)) -> Vec<u8> {
         let w16 = |v: u16| if little { v.to_le_bytes() } else { v.to_be_bytes() };
         let w32 = |v: u32| if little { v.to_le_bytes() } else { v.to_be_bytes() };
@@ -274,6 +282,7 @@ mod tests {
         b
     }
 
+    /// Assert that `found` holds a density within 0.05 of `x` by `y`.
     fn near(found: Option<Density>, x: f64, y: f64) {
         let (fx, fy) = found.expect("a density");
         assert!((fx - x).abs() < 0.05 && (fy - y).abs() < 0.05, "{fx} x {fy}, wanted {x} x {y}");

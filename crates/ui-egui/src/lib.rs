@@ -897,6 +897,7 @@ fn rgb_triple(v: &serde_json::Value) -> Option<[f64; 3]> {
 }
 
 impl PdfCraftApp {
+    /// An app with an empty session and no open tabs.
     pub fn new() -> Self {
         Self {
             session: Session::new(),
@@ -1903,6 +1904,8 @@ impl PdfCraftApp {
         }
     }
 
+    /// Close the tab at `index` (ignored when out of range): ends any scan bound to its document, remembers its
+    /// path for reopening (at most ten) and closes the document.
     pub fn close_tab(&mut self, index: usize) {
         if index >= self.views.len() {
             return;
@@ -2993,6 +2996,8 @@ impl eframe::App for PdfCraftApp {
         storage.set_string("pdfcraft", self.persist());
     }
 
+    /// The per-frame work outside drawing: stores the context, applies the language, then polls workers and other
+    /// pending events.
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.ctx = Some(ctx.clone());
         #[cfg(not(target_arch = "wasm32"))]

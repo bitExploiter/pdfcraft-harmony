@@ -192,6 +192,7 @@ enum Fault {
 impl Fault {
     const ALL: [Fault; 6] = [Fault::None, Fault::FeederEmpty, Fault::BusyOrEmpty, Fault::Jam, Fault::Generic, Fault::Offline];
 
+    /// The error this fault produces, or `None` for no fault.
     fn error(self) -> Option<ScanError> {
         match self {
             Fault::None => None,
@@ -207,6 +208,7 @@ impl Fault {
         }
     }
 
+    /// Whether a transfer with this fault ends the stack of paper rather than failing it.
     fn ends_the_stack(self) -> bool {
         matches!(self, Fault::None | Fault::FeederEmpty | Fault::BusyOrEmpty)
     }

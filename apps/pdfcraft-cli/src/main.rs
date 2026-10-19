@@ -116,6 +116,8 @@ pdfcraft-cli ui     --control FILE <method> [key=value …] [--out shot.png]
 help and feedback: https://discord.gg/artcraft"
 );
 
+/// Entry point: dispatches the first argument to its command and turns the result into the exit status. A closed
+/// stdout pipe counts as success; a `CliError::Exit` keeps the job's own exit code.
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // `<command> --help` too; only right after the command, so a later `-h` (a value) still reaches it.
@@ -1220,6 +1222,9 @@ fn scan_check(args: &[String]) -> Result<(), CliError> {
     }
 }
 
+/// `scan ...`: routes `check`, `jobs`, `job`, `devices` and `--continue` to their handlers; otherwise parses the
+/// scan options into `ScanSettings` and runs a fresh job. Options are all validated before the output folder
+/// is created, so a bad option leaves nothing behind.
 fn scan(args: &[String]) -> Result<(), CliError> {
     validate_options("scan", args, SCAN_OPTIONS)?;
     if args.first().map(String::as_str) == Some("check") {
@@ -1397,6 +1402,8 @@ fn scan_continue(args: &[String]) -> Result<(), CliError> {
     scan_cmd::continue_job(Path::new(dir), &flags)
 }
 
+/// One saved page as the JSON row printed in the result: file path, format, pixel size, dpi, byte count,
+/// whether it was thresholded, and the page-length report.
 fn page_json(path: &Path, page: &pdfcraft_platform::scan::Page) -> serde_json::Value {
     serde_json::json!({
         "path": path.display().to_string(),
@@ -1410,18 +1417,23 @@ fn page_json(path: &Path, page: &pdfcraft_platform::scan::Page) -> serde_json::V
     })
 }
 
+/// Print the scanner listing (optionally only devices matching `filter`, with `details` read from each opened
+/// device) as one line of JSON.
 fn list_scanners(filter: Option<&str>, details: bool) -> Result<(), CliError> {
     let listing = pdfcraft_automation::list_scan_devices(filter, details).map_err(|error| format!("scan: {error}"))?;
     let line = serde_json::to_string(&listing).map_err(|error| format!("scan: {error}"))?;
     stdout_line(format_args!("{line}"))
 }
 
+/// Print the backend's plain-text diagnostic dump of every scanner, without trailing whitespace.
 fn dump_scanners() -> Result<(), CliError> {
     // Text, rendered by each backend (for WIA, every published property).
     let text = pdfcraft_platform::scan::diagnostic_dump("").map_err(|error| format!("scan: {error}"))?;
     stdout_line(format_args!("{}", text.trim_end()))
 }
 
+/// Read `--left/--top/--width/--height` (inches) into a scan region. `None` when none of the four is given;
+/// giving any one of them requires all four.
 fn region_from_args(args: &[String]) -> Result<Option<pdfcraft_platform::scan::Region>, CliError> {
     let left = option_value(args, "--left")?;
     let top = option_value(args, "--top")?;
@@ -1444,6 +1456,7 @@ fn region_from_args(args: &[String]) -> Result<Option<pdfcraft_platform::scan::R
     .map_err(|error| format!("scan: {error}").into())
 }
 
+/// The whole-number value of option `name`, or `None` when the option is absent.
 fn optional_i32(args: &[String], name: &str) -> Result<Option<i32>, CliError> {
     match option_value(args, name)? {
         None => Ok(None),
@@ -1451,6 +1464,7 @@ fn optional_i32(args: &[String], name: &str) -> Result<Option<i32>, CliError> {
     }
 }
 
+/// The on/off value of option `name` (`on`/`true`/`1`/`yes`, `off`/`false`/`0`/`no`), or `None` when absent.
 fn optional_on_off(args: &[String], name: &str) -> Result<Option<bool>, CliError> {
     match option_value(args, name)? {
         None => Ok(None),
@@ -1460,6 +1474,8 @@ fn optional_on_off(args: &[String], name: &str) -> Result<Option<bool>, CliError
     }
 }
 
+/// The argument after `name`, or `None` when the option is absent. A missing value, or one that starts with
+/// `--`, is an error.
 fn option_value<'a>(args: &'a [String], name: &str) -> Result<Option<&'a str>, CliError> {
     let Some(index) = args.iter().position(|arg| arg == name) else {
         return Ok(None);

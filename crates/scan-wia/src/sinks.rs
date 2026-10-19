@@ -124,6 +124,9 @@ pub(crate) fn transfer_callback(state: &Rc<RefCell<TransferState>>) -> IWiaTrans
 }
 
 impl IWiaTransferCallback_Impl for Transfer_Impl {
+    /// Transfer progress and page-end callback. A requested cancel answers `S_FALSE` (the driver's cancel) after
+    /// halting the feeder. At end of stream the page file is read back, removed and reported; the feeder is halted
+    /// once the page limit is reached.
     fn TransferCallback(&self, _flags: i32, params: *const WiaTransferParams) -> windows::core::Result<()> {
         if cancel_requested(&self.this.state) {
             halt_feeder(&self.this.state);
@@ -177,6 +180,8 @@ impl IWiaTransferCallback_Impl for Transfer_Impl {
         Ok(())
     }
 
+    /// Hand the driver a new temp-file stream for the next page. Refuses with an abort after a cancel and with
+    /// paper-empty once `limit` pages were offered; a page file left unfinished by the previous stream is removed.
     fn GetNextStream(&self, _flags: i32, _name: &BSTR, _full: &BSTR) -> windows::core::Result<IStream> {
         if cancel_requested(&self.this.state) {
             halt_feeder(&self.this.state);
@@ -205,10 +210,13 @@ impl IWiaTransferCallback_Impl for Transfer_Impl {
     }
 }
 
+/// Whether the cancel token has been requested. A state that is borrowed elsewhere counts as not requested.
 fn cancel_requested(state: &RefCell<TransferState>) -> bool {
     state.try_borrow().ok().and_then(|guard| guard.cancel.as_ref().map(CancelToken::is_requested)).unwrap_or(false)
 }
 
+/// Convert the page's bytes into a `Page` (applying the black-and-white rule) and keep it, also publishing it
+/// to the progress token.
 fn report_page(state: &mut TransferState, bytes: Vec<u8>) {
     let page = page_from_bytes(&bytes, state.rule, state.pages.len());
     if let Some(progress) = &state.progress {
@@ -257,6 +265,7 @@ pub(crate) fn band_bytes(width: u32, depth: u32) -> u32 {
     u32::try_from(stride.saturating_mul(32)).unwrap_or(1024 * 1024).max(64 * 1024)
 }
 
+/// Create the temp file a page is written to and return it with its path. The caller removes the file.
 fn temp_page() -> Result<(std::fs::File, PathBuf), ScanError> {
     let path = std::env::temp_dir().join(format!(
         "pdfcraft-scan-{}-{}.bin",
@@ -268,6 +277,7 @@ fn temp_page() -> Result<(std::fs::File, PathBuf), ScanError> {
     Ok((file, path))
 }
 
+/// A file-backed `IStream` for one page, with the path of its temp file.
 fn file_stream() -> Result<(IStream, PathBuf), ScanError> {
     let (file, path) = temp_page()?;
     let stream: IStream = FileStream { file: RefCell::new(file), pos: RefCell::new(0), len: RefCell::new(0) }.into();
@@ -288,6 +298,8 @@ struct FileStream {
 }
 
 impl ISequentialStream_Impl for FileStream_Impl {
+    /// Read from the file at the stream position and advance it. `E_FAIL` for a null buffer or a stream already in
+    /// use.
     fn Read(&self, pv: *mut core::ffi::c_void, cb: u32, pcbread: *mut u32) -> windows::core::HRESULT {
         if pv.is_null() {
             return E_FAIL;
@@ -307,6 +319,8 @@ impl ISequentialStream_Impl for FileStream_Impl {
         }
     }
 
+    /// Write at the stream position, advance it and grow the recorded length. `E_FAIL` for a null buffer with a
+    /// non-zero count or a stream already in use.
     fn Write(&self, pv: *const core::ffi::c_void, cb: u32, pcbwritten: *mut u32) -> windows::core::HRESULT {
         if pv.is_null() && cb != 0 {
             return E_FAIL;
@@ -332,6 +346,8 @@ impl ISequentialStream_Impl for FileStream_Impl {
 }
 
 impl IStream_Impl for FileStream_Impl {
+    /// Move the position from the start, the current position or the end (clamped at zero) and report the new
+    /// position. Any other origin is `E_FAIL`.
     fn Seek(&self, dlibmove: i64, dworigin: windows::Win32::System::Com::STREAM_SEEK, plibnewposition: *mut u64) -> windows::core::Result<()> {
         let Ok(mut pos) = self.this.pos.try_borrow_mut() else {
             return Err(windows::core::Error::from(E_FAIL));
@@ -351,6 +367,7 @@ impl IStream_Impl for FileStream_Impl {
         Ok(())
     }
 
+    /// Set the file length and the recorded length.
     fn SetSize(&self, libnewsize: u64) -> windows::core::Result<()> {
         let file = self.this.file.try_borrow_mut().map_err(|_| windows::core::Error::from(E_FAIL))?;
         file.set_len(libnewsize).map_err(|_| windows::core::Error::from(E_FAIL))?;
@@ -358,26 +375,32 @@ impl IStream_Impl for FileStream_Impl {
         Ok(())
     }
 
+    /// Not implemented (`E_NOTIMPL`); WIA writes pages straight to this stream.
     fn CopyTo(&self, _pstm: windows::core::Ref<'_, IStream>, _cb: u64, _pcbread: *mut u64, _pcbwritten: *mut u64) -> windows::core::Result<()> {
         Err(windows::core::Error::from(E_NOTIMPL))
     }
 
+    /// Flush the file to disk.
     fn Commit(&self, _grfcommitflags: &windows::Win32::System::Com::STGC) -> windows::core::Result<()> {
         self.this.file.try_borrow_mut().map_err(|_| windows::core::Error::from(E_FAIL))?.flush().map_err(|_| windows::core::Error::from(E_FAIL))
     }
 
+    /// No-op: the stream is not transacted.
     fn Revert(&self) -> windows::core::Result<()> {
         Ok(())
     }
 
+    /// No-op: the stream has a single writer.
     fn LockRegion(&self, _liboffset: u64, _cb: u64, _dwlocktype: &windows::Win32::System::Com::LOCKTYPE) -> windows::core::Result<()> {
         Ok(())
     }
 
+    /// No-op: the stream has a single writer.
     fn UnlockRegion(&self, _liboffset: u64, _cb: u64, _dwlocktype: u32) -> windows::core::Result<()> {
         Ok(())
     }
 
+    /// Report the stream as a stream of the recorded length; nothing else is filled in.
     fn Stat(&self, pstatstg: *mut STATSTG, _grfstatflag: &windows::Win32::System::Com::STATFLAG) -> windows::core::Result<()> {
         if pstatstg.is_null() {
             return Err(windows::core::Error::from(E_FAIL));
@@ -388,6 +411,7 @@ impl IStream_Impl for FileStream_Impl {
         Ok(())
     }
 
+    /// Not implemented (`E_NOTIMPL`); the stream cannot be cloned.
     fn Clone(&self) -> windows::core::Result<IStream> {
         Err(windows::core::Error::from(E_NOTIMPL))
     }
@@ -437,6 +461,9 @@ pub(crate) fn band_callback(state: &Rc<RefCell<Bands>>) -> IWiaDataCallback {
 }
 
 impl IWiaDataCallback_Impl for BandSink_Impl {
+    /// One band of the banded transfer: appends the band's rows to the current page file and closes the page when
+    /// it is complete. A requested cancel stops the feeder once and fails the transfer; a failure is stored in the
+    /// state for `receive_bands` to report.
     fn BandedDataCallback(
         &self,
         lmessage: i32,

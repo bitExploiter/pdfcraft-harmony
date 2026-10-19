@@ -1230,6 +1230,7 @@ fn bmp1(w: usize, h: usize, top_down: bool, palette: &[[u8; 4]], index_one_is_bl
 const BLACK_WHITE: [[u8; 4]; 2] = [[0, 0, 0, 0], [255, 255, 255, 0]];
 const WHITE_BLACK: [[u8; 4]; 2] = [[255, 255, 255, 0], [0, 0, 0, 0]];
 
+/// The `BitsPerComponent` entry of a dictionary as a number, if it has one.
 fn bpc_of(d: &Dict) -> Option<f64> {
     d.get(b"BitsPerComponent").and_then(|o| o.as_f64())
 }
@@ -1396,6 +1397,7 @@ fn page_pt(name: &str, file: Vec<u8>) -> (f64, f64) {
     (m[2], m[3])
 }
 
+/// A 100x50 bitmap whose header records `x` and `y` pixels per metre.
 fn bmp_with_pels(x: i32, y: i32) -> Vec<u8> {
     use image::ImageEncoder;
     let mut bmp = Vec::new();
@@ -1405,6 +1407,7 @@ fn bmp_with_pels(x: i32, y: i32) -> Vec<u8> {
     bmp
 }
 
+/// A 100x50 PNG with a `pHYs` chunk of `unit`, `x` and `y` when `phys` is set.
 fn png_with(unit: png::Unit, x: u32, y: u32, phys: bool) -> Vec<u8> {
     let mut out = Vec::new();
     {
@@ -1459,6 +1462,7 @@ fn jpeg_with(unit: u8, x: u16, y: u16, exif: Option<(u16, u32, u32)>) -> Vec<u8>
     v
 }
 
+/// A 100x50 gray TIFF; with a `unit` it records `x` and `y` as the resolution in that unit.
 fn tiff_with(unit: Option<tiff::tags::ResolutionUnit>, x: u32, y: u32) -> Vec<u8> {
     let mut tif = std::io::Cursor::new(Vec::new());
     {
@@ -1473,6 +1477,7 @@ fn tiff_with(unit: Option<tiff::tags::ResolutionUnit>, x: u32, y: u32) -> Vec<u8
     tif.into_inner()
 }
 
+/// Assert that a page of `found` points is the 100x50 pixel image at `dpi`, within 0.2 percent.
 fn assert_page(found: (f64, f64), dpi: (f64, f64), what: &str) {
     let (w, h) = (100.0 / dpi.0 * 72.0, 50.0 / dpi.1 * 72.0);
     assert!((found.0 - w).abs() / w < 0.002 && (found.1 - h).abs() / h < 0.002, "{what}: {found:?}, wanted {w} x {h}");

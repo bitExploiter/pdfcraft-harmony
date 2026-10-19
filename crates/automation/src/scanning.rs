@@ -8,10 +8,13 @@ use serde_json::{Value, json};
 use crate::{Args, Automation, Result, ToolError, failed};
 
 impl Automation {
+    /// `scan_devices`: the scanner listing; opens devices only when `device` or `details` asks for it.
     pub(crate) fn scan_devices(&self, args: &Args) -> Result<Value> {
         list_scan_devices(args.opt_str("device")?, args.opt_bool("details")?.unwrap_or(false))
     }
 
+    /// `scan_acquire`: scan into the folder `out` (resolved against the root) and return the saved pages as JSON. The
+    /// scanner moves; a failed or interrupted scan still reports the pages that arrived.
     pub(crate) fn scan_acquire(&self, args: &Args) -> Result<Value> {
         let out = args.str("out")?;
         let folder = self.resolve(out, true)?;
@@ -99,6 +102,8 @@ fn acquire_failure(folder: &Path, settings: &scan::ScanSettings, error: scan::Sc
     }
 }
 
+/// Read the scan arguments into settings. `pages` is a whole number or `all` (0); defaults are 1 page, gray, auto
+/// source and 200 dpi. A non-positive or oversized dpi is `InvalidArgs`.
 fn scan_settings_from_args(args: &Args) -> Result<scan::ScanSettings> {
     // A whole number, or the string "all" (0: the whole feeder), or a numeric string. Read the raw value:
     // `opt_int` rejects a string before the string forms are looked at.
@@ -158,6 +163,8 @@ fn scan_settings_from_args(args: &Args) -> Result<scan::ScanSettings> {
     })
 }
 
+/// Write the pages to `folder` and return the result JSON: the sources used and requested, the page rows, `partial`
+/// and, when given, the `error` sentence.
 fn finish_acquire_json(
     folder: &Path,
     settings: &scan::ScanSettings,
@@ -221,6 +228,8 @@ fn listed_refs() -> Result<(Vec<scan::ScannerRef>, Vec<Value>)> {
     refs_from(scan::scanner_list().map_err(failed)?)
 }
 
+/// Split a listing into its scanners and one `{backend, error}` row per failed backend. Only a listing that has no
+/// scanner and at least one failure is an error.
 fn refs_from(listing: scan::Listing<scan::ScannerRef>) -> Result<(Vec<scan::ScannerRef>, Vec<Value>)> {
     if listing.items.is_empty()
         && let Some(first) = listing.errors.first()
@@ -241,6 +250,7 @@ pub fn scan_device_details(id: &str) -> Result<Value> {
 
 type OpenScanner<'a> = dyn FnMut(&str) -> std::result::Result<scan::Scanner, scan::ScanError> + 'a;
 
+/// Reject a device filter that is present but blank.
 fn check_filter(filter: Option<&str>) -> Result<()> {
     let Some(text) = filter else {
         return Ok(());
@@ -251,6 +261,8 @@ fn check_filter(filter: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Build the `{count, scanners}` listing from the already listed scanners. Devices are opened through `open` only
+/// when `details` is set or a `filter` selects them.
 fn build_listing(filter: Option<&str>, details: bool, listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
     check_filter(filter)?;
     let selected: Vec<&scan::ScannerRef> = listed.iter().filter(|item| filter.is_none_or(|text| item.matches(text))).collect();
@@ -260,15 +272,18 @@ fn build_listing(filter: Option<&str>, details: bool, listed: &[scan::ScannerRef
     Ok(json!({ "count": rows.len(), "scanners": rows }))
 }
 
+/// The opened row of the scanner with exactly this `id`; an id that is not listed is an error.
 fn detail_row_for(id: &str, listed: &[scan::ScannerRef], open: &mut OpenScanner<'_>) -> Result<Value> {
     let item = listed.iter().find(|item| item.id == id).ok_or_else(|| failed(format!("no scanner with id {id:?}")))?;
     Ok(opened_row(item, open))
 }
 
+/// The row of a listed scanner that was not opened: id, name, port, connection and the `details` state.
 fn ref_row(item: &scan::ScannerRef, details: scan::ListDetails) -> Value {
     json!({ "id": item.id, "name": item.name, "port": item.port, "connection": item.connection.as_str(), "details": details.as_str() })
 }
 
+/// The row of one scanner opened through `open`: its full capabilities, or the `error` row when it will not open.
 fn opened_row(item: &scan::ScannerRef, open: &mut OpenScanner<'_>) -> Value {
     opened_pair(item, open).0
 }
@@ -293,6 +308,8 @@ fn opened_pair(item: &scan::ScannerRef, open: &mut OpenScanner<'_>) -> (Value, O
     }
 }
 
+/// A scanner's capabilities as JSON: sources, handling status, geometry, the choices of each source and the page
+/// length support of glass and feeder.
 fn scanner_json(scanner: &scan::Scanner) -> Value {
     let status = scanner.handling_status;
     json!({
@@ -326,6 +343,7 @@ fn status_json(status: &scan::HandlingStatus) -> Value {
     Value::Object(status.flags().into_iter().map(|(name, on)| (name.to_string(), Value::Bool(on))).collect())
 }
 
+/// The choices of one source as JSON, or `null` when the source is not present.
 fn choices_json(choices: Option<&scan::ImageChoices>) -> Value {
     let Some(choices) = choices else {
         return Value::Null;
@@ -351,10 +369,12 @@ fn choices_json(choices: Option<&scan::ImageChoices>) -> Value {
     })
 }
 
+/// An area in pixels at the optical resolution as `{width, height}`, or `null` when unknown.
 fn area_json(area: Option<(u32, u32)>) -> Value {
     area.map(|(width, height)| json!({ "width": width, "height": height })).unwrap_or(Value::Null)
 }
 
+/// A range of values as `{min, max, step}`, or `null` when the scanner reports none.
 fn span_json(span: Option<scan::ValueSpan>) -> Value {
     span.map(|span| json!({ "min": span.min, "max": span.max, "step": span.step })).unwrap_or(Value::Null)
 }
@@ -400,6 +420,8 @@ pub fn scan_check(options: &ScanCheckOptions, notice: &mut dyn FnMut(&str)) -> R
     )
 }
 
+/// The check itself, with the backend calls passed in so tests can fake them. The argument guards run first and
+/// hold on every platform; nothing is listed, opened or acquired before they pass.
 fn run_check(
     options: &ScanCheckOptions,
     supported: bool,
@@ -703,10 +725,12 @@ mod tests {
         scan::ScanError::native_error(kind, scan::NativeCode::hresult(code, Some(name)), message)
     }
 
+    /// A listed scanner with this id, name and optional port.
     fn item(id: &str, name: &str, port: Option<&str>) -> scan::ScannerRef {
         scan::ScannerRef::new(id.into(), name.into(), port.map(str::to_string))
     }
 
+    /// Three listed scanners; the one with id `{c}` is the one `open_fake` fails to open.
     fn fixture() -> Vec<scan::ScannerRef> {
         vec![
             item("{a}", "Fake Scanner", Some("urn:uuid:00000000-0000-4000-8000-0000000000f2/svc")),
@@ -715,6 +739,7 @@ mod tests {
         ]
     }
 
+    /// A scanner with the given id and every capability empty.
     fn scanner_for(id: &str) -> scan::Scanner {
         scan::Scanner {
             id: id.into(),
@@ -738,6 +763,7 @@ mod tests {
         }
     }
 
+    /// Record `id` in `opened` and open it, except `{c}` which fails as busy.
     fn open_fake(opened: &mut Vec<String>, id: &str) -> std::result::Result<scan::Scanner, scan::ScanError> {
         opened.push(id.to_string());
         if id == "{c}" { Err(scan::ScanError::Failed("The device is busy.".into())) } else { Ok(scanner_for(id)) }
@@ -954,6 +980,8 @@ mod tests {
 
     // ---- scan check ----
 
+    /// Run a check against the fixture scanners, logging each backend call into `log` and each notice into `notices`;
+    /// the acquire answers with `acquire_result` once.
     fn check_with(
         options: &ScanCheckOptions,
         supported: bool,
@@ -1002,6 +1030,7 @@ mod tests {
         assert_eq!(check.report["count"], 3);
     }
 
+    /// One 85x117 bitmap page at 100 dpi from the glass.
     fn one_page() -> scan::Acquired {
         let page = scan::Page {
             bytes: b"BM0123456789".to_vec(),
@@ -1017,12 +1046,14 @@ mod tests {
         scan::Acquired { source: scan::Source::Glass, pages: vec![page] }
     }
 
+    /// Run `options` as a supported check that acquires `one_page`; returns the result, the call log and the notices.
     fn run(options: &ScanCheckOptions) -> (Result<ScanCheck>, Vec<String>, Vec<String>) {
         let (mut log, mut notices) = (Vec::new(), Vec::new());
         let result = check_with(options, true, &mut log, &mut notices, Ok(one_page()));
         (result, log, notices)
     }
 
+    /// The sorted keys of a JSON object.
     fn sorted_keys(value: &Value) -> Vec<&str> {
         let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
         keys.sort_unstable();

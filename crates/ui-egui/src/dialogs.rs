@@ -15,6 +15,8 @@ pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     unlock(app, ctx);
 }
 
+/// Show whichever dialog `app.dialog` names, after resetting the drafts that belong to a dialog that is no
+/// longer open.
 fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     password(app, ctx);
     save_prompt(app, ctx);

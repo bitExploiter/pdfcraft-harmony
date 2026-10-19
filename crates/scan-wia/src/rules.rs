@@ -37,6 +37,7 @@ pub const CODE_NAMES: [(u32, &str); 22] = [
     (0x8007_0057, "E_INVALIDARG"),
 ];
 
+/// The symbolic name of a known WIA or COM error code, or `None` for any other code.
 pub fn code_name(code: u32) -> Option<&'static str> {
     CODE_NAMES.iter().find(|(known, _)| *known == code).map(|(_, name)| *name)
 }
@@ -64,6 +65,7 @@ pub const KIND_BY_CODE: [(u32, InterruptKind); 19] = [
     (0x8021_0020, InterruptKind::MultiFeed),
 ];
 
+/// The interrupt kind a classified HRESULT stands for, or `None` for a code that is not classified.
 pub fn kind_for_hresult(code: u32) -> Option<InterruptKind> {
     KIND_BY_CODE.iter().find(|(known, _)| *known == code).map(|(_, kind)| *kind)
 }
@@ -254,10 +256,12 @@ pub fn generic_scan_failure(error: &ScanError) -> bool {
         || text.starts_with("The scan was interrupted.")
 }
 
+/// Whether the error's sentence is the one for a busy device.
 fn is_busy(error: &ScanError) -> bool {
     wia_error_message(0x8021_0006).is_some_and(|sentence| error.to_string().contains(sentence))
 }
 
+/// Whether the error's sentence is the one for a paper problem.
 fn is_paper_problem(error: &ScanError) -> bool {
     wia_error_message(0x8021_0004).is_some_and(|sentence| error.to_string().contains(sentence))
 }

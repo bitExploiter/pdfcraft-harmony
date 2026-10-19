@@ -104,6 +104,7 @@ pub struct Drain<T> {
 impl<T> Iterator for Drain<T> {
     type Item = windows::core::Result<T>;
 
+    /// Yield the next enumerated item; an error is yielded once and ends the iteration.
     fn next(&mut self) -> Option<Self::Item> {
         if self.done {
             return None;
@@ -168,6 +169,7 @@ pub fn child_items(root: &IWiaItem2) -> windows::core::Result<Drain<IWiaItem2>> 
 // Properties
 // ---------------------------------------------------------------------------------------------
 
+/// A `PROPSPEC` that names a property by its numeric id.
 fn spec_for(id: u32) -> PROPSPEC {
     PROPSPEC { ulKind: PRSPEC_PROPID, Anonymous: PROPSPEC_0 { propid: id } }
 }
@@ -192,6 +194,8 @@ pub struct Attributes {
     pub status: windows::core::Result<()>,
 }
 
+/// The `GetPropertyAttributes` result for one property. Check `status` first: the flags and valid values mean
+/// nothing when the call failed.
 pub fn property_attributes(props: &IWiaPropertyStorage, id: u32) -> Attributes {
     let spec = spec_for(id);
     let mut flags = 0u32;
@@ -258,6 +262,7 @@ pub fn enumerate_properties(props: &IWiaPropertyStorage) -> Option<PropertyEnum>
 impl Iterator for PropertyEnum {
     type Item = PropertyEntry;
 
+    /// Next property of the walk; ends at the first empty fetch or error, or after `MAX_PROPERTIES` calls.
     fn next(&mut self) -> Option<PropertyEntry> {
         if self.calls >= MAX_PROPERTIES {
             return None;
