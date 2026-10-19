@@ -284,25 +284,39 @@ fn arr(v: &[f64]) -> Object {
 /// Every comment as an XFDF element (one line per comment, replies included).
 /// The annotations of `which` (0-based page, position in the page's `/Annots`) as references,
 /// with every reply to them (and to those replies), so a thread travels whole.
-fn annots_with_replies(doc: &Document, which: &[(usize, usize)]) -> HashSet<ObjRef> {
+/// The annotations of `which` (0-based page, position in the page's `/Annots`) as positions,
+/// with every reply to them (and to those replies), so a thread travels whole. Positions, not
+/// references: other tools write comments straight into the page's array, without an object of
+/// their own, and those copy too.
+fn annots_with_replies(doc: &Document, which: &[(usize, usize)]) -> HashSet<(usize, usize)> {
     let pages = pdfcraft_model::pages(doc);
     let annots = |p: &pdfcraft_model::Page| -> Vec<Object> {
         p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default()
     };
-    let mut set: HashSet<ObjRef> =
-        which.iter().filter_map(|(pi, i)| pages.get(*pi).and_then(|p| annots(p).get(*i).and_then(Object::as_ref))).collect();
-    // Replies point at their parent through /IRT: a pass per reply depth, bounded by the count.
-    let all: Vec<(ObjRef, Option<ObjRef>)> = pages
+    /// An annotation's position, its reference (when it has one) and its parent's (`/IRT`).
+    struct Entry {
+        pos: (usize, usize),
+        obj: Option<ObjRef>,
+        parent: Option<ObjRef>,
+    }
+    let all: Vec<Entry> = pages
         .iter()
-        .flat_map(annots)
-        .filter_map(|a| a.as_ref())
-        .map(|r| (r, doc.get(r).as_dict().and_then(|d| d.get(b"IRT")).and_then(Object::as_ref)))
+        .enumerate()
+        .flat_map(|(pi, p)| {
+            annots(p).into_iter().enumerate().map(move |(ai, a)| {
+                let parent = doc.resolve(&a).as_dict().and_then(|d| d.get(b"IRT")).and_then(Object::as_ref);
+                Entry { pos: (pi, ai), obj: a.as_ref(), parent }
+            })
+        })
         .collect();
+    let mut set: HashSet<(usize, usize)> = which.iter().copied().filter(|w| all.iter().any(|e| e.pos == *w)).collect();
+    // Replies point at their parent through /IRT: a pass per reply depth, bounded by the count.
     for _ in 0..all.len() {
         let before = set.len();
-        for (r, irt) in &all {
-            if irt.is_some_and(|parent| set.contains(&parent)) {
-                set.insert(*r);
+        let parents: HashSet<ObjRef> = all.iter().filter(|e| set.contains(&e.pos)).filter_map(|e| e.obj).collect();
+        for e in &all {
+            if e.parent.is_some_and(|parent| parents.contains(&parent)) {
+                set.insert(e.pos);
             }
         }
         if set.len() == before {
@@ -312,7 +326,7 @@ fn annots_with_replies(doc: &Document, which: &[(usize, usize)]) -> HashSet<ObjR
     set
 }
 
-fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<ObjRef>>) {
+fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, usize)>>) {
     let pages = pdfcraft_model::pages(doc);
     // NM of every annotation, for inreplyto.
     let mut names: HashMap<ObjRef, String> = HashMap::new();
@@ -326,10 +340,8 @@ fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<ObjRef>>)
         }
     }
     for (pi, p) in pages.iter().enumerate() {
-        for a in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default() {
-            if let Some(only) = only
-                && !a.as_ref().is_some_and(|r| only.contains(&r))
-            {
+        for (ai, a) in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default().into_iter().enumerate() {
+            if only.is_some_and(|only| !only.contains(&(pi, ai))) {
                 continue;
             }
             let Some(d) = doc.resolve(&a).as_dict().cloned() else { continue };
@@ -1380,12 +1392,14 @@ fn import_xfdf_with(
     // Comments: parents first, then replies (whose /IRT needs the parent's reference).
     let mut by_name: HashMap<String, ObjRef> = HashMap::new();
     let mut later: HashMap<ObjRef, String> = HashMap::new();
-    // Fresh names: `name` → the name the copy gets, so replies find their copied parent.
+    // Fresh names: every copy gets one from its own position, and `name` → the first copy's,
+    // so replies find their copied parent (a name two source comments share, as other tools
+    // write, still gives two copies).
     let mut renamed: HashMap<String, String> = HashMap::new();
     if let (Some(prefix), Some(annots)) = (fresh, root.children().find(|c| c.has_tag_name("annots"))) {
         for (n, node) in annots.children().filter(|c| c.is_element()).enumerate() {
             if let Some(nm) = node.attribute("name") {
-                renamed.insert(nm.to_string(), format!("{prefix}-{}", n + 1));
+                renamed.entry(nm.to_string()).or_insert_with(|| format!("{prefix}-{}", n + 1));
             }
         }
     }
@@ -1396,10 +1410,10 @@ fn import_xfdf_with(
             let own_page = node.attribute("page").and_then(|p| p.parse::<usize>().ok());
             let Some(page) = target_page.or(own_page).and_then(|p| pages.get(p).copied()) else { continue };
             let Some(mut d) = annot_from_xml(node, subtype, page) else { continue };
-            if let Some(prefix) = fresh {
+            let assigned = fresh.map(|prefix| format!("{prefix}-{}", n + 1));
+            if let Some(name) = &assigned {
                 // A copy under a name of its own (one even where the original had none).
-                let name = node.attribute("name").and_then(|nm| renamed.get(nm).cloned()).unwrap_or_else(|| format!("{prefix}-{}", n + 1));
-                d.set(b"NM".to_vec(), PdfString::text(&name));
+                d.set(b"NM".to_vec(), PdfString::text(name));
             }
             if let Some([dx, dy]) = offset {
                 translate(&mut d, dx, dy);
@@ -1407,9 +1421,8 @@ fn import_xfdf_with(
             let r = place(doc, page, d)?;
             // A later same-name record replaces this comment, including its reply relation.
             later.remove(&r);
-            if let Some(nm) = node.attribute("name") {
-                let nm = renamed.get(nm).cloned().unwrap_or_else(|| nm.to_string());
-                by_name.insert(nm, r);
+            if let Some(name) = assigned.clone().or_else(|| node.attribute("name").map(str::to_owned)) {
+                by_name.insert(name, r);
             }
             if let Some(irt) = node.attribute("inreplyto") {
                 match (fresh, renamed.get(irt)) {

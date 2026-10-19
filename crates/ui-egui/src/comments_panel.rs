@@ -286,6 +286,9 @@ fn card(
     let mut edit = None;
     let key = (a.page, a.index);
     let selected = view.comments.is_selected(key);
+    // Several comments may be selected; the reply field (one draft) belongs to the one with
+    // the handles.
+    let primary = view.comments.selected == Some(key);
     let color = a.color.map(|c| color32(c.map(f64::from))).unwrap_or(t.accent);
     let status = thread.iter().rev().filter(|r| !r.is_mark()).find_map(|r| r.state.as_deref());
     let marked = is_marked(thread);
@@ -393,7 +396,7 @@ fn card(
                 let x = resp.response.rect.left() + 12.0;
                 ui.painter().vline(x, (resp.response.rect.top() - 14.0)..=(resp.response.rect.top() - 2.0), Stroke::new(1.5, t.border));
             }
-            if selected && allowed {
+            if primary && allowed {
                 ui.add_space(8.0);
                 egui::Frame::NONE.inner_margin(egui::Margin { left: 34, right: 0, top: 0, bottom: 0 }).show(ui, |ui| {
                     // The field fills its line and Post sits right-aligned under it: a field sized

@@ -1813,6 +1813,37 @@ fn importing_comments_as_copies_adds_them_on_the_page_with_fresh_names() {
     assert_eq!(summaries(&other).len(), 4, "the named import replaced its own earlier copy");
 }
 
+/// Other tools write comments straight into the page's `/Annots` array, without an object of
+/// their own: they copy like any other, and two source comments sharing a name give two copies.
+#[test]
+fn comments_written_directly_into_the_page_array_copy_and_shared_names_give_two_copies() {
+    let mut doc = blank();
+    let page = pdfcraft_model::pages(&doc)[0].obj;
+    let mut direct = Dict::new();
+    direct.set(b"Type".to_vec(), Object::name("Annot"));
+    direct.set(b"Subtype".to_vec(), Object::name("Square"));
+    direct.set(b"Rect".to_vec(), arr(&[10.0, 10.0, 60.0, 40.0]));
+    direct.set(b"Contents".to_vec(), PdfString::text("drawn elsewhere"));
+    let mut twin = direct.clone();
+    twin.set(b"NM".to_vec(), PdfString::text("shared"));
+    let mut other_twin = twin.clone();
+    other_twin.set(b"Rect".to_vec(), arr(&[100.0, 10.0, 150.0, 40.0]));
+    doc.update_dict(page, |p| p.set(b"Annots".to_vec(), Object::Array(vec![Object::Dict(direct), Object::Dict(twin), Object::Dict(other_twin)])))
+        .unwrap();
+    assert_eq!(summaries(&doc).len(), 3);
+    let xfdf = export_xfdf_comments(&doc, &[(0, 0)], "x.pdf");
+    assert!(xfdf.contains("<square") && xfdf.contains("drawn elsewhere"), "a direct annotation copies: {xfdf}");
+    assert_eq!(comment_count(&xfdf), 1);
+    let both = export_xfdf_comments(&doc, &[(0, 1), (0, 2)], "x.pdf");
+    assert_eq!(comment_count(&both), 2);
+    let mut dst = blank();
+    import_comments(&mut dst, &both, Some(0), Some("p"), None).unwrap();
+    let copies = summaries(&dst);
+    assert_eq!(copies.len(), 2, "two copies, not one replacing the other: {copies:?}");
+    assert_ne!(copies[0].name, copies[1].name);
+    assert!(export_xfdf_comments(&doc, &[(0, 9)], "x.pdf").contains("<annots>\n</annots>"), "a position that is no annotation copies nothing");
+}
+
 /// A paste placed elsewhere: every copy moves by the offset, rect, quads, ink and vertices
 /// alike; the bounds and count of a clipboard text say what hangs on the pointer.
 #[test]
