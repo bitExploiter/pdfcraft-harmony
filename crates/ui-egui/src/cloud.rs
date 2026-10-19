@@ -238,13 +238,9 @@ impl CloudApp for PdfCraftApp {
 /// The title-bar account badge and menu (`craft_ui::cloud::who`), plus the browser
 /// login popup on Sign in while the click's user activation still holds.
 pub fn who(app: &mut PdfCraftApp, ui: &mut Ui) {
-    let status_before = app.cloud.status.clone();
     craft_ui::cloud::who(app, ui);
     #[cfg(target_arch = "wasm32")]
-    if status_before.is_none()
-        && app.cloud.status.is_some()
-        && app.cloud.account.is_none()
-    {
+    if app.cloud_mut().take_sign_in_from_menu() && app.cloud.account.is_none() {
         let ctx = ui.ctx();
         let popup_retry = egui::Id::new("pdfcraft:popup_retry");
         ctx.memory_mut(|m| m.data.remove::<bool>(popup_retry));
