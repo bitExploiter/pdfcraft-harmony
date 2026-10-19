@@ -328,16 +328,30 @@ fn annots_with_replies(doc: &Document, which: &[(usize, usize)]) -> HashSet<(usi
 
 fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, usize)>>) {
     let pages = pdfcraft_model::pages(doc);
-    // NM of every annotation, for inreplyto.
+    // NM of every annotation, for inreplyto. A selected annotation without one (other tools
+    // leave /NM out) gets a name for this export, so a reply copied with it still finds it.
     let mut names: HashMap<ObjRef, String> = HashMap::new();
-    for p in &pages {
-        for a in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default() {
-            if let Some(r) = a.as_ref()
-                && let Some(nm) = doc.get(r).as_dict().and_then(|d| text_of(doc, d, b"NM"))
-            {
-                names.insert(r, nm);
+    let mut unnamed: Vec<(usize, usize, ObjRef)> = Vec::new();
+    for (pi, p) in pages.iter().enumerate() {
+        for (ai, a) in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default().into_iter().enumerate() {
+            let Some(r) = a.as_ref() else { continue };
+            match doc.get(r).as_dict().and_then(|d| text_of(doc, d, b"NM")) {
+                Some(nm) => {
+                    names.insert(r, nm);
+                }
+                None if only.is_some_and(|only| only.contains(&(pi, ai))) => unnamed.push((pi, ai, r)),
+                None => {}
             }
         }
+    }
+    let mut taken: HashSet<String> = names.values().cloned().collect();
+    for (pi, ai, r) in unnamed {
+        let mut name = format!("pdfcraft-{pi}-{ai}");
+        while taken.contains(&name) {
+            name.push('x');
+        }
+        taken.insert(name.clone());
+        names.insert(r, name);
     }
     for (pi, p) in pages.iter().enumerate() {
         for (ai, a) in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default().into_iter().enumerate() {
@@ -359,9 +373,12 @@ fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, u
                     n(rect[1].max(rect[3]))
                 );
             }
+            // The name: /NM, or the one given above for this export.
+            if let Some(nm) = text_of(doc, &d, b"NM").or_else(|| a.as_ref().and_then(|r| names.get(&r).cloned())) {
+                let _ = write!(attrs, " name=\"{}\"", esc(&nm));
+            }
             for (key, attr) in [
-                (&b"NM"[..], "name"),
-                (b"T", "title"),
+                (&b"T"[..], "title"),
                 (b"Subj", "subject"),
                 (b"M", "date"),
                 (b"CreationDate", "creationdate"),

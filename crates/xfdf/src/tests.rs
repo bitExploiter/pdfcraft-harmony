@@ -1844,6 +1844,42 @@ fn comments_written_directly_into_the_page_array_copy_and_shared_names_give_two_
     assert!(export_xfdf_comments(&doc, &[(0, 9)], "x.pdf").contains("<annots>\n</annots>"), "a position that is no annotation copies nothing");
 }
 
+/// A selected comment without a name of its own (other tools leave /NM out) gets one for the
+/// export, so its replies still find it when the copies are pasted.
+#[test]
+fn replies_to_a_selected_comment_without_a_name_follow_it_into_the_copy() {
+    let meta = |id: &str| Meta { date: None, id: id.into() };
+    let mut doc = blank();
+    let shape = Shape::Rectangle { rect: [10.0, 10.0, 60.0, 40.0] };
+    add_annotation(
+        &mut doc,
+        &NewAnnotation { page: 0, style: Style::default_for(&shape), shape, contents: "nameless".into(), author: "Ada".into() },
+        &meta("gone"),
+    )
+    .unwrap();
+    let index = summaries(&doc)[0].index;
+    add_reply(&mut doc, 0, index, "Agreed", "Bob", &meta("r1")).unwrap();
+    // The parent loses its /NM, as another tool may have left it.
+    let annots = pdfcraft_model::pages(&doc)[0].dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap();
+    let parent = annots[index].as_ref().unwrap();
+    doc.update_dict(parent, |d| {
+        d.remove(b"NM");
+    })
+    .unwrap();
+    assert_eq!(threads(&doc)[0].0, None, "{:?}", threads(&doc));
+    let xfdf = export_xfdf_comments(&doc, &[(0, index)], "x.pdf");
+    let given = format!("pdfcraft-0-{index}");
+    assert!(xfdf.contains(&format!("name=\"{given}\"")) && xfdf.contains(&format!("inreplyto=\"{given}\"")), "{xfdf}");
+    let mut dst = blank();
+    import_comments(&mut dst, &xfdf, Some(0), Some("p"), None).unwrap();
+    let copies = threads(&dst);
+    assert_eq!(copies.len(), 2, "{copies:?}");
+    let parent_name = copies.iter().find(|(_, irt, _)| irt.is_none()).and_then(|(n, _, _)| n.clone());
+    assert!(parent_name.is_some(), "{copies:?}");
+    let reply_to = copies.iter().find(|(_, irt, _)| irt.is_some()).and_then(|(_, irt, _)| irt.clone());
+    assert_eq!(reply_to, parent_name, "the reply follows its copied parent: {copies:?}");
+}
+
 /// A paste placed elsewhere: every copy moves by the offset, rect, quads, ink and vertices
 /// alike; the bounds and count of a clipboard text say what hangs on the pointer.
 #[test]
