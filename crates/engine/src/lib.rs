@@ -376,7 +376,9 @@ pub struct Document {
     pub id: DocId,
     pub name: String,
     pub path: Option<String>,
-    /// The working file: what Save writes.
+    /// The working file: the PDF as opened (or last saved) with any repairs and layouts its
+    /// open performed — what everything that processes the document consumes. Save writes it,
+    /// except on a CAdES envelope document, whose save is its envelope (`envelope_file`).
     pub bytes: Arc<Vec<u8>>,
     /// What is displayed (the page view, `page_render`, page images): `bytes`, plus appearances
     /// drawn for display only for comments that have none ([`display_bytes`]). Never saved.
@@ -395,6 +397,14 @@ pub struct Document {
     pub read_only_reason: Option<String>,
     /// The CAdES envelope the document was opened from (read-only by nature), if so.
     pub envelope: Option<EnvelopeInfo>,
+    /// The envelope file's own bytes, as opened: what Save writes for an envelope document —
+    /// the signed envelope, never the unsigned PDF inside it, so saving over the `.p7m` cannot
+    /// replace it. `None` on every other document.
+    envelope_file: Option<Arc<Vec<u8>>>,
+    /// The exact PDF bytes the envelope encapsulated, untouched by any repair or layout its
+    /// open performed on the working `bytes`: what [`Session::extract_original`] hands out,
+    /// byte-identical to what was signed. `None` on every other document.
+    envelope_content: Option<Arc<Vec<u8>>>,
     /// Interactive form fields of the current state (empty without a form).
     pub form: Arc<Vec<pdfcraft_forms::Field>>,
     marker_scan: OnceLock<pdfcraft_edit::MarkerScan>,
@@ -874,9 +884,10 @@ impl Document {
     }
 
     /// The file as last opened or saved, without unsaved edits: what an incremental save appends
-    /// to. This stays that file when undo has restored an older snapshot.
+    /// to. This stays that file when undo has restored an older snapshot. A CAdES envelope
+    /// document's file is its envelope, so that is what this hands out ([`Session::save_bytes`]).
     pub fn saved_bytes(&self) -> Arc<Vec<u8>> {
-        self.editor.as_ref().map_or_else(|| self.bytes.clone(), |e| e.saved.clone())
+        self.editor.as_ref().map_or_else(|| self.envelope_file.clone().unwrap_or_else(|| self.bytes.clone()), |e| e.saved.clone())
     }
 
     /// Notes about damage repaired while opening (Document Properties ▸ Advanced, notices).
@@ -3414,9 +3425,12 @@ impl Session {
         }
         // `path` stays None: Save writes a read-only document in full to its path, and that
         // file is the envelope, which is never rewritten.
-        let mut prepared = Self::prepare_open_unguarded(context, strip_p7m(&name), None, Arc::new(content), password)?;
-        // The user's file is the envelope, not the PDF inside it: the document keeps the
-        // envelope's bytes (what Extract hands out) and no editor of its own.
+        let content = Arc::new(content);
+        let mut prepared = Self::prepare_open_unguarded(context, strip_p7m(&name), None, content.clone(), password)?;
+        // The user's file is the envelope, not the PDF inside it: Save As hands out the
+        // envelope's own bytes, Extract the exact PDF it encapsulated (the working `bytes`
+        // keep the PDF as opened, repaired or laid out, for everything that processes it),
+        // and the document has no editor of its own.
         prepared.document.editor = None;
         prepared.document.read_only_reason =
             Some("This document is inside a CAdES signature envelope (.p7m); extracting the original PDF makes an editable copy.".into());
@@ -3427,6 +3441,8 @@ impl Session {
             signers: env.signers,
             quirks: env.quirks.iter().map(|q| (*q).to_string()).collect(),
         });
+        prepared.document.envelope_file = Some(bytes);
+        prepared.document.envelope_content = Some(content);
         prepared.document.dirty = false;
         Ok(prepared)
     }
@@ -3684,6 +3700,8 @@ impl Session {
             snapshot_generation: 0,
             read_only_reason,
             envelope: None,
+            envelope_file: None,
+            envelope_content: None,
             form: Arc::new(form),
             marker_scan: OnceLock::new(),
             links: OnceLock::new(),
@@ -4167,6 +4185,12 @@ impl Session {
     /// break its signatures, so with no edits it keeps its bytes, damage and all.
     pub fn save_bytes(&self, id: DocId) -> Result<Arc<Vec<u8>>, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
+        // An envelope document saves as the file it was opened from: the signed envelope,
+        // never the unsigned PDF inside it (Extract makes the editable copy). This is the
+        // read-only Save As path, so saving over the `.p7m` leaves it as it is.
+        if let Some(envelope) = &doc.envelope_file {
+            return Ok(envelope.clone());
+        }
         let Some(editor) = doc.editor.as_ref() else { return Ok(doc.bytes.clone()) };
         let on_saved = Arc::ptr_eq(editor.cos.bytes(), &editor.saved);
         if !editor.cos.is_modified() && on_saved && (!editor.cos.reconstructed() || doc.is_signed()) {
@@ -4784,7 +4808,10 @@ impl Session {
         if doc.envelope.is_none() {
             return Err("this document is not inside a CAdES envelope".into());
         }
-        let (name, bytes) = (doc.name.clone(), doc.bytes.clone());
+        // The exact bytes the envelope carries, not the working file (whose open may have
+        // repaired the PDF or laid out a form): the copy is what was signed.
+        let name = doc.name.clone();
+        let bytes = doc.envelope_content.clone().ok_or("the envelope's content is unavailable")?;
         self.open_new(name, bytes).map_err(|e| e.to_string())
     }
 
