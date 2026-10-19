@@ -3596,7 +3596,9 @@ fn flick(h: &mut Harness<'static, PdfCraftApp>, from: egui::Pos2, to: egui::Pos2
 
 #[test]
 fn a_quick_flick_on_either_edge_rewraps_the_paragraph() {
-    let mut h = harness(1, |_| {});
+    let mut h = harness(1, |app| {
+        app.show_rulers = false;
+    });
     assert!(h.state_mut().execute("edit.edit_text"));
     h.run_steps(2);
     let lines = |h: &Harness<'static, PdfCraftApp>| {
