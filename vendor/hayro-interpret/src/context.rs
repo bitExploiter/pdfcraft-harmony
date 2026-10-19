@@ -494,6 +494,11 @@ fn closed_axis_aligned(path: &BezPath) -> bool {
     let mut last = None;
     let mut closed = false;
     for el in path.elements() {
+        // Only a final close: `0 0 m 10 0 l h 0 10 l 10 10 l` touches the four corners too,
+        // but goes on drawing from the start point after closing (review on #2913).
+        if closed {
+            return false;
+        }
         let p = match el {
             PathEl::MoveTo(p) => {
                 start = Some(*p);

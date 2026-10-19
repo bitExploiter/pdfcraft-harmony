@@ -4724,6 +4724,11 @@ trailer << /Root 1 0 R >>
         assert!(grey_at(open, 10, 35) > 192, "the open path's top is only stroked from 35 to 20");
         let closed = b"0 G 2 w 5 5 m 35 5 l 35 35 l 5 35 l h S";
         assert!(grey_at(closed, 5, 20) < 64, "a closed rectangle still strokes all four sides");
+        // Closed after one side, then drawn on from the start point (review on #2913): five
+        // elements touching the four corners, but there is no right side.
+        let reopened = b"0 G 2 w 5 5 m 35 5 l h 5 35 l 35 35 l S";
+        assert!(grey_at(reopened, 35, 20) > 192, "a path drawn on after its close has no right side");
+        assert!(grey_at(reopened, 5, 20) < 64 && grey_at(reopened, 20, 35) < 64, "its left side and top are stroked");
     }
 
     /// A page whose content expands far beyond its compressed stream stops at the expansion budget,
