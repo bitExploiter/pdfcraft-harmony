@@ -2655,6 +2655,7 @@ certificate	SHA-256 digest	Impronta SHA-256
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto non corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
 	CAdES signature envelope	Busta di firma CAdES
+	This document is not inside a CAdES envelope	Questo documento non è all'interno di una busta di firma CAdES.
 	Integrity	Integrità
 	Matches what was signed	Corrisponde a quanto firmato
 	Does not match what was signed	Non corrisponde a quanto firmato

@@ -2442,6 +2442,7 @@ animation effects	Off	Ki
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom megegyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom nem egyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
 	CAdES signature envelope	CAdES aláírás-boríték
+	This document is not inside a CAdES envelope	Ez a dokumentum nem CAdES aláírás-borítékban van.
 	Integrity	Integritás
 	Matches what was signed	Megegyezik az aláírttal
 	Does not match what was signed	Nem egyezik az aláírttal

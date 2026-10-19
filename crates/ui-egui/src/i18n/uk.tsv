@@ -2465,6 +2465,7 @@ animation effects	Off	Вимкнено
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Підписано {signer}; вміст відповідає підписаному; довіру до підписувача не перевірено.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Підписано {signer}; вміст не відповідає підписаному; довіру до підписувача не перевірено.
 	CAdES signature envelope	Конверт підпису CAdES
+	This document is not inside a CAdES envelope	Цей документ не всередині конверта підпису CAdES.
 	Integrity	Цілісність
 	Matches what was signed	Відповідає підписаному
 	Does not match what was signed	Не відповідає підписаному

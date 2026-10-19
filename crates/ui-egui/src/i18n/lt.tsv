@@ -2694,6 +2694,7 @@ theme	Appearance	Išvaizda
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys atitinka tai, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys neatitinka to, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
 	CAdES signature envelope	CAdES parašo vokas
+	This document is not inside a CAdES envelope	Šis dokumentas nėra CAdES parašo voko viduje.
 	Integrity	Vientisumas
 	Matches what was signed	Atitinka tai, kas buvo pasirašyta
 	Does not match what was signed	Neatitinka to, kas buvo pasirašyta

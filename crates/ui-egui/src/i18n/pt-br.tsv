@@ -2457,6 +2457,7 @@ animation effects	Off	Desativados
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Assinado por {signer}; o conteúdo corresponde ao que foi assinado; a confiança do signatário não foi verificada.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Assinado por {signer}; o conteúdo não corresponde ao que foi assinado; a confiança do signatário não foi verificada.
 	CAdES signature envelope	Envelope de assinatura CAdES
+	This document is not inside a CAdES envelope	Este documento não está dentro de um envelope de assinatura CAdES.
 	Integrity	Integridade
 	Matches what was signed	Corresponde ao que foi assinado
 	Does not match what was signed	Não corresponde ao que foi assinado

@@ -2517,6 +2517,7 @@ animation effects	Off	Vypnuto
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podepsal {signer}; obsah odpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podepsal {signer}; obsah neodpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
 	CAdES signature envelope	Obálka podpisu CAdES
+	This document is not inside a CAdES envelope	Tento dokument není uvnitř obálky podpisu CAdES.
 	Integrity	Integrita
 	Matches what was signed	Odpovídá podepsanému
 	Does not match what was signed	Neodpovídá podepsanému

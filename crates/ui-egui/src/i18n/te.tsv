@@ -2352,6 +2352,7 @@ animation effects	Off	ఆఫ్
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలుతుంది; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలడు; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
 	CAdES signature envelope	CAdES సంతక లకోట
+	This document is not inside a CAdES envelope	ఈ పత్రం CAdES సంతక లకోట లోపల లేదు.
 	Integrity	సమగ్రత
 	Matches what was signed	సంతకం చేసిన దానికి సరిపోలుతుంది
 	Does not match what was signed	సంతకం చేసిన దానికి సరిపోలడు

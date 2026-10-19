@@ -2697,6 +2697,7 @@ key	Space	Space
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Do {signer} ký; nội dung khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Do {signer} ký; nội dung không khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
 	CAdES signature envelope	Phong bì ký CAdES
+	This document is not inside a CAdES envelope	Tài liệu này không nằm trong phong bì ký CAdES.
 	Integrity	Toàn vẹn
 	Matches what was signed	Khớp với nội dung đã ký
 	Does not match what was signed	Không khớp với nội dung đã ký

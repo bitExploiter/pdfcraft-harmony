@@ -2449,6 +2449,7 @@ animation effects	Off	Ανενεργά
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer}· το περιεχόμενο αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer}· το περιεχόμενο δεν αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
 	CAdES signature envelope	Φάκελος υπογραφής CAdES
+	This document is not inside a CAdES envelope	Αυτό το έγγραφο δεν βρίσκεται μέσα σε φάκελο υπογραφίας CAdES.
 	Integrity	Ακεραιότητα
 	Matches what was signed	Αντιστοιχεί σε αυτό που υπογράφηκε
 	Does not match what was signed	Δεν αντιστοιχεί σε αυτό που υπογράφηκε

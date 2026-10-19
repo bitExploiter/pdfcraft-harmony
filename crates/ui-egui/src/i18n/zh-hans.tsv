@@ -2407,6 +2407,7 @@ animation effects	Off	关
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	由 {signer} 签名；内容与所签内容一致；未检查签名者的可信度。
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	由 {signer} 签名；内容与所签内容不一致；未检查签名者的可信度。
 	CAdES signature envelope	CAdES 签名信封
+	This document is not inside a CAdES envelope	此文档不在 CAdES 签名信封内。
 	Integrity	完整性
 	Matches what was signed	与所签内容一致
 	Does not match what was signed	与所签内容不一致

@@ -2448,6 +2448,7 @@ animation effects	Off	Izklopljeni
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ne ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
 	CAdES signature envelope	Ovoj podpisa CAdES
+	This document is not inside a CAdES envelope	Ta dokument ni znotraj ovoja podpisa CAdES.
 	Integrity	Celovitost
 	Matches what was signed	Se ujema s podpisanim
 	Does not match what was signed	Se ne ujema s podpisanim

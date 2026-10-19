@@ -2439,6 +2439,7 @@ animation effects	Off	Kapalı
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşiyor; imzalayanın güveni denetlenmedi.
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşmiyor; imzalayanın güveni denetlenmedi.
 	CAdES signature envelope	CAdES imza zarfı
+	This document is not inside a CAdES envelope	Bu belge bir CAdES imza zarfının içinde değil.
 	Integrity	Bütünlük
 	Matches what was signed	İmzalananla eşleşiyor
 	Does not match what was signed	İmzalananla eşleşmiyor

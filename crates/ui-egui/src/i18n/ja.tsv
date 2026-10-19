@@ -2443,6 +2443,7 @@ animation effects	Off	オフ
 	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致しています。署名者の信頼性は確認されていません。
 	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致していません。署名者の信頼性は確認されていません。
 	CAdES signature envelope	CAdES署名エンベロープ
+	This document is not inside a CAdES envelope	この文書はCAdES署名エンベロープの内部にありません。
 	Integrity	整合性
 	Matches what was signed	署名されたものと一致しています
 	Does not match what was signed	署名されたものと一致していません
