@@ -327,3 +327,132 @@ fn page_tree_loops_in_object_streams_do_not_crash_readers() {
     assert!(String::from_utf8_lossy(&packed).contains("/ObjStm"));
     assert_eq!(hayro_pages(&packed), 1);
 }
+
+/// Catalog, empty page tree, and trailer entries a reader must not invent: a direct name, a
+/// direct string, and a string object reachable only from the trailer.
+fn trailer_fixture() -> Vec<u8> {
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, body) in ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [] /Count 0 >>", "(only from the trailer)"].iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{body}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(b"xref\n0 4\n0000000000 65535 f \n");
+    for offset in offsets {
+        out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(
+        format!("trailer\n<< /Size 4 /Root 1 0 R /Version /1.7 /Custom (keep me) /Note 3 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
+    );
+    out
+}
+
+fn trailer_custom(doc: &Document) -> Option<Vec<u8>> {
+    doc.trailer().get(b"Custom").and_then(Object::as_string).map(|s| s.bytes.clone())
+}
+
+fn trailer_note(doc: &Document) -> Option<Vec<u8>> {
+    doc.trailer().get(b"Note").map(|o| doc.resolve(o)).and_then(|o| o.as_string().map(|s| s.bytes.clone()))
+}
+
+#[test]
+fn full_save_preserves_unknown_trailer_data() {
+    let input = trailer_fixture();
+    let doc = Document::open(Arc::new(input)).unwrap();
+    assert_eq!(trailer_custom(&doc), Some(b"keep me".to_vec()));
+    assert_eq!(trailer_note(&doc).as_deref(), Some(b"only from the trailer".as_slice()));
+    assert_eq!(doc.trailer().get(b"Version").and_then(Object::as_name), Some(&b"1.7"[..]));
+    assert!(doc.repair_log().is_empty());
+    assert!(!doc.full_save_required());
+
+    let inc = Document::open(Arc::new(write_incremental(&doc, &SaveOptions::default()).unwrap())).unwrap();
+    assert_eq!(trailer_custom(&inc), trailer_custom(&doc));
+    assert_eq!(trailer_note(&inc), trailer_note(&doc));
+    assert_eq!(inc.trailer().get(b"Version"), doc.trailer().get(b"Version"));
+    assert!(inc.repair_log().is_empty());
+
+    for object_streams in [true, false] {
+        let opts = SaveOptions { object_streams, ..SaveOptions::default() };
+        let bytes = write_full(&doc, &opts).unwrap();
+        let back = Document::open(Arc::new(bytes)).unwrap();
+        assert!(back.root().is_some());
+        assert!(back.repair_log().is_empty(), "{:?}", back.repair_log());
+        assert_eq!(trailer_custom(&back), trailer_custom(&doc));
+        assert_eq!(trailer_note(&back), trailer_note(&doc));
+        assert_eq!(back.trailer().get(b"Version"), doc.trailer().get(b"Version"));
+    }
+
+    let mut required = doc.clone();
+    required.require_full_save();
+    let back = Document::open(Arc::new(write_incremental(&required, &SaveOptions::default()).unwrap())).unwrap();
+    assert!(back.root().is_some());
+    assert!(back.repair_log().is_empty(), "{:?}", back.repair_log());
+    assert_eq!(trailer_custom(&back), trailer_custom(&doc));
+    assert_eq!(trailer_note(&back), trailer_note(&doc));
+    assert_eq!(back.trailer().get(b"Version"), doc.trailer().get(b"Version"));
+}
+
+/// The `startxref` value at the end of `bytes`.
+fn last_startxref(bytes: &[u8]) -> usize {
+    let at = bytes.windows(9).rposition(|w| w == b"startxref").unwrap();
+    String::from_utf8_lossy(&bytes[at + 9..]).split_whitespace().next().unwrap().parse().unwrap()
+}
+
+#[test]
+fn incremental_saves_of_a_file_with_bytes_before_its_header_count_from_the_header() {
+    // Offsets written before the prefix was added count from `%PDF-`, as in the KillerPDF file
+    // of #2364; the appended section must count the same way as the `/Prev` it points back to.
+    let prefix = vec![b'#'; 128];
+    let as_stream = write_full(&Document::open(Arc::new(fixture())).unwrap(), &SaveOptions::default()).unwrap();
+    for (name, body, marker) in [("table", classic_table(), &b"xref"[..]), ("stream", as_stream, &b" 0 obj"[..])] {
+        let input = [prefix.as_slice(), &body].concat();
+        let mut doc = Document::open(Arc::new(input.clone())).unwrap();
+        assert!(doc.revisions().last().unwrap().header_relative, "{name}");
+        doc.update_dict(ObjRef::new(1, 0), |d| d.set(b"Lang".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"en".to_vec())))).unwrap();
+        let saved = write_incremental(&doc, &SaveOptions::default()).unwrap();
+        assert!(saved.starts_with(&input), "{name}");
+
+        let xref = last_startxref(&saved) + prefix.len();
+        let section = saved.get(xref..).unwrap_or_default();
+        assert!(section.windows(marker.len()).position(|w| w == marker).is_some_and(|p| p < 16), "{name}: startxref misses its section");
+        let back = Document::open(Arc::new(saved.clone())).unwrap();
+        assert_eq!(back.revisions().len(), doc.revisions().len() + 1, "{name}");
+        assert!(back.revisions().iter().all(|r| r.header_relative), "{name}: one convention across the chain");
+        let edited = back.get(ObjRef::new(1, 0));
+        assert_eq!(edited.as_dict().unwrap().get(b"Lang").and_then(|o| o.as_string()).map(|s| s.bytes.as_slice()), Some(b"en".as_slice()));
+        assert!(back.xref_entry_is_exact(1), "{name}");
+        assert_qpdf_clean(&saved);
+    }
+}
+
+#[test]
+fn incremental_saves_of_a_file_whose_offsets_count_from_its_first_byte_keep_counting_so() {
+    // The other convention: the same file, but its offsets include the bytes before the header.
+    let prefix = vec![b'#'; 128];
+    let mut input = [prefix.as_slice(), &classic_table()].concat();
+    let xref = input.windows(6).rposition(|w| w == b"\nxref\n").unwrap() + 1;
+    let table: String = String::from_utf8_lossy(&input[xref..])
+        .lines()
+        .map(|line| match line.strip_suffix(" 00000 n ").and_then(|o| o.parse::<usize>().ok()) {
+            Some(o) => format!("{:010} 00000 n \n", o + prefix.len()),
+            None if line.parse::<usize>().is_ok() => format!("{xref}\n"),
+            None => format!("{line}\n"),
+        })
+        .collect();
+    input.truncate(xref);
+    input.extend_from_slice(table.as_bytes());
+
+    let mut doc = Document::open(Arc::new(input.clone())).unwrap();
+    assert!(doc.repair_log().is_empty(), "{:?}", doc.repair_log());
+    assert!(!doc.revisions().last().unwrap().header_relative);
+    doc.update_dict(ObjRef::new(1, 0), |d| d.set(b"Lang".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"en".to_vec())))).unwrap();
+    let saved = write_incremental(&doc, &SaveOptions::default()).unwrap();
+    assert!(saved.get(last_startxref(&saved)..).unwrap_or_default().starts_with(b"xref"));
+    let back = Document::open(Arc::new(saved.clone())).unwrap();
+    assert!(back.repair_log().is_empty(), "{:?}", back.repair_log());
+    assert_eq!(back.revisions().len(), 2);
+    assert!(back.xref_entry_is_exact(1));
+    // No qpdf check here: qpdf counts every offset from the header in a file with bytes before
+    // it, so it already reconstructs this input before anything is appended.
+}
