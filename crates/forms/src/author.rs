@@ -6,6 +6,7 @@
 //! choice fields, a thin grey border and a white background, and appearance streams generated
 //! immediately so every viewer shows the empty field.
 
+use pdfcraft_collate::{Collation, text_key};
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
 
 use crate::{Field, FieldKind, FormError, Widget, appearance, fields, flags, page_refs};
@@ -104,6 +105,9 @@ pub struct FieldProps {
     /// Changing between horizontal and vertical swaps that widget's width and height around its
     /// center, unless [`Self::rect`] is also set.
     pub rotation: Option<(usize, i64)>,
+    /// Language for Sort items when the document has no /Lang (a language tag such as `vi`;
+    /// an unknown tag sorts in the root order).
+    pub sort_language: Option<String>,
 }
 
 fn invalid<T>(m: impl Into<String>) -> Result<T, FormError> {
@@ -861,6 +865,20 @@ fn swapped_around_center(r: [f64; 4]) -> Option<[f64; 4]> {
     (out.iter().all(|v| v.is_finite()) && out[2] - out[0] >= MIN_FIELD_SIDE && out[3] - out[1] >= MIN_FIELD_SIDE).then_some(out)
 }
 
+/// The collation "Sort items" uses: the catalog's `/Lang` when it is a non-empty string, else the
+/// caller's language, else Root. A missing, non-string or unreadable `/Lang` means "none".
+fn sort_collation(doc: &Document, fallback: Option<&str>) -> Collation {
+    let lang = doc
+        .root()
+        .and_then(|root| doc.get(root).as_dict().and_then(|d| d.get(b"Lang").map(|v| doc.resolve(v))))
+        .and_then(|v| v.as_string().map(PdfString::to_text))
+        .filter(|l| !l.trim().is_empty());
+    match lang.as_deref().or(fallback) {
+        Some(tag) => Collation::from_tag(tag),
+        None => Collation::Root,
+    }
+}
+
 /// Change a field's properties (General and Options tabs) and redraw it.
 pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<String, FormError> {
     if props.font_size.is_some_and(|size| !size.is_finite() || size < 0.0) {
@@ -986,6 +1004,7 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
     if props.check_style.is_some() && !matches!(f.kind, FieldKind::CheckBox | FieldKind::Radio) {
         return invalid("only check boxes and radio buttons have a check style");
     }
+    let collation = sort_collation(doc, props.sort_language.as_deref());
     doc.update_dict(f.obj, |d| {
         d.set(b"Ff".to_vec(), Object::Int(ff as i64));
         if let Some(t) = &props.tooltip {
@@ -1012,7 +1031,8 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
                 Some(o) => o.iter().map(|x| (x.clone(), x.clone())).collect(),
                 None => f.options.clone(),
             };
-            items.sort_by_key(|(_, display)| display.to_lowercase());
+            // Stable: items that compare equal (case, NFC/NFD) keep their entry order.
+            items.sort_by_cached_key(|(_, display)| text_key(display, collation));
             let opt = items
                 .iter()
                 .map(|(e, disp)| {

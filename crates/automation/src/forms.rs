@@ -565,6 +565,7 @@ impl Automation {
                         .ok_or_else(|| bad(format!("unknown check style {s:?} (check, circle, cross, diamond, square, star)")))?,
                 ),
             },
+            sort_language: None,
         })
     }
 

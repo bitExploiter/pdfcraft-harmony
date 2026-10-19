@@ -4234,6 +4234,7 @@ name = "pdfcraft-forms"
 version = "0.11.0"
 dependencies = [
  "hayro-syntax",
+ "pdfcraft-collate",
  "pdfcraft-content",
  "pdfcraft-cos",
  "pdfcraft-fonts",
