@@ -521,6 +521,11 @@ pub fn current() -> Lang {
     CURRENT.get()
 }
 
+/// The order text sorts in for the interface language: Vietnamese for `vi`, root for the rest.
+pub fn collation() -> pdfcraft_collate::Collation {
+    pdfcraft_collate::Collation::from_tag(current().code())
+}
+
 /// Does `lang` have a catalog entry for this plain string? (English never does: it is the source.)
 pub fn has(lang: Lang, s: &str) -> bool {
     lang.catalog().plain(s).is_some()

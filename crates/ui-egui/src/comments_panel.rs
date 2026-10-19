@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use egui::{Align, Color32, CornerRadius, Layout, Sense, Stroke, vec2};
+use pdfcraft_collate::{Collation, text_eq, text_key};
 use pdfcraft_engine::{Edit, NoteIcon, ReviewState, Shape};
 use pdfcraft_render::{Annotation, DocInfo};
 
@@ -96,10 +97,56 @@ fn matches(a: &Annotation, q: &str) -> bool {
     any_contains([a.author.as_deref(), a.contents.as_deref(), Some(kind_label(a))].into_iter().flatten(), q)
 }
 
-/// Whether one of `fields` contains `q` in any case, Turkish dotted and dotless i included.
+/// Whether one of `fields` contains `q` in any case, Turkish dotted and dotless i included, with
+/// canonically equivalent text (NFC and NFD) alike and whole letters only (`e` is not found in
+/// "Nguyễn").
 fn any_contains<'a>(fields: impl IntoIterator<Item = &'a str>, q: &str) -> bool {
-    let q = pdfcraft_render::text::fold_case(q);
-    fields.into_iter().any(|s| pdfcraft_render::text::fold_case(s).contains(&q))
+    let q = pdfcraft_collate::search_fold(q);
+    fields.into_iter().any(|s| pdfcraft_collate::search_contains_folded(&pdfcraft_collate::search_fold(s), &q))
+}
+
+/// Order the comments for the chosen sort. Authors and types sort by `c` (canonical equivalence,
+/// and CLDR `vi` order when `c` is Vietnamese), on the text the panel shows: a comment without an
+/// author comes first, and a type is sorted by its translated label. Equal keys keep their order.
+fn sort_roots(roots: &mut [&Annotation], sort: SortBy, c: Collation) {
+    match sort {
+        SortBy::Page => {}
+        SortBy::Author => roots.sort_by_cached_key(|a| text_key(a.author.as_deref().unwrap_or(""), c)),
+        SortBy::Date => roots.sort_by(|a, b| b.modified.cmp(&a.modified)),
+        SortBy::Type => roots.sort_by_cached_key(|a| text_key(tl!(kind_label(a)), c)),
+        SortBy::Color => roots.sort_by_key(|a| color_key(a)),
+    }
+}
+
+/// The authors of the top-level comments for the filter list ("" is a comment without one):
+/// authors that differ only in case or in NFC/NFD are one choice, shown as first met, in `c` order.
+fn author_choices(info: &DocInfo, c: Collation) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut authors: Vec<String> = Vec::new();
+    for a in info.annotations.iter().filter(|a| a.in_reply_to.is_none()) {
+        let name = a.author.as_deref().unwrap_or("");
+        // `text_eq` is "same `fold_key`", which hashes where `text_eq` would be quadratic.
+        if seen.insert(pdfcraft_collate::fold_key(name)) {
+            authors.push(name.to_string());
+        }
+    }
+    authors.sort_by_cached_key(|a| text_key(a, c));
+    authors
+}
+
+/// Whether `author` is switched off in the filter: one entry `text_eq` to it hides every spelling.
+fn author_hidden(hidden: &[String], author: &str) -> bool {
+    hidden.iter().any(|h| text_eq(h, author))
+}
+
+/// The types of the top-level comments for the filter list: the PDF-independent labels, ordered
+/// by what the panel shows (their translation) in `c` order.
+fn type_choices(info: &DocInfo, c: Collation) -> Vec<String> {
+    let mut types: Vec<String> = info.annotations.iter().filter(|a| a.in_reply_to.is_none()).map(|a| kind_label(a).to_string()).collect();
+    types.sort();
+    types.dedup();
+    types.sort_by_cached_key(|t| text_key(tl!(t), c));
+    types
 }
 
 /// Draw the panel body. Returns an edit to apply (posting, replying, deleting…).
@@ -178,19 +225,13 @@ pub(crate) fn show(
         .filter(|a| a.in_reply_to.is_none())
         .filter(|a| query.as_deref().is_none_or(|q| matches(a, q) || replies_of(a).iter().any(|r| matches(r, q))))
         .filter(|a| !cv.hidden_types.iter().any(|t| t == kind_label(a)))
-        .filter(|a| !cv.hidden_authors.contains(&a.author.clone().unwrap_or_default()))
+        .filter(|a| !author_hidden(&cv.hidden_authors, a.author.as_deref().unwrap_or("")))
         .filter(|a| !cv.hidden_statuses.contains(&status_of(a)))
         .filter(|a| !cv.hidden_colors.contains(&color_key(a)))
         .filter(|a| !cv.hidden_checks.contains(&check_label(is_marked(replies_of(a))).to_string()))
         .collect();
     let sort = cv.sort;
-    match sort {
-        SortBy::Page => {}
-        SortBy::Author => roots.sort_by_key(|a| a.author.clone().unwrap_or_default().to_lowercase()),
-        SortBy::Date => roots.sort_by(|a, b| b.modified.cmp(&a.modified)),
-        SortBy::Type => roots.sort_by_key(|a| kind_label(a).to_string()),
-        SortBy::Color => roots.sort_by_key(|a| color_key(a)),
-    }
+    sort_roots(&mut roots, sort, crate::i18n::collation());
     if roots.is_empty() {
         ui.label(egui::RichText::new(tl!("No comments match.")).color(t.text_muted));
     }
@@ -220,7 +261,12 @@ pub(crate) fn show(
     for a in roots {
         if sort != SortBy::Page {
             let g = group_of(a);
-            if g.is_some() && g != group {
+            // Authors that differ only in case or NFC/NFD are one group, as in the filter.
+            let same = match (&g, &group) {
+                (Some(a), Some(b)) if sort == SortBy::Author => text_eq(a, b),
+                _ => g == group,
+            };
+            if g.is_some() && !same {
                 ui.add_space(6.0);
                 let title = g.clone().unwrap_or_default();
                 // Catalog labels are already in display order; an author's name is put in it here.
@@ -527,13 +573,7 @@ fn legible(c: Color32, t: &Tokens) -> Color32 {
 pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocView, hidden: bool) -> Option<&'static str> {
     let mut command = None;
     let cv = &mut view.comments;
-    let mut types: Vec<String> = info.annotations.iter().filter(|a| a.in_reply_to.is_none()).map(|a| kind_label(a).to_string()).collect();
-    types.sort();
-    types.dedup();
-    let mut authors: Vec<String> =
-        info.annotations.iter().filter(|a| a.in_reply_to.is_none()).map(|a| a.author.clone().unwrap_or_default()).collect();
-    authors.sort();
-    authors.dedup();
+    let collation = crate::i18n::collation();
     let mut colors: Vec<(String, Option<[f32; 3]>)> =
         info.annotations.iter().filter(|a| a.in_reply_to.is_none()).map(|a| (color_key(a), a.color)).collect();
     colors.sort_by(|a, b| a.0.cmp(&b.0));
@@ -600,14 +640,22 @@ pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocV
             }
         };
         ui.label(egui::RichText::new(tl!("Type")).small());
-        for ty in &types {
+        for ty in &type_choices(info, collation) {
             toggle(ui, &mut cv.hidden_types, ty, tl!(ty));
         }
         ui.separator();
         ui.label(egui::RichText::new(tl!("Author")).small());
-        for a in &authors {
+        for a in &author_choices(info, collation) {
             let name = crate::bidi::visual_auto(a);
-            toggle(ui, &mut cv.hidden_authors, a, if a.is_empty() { tl!("Unknown author") } else { &name });
+            let label = if a.is_empty() { tl!("Unknown author") } else { &name };
+            // One entry stands for every spelling of the name: switching it back on clears them all.
+            let mut shown = !author_hidden(&cv.hidden_authors, a);
+            if ui.add(widgets::checkbox(&mut shown, label)).changed() {
+                cv.hidden_authors.retain(|h| !text_eq(h, a));
+                if !shown {
+                    cv.hidden_authors.push(a.clone());
+                }
+            }
         }
         ui.separator();
         ui.label(egui::RichText::new(tl!("Status")).small());
@@ -652,7 +700,57 @@ pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocV
 
 #[cfg(test)]
 mod filter {
-    use super::any_contains;
+    use super::{any_contains, author_choices, author_hidden, sort_roots};
+    use crate::comments::SortBy;
+    use pdfcraft_collate::Collation;
+    use pdfcraft_render::{Annotation, DocInfo};
+
+    fn note(author: Option<&str>) -> Annotation {
+        Annotation {
+            page: 0,
+            subtype: "Text".into(),
+            author: author.map(str::to_string),
+            contents: None,
+            modified: None,
+            name: None,
+            in_reply_to: None,
+            rect: [0.0; 4],
+            color: None,
+            index: 0,
+            state: None,
+            quads: Vec::new(),
+            locked: false,
+            intent: None,
+            fill_sign: false,
+        }
+    }
+
+    fn sorted_authors(authors: &[Option<&str>], c: Collation) -> Vec<String> {
+        let notes: Vec<Annotation> = authors.iter().map(|a| note(*a)).collect();
+        let mut roots: Vec<&Annotation> = notes.iter().collect();
+        sort_roots(&mut roots, SortBy::Author, c);
+        roots.iter().map(|a| a.author.clone().unwrap_or_default()).collect()
+    }
+
+    const FIVE: [Option<&str>; 6] = [Some("Võ Thị Sáu"), Some("Đặng Văn Lâm"), Some("anh Tuấn"), None, Some("Bình"), Some("Dương Hà")];
+
+    #[test]
+    fn authors_sort_vi_and_root() {
+        assert_eq!(sorted_authors(&FIVE, Collation::Vi), ["", "anh Tuấn", "Bình", "Dương Hà", "Đặng Văn Lâm", "Võ Thị Sáu"]);
+        assert_eq!(sorted_authors(&FIVE, Collation::Root), ["", "anh Tuấn", "Bình", "Đặng Văn Lâm", "Dương Hà", "Võ Thị Sáu"]);
+    }
+
+    #[test]
+    fn author_choices_merge_case_and_nfd() {
+        let info = DocInfo {
+            annotations: vec![note(Some("Lê Ánh")), note(Some("lê ánh")), note(Some("Lê A\u{301}nh")), note(None)],
+            ..Default::default()
+        };
+        assert_eq!(author_choices(&info, Collation::Vi), ["", "Lê Ánh"]);
+        assert!(author_hidden(&["lê ánh".to_string()], "Lê A\u{301}nh"));
+        assert!(!author_hidden(&["lê ánh".to_string()], "Lê Anh"));
+        assert!(!author_hidden(&[], "Lê Ánh"));
+    }
 
     #[test]
     fn comments_match_in_any_case_with_turkish_i() {

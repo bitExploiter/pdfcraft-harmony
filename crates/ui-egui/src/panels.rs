@@ -786,7 +786,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     ui.data_mut(|d| d.insert_temp(search_id, bookmark_query.clone()));
                     ui.add_space(6.0);
                 }
-                let bookmark_query = pdfcraft_render::text::fold_case(bookmark_query.trim());
+                let bookmark_query = pdfcraft_collate::search_fold(bookmark_query.trim());
                 let mut bookmark_matches =
                     if panel == RightPanel::Bookmarks { outline_matches(&info.outline, &bookmark_query) } else { std::collections::HashSet::new() };
                 // A new bookmark must stay nameable even when its initial title doesn't match.
@@ -1031,7 +1031,8 @@ pub enum BmAction {
 }
 
 /// Matching titles plus their ancestors, keeping document paths rather than filtered indexes.
-/// `query` is folded with [`pdfcraft_render::text::fold_case`], as titles are here.
+/// `query` is folded with [`pdfcraft_collate::search_fold`], as titles are here: any case, Turkish
+/// i and Greek sigma, NFC and NFD alike, whole letters only.
 fn outline_matches(items: &[OutlineItem], query: &str) -> std::collections::HashSet<Vec<usize>> {
     let mut matches = std::collections::HashSet::new();
     if query.is_empty() {
@@ -1039,7 +1040,7 @@ fn outline_matches(items: &[OutlineItem], query: &str) -> std::collections::Hash
     }
     let mut pending: Vec<_> = items.iter().enumerate().map(|(i, item)| (vec![i], item)).collect();
     while let Some((path, item)) = pending.pop() {
-        if pdfcraft_render::text::fold_case(&item.title).contains(query) {
+        if pdfcraft_collate::search_contains_folded(&pdfcraft_collate::search_fold(&item.title), query) {
             let mut ancestor = path.clone();
             while !ancestor.is_empty() {
                 matches.insert(ancestor.clone());
@@ -1874,11 +1875,24 @@ mod bookmark_filter {
     #[test]
     fn titles_match_in_any_case_with_turkish_i() {
         let outline = [item("İSTANBUL ŞUBESİ", vec![item("Kış dönemi", vec![])]), item("Ankara", vec![])];
-        let fold = pdfcraft_render::text::fold_case;
+        let fold = pdfcraft_collate::search_fold;
         assert_eq!(outline_matches(&outline, &fold("istanbul")).len(), 1);
         assert_eq!(outline_matches(&outline, &fold("şubesi")).len(), 1);
         // A child match keeps its parent: [0] and [0, 0].
         assert_eq!(outline_matches(&outline, &fold("KIŞ")).len(), 2);
         assert!(outline_matches(&outline, &fold("izmir")).is_empty());
+    }
+
+    /// Titles match whole letters under canonical equivalence: `ươ` typed as base letters plus
+    /// marks finds "Chương", and `e` does not match inside "Nguyễn".
+    #[test]
+    fn bookmark_titles_match_nfd_whole_letters() {
+        let outline = [item("Chu\u{31b}o\u{31b}ng 1", vec![]), item("Nguyễn", vec![])];
+        let fold = pdfcraft_collate::search_fold;
+        assert_eq!(outline_matches(&outline, &fold("Chương")).len(), 1);
+        assert!(outline_matches(&outline, &fold("e")).is_empty());
+        // A query typed as base letters plus marks finds the precomposed title, and the other way round.
+        assert_eq!(outline_matches(&outline, &fold("nguye\u{302}\u{303}n")).len(), 1);
+        assert_eq!(outline_matches(&outline, &fold("Ch\u{1b0}\u{1a1}ng")).len(), 1);
     }
 }

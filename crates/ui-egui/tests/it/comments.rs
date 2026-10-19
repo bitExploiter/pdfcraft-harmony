@@ -2304,3 +2304,15 @@ fn text_comments_can_save_a_zero_width_default() {
     assert_eq!(restored.comment_prefs.style(CommentTool::TextBox).width, 0.0);
     assert_eq!(restored.comment_prefs.style(CommentTool::Callout).width, 0.0);
 }
+
+/// The interface language drives how the session sorts text: Vietnamese gets the `vi` order,
+/// and switching back returns to the root order.
+#[test]
+fn ui_language_sets_session_sort_language() {
+    let mut h = harness(|app| app.set_option("language", "vi").unwrap());
+    h.run_steps(1);
+    assert_eq!(h.state().session.sort_language().tag(), "vi");
+    h.state_mut().set_option("language", "en").unwrap();
+    h.run_steps(2);
+    assert_eq!(h.state().session.sort_language().tag(), "root");
+}
