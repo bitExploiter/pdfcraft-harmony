@@ -2690,3 +2690,5 @@ key	Esc	Esc
 key	Home	Home
 key	End	End
 key	Space	Mellomrom
+# AI-assisted Spotlight help addition (2026-10-22), not separately native-reviewed.
+	macOS Spotlight may intercept {key}. Change its shortcut in System Settings → Keyboard → Keyboard Shortcuts → Spotlight.	Spotlight på macOS kan fange opp {key}. Endre snarveien i Systeminnstillinger → Tastatur → Tastatursnarveier → Spotlight.
