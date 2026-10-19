@@ -1287,7 +1287,7 @@ status = "shipped"
 commands = []
 tools = ["doc_info"]
 evidence = ["crates/ui-egui/tests/it/ui.rs::opening_a_pdf_shows_comments_and_bookmarks", "crates/ui-egui/tests/it/control.rs::state_and_view_options", "crates/ui-egui/tests/it/view.rs::bookmark_destinations_scroll_to_their_position"]
-notes = "A bookmark goes to its destination's position and zoom, not just its page. The panel shows the first 10,000 bookmarks, nested 33 levels deep at most, and says so; bookmark_list pages through every bookmark in the file (up to 33 levels deep). The filter box matches whole letters, with NFC and NFD titles and queries equal."
+notes = "A bookmark goes to its destination's position and zoom, not just its page. The panel shows the first 10,000 bookmarks, nested 33 levels deep at most, and says so; bookmark_list pages through every bookmark in the file (up to 33 levels deep). The filter box matches whole letters, with NFC and NFD titles and queries equal. Not yet: titles in scripts other than Latin are not unified, and Find (in the document) keeps the plain case-fold, so it does not match NFC against NFD."
 
 [[feature]]
 id = "view.highlight-current-bookmark"
@@ -4017,7 +4017,7 @@ status = "shipped"
 commands = ["comment.list"]
 tools = ["comment_list"]
 evidence = ["crates/ui-egui/tests/it/comments.rs::the_panel_filters_and_sorts", "crates/ui-egui/tests/it/comments.rs::the_panel_filters_by_colour_and_checkmark"]
-notes = "type, author, status, colour and checkmark. The author list has one entry per author as a person would read it: spellings that differ only in case or in NFC against NFD are one entry, labelled with the first spelling met, and switching it off hides all of them."
+notes = "type, author, status, colour and checkmark. The author list has one entry per author as a person would read it: spellings that differ only in case or in NFC against NFD are one entry, labelled with the first spelling met, and switching it off hides all of them. Not yet: scripts other than Latin are not unified, so authors written in another script that differ only in NFC against NFD stay separate entries."
 
 [[feature]]
 id = "comment.sort-comments"
