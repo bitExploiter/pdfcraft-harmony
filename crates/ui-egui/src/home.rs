@@ -57,8 +57,11 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                 .inner_margin(egui::Margin::same(18))
                 .show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(egui::RichText::new(tl!("Recommended tools")).font(theme::semibold(15.0)));
-                    ui.add_space(10.0);
+                    // Tools hidden in Preferences leave the cards; with none left, the heading goes too.
+                    if RECOMMENDED.iter().any(|id| app.hidden_tools.shows(id)) {
+                        ui.label(egui::RichText::new(tl!("Recommended tools")).font(theme::semibold(15.0)));
+                        ui.add_space(10.0);
+                    }
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = vec2(14.0, 14.0);
                         for id in RECOMMENDED {

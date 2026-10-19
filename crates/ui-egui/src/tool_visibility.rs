@@ -1,7 +1,7 @@
 //! Which tools All tools, the ⌘K palette and Home's recommended tools list (Preferences ▸ Tools
-//! shown in All tools). Hiding only tidies those lists: the menus, the mode tabs, keyboard
-//! shortcuts, the control channel (`ui.set tool`) and automation keep every tool, so nothing a
-//! user or a script relies on stops working.
+//! shown in All tools). Hiding only tidies those lists: the palette still finds every command by
+//! name, and the menus, the mode tabs, keyboard shortcuts, the control channel (`ui.set tool`) and
+//! automation keep every tool, so nothing a user or a script relies on stops working.
 
 use pdfcraft_engine::catalog::{self, TOOL_GROUPS, TOOL_PRESETS, ToolPreset};
 
@@ -77,24 +77,6 @@ impl HiddenTools {
     /// The preset's id, or `custom`, as `ui.state` reports it.
     pub fn preset_id(&self) -> &'static str {
         self.preset().map_or("custom", |p| p.id)
-    }
-
-    /// Whether the palette lists `command`. A command some tool lists stays while any tool that
-    /// lists it is shown; a command no tool lists (Open, Zoom, …) always shows.
-    pub fn shows_command(&self, command: &str) -> bool {
-        if self.0.is_empty() {
-            return true;
-        }
-        let mut listed = false;
-        for g in TOOL_GROUPS {
-            if g.sections.iter().flat_map(|s| s.items).any(|i| i.command == command || i.actions.contains(&command)) {
-                if self.shows(g.id) {
-                    return true;
-                }
-                listed = true;
-            }
-        }
-        !listed
     }
 }
 
@@ -197,22 +179,6 @@ mod tests {
         assert_eq!(hidden.preset_id(), "custom");
         hidden.set_shown("redact", false);
         assert_eq!(hidden.preset_id(), "read-comment");
-    }
-
-    #[test]
-    fn a_command_hides_only_with_every_tool_that_lists_it() {
-        let mut hidden = HiddenTools::default();
-        hidden.set_shown("compress", false);
-        assert!(!hidden.shows_command("optimize.reduce"));
-        // Rotate pages is in both Edit a PDF and Organize pages.
-        hidden.set_shown("edit", false);
-        assert!(hidden.shows_command("page.rotate"));
-        hidden.set_shown("organize", false);
-        assert!(!hidden.shows_command("page.rotate"));
-        // Commands no tool lists stay.
-        let everything = HiddenTools::from_ids(TOOL_GROUPS.iter().map(|g| g.id));
-        assert!(everything.shows_command("file.open"));
-        assert!(!everything.shows_command("optimize.reduce"));
     }
 
     #[test]

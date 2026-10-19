@@ -82,12 +82,11 @@ fn a_preset_tidies_all_tools_and_the_palette_but_ui_set_still_opens_a_hidden_too
     // Four tools fit without folding, so there's nothing to expand or collapse.
     assert_eq!(shown(&mut h, &c, "View less") + shown(&mut h, &c, "View more"), 0);
 
-    // ⌘K finds neither the tool nor the commands only it lists.
+    // ⌘K no longer lists the hidden tool, but still finds its commands by name.
     set(&mut h, &c, "palette", "compress");
     assert_eq!(buttons(&mut h, &c, "Compress a PDF"), 0);
     set(&mut h, &c, "palette", "reduce file size");
-    assert_eq!(buttons(&mut h, &c, "Reduce file size"), 0);
-    // A command no tool lists stays.
+    assert!(buttons(&mut h, &c, "Reduce file size") > 0);
     set(&mut h, &c, "palette", "open");
     assert!(buttons(&mut h, &c, "Open…") > 0);
     ok(&mut h, &c, "ui.key", json!({"key": "Escape"}));
@@ -124,8 +123,11 @@ fn home_recommends_only_shown_tools_and_keeps_open_file() {
     set(&mut h, &c, "hidden-tools", "protect");
     assert_eq!(shown(&mut h, &c, "Protect a PDF"), 0);
     assert!(shown(&mut h, &c, "Organize pages") > 0);
+    assert!(shown(&mut h, &c, "Recommended tools") > 0);
+    // With nothing left to recommend, the heading goes too and Open file stays.
     set(&mut h, &c, "hidden-tools", "organize,comment,form,edit,protect");
     assert_eq!(shown(&mut h, &c, "Use now"), 0);
+    assert_eq!(shown(&mut h, &c, "Recommended tools"), 0);
     assert!(shown(&mut h, &c, "Open file") > 0);
 }
 
