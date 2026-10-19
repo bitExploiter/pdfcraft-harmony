@@ -332,10 +332,17 @@ fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, u
     // leave /NM out) gets a name for this export, so a reply copied with it still finds it.
     let mut names: HashMap<ObjRef, String> = HashMap::new();
     let mut unnamed: Vec<(usize, usize, ObjRef)> = Vec::new();
+    // Every name in use, those of annotations written straight into the page array too, so a
+    // given name is new.
+    let mut taken: HashSet<String> = HashSet::new();
     for (pi, p) in pages.iter().enumerate() {
         for (ai, a) in p.dict.get(b"Annots").map(|a| doc.resolve(a)).and_then(|a| a.as_array().cloned()).unwrap_or_default().into_iter().enumerate() {
+            let nm = doc.resolve(&a).as_dict().and_then(|d| text_of(doc, d, b"NM"));
+            if let Some(nm) = &nm {
+                taken.insert(nm.clone());
+            }
             let Some(r) = a.as_ref() else { continue };
-            match doc.get(r).as_dict().and_then(|d| text_of(doc, d, b"NM")) {
+            match nm {
                 Some(nm) => {
                     names.insert(r, nm);
                 }
@@ -344,7 +351,6 @@ fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, u
             }
         }
     }
-    let mut taken: HashSet<String> = names.values().cloned().collect();
     for (pi, ai, r) in unnamed {
         let mut name = format!("pdfcraft-{pi}-{ai}");
         while taken.contains(&name) {

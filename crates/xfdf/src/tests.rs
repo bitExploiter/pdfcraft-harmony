@@ -1867,8 +1867,22 @@ fn replies_to_a_selected_comment_without_a_name_follow_it_into_the_copy() {
     })
     .unwrap();
     assert_eq!(threads(&doc)[0].0, None, "{:?}", threads(&doc));
+    // A comment written straight into the page array already carries the name the parent would
+    // get: the parent's export name steers clear of it.
+    let mut direct = Dict::new();
+    direct.set(b"Type".to_vec(), Object::name("Annot"));
+    direct.set(b"Subtype".to_vec(), Object::name("Square"));
+    direct.set(b"Rect".to_vec(), arr(&[100.0, 100.0, 150.0, 140.0]));
+    direct.set(b"NM".to_vec(), PdfString::text(&format!("pdfcraft-0-{index}")));
+    let page = pdfcraft_model::pages(&doc)[0].obj;
+    doc.update_dict(page, |p| {
+        if let Some(Object::Array(annots)) = p.get_mut(b"Annots") {
+            annots.push(Object::Dict(direct));
+        }
+    })
+    .unwrap();
     let xfdf = export_xfdf_comments(&doc, &[(0, index)], "x.pdf");
-    let given = format!("pdfcraft-0-{index}");
+    let given = format!("pdfcraft-0-{index}x");
     assert!(xfdf.contains(&format!("name=\"{given}\"")) && xfdf.contains(&format!("inreplyto=\"{given}\"")), "{xfdf}");
     let mut dst = blank();
     import_comments(&mut dst, &xfdf, Some(0), Some("p"), None).unwrap();
