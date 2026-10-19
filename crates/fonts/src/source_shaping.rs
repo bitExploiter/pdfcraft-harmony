@@ -29,7 +29,18 @@ pub struct ShapedRun {
 pub fn first_missing(bytes: &[u8], text: &str) -> Option<char> {
     let face = FontRef::new(bytes).ok()?;
     let map = face.charmap();
-    text.chars().find(|c| !matches!(c, '\n' | '\r') && map.map(*c).is_none_or(|g| g.to_u32() == 0))
+    text.chars().find(|c| !matches!(c, '\n' | '\r') && !default_ignorable(*c) && map.map(*c).is_none_or(|g| g.to_u32() == 0))
+}
+
+/// Unicode 17 Default_Ignorable_Code_Point controls need no visible cmap glyph.
+/// They still enter the shaper unchanged so joining, bidi and variation selection apply.
+/// Source: https://www.unicode.org/Public/17.0.0/ucd/DerivedCoreProperties.txt
+pub(crate) fn default_ignorable(c: char) -> bool {
+    matches!(u32::from(c),
+        0x00ad | 0x034f | 0x061c | 0x115f..=0x1160 | 0x17b4..=0x17b5 |
+        0x180b..=0x180f | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x206f |
+        0x3164 | 0xfe00..=0xfe0f | 0xfeff | 0xffa0 | 0xfff0..=0xfff8 |
+        0x1bca0..=0x1bca3 | 0x1d173..=0x1d17a | 0xe0000..=0xe0fff)
 }
 
 /// Complex scripts/marks require shaping instead of independently encoding characters.
@@ -38,6 +49,7 @@ pub fn required(text: &str) -> bool {
         .any(|c| matches!(u32::from(c), 0x0300..=0x036f | 0x0590..=0x0fff | 0x1780..=0x17ff | 0x200c..=0x200f | 0x202a..=0x202e | 0x2066..=0x2069))
 }
 
+/// Shape one bounded row using its first strong character's base direction.
 pub fn shape(bytes: &[u8], text: &str) -> Result<ShapedRun, String> {
     shape_with_direction(bytes, text, unicode_bidi::get_base_direction(text) == unicode_bidi::Direction::Rtl)
 }
@@ -61,12 +73,14 @@ pub struct ShapingFont<'a> {
 }
 
 impl<'a> ShapingFont<'a> {
+    /// Parse font and OpenType shaping data once for subsequent rows.
     pub fn new(bytes: &'a [u8]) -> Result<Self, String> {
         let face = FontRef::new(bytes).map_err(|e| e.to_string())?;
         let data = ShaperData::new(&face);
         Ok(Self { face, data })
     }
 
+    /// Shape a row in paragraph direction, retaining logical clusters and positioned glyphs.
     pub fn shape(&self, text: &str, rtl: bool) -> Result<ShapedRun, String> {
         if text.len() > 262_144 || text.contains(['\n', '\r']) {
             return Err("shape one bounded text row at a time".into());
@@ -157,6 +171,31 @@ fn script_runs(text: &str, range: std::ops::Range<usize>) -> Vec<std::ops::Range
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Join controls, bidi controls and selectors need no visible cmap glyph.
+    #[test]
+    fn missing_coverage_allows_default_ignorables_but_not_missing_letters() {
+        for c in [
+            '\u{034f}',
+            '\u{061c}',
+            '\u{200c}',
+            '\u{200d}',
+            '\u{200e}',
+            '\u{200f}',
+            '\u{202a}',
+            '\u{202c}',
+            '\u{2066}',
+            '\u{2069}',
+            '\u{fe0f}',
+            '\u{e0100}',
+        ] {
+            let text = format!("A{c}B");
+            assert_eq!(first_missing(crate::INTER_REGULAR, &text), None, "{c:?}");
+            assert!(crate::embedding::covers(crate::INTER_REGULAR, &text));
+            assert!(shape(crate::INTER_REGULAR, &text).is_ok(), "{c:?}");
+            assert_eq!(first_missing(crate::INTER_REGULAR, &format!("{text}日")), Some('日'));
+        }
+    }
 
     #[test]
     fn script_itemization_keeps_marks_with_their_base() {

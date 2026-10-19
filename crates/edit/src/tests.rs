@@ -86,6 +86,31 @@ fn added_unicode_font_roundtrip_keeps_program_text_and_editability() {
     }
 }
 
+/// Selected-font layout accepts platform line endings without changing stored typing.
+#[test]
+fn added_selected_font_normalizes_line_endings_for_layout_and_reopen() {
+    for ending in ["\r\n", "\r", "\n"] {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: format!("Привет{ending}AB"),
+            rect: [20.0, 100.0, 580.0, 300.0],
+            font: Some(pdfcraft_fonts::inter_regular_shared()),
+            ..Default::default()
+        };
+        assert_eq!(super::added::lines(&t), ["Привет", "AB"]);
+        let normalized = AddedText { text: "Привет\nAB".into(), ..t.clone() };
+        assert!((super::added::text_width(&t) - super::added::text_width(&normalized)).abs() < 0.001);
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        let reopened = reopen(&doc);
+        let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+        assert_eq!(saved.text, t.text);
+        let lines = text::text_lines(&reopened, 0).unwrap();
+        for expected in ["Привет", "AB"] {
+            assert!(lines.iter().any(|line| line.text == expected), "{lines:?}");
+        }
+    }
+}
+
 #[test]
 fn added_document_font_errors_do_not_mutate_or_substitute() {
     let mut doc = fixture();

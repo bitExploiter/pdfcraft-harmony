@@ -97,10 +97,12 @@ pub struct TextEditorFont {
     pub subset: bool,
 }
 
+/// Read page source faces with a temporary cache, sharing programs within this catalogue.
 pub fn text_editor_fonts(doc: &Document, page: usize) -> Result<Vec<TextEditorFont>, EditError> {
     text_editor_fonts_cached(doc, page, &mut pdfcraft_fonts::pdf::EmbeddedFontCache::default())
 }
 
+/// Read page source faces while reusing native Unicode programs across catalogue refreshes.
 pub fn text_editor_fonts_cached(
     doc: &Document,
     page: usize,

@@ -35,6 +35,10 @@ document. Unsupported glyphs and late embedding failures are atomic errors.
 Automatic Inter fallback retains its automatic status on reopen, so retyping
 plain Latin returns to the standard face. Explicit Inter selection stays explicit.
 Bold/italic controls are disabled while a complete face supplies the style.
+Coverage checks allow Unicode default-ignorable controls (joiners, bidi controls
+and variation selectors) without requiring visible cmap glyphs; shaping still
+receives them unchanged. Selected-font layout accepts CRLF and lone CR as row
+separators, retaining the original typed text in the editable marker.
 
 The font catalogue is cached for the current page and COS document revision;
 decoded native Unicode programs are shared through `Arc` across items and refreshes
@@ -55,6 +59,9 @@ Headless use follows the existing font workflow:
 2. Pass the returned `font_resource` to `page_add_text` or `content_update`.
    It is mutually exclusive with `font`, `bold` and `italic` arguments.
 3. `content_list` reports the selected face; subsequent text updates preserve it.
+   Style-only updates to a retained selected face refuse unsupported flags;
+   explicitly choosing a standard `font` clears the selection and permits its style.
+   Importing a program already present as a subset returns a complete resource.
 
 Regression tests use the already bundled Inter. Additional real-font checks
 accept external inputs, never committed font fixtures:

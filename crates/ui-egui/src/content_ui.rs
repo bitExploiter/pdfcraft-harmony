@@ -280,6 +280,7 @@ struct AddedFontInfo {
     label: String,
 }
 
+/// Cache font metadata and atlas data by shared program owner, without per-frame byte copies.
 fn added_font_info(ctx: &egui::Context, text: &AddedText) -> Option<AddedFontInfo> {
     let bytes = text.font_program()?;
     let key = egui::Id::new("added-font-info");
@@ -302,6 +303,7 @@ fn added_font_info(ctx: &egui::Context, text: &AddedText) -> Option<AddedFontInf
     Some(info)
 }
 
+/// Resolve the displayed face label through the same cache as the inline editor.
 pub(crate) fn added_font_label(ctx: &egui::Context, text: &AddedText) -> String {
     added_font_info(ctx, text).map_or_else(|| text.family.label().into(), |i| i.label)
 }

@@ -6115,7 +6115,11 @@ fn thai_text_through_tools_saves_reopens_extracts_and_renders() {
 #[test]
 fn added_unicode_document_fonts_through_tools() {
     let dir = workdir("added-unicode-font");
-    let mut cases = vec![(None, "Привет, мир!", "До свидания!")];
+    let mut cases = vec![
+        (None, "Привет, мир!", "До свидания!"),
+        (None, "A\u{2066}Привет\u{2069} B\u{fe0f}\u{200d}C", "Controls \u{200c}Привет"),
+        (Some(pdfcraft_fonts::INTER_REGULAR.to_vec()), "A\u{2066}Привет\u{2069} B\u{fe0f}\u{200d}C", "Controls \u{200c}Привет"),
+    ];
     if let Some(path) = std::env::var_os("PDFCRAFT_TEST_THAI_FONT") {
         cases.push((Some(std::fs::read(path).unwrap()), "Hello น้ำ ผู้ใช้ ปู่", "แก้ไข น้ำ"));
     }
@@ -6211,11 +6215,35 @@ fn added_font_resources_reject_style_flags_subsets_and_preview_only_faces() {
     preview["font_resource"] = json!("PCApprovedInter");
     assert!(a.call("page_add_text", &preview).unwrap_err().to_string().contains("preview-only"));
     ok(&mut a, "page_add_text", base);
+    let selected = ok(&mut a, "content_list", json!({"doc":doc}));
+    let state = ok(&mut a, "doc_info", json!({"doc":doc}));
+    for flag in ["bold", "italic"] {
+        for value in [true, false] {
+            let mut args = json!({"doc":doc,"page":1,"index":1});
+            args[flag] = json!(value);
+            assert!(a.call("content_update", &args).unwrap_err().to_string().contains("style flags"));
+            assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), selected);
+            assert_eq!(ok(&mut a, "doc_info", json!({"doc":doc})), state);
+        }
+    }
+    // Choosing a standard face explicitly clears the selected program and permits its style.
+    ok(&mut a, "content_update", json!({"doc":doc,"page":1,"index":1,"font":"times","text":"Latin","bold":true}));
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":doc}))["items"][0]["bold"], true);
+    ok(&mut a, "edit_undo", json!({"doc":doc}));
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), selected);
     for flag in ["bold", "italic"] {
         let mut args = json!({"doc":doc,"page":1,"index":1,"font_resource":resource});
         args[flag] = json!(true);
         assert!(a.call("content_update", &args).is_err());
     }
+}
+
+/// Import must return a reusable full face even when identical bytes back an existing subset.
+#[test]
+fn imported_font_resource_skips_an_existing_subset() {
+    let dir = workdir("import-over-subset");
+    let mut a = auto(&dir);
+    std::fs::write(dir.join("inter.ttf"), pdfcraft_fonts::INTER_REGULAR).unwrap();
     // The page catalogue must retain subsets for Edit Text while refusing them for Add Text.
     let mut source = pdfcraft_cos::Document::open(Arc::new(fixture(1))).unwrap();
     let page = pdfcraft_model::pages(&source).remove(0);
@@ -6235,6 +6263,11 @@ fn added_font_resources_reject_style_flags_subsets_and_preview_only_faces() {
             .contains("subset")
     );
     assert_eq!(ok(&mut a, "content_list", json!({"doc":subset}))["count"], 0);
+    // Importing the identical program must return the full resource, not the earlier subset.
+    let full = ok(&mut a, "text_font_import", json!({"doc":subset,"page":1,"path":"inter.ttf"}))["resource"].clone();
+    assert_ne!(full, json!(resource));
+    ok(&mut a, "page_add_text", json!({"doc":subset,"page":1,"text":"Привет","at":[10,20],"font_resource":full}));
+    assert!(page_text(&mut a, subset)[0].contains("Привет"));
 }
 
 #[test]

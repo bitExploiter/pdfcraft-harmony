@@ -31,6 +31,7 @@ pub(super) struct Row {
     shaped: ShapedRun,
 }
 
+/// Reuse the last bounded layout when text, normalized width and font owner match.
 pub(super) fn layout(t: &AddedText, bytes: &[u8]) -> Result<Arc<Layout>, EditError> {
     if t.text.len() > 262_144 {
         return Err(EditError::Invalid("use at most 262144 UTF-8 bytes in one text box".into()));
@@ -53,12 +54,14 @@ pub(super) fn layout(t: &AddedText, bytes: &[u8]) -> Result<Arc<Layout>, EditErr
     })
 }
 
+/// Shape paragraphs once and wrap only at cluster boundaries, with mapping limits checked.
 fn prepare(t: &AddedText, bytes: &[u8], width: f64) -> Result<Layout, EditError> {
     let (_, name) = embedding::names(bytes).map_err(EditError::Invalid)?;
     let shaper = ShapingFont::new(bytes).map_err(EditError::Invalid)?;
     let mut rows = Vec::new();
     let mut natural_width: f64 = 0.0;
-    for para in t.text.split('\n') {
+    let text = t.text.replace("\r\n", "\n").replace('\r', "\n");
+    for para in text.split('\n') {
         let rtl = unicode_bidi::get_base_direction(para) == unicode_bidi::Direction::Rtl;
         let shaped = shaper.shape(para, rtl).map_err(EditError::Invalid)?;
         natural_width = natural_width.max(shaped.advance);
@@ -108,6 +111,7 @@ fn prepare(t: &AddedText, bytes: &[u8], width: f64) -> Result<Layout, EditError>
     Ok(Layout { rows, natural_width, name })
 }
 
+/// Embed a validated layout with logical ActualText and precisely positioned TJ batches.
 pub(super) fn draw(doc: &mut Document, t: &AddedText, bytes: &[u8], taken: &Dict, out: &mut Vec<u8>) -> Result<Dict, EditError> {
     let layout = layout(t, bytes)?;
     let rows = &layout.rows;

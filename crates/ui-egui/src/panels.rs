@@ -472,6 +472,7 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     ui.separator();
 }
 
+/// Offer file input and on-request installed-font discovery for the active text tool.
 fn font_file_controls(app: &mut PdfCraftApp, ui: &mut egui::Ui, purpose: crate::files::FilePurpose) {
     if ui.button(tl!("Load font…")).clicked() {
         app.pick_files(purpose, false);
@@ -493,6 +494,7 @@ fn font_file_controls(app: &mut PdfCraftApp, ui: &mut egui::Ui, purpose: crate::
     });
 }
 
+/// Build Add Text choices from complete shared faces, including an uncommitted draft font.
 fn added_format_panel(
     app: &mut PdfCraftApp,
     ui: &mut egui::Ui,
@@ -521,6 +523,7 @@ fn added_format_panel(
 }
 
 impl PdfCraftApp {
+    /// Set a draft's face without history, or update a selected item in one undo step.
     pub(crate) fn select_added_font(&mut self, page: usize, bytes: std::sync::Arc<Vec<u8>>) {
         self.text_style.font = Some(bytes.clone());
         self.text_style.bold = false;

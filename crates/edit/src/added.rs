@@ -33,13 +33,16 @@ fn selected_font(t: &AddedText) -> Option<&[u8]> {
 }
 
 impl AddedText {
+    /// Shared ownership of the explicit program or automatic Inter fallback, for cache keys.
     pub fn font_program(&self) -> Option<std::sync::Arc<Vec<u8>>> {
         self.font.clone().or_else(|| selected_font(self).map(|_| pdfcraft_fonts::inter_regular_shared()))
     }
+    /// Borrow the face the PDF writer will actually use; standard PDF faces have no program.
     pub fn font_bytes(&self) -> Option<&[u8]> {
         selected_font(self)
     }
 
+    /// Report the resolved face, including an unavailable explicit program without substituting.
     pub fn font_label(&self) -> String {
         selected_font(self)
             .map(|b| pdfcraft_fonts::embedding::names(b).map(|(_, n)| n).unwrap_or_else(|_| "Missing document font".into()))
@@ -925,6 +928,7 @@ fn params(c: &Content) -> Dict {
     d
 }
 
+/// Restore editable parameters and share their saved program; automatic fallback stays automatic.
 fn parse(doc: &Document, d: &Dict, fonts: &mut pdfcraft_fonts::pdf::EmbeddedFontCache) -> Option<Content> {
     let r = nums(doc, d.get(b"Rect"));
     let rect: [f64; 4] = r.try_into().ok()?;

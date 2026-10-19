@@ -110,11 +110,13 @@ pub struct EmbeddedFontCache {
 }
 
 impl EmbeddedFontCache {
+    /// Decode or reuse this resource's sfnt program; source-object identity detects replacement.
     pub fn read(&mut self, doc: &Document, font: &Dict) -> Option<std::sync::Arc<Vec<u8>>> {
         read_embedded_sfnt(doc, font, self)
     }
 }
 
+/// Read bounded sfnt bytes, keeping mapping-specific legacy cmap repairs out of the shared cache.
 fn read_embedded_sfnt(doc: &Document, font: &Dict, cache: &mut EmbeddedFontCache) -> Option<std::sync::Arc<Vec<u8>>> {
     use skrifa::{MetadataProvider as _, raw::TableProvider as _};
     let descendant = dict(doc, font.get(b"DescendantFonts").and_then(|o| doc.resolve(o).as_array().and_then(|a| a.first()).cloned()).as_ref());

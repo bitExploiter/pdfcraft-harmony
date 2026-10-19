@@ -21,9 +21,12 @@ pub fn matching_faces(name: &str) -> Vec<&'static crate::CraftFont> {
     crate::CRAFT_FONTS.iter().filter(|f| face_key(f.family) == key || face_key(&f.name()) == key).collect()
 }
 
-/// Whether a complete font program can show every non-newline character.
+/// Whether a complete font covers the visible characters; shaping controls need no cmap glyph.
 pub fn covers(bytes: &[u8], text: &str) -> bool {
-    FontRef::new(bytes).is_ok_and(|f| text.chars().all(|c| matches!(c, '\n' | '\r') || f.charmap().map(c).is_some_and(|g| g.to_u32() != 0)))
+    FontRef::new(bytes).is_ok_and(|f| {
+        text.chars()
+            .all(|c| matches!(c, '\n' | '\r') || crate::source_shaping::default_ignorable(c) || f.charmap().map(c).is_some_and(|g| g.to_u32() != 0))
+    })
 }
 
 /// Names come from the program, never a caller's guessed family.

@@ -65,7 +65,11 @@ fn style(a: &Args, t: &mut AddedText) -> Result<()> {
 }
 
 impl Automation {
+    /// Select a complete document face, refusing style flags the selected program cannot apply.
     fn added_font(&self, a: &Args, page: usize, t: &mut AddedText) -> Result<()> {
+        if a.get("font_resource").is_none() && a.get("font").is_none() && t.font.is_some() && (a.get("bold").is_some() || a.get("italic").is_some()) {
+            return Err(bad("style flags do not apply to a selected font resource; choose a matching font file"));
+        }
         if let Some(resource) = a.opt_str("font_resource")? {
             if a.get("font").is_some() {
                 return Err(bad("choose font or font_resource, not both"));
@@ -94,6 +98,7 @@ impl Automation {
         Ok(())
     }
 
+    /// List editable added content, including its actual selected face and saved style.
     pub(crate) fn content_list(&self, a: &Args) -> Result<Value> {
         let doc = self.doc(a)?;
         let mut per_page: std::collections::HashMap<usize, usize> = Default::default();
@@ -123,6 +128,7 @@ impl Automation {
         Ok(json!({ "count": items.len(), "items": items }))
     }
 
+    /// Validate geometry, style and font selection before adding one undoable text item.
     pub(crate) fn page_add_text(&mut self, a: &Args) -> Result<Value> {
         let page = self.page(a)?;
         let ph = self.doc(a)?.info.pages[page].height as f64;
@@ -174,6 +180,7 @@ impl Automation {
         Ok((page, index as usize - 1, it.content.clone(), ph))
     }
 
+    /// Apply a partial update to a cloned item; refused arguments leave the document untouched.
     pub(crate) fn content_update(&mut self, a: &Args) -> Result<Value> {
         let (page, index, content, ph) = self.item(a)?;
         let mut content = match rect_arg(a, "rect")? {

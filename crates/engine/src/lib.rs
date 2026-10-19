@@ -346,6 +346,7 @@ impl Clone for TextBlocksCache {
 }
 
 impl Editor {
+    /// Refresh editable markers with shared font ownership; poisoning only loses cache reuse.
     fn scan_markers(&self) -> pdfcraft_edit::MarkerScan {
         if let Ok(mut cache) = self.text_fonts.lock() {
             pdfcraft_edit::added::scan_markers_with_fonts(&self.cos, &mut cache.programs)
