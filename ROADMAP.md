@@ -69,7 +69,7 @@ and add a line to the [progress log](#progress-log); when a gap closes, remove i
 
 | | Value | Kind |
 |---|---|---|
-| **Feature breadth** | **≈ 67%** tier-weighted (56.9% unweighted: 423 shipped + 74 partial of 808; P0 94.2%) | measured, `parity/acrobat-features.toml` |
+| **Feature breadth** | **≈ 67%** tier-weighted (59.6% unweighted: 438 shipped + 96 partial of 815; P0 94.6%) | measured, `parity/acrobat-features.toml` |
 | Feature breadth, mainstream practitioner | ≈ 70% tier-weighted (63.2% unweighted; P0 95.3%) | measured ([split](docs/target-app-parity.md#mainstream-practitioner-vs-full-acrobat-pro)) |
 | **Ready for real work**, full Acrobat Pro | **≈ 50%** (45–53%) | estimated, weighted sum over [dimensions](#by-dimension) |
 | **Ready for real work**, mainstream practitioner | **≈ 55%** (50–60%) | estimated ([split](docs/target-app-parity.md#mainstream-practitioner-vs-full-acrobat-pro)) |
@@ -115,20 +115,20 @@ Hours are calibrated as in [Effort and calibration](docs/target-app-parity.md#ef
 
 | Area | Breadth (measured) | Ready (estimated) | Remaining (h) |
 |---|---|---|---|
-| A Core model and fidelity | 76.8% | 70% | 25–45 |
-| B View and navigation | 62.5% | 55% | 110–190 |
-| C Content editing | 53.3% | 30% | 100–180 |
-| D Organize pages | 61.2% | 70% | 12–25 |
+| A Core model and fidelity | 77.6% | 70% | 25–45 |
+| B View and navigation | 63.2% | 55% | 110–190 |
+| C Content editing | 57.4% | 30% | 100–180 |
+| D Organize pages | 65.6% | 70% | 12–25 |
 | E Comments and review | 77.7% | 70% | 12–25 |
-| F Forms and JavaScript | 78.5% | 65% | 40–75 |
-| G Protect, redact, sanitize | 58.5% | 55% | 15–30 |
+| F Forms and JavaScript | 79.7% | 65% | 40–75 |
+| G Protect, redact, sanitize | 59.5% | 55% | 15–30 |
 | H Digital signatures | 62.2% | 45% | 40–70 |
-| I Scan and OCR | 23.1% | 15% | 40–75 |
-| J Create and export | 39.7% | 25% | 55–100 |
+| I Scan and OCR | 32.7% | 15% | 40–75 |
+| J Create and export | 44.1% | 25% | 55–100 |
 | K Optimize and standards | 34.5% | 20% | 65–115 |
-| L Print | 39.7% | 35% | 30–55 |
-| M Accessibility | 63.1% | 30% | 40–70 |
-| N Automation, preferences, misc | 30.0% | 35% | 25–45 |
+| L Print | 43.6% | 35% | 30–55 |
+| M Accessibility | 72.1% | 30% | 40–70 |
+| N Automation, preferences, misc | 32.7% | 35% | 25–45 |
 
 What's strong and missing in each: [target-app-parity.md](docs/target-app-parity.md#by-feature-area).
 
@@ -173,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-19 (M10, PR #1785 review):** PostScript/EPS export review fixes: the exporter opens protected documents with the password the document was opened with; a Type 3 (stitching) function dictionary closes with `>>`, so multi-stop gradients emit a parseable program; invisible (`3 Tr`) Type 3 glyph procedures no longer paint; a UI `.eps` export takes the page being viewed instead of failing on multi-page documents. Parity summaries recomputed from the merged checklist: unweighted breadth 56.9% → 59.6% (438 shipped + 96 partial of 815), area J 39.7% → 44.1%. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 

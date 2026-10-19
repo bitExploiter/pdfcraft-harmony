@@ -1,5 +1,6 @@
 # Where PdfCraft falls short of Acrobat Pro
 
+> **Last reviewed:** 2026-10-19 · **Last updated:** 2026-10-19 · **Change:** patch (gap 8: a duplicate Missing bullet from the main merge removed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (gap 12: reading order is scored, not just word F1) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (gap 14: Vietnamese catalog shipped; Hindi/Indonesian/Korean and Arabic RTL remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -164,7 +165,6 @@ update the numbers.
 
 ### 8. Office export weak, Office import absent
 
-- **Missing:** Word export that keeps layout; Excel and PowerPoint export; creating PDFs from Office,
 - **Missing:** Word export that keeps layout; Excel and PowerPoint export; creating PDFs from Office,
   HTML, web pages and PostScript; SVG/XML/JPEG 2000 export. PostScript/EPS *export* is partially
   done (Layer A, #1561): geometry, images, shadings, Type 1 text and annotations redraw as a
