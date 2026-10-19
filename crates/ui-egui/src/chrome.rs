@@ -272,12 +272,11 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     open_resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Open")));
                     egui::Popup::menu(&open_resp).show(|ui| {
                         if ui.button(tl!("Open local file…")).clicked() {
-                            app.open_dialog();
+                            app.execute("file.open");
                             ui.close();
                         }
                         if ui.button(tl!("Open from cloud…")).clicked() {
-                            app.cloud_page_doc_count = app.views.len();
-                            app.cloud_page = Some(crate::CloudPage::Open);
+                            app.execute("file.open_cloud");
                             ui.close();
                         }
                     });
@@ -346,6 +345,7 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 email: None,
                                 avatar: None,
                             };
+                            app.esign_doc = app.active_ids().map(|(_, id)| id);
                             crate::esign::open(&mut app.esign, id, title, etag, sender);
                         }
                         // Who else has this document open (viewer presence only).

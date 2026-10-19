@@ -32,8 +32,8 @@ pub use craft_cloud::{Capability, Entry, EntryKind};
 pub use craft_ui::cloud::{
     Account, Busy, CloudApp, CloudBackend, CloudFiles, Conflict, CopyFormat, Destination, DocumentKind, Event, Fault, Folder, Job, Link, Origin,
     Post, Source, UNAVAILABLE, available, browse, can_converse, conflict_modal, destination_name, has_target, link, load_shared, open_entry,
-    open_page, origin, parent_of, prefers_cloud, progress, pump, reload_active, save, save_as, save_page, share_button, shares, sign_in, sign_out,
-    start, who, work_together,
+    open_page, origin, parent_of, prefers_cloud, progress, reload_active, save, save_as, save_page, share_button, shares, sign_in, sign_out, start,
+    who, work_together,
 };
 
 use crate::PdfCraftApp;
@@ -170,9 +170,8 @@ impl CloudApp for PdfCraftApp {
     }
 
     fn ready_to_save(&mut self) -> bool {
-        // PdfCraft applies field edits through commands immediately; there is
-        // no uncommitted text buffer that needs flushing before a save.
-        true
+        // A form field's open editor holds text that is not in the document yet.
+        self.commit_form_typing()
     }
 
     fn sharing(&mut self) -> &mut craft_ui::share::ShareDialog {
@@ -232,6 +231,23 @@ impl CloudApp for PdfCraftApp {
             soft: t.accent.gamma_multiply(0.14),
             family: egui::FontFamily::Proportional,
             bold: egui::FontFamily::Name("semibold".into()),
+        }
+    }
+}
+
+/// Drain cloud worker events and, in the browser build, open the login popup when
+/// the user chose Sign in (same frame as the click, while user activation lasts).
+pub fn pump(app: &mut PdfCraftApp, ctx: &egui::Context) {
+    let status_before = app.cloud.status.clone();
+    craft_ui::cloud::pump(app, ctx);
+    #[cfg(target_arch = "wasm32")]
+    if status_before.is_none()
+        && app.cloud.status.is_some()
+        && app.cloud.account.is_none()
+    {
+        let popup_retry = egui::Id::new("pdfcraft:popup_retry");
+        if !ctx.memory(|m| m.data.get_temp::<bool>(popup_retry).unwrap_or(false)) {
+            crate::web_auth::offer_login_popup(ctx);
         }
     }
 }

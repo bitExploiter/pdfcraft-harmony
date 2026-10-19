@@ -28,6 +28,8 @@ mod appearance;
 pub mod canvas;
 mod chrome;
 pub mod cloud;
+#[cfg(target_arch = "wasm32")]
+pub mod web_auth;
 mod combine_grid;
 pub mod esign;
 mod image_pick;
@@ -804,6 +806,8 @@ pub struct PdfCraftApp {
     pub presence: craft_ui::presence::PresenceBar,
     /// Request-signatures dialog. Hosted through CollabCraft; local PAdES stays in Sign.
     pub esign: craft_ui::esign::EsignDialog,
+    /// Document the e-sign dialog was opened for (Send uses this, not the active tab).
+    esign_doc: Option<pdfcraft_engine::DocId>,
 }
 
 /// Where in a document a request to open an address came from.
@@ -1065,6 +1069,7 @@ impl PdfCraftApp {
             share: craft_ui::share::ShareDialog::new(),
             presence: craft_ui::presence::PresenceBar::new().badges_only(),
             esign: craft_ui::esign::EsignDialog::new(),
+            esign_doc: None,
         }
     }
 
@@ -2882,7 +2887,7 @@ impl eframe::App for PdfCraftApp {
         // In the browser build a login popup that has just closed signals a fresh
         // account check.  The transport stores "pdfcraft:auth_done" in egui's
         // ephemeral memory and requests a repaint; we consume it here, set the
-        // "pdfcraft:popup_retry" flag so offer_login_popup() does not open another
+        // "pdfcraft:popup_retry" flag so the login popup does not open another
         // window if the post-close check still returns Unauthenticated (user
         // cancelled), then call sign_in() to force a new Job::Account.
         #[cfg(target_arch = "wasm32")]
@@ -2913,10 +2918,11 @@ impl eframe::App for PdfCraftApp {
         // E-sign dialog: capability probe and inbox, even when closed.
         esign::pump(&mut self.esign, ctx);
         if let Some(send) = esign::take_send(&mut self.esign) {
-            match self.active.and_then(|i| {
-                let id = self.views.get(i)?.id;
-                self.session.save_full_bytes(id).ok().map(|b| (*b).clone())
-            }) {
+            let bytes = self
+                .esign_doc
+                .filter(|id| self.views.iter().any(|v| v.id == *id))
+                .and_then(|id| self.session.save_full_bytes(id).ok().map(|b| (*b).clone()));
+            match bytes {
                 Some(bytes) => {
                     self.esign.submit_request(craft_ui::esign::Request::Create {
                         draft: Box::new(send.draft),
@@ -2926,7 +2932,10 @@ impl eframe::App for PdfCraftApp {
                     });
                 }
                 None => {
-                    esign::note_create(&mut self.esign, Err("save the document before requesting signatures".into()));
+                    esign::note_create(
+                        &mut self.esign,
+                        Err("the document for this request is no longer open".into()),
+                    );
                 }
             }
         }
@@ -3015,7 +3024,10 @@ impl eframe::App for PdfCraftApp {
                         match self.active {
                             None if self.combine_showing() => combine_ui::page(self, ui),
                             None => home::show(self, ui),
-                            Some(index) => canvas::document_area(self, index, ui),
+                            Some(index) => match compare_ui::side_by_side(self, index) {
+                                Some((old, new)) => compare_ui::compare_area(self, old, new, ui),
+                                None => canvas::document_area(self, index, ui),
+                            },
                         }
                     } else {
                         docking::show(self, ui);
