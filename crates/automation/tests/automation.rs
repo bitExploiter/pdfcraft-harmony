@@ -6860,6 +6860,64 @@ fn plain_documents_are_refused() {
     assert!(matches!(e, ToolError::InvalidArgs(_)), "{e}");
 }
 
+/// The `.p7s` fixture beside a symlinked sibling: the link sits inside the root but points at
+/// a file outside it, which must not be handed to the engine (#2129, AGENTS.md §3). Unix only:
+/// a file symlink needs a privilege on Windows.
+#[test]
+#[cfg(unix)]
+fn detached_sibling_symlink_cannot_escape_the_root() {
+    let (base, root) = sandbox("detached-symlink");
+    let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sign/tests/data");
+    let pdf = std::fs::read(src.join("openssl-signed.pdf")).unwrap();
+    std::fs::write(base.join("outside/openssl-signed.pdf"), &pdf).unwrap();
+    std::fs::copy(src.join("openssl-signed.pdf.p7s"), root.join("openssl-signed.pdf.p7s")).unwrap();
+    std::os::unix::fs::symlink(base.join("outside/openssl-signed.pdf"), root.join("openssl-signed.pdf")).unwrap();
+    let mut a = auto(&root);
+    // The signature opens only with its real document beside it; a link leading out of the
+    // root is refused like any other path that escapes it.
+    let e = err(&mut a, "doc_open", json!({ "path": "openssl-signed.pdf.p7s" }));
+    assert!(matches!(&e, ToolError::Failed(m) if m.contains("outside the allowed directory")), "{e}");
+    assert_eq!(ok(&mut a, "doc_list", json!({}))["documents"], json!([]), "nothing opened");
+}
+
+#[test]
+fn doc_extract_original_refuses_to_write_over_its_envelope() {
+    let dir = envelope_dir("extract-overwrite", &["cades-envelope.pdf.p7m"]);
+    let mut a = auto(&dir);
+    let env = ok(&mut a, "doc_open", json!({ "path": "cades-envelope.pdf.p7m" }))["doc"].as_u64().unwrap();
+    let fixture = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../sign/tests/data/cades-envelope.pdf.p7m")).unwrap();
+    for out in ["cades-envelope.pdf.p7m", "./cades-envelope.pdf.p7m"] {
+        let e = err(&mut a, "doc_extract_original", json!({ "doc": env, "out": out }));
+        assert!(matches!(&e, ToolError::Failed(m) if m.contains("extraction cannot write over it")), "{out}: {e}");
+        assert_eq!(std::fs::read(dir.join("cades-envelope.pdf.p7m")).unwrap(), fixture, "{out}: the envelope survives its own extraction");
+    }
+    // The refusal opened nothing: only the envelope is in the session.
+    let list = ok(&mut a, "doc_list", json!({}));
+    assert_eq!(list["documents"].as_array().unwrap().len(), 1, "{list}");
+}
+
+#[test]
+fn doc_extract_original_failure_leaves_the_session_unchanged() {
+    let dir = envelope_dir("extract-fail", &["cades-envelope.pdf.p7m"]);
+    let mut a = auto(&dir);
+    let env = ok(&mut a, "doc_open", json!({ "path": "cades-envelope.pdf.p7m" }))["doc"].as_u64().unwrap();
+    let documents = |a: &mut Automation| ok(a, "doc_list", json!({}))["documents"].as_array().unwrap().len();
+
+    // An output outside the root is resolved before anything is opened, so no copy appears.
+    let e = err(&mut a, "doc_extract_original", json!({ "doc": env, "out": "../escape.pdf" }));
+    assert!(matches!(&e, ToolError::Failed(m) if m.contains("outside the allowed directory")), "{e}");
+    assert_eq!(documents(&mut a), 1);
+
+    // A write that cannot happen closes the copy it had opened: repeated attempts leave the
+    // session as it was (`a.pdf` is a file, so nothing can be written under it).
+    let e = err(&mut a, "doc_extract_original", json!({ "doc": env, "out": "a.pdf/inner.pdf" }));
+    assert!(matches!(&e, ToolError::Failed(m) if m.contains("a.pdf")), "{e}");
+    assert_eq!(documents(&mut a), 1, "the copy closed with the failed write");
+    let e = err(&mut a, "doc_extract_original", json!({ "doc": env, "out": "a.pdf/inner.pdf" }));
+    assert!(e.to_string().contains("a.pdf"), "{}", e);
+    assert_eq!(documents(&mut a), 1, "a repeated failure opens nothing extra");
+}
+
 #[test]
 fn finding_untagged_content_limits_results_to_content_annotations_and_widgets() {
     let dir = workdir("find-untagged");

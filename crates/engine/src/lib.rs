@@ -374,6 +374,10 @@ pub struct EnvelopeInfo {
     pub signers: usize,
     /// Encoding irregularities that were tolerated while reading the envelope.
     pub quirks: Vec<String>,
+    /// The file the envelope was opened from (a `.p7m`, or the `.p7s` of a detached pair),
+    /// when it was opened from disk. Extraction hands out the PDF inside, never a rewrite of
+    /// this file: a host that writes an output refuses one naming it.
+    pub source: Option<String>,
 }
 
 pub struct Document {
@@ -2999,6 +3003,9 @@ pub struct Session {
     date_format: Option<String>,
     /// Preferences ▸ Date format ▸ Language, when not following the interface language.
     date_language: Option<String>,
+    /// Confinement for the engine's own reads besides the file it was handed (see
+    /// [`FileReadGuard`]). Set by hosts that hold every path to a root (AGENTS.md §3).
+    file_read_guard: Option<FileReadGuard>,
 }
 
 /// Immutable session state needed while a document is prepared away from its owning thread.
@@ -3007,7 +3014,16 @@ pub struct OpenContext {
     now: Option<i64>,
     js_off: bool,
     trust: Arc<TrustStore>,
+    /// The session's [`FileReadGuard`], consulted before a file is read besides the one the
+    /// host handed over.
+    file_read_guard: Option<FileReadGuard>,
 }
+
+/// Confinement for a file the engine reads on its own besides the one it was given: today the
+/// document beside a detached signature (`.p7s`, #2129). `Err(message)` refuses the read. Hosts
+/// that hold every path to a root install one, so a link beside the signature cannot lead out
+/// of the allowed directory; the desktop UI, where the user picked the file themselves, has none.
+pub type FileReadGuard = Arc<dyn Fn(&std::path::Path) -> std::result::Result<(), String> + Send + Sync>;
 
 /// A fully prepared document that has not yet been registered in a session.
 pub struct PreparedDocument {
@@ -3348,6 +3364,14 @@ impl Session {
         self
     }
 
+    /// Confine the engine's own reads besides the opened file (the document beside a detached
+    /// signature) with `guard`. Automation installs its root check, so a `.p7s` cannot reach a
+    /// file the tools themselves would refuse to open.
+    pub fn with_file_read_guard(mut self, guard: FileReadGuard) -> Self {
+        self.file_read_guard = Some(guard);
+        self
+    }
+
     /// Seconds to add to UTC for the local time of this session: the injected zone, else 0 under
     /// the test clock (which is already local), else the system's.
     fn local_offset(&self) -> i64 {
@@ -3408,7 +3432,7 @@ impl Session {
 
     /// Snapshot the session state that affects open-time scripts, dates and signature trust.
     pub fn open_context(&self) -> OpenContext {
-        OpenContext { now: self.now(), js_off: self.js_off, trust: self.trust.clone() }
+        OpenContext { now: self.now(), js_off: self.js_off, trust: self.trust.clone(), file_read_guard: self.file_read_guard.clone() }
     }
 
     /// Prepare a document without adding it to this session.
@@ -3465,6 +3489,12 @@ impl Session {
                 let Some((sibling_path, doc_name, sig_name)) = path.as_deref().and_then(detached_sibling) else {
                     return Err(OpenError::Unsupported(DETACHED_ALONE.into()));
                 };
+                // The sibling is a file of its own, one the host never resolved when it
+                // confined the `.p7s`: hold it to the host's root before it is read, so a
+                // link beside the signature cannot lead out of the allowed directory.
+                if let Some(guard) = &context.file_read_guard {
+                    guard(&sibling_path).map_err(OpenError::Unsupported)?;
+                }
                 // Every way the read can fail — missing, unreadable, not a file — says the
                 // same thing, so opening a `.p7s` cannot be used to probe the directory around it.
                 let sibling = std::fs::read(&sibling_path)
@@ -3492,6 +3522,7 @@ impl Session {
             digest_ok: env.digest_ok,
             signers: env.signers,
             quirks: env.quirks.iter().map(|q| (*q).to_string()).collect(),
+            source: path,
         });
         prepared.document.dirty = false;
         Ok(prepared)
@@ -4844,11 +4875,16 @@ impl Session {
     }
 
     /// Extract the original PDF from a CAdES envelope document as a new, editable, unsaved
-    /// copy (the envelope itself is never changed). Refuses plain documents.
+    /// copy (the envelope itself is never changed). Refuses plain documents, and a detached
+    /// signature: its document is the file beside it, which opens on its own (#2129).
     pub fn extract_original(&mut self, id: DocId) -> Result<DocId, String> {
         let doc = self.get(id).ok_or("no such document")?;
-        if doc.envelope.is_none() {
-            return Err("this document is not inside a CAdES envelope".into());
+        match &doc.envelope {
+            None => return Err("this document is not inside a CAdES envelope".into()),
+            Some(e) if e.detached => {
+                return Err("a detached signature has nothing to extract; open the PDF itself to edit it.".into());
+            }
+            Some(_) => {}
         }
         let (name, bytes) = (doc.name.clone(), doc.bytes.clone());
         self.open_new(name, bytes).map_err(|e| e.to_string())

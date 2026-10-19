@@ -138,6 +138,7 @@ impl Automation {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the root must be a folder"));
         }
         self.root = Some(root);
+        self.confine_sibling_reads();
         Ok(self)
     }
 
@@ -146,7 +147,30 @@ impl Automation {
     /// are set.
     pub fn with_automation_roots(mut self, roots: Option<Arc<file_access::AutomationRoots>>) -> Self {
         self.roots = roots;
+        self.confine_sibling_reads();
         self
+    }
+
+    /// Hold the engine's own reads beside an opened file — the document a `.p7s` signs — to the
+    /// same roots as every tool path. The engine derives that path itself, so without this a
+    /// link inside the root pointing out of it would hand it a file the tools would refuse to
+    /// open (#2129, AGENTS.md §3).
+    fn confine_sibling_reads(&mut self) {
+        let (root, roots) = (self.root.clone(), self.roots.clone());
+        self.session = std::mem::take(&mut self.session).with_file_read_guard(Arc::new(move |path| {
+            // A sibling that cannot be resolved is the read's business: its error says the
+            // document was "not found beside it", which names nothing outside the root.
+            if let Some(root) = &root
+                && path.canonicalize().is_ok_and(|real| !real.starts_with(root))
+            {
+                return Err(format!("{} is outside the allowed directory {}", path.display(), root.display()));
+            }
+            if let Some(roots) = &roots {
+                let shown = path.to_string_lossy().into_owned();
+                roots.check_path(&shown, path, file_access::Access::Read)?;
+            }
+            Ok(())
+        }));
     }
 
     /// Use a fixed clock for saves (deterministic output in tests).
@@ -204,17 +228,36 @@ impl Automation {
             "doc_save" => self.doc_save(&a)?,
             "doc_extract_original" => {
                 let id = self.doc(&a)?.id;
+                // The envelope's own file is remembered so an output naming it is refused:
+                // extraction hands out the PDF inside, and replacing that file would destroy
+                // the signature the document was opened from.
+                let source = self.session.get(id).and_then(|d| d.envelope.as_ref().and_then(|e| e.source.clone()));
+                // `out` resolves before anything is opened, so a refused output leaves the
+                // session as it was.
+                let target = match a.opt_str("out")? {
+                    Some(p) => {
+                        let path = self.resolve(p, true)?;
+                        if source.as_deref().is_some_and(|s| same_file(Path::new(s), &path)) {
+                            return Err(failed(format!("{p} is the CAdES envelope this document was opened from; extraction cannot write over it")));
+                        }
+                        Some(path)
+                    }
+                    None => None,
+                };
                 // A detached signature carries nothing: its document is the file beside it,
-                // which opens on its own. Refused before any `out` is written (#2129).
-                if self.doc(&a)?.envelope.as_ref().is_some_and(|e| e.detached) {
-                    return Err(failed("a detached signature has nothing to extract; open the PDF itself to edit it."));
-                }
+                // which opens on its own (#2129).
                 let copy = self.session.extract_original(id).map_err(failed)?;
                 let mut out = summary(self.session.get(copy).ok_or_else(|| failed("the document vanished"))?);
-                if let Some(p) = a.opt_str("out")? {
+                if let Some(path) = target {
                     let bytes = self.session.get(copy).ok_or_else(|| failed("the document vanished"))?.bytes.clone();
-                    let path = self.resolve(p, true)?;
-                    write_atomic(&path, &bytes)?;
+                    if let Err(e) = write_atomic(&path, &bytes) {
+                        // The session is as it was before the call: the copy closes with the
+                        // failed write, so repeated attempts open nothing extra.
+                        self.session.close(copy);
+                        self.renderers.remove(&copy);
+                        self.texts.remove(&copy);
+                        return Err(e);
+                    }
                     out["written"] = json!(path.to_string_lossy().into_owned());
                 }
                 out
@@ -2623,6 +2666,16 @@ fn unused(dir: &Path, stem: &str) -> PathBuf {
 /// power loss. Filesystems that refuse sync cause the save to fail before publication.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     write_atomic_with(path, bytes, staging_suffixes())
+}
+
+/// Whether `a` and `b` name the same file: links followed where the files exist, so an output
+/// that reaches its target by another name is caught, and paths that no longer resolve compare
+/// as each was resolved.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// [`write_atomic`], trying the staging names that `suffixes` give.
