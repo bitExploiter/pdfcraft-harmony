@@ -1437,6 +1437,7 @@ mod revert_draft_tests {
             press: None,
             calendar: None,
             calendar_rect: None,
+            calendar_text: None,
         }
     }
 
