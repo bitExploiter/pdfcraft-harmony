@@ -917,9 +917,11 @@ impl PdfCraftApp {
     }
 
     /// Export a PDF ▸ PostScript / EPS: ask where (`save_override` in tests), then write. The
-    /// extension of the chosen file picks the flavour: `.ps` writes every page, `.eps` the one
-    /// page an EPS file holds (a longer document is told that in so many words). The engine
-    /// path is the one the `doc_export_postscript` tool takes, so both write the same bytes.
+    /// extension of the chosen file picks the flavour: `.ps` writes every page, `.eps` the
+    /// current page — the one page an EPS file holds (a document's visible page is the page
+    /// the user means; a longer document no longer has to be told "exactly one page"). The
+    /// engine path is the one the `doc_export_postscript` tool takes, so both write the same
+    /// bytes.
     pub fn export_postscript_dialog(&mut self) {
         // What's typed in a form field is part of the document (#166).
         if !self.commit_form_typing() {
@@ -932,16 +934,22 @@ impl PdfCraftApp {
         let Some(doc) = self.session.get(id) else { return };
         let src = doc.export_source();
         let stem = doc.name.trim_end_matches(".pdf").trim_end_matches(".PDF").to_string();
+        // The page an EPS export takes: the one on screen.
+        let current = self.active.map_or(0, |i| self.views[i].current);
         #[cfg(not(target_arch = "wasm32"))]
         {
             match self.save_override.clone() {
-                Some(p) => self.write_postscript(src, p.into()),
+                Some(p) => self.write_postscript(src, current, p.into()),
                 None => {
                     let dialog = rfd::AsyncFileDialog::new()
                         .set_title(tl!("Export").to_string())
                         .add_filter(tl!("PostScript / EPS").to_string(), &["ps", "eps"])
                         .set_file_name(format!("{stem}.ps"));
-                    self.ask_one(crate::pickers::Ask::Save(dialog), None, move |app, path| app.write_postscript(src, path));
+                    self.ask_one(
+                        crate::pickers::Ask::Save(dialog),
+                        None,
+                        move |app, path| app.write_postscript(src, current, path),
+                    );
                 }
             }
         }
@@ -963,15 +971,21 @@ impl PdfCraftApp {
 
     /// Write the PostScript/EPS export of `src` to `path` (the save picker's answer, or
     /// `save_override`), saying where it went and, like Export all images, every degradation
-    /// once (the count and the first).
+    /// once (the count and the first). EPS output takes exactly `current` — the page the
+    /// export was launched from — while PostScript takes every page.
     #[cfg(not(target_arch = "wasm32"))]
-    fn write_postscript(&mut self, src: pdfcraft_engine::export::ExportSource, path: std::path::PathBuf) {
+    fn write_postscript(&mut self, src: pdfcraft_engine::export::ExportSource, current: usize, path: std::path::PathBuf) {
         use pdfcraft_engine::export::{PsFormat, postscript};
         let format = match path.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()) {
             Some(ref e) if e == "eps" => PsFormat::Eps,
             _ => PsFormat::Ps,
         };
-        let pages: Vec<usize> = (0..src.pages).collect();
+        let pages: Vec<usize> = match format {
+            // EPS holds one page: the one on screen (clamped into range, as `current`
+            // tracks a view of this document).
+            PsFormat::Eps => vec![current.min(src.pages.saturating_sub(1))],
+            PsFormat::Ps => (0..src.pages).collect(),
+        };
         let shown = path.display().to_string();
         match postscript(&src, &pages, format) {
             Ok(out) => match crate::editing::write_atomically(&shown, &out.bytes) {
