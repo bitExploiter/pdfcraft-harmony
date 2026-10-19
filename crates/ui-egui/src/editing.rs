@@ -768,7 +768,7 @@ impl PdfCraftApp {
                 return false;
             }
         };
-        if let Err(e) = write_atomically(dest, &bytes) {
+        if let Err(e) = write_document(dest, &bytes) {
             self.notify_fmt("Couldn't save {name}: {e}", &[("name", dest), ("e", &e.to_string())]);
             return false;
         }
@@ -785,6 +785,8 @@ impl PdfCraftApp {
                     view.disk_changed = false;
                 }
                 self.notify_fmt("Saved {name}", &[("name", &short_name(dest))]);
+                #[cfg(target_os = "macos")]
+                crate::macos_association::repair(std::path::Path::new(dest));
                 true
             }
             Err(e) => {
@@ -1034,6 +1036,15 @@ pub(crate) fn is_mail_temp_copy(path: &str) -> bool {
 /// full disk never leaves a half-written PDF where the original was.
 pub fn write_atomically(path: &str, bytes: &[u8]) -> std::io::Result<()> {
     write_atomically_with(path, bytes, staging_suffixes())
+}
+
+/// Explicit document saves preserve opening metadata; autosaves and exports keep their writer.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_document(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(target_os = "macos")]
+    return crate::macos_association::write_document(path, bytes, staging_suffixes(), std::fs::File::sync_all);
+    #[cfg(not(target_os = "macos"))]
+    write_atomically(path, bytes)
 }
 
 /// [`write_atomically`], trying the staging names that `suffixes` give.
@@ -1329,11 +1340,41 @@ mod tests {
         let dir = staging_dir("syncfails");
         let target = dir.join("out.pdf");
         std::fs::write(&target, "OLD").unwrap();
+        #[cfg(target_os = "macos")]
+        {
+            xattr::set(&target, "com.apple.LaunchServices.OpenWith", b"original binding").unwrap();
+            xattr::set(&target, "com.apple.quarantine", b"0082;1234;Preview;").unwrap();
+        }
         let e = write_atomically_syncing(&target.to_string_lossy(), b"NEW", [7], |_| Err(std::io::Error::other("disk gone"))).unwrap_err();
         assert_eq!(e.to_string(), "disk gone");
         assert_eq!(read(&target), "OLD");
+        #[cfg(target_os = "macos")]
+        {
+            assert_eq!(xattr::get(&target, "com.apple.LaunchServices.OpenWith").unwrap(), Some(b"original binding".to_vec()));
+            assert_eq!(xattr::get(&target, "com.apple.quarantine").unwrap(), Some(b"0082;1234;Preview;".to_vec()));
+        }
         assert_eq!(listing(&dir), ["out.pdf"], "the staging file was removed");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_save_preserves_opening_settings_changed_while_staging() {
+        let dir = staging_dir("opening-metadata-changed");
+        let target = dir.join("out.pdf");
+        std::fs::write(&target, b"OLD").unwrap();
+        xattr::set(&target, "com.apple.LaunchServices.OpenWith", b"old handler").unwrap();
+        xattr::set(&target, "com.apple.quarantine", b"0082;1234;Preview;").unwrap();
+        let suffixes = std::iter::once_with(|| {
+            xattr::set(&target, "com.apple.LaunchServices.OpenWith", b"new handler").unwrap();
+            xattr::set(&target, "com.apple.quarantine", b"0082;5678;another app;").unwrap();
+            7
+        });
+        crate::macos_association::write_document(&target.to_string_lossy(), b"NEW", suffixes, std::fs::File::sync_all).unwrap();
+        assert_eq!(read(&target), "NEW");
+        assert_eq!(xattr::get(&target, "com.apple.LaunchServices.OpenWith").unwrap(), Some(b"new handler".to_vec()));
+        assert_eq!(xattr::get(&target, "com.apple.quarantine").unwrap(), Some(b"0082;5678;another app;".to_vec()));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
