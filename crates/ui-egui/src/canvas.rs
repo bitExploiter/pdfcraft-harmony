@@ -909,6 +909,7 @@ impl DocView {
         fresh.snapshot = self.snapshot.clone();
         fresh.close_requested = self.close_requested;
         fresh.cover = self.cover;
+        fresh.rtl_pages = self.rtl_pages;
         // Still presenting, with the display to go back to on leaving.
         fresh.presentation = self.presentation.take();
         fresh.back = std::mem::take(&mut self.back);
@@ -5844,6 +5845,32 @@ mod tests {
         v.rtl_pages = false;
         assert!(DocView::arrow_steps_forward(&v, true));
         assert!(!DocView::arrow_steps_forward(&v, false));
+    }
+
+    #[test]
+    fn replacing_the_document_keeps_right_to_left_page_order() {
+        let mut v = view(4, PageLayout::TwoUp, false);
+        v.rtl_pages = true;
+        v.cover = true;
+        let info = pdfcraft_render::DocInfo {
+            pages: (0..4)
+                .map(|i| pdfcraft_render::PageInfo {
+                    width: 300.0,
+                    height: 400.0,
+                    label: (i + 1).to_string(),
+                    crop: [0.0, 0.0, 300.0, 400.0],
+                    rotation: 0,
+                })
+                .collect(),
+            ..Default::default()
+        };
+        v.document_replaced(&info);
+        assert!(v.rtl_pages, "replacing the file switched the spread back to left to right");
+        assert!(v.cover);
+        assert_eq!(v.page_input, "1", "the page box names the right-hand page");
+        let rtl = v.layout(&info, 1200.0);
+        // The cover sits alone. The next row is a pair: its earlier page stays on the right.
+        assert!(rtl.get(1).is_some_and(|right| rtl.get(2).is_some_and(|left| right.left() > left.left())), "the spread under the cover: {rtl:?}");
     }
 
     fn signature(signed: bool, visible: bool, page: Option<usize>, rect: Option<[f64; 4]>) -> pdfcraft_engine::SignatureInfo {

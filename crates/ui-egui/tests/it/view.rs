@@ -323,6 +323,7 @@ fn right_to_left_page_order_puts_the_first_page_on_the_right() {
     h.key_press(egui::Key::ArrowLeft);
     h.run_steps(3);
     assert_eq!(h.state().views[0].current, 2, "← moved to the next spread");
+    assert_eq!(h.state().views[0].page_input, "3", "the page box shows the right-hand page of that spread");
     h.key_press(egui::Key::ArrowRight);
     h.run_steps(3);
     assert_eq!(h.state().views[0].current, 0, "→ moved back");

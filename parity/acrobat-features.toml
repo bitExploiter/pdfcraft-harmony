@@ -878,8 +878,8 @@ milestone = "M3"
 status = "shipped"
 commands = ["view.layout.two_up"]
 tools = []
-evidence = ["crates/ui-egui/tests/it/view.rs::two_up_layout_places_pages_side_by_side", "crates/ui-egui/tests/it/view.rs::right_to_left_page_order_puts_the_first_page_on_the_right", "crates/ui-egui/src/canvas.rs::right_to_left_two_page_view_puts_the_earlier_page_on_the_right", "crates/ui-egui/tests/it/viewer.rs::two_page_view_steps_a_spread_at_a_time"]
-notes = "next/previous page step a spread at a time. Right-to-left page order (view.layout.rtl, #2339) puts the earlier page of each pair on the right; off by default."
+evidence = ["crates/ui-egui/tests/it/view.rs::two_up_layout_places_pages_side_by_side", "crates/ui-egui/tests/it/view.rs::right_to_left_page_order_puts_the_first_page_on_the_right", "crates/ui-egui/src/canvas.rs::right_to_left_two_page_view_puts_the_earlier_page_on_the_right", "crates/ui-egui/src/canvas.rs::replacing_the_document_keeps_right_to_left_page_order", "crates/ui-egui/tests/it/viewer.rs::two_page_view_steps_a_spread_at_a_time"]
+notes = "next/previous page step a spread at a time. Right-to-left page order (view.layout.rtl, #2339) puts the earlier page of each pair on the right, and the page box shows that page. The left arrow turns to the next spread. The setting stays on when the file is replaced. Off by default."
 
 [[feature]]
 id = "view.layout-two-up-scrolling"
