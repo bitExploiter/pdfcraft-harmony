@@ -9,7 +9,7 @@ use crate::units::Unit;
 const MIN_MINOR_SPACING: f64 = 4.0;
 const MIN_MEDIUM_SPACING: f64 = 16.0;
 const MIN_MAJOR_SPACING: f64 = 48.0;
-const MIN_LABEL_SPACING: f64 = 64.0;
+const MIN_LABEL_SPACING: f64 = 48.0;
 const MAX_TICKS: usize = 16_384;
 
 const INCH_INTERVALS: &[f64] = &[
@@ -136,6 +136,9 @@ pub fn choose_tick_spec(unit: Unit, screen_points_per_unit: f64) -> Option<TickS
     if !screen_points_per_unit.is_finite() || screen_points_per_unit <= 0.0 {
         return None;
     }
+    if unit == Unit::Inches {
+        return inch_tick_spec(screen_points_per_unit);
+    }
     let intervals = intervals(unit);
     let minor_index = intervals.iter().position(|interval| interval * screen_points_per_unit >= MIN_MINOR_SPACING).unwrap_or(intervals.len() - 1);
     let minor = intervals[minor_index];
@@ -149,6 +152,34 @@ pub fn choose_tick_spec(unit: Unit, screen_points_per_unit: f64) -> Option<TickS
         major_every: cadence(intervals, minor_index, minor, screen_points_per_unit, MIN_MAJOR_SPACING),
         label_every: cadence(intervals, minor_index, minor, screen_points_per_unit, MIN_LABEL_SPACING.max(minor_spacing)),
     })
+}
+
+/// Inch rulers use familiar binary fractions. The fractions shown by the short and medium ticks
+/// thin out as the page is zoomed away, while labelled whole-inch marks remain widely spaced.
+fn inch_tick_spec(screen_points_per_inch: f64) -> Option<TickSpec> {
+    let (minor_interval_units, medium_every, major_every, label_every) = if screen_points_per_inch >= 128.0 {
+        (1.0 / 16.0, 4, 16, 16)
+    } else if screen_points_per_inch >= 64.0 {
+        (1.0 / 8.0, 4, 8, 8)
+    } else if screen_points_per_inch >= 32.0 {
+        (1.0 / 4.0, 2, 4, 4)
+    } else if screen_points_per_inch >= 16.0 {
+        (1.0 / 2.0, 2, 4, 4)
+    } else if screen_points_per_inch >= 8.0 {
+        (1.0, 2, 4, 8)
+    } else {
+        let intervals = intervals(Unit::Inches);
+        let minor_index = intervals.iter().position(|interval| interval * screen_points_per_inch >= MIN_MINOR_SPACING)?;
+        let minor = intervals[minor_index];
+        return Some(TickSpec {
+            minor_interval_units: minor,
+            medium_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_MEDIUM_SPACING),
+            major_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_MAJOR_SPACING),
+            label_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_LABEL_SPACING),
+        });
+    };
+    let minimum_label_every = (MIN_LABEL_SPACING / (minor_interval_units * screen_points_per_inch)).ceil().max(1.0) as u32;
+    Some(TickSpec { minor_interval_units, medium_every, major_every, label_every: label_every.max(minimum_label_every) })
 }
 
 /// Convert PDF points from the displayed page origin to a logical screen position.
@@ -259,6 +290,7 @@ fn divisible(index: i64, every: u32) -> bool {
 }
 
 fn format_label(unit: Unit, value: f64) -> String {
+    let value = if unit == Unit::Inches { value.abs() } else { value };
     let decimals = unit.decimals();
     let rounded = value.round();
     if rounded == 0.0 {
@@ -270,14 +302,14 @@ fn format_label(unit: Unit, value: f64) -> String {
     }
 }
 
-/// Suggested logical-point height for the horizontal ruler band.
+/// Compact, screen-fixed ruler bands modelled on the reference application's canvas chrome.
+/// Zoom changes tick cadence, never the amount of document viewport reserved by the rulers.
 pub const HORIZONTAL_RULER_HEIGHT: f32 = 18.0;
-/// Suggested logical-point width for the vertical ruler band. The extra width keeps multi-digit
-/// labels readable beside the inward-facing major ticks.
-pub const VERTICAL_RULER_WIDTH: f32 = 32.0;
+pub const VERTICAL_RULER_WIDTH: f32 = 20.0;
 const HORIZONTAL_LABEL_OUTER_PADDING: f32 = 1.0;
 const HORIZONTAL_LABEL_TICK_GAP: f32 = 1.0;
-const VERTICAL_LABEL_TICK_GAP: f32 = 1.0;
+const HORIZONTAL_LABEL_AFTER_TICK: f32 = 2.0;
+const VERTICAL_LABEL_ABOVE_TICK: f32 = 1.0;
 const RULER_LABEL_SIZE: f32 = 9.0;
 
 /// Read-only paint input for one ruler band.
@@ -363,11 +395,11 @@ impl RulerPaintStyle {
         let tokens = crate::theme::Tokens::get(ui.ctx());
         Self {
             outside_background: tokens.chrome,
-            page_background: tokens.card,
+            page_background: tokens.chrome,
             tick: egui::Stroke::new(1.0, tokens.text_muted),
             major_tick: egui::Stroke::new(1.0, tokens.text),
             edge: egui::Stroke::new(1.0, tokens.border),
-            boundary: egui::Stroke::new(1.0, tokens.accent_text),
+            boundary: egui::Stroke::new(1.0, tokens.border),
             label: tokens.text,
             pointer: tokens.accent,
         }
@@ -415,10 +447,12 @@ fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick,
     match input.orientation {
         RulerOrientation::Horizontal => {
             painter.line_segment([egui::pos2(at, input.rect.bottom()), egui::pos2(at, input.rect.bottom() - length)], stroke);
-            if let Some(label) = &tick.label {
+            if let Some(label) = &tick.label
+                && horizontal_label_fits(input.rect, at, label)
+            {
                 painter.text(
-                    egui::pos2(at, input.rect.top() + HORIZONTAL_LABEL_OUTER_PADDING),
-                    egui::Align2::CENTER_TOP,
+                    egui::pos2(at + HORIZONTAL_LABEL_AFTER_TICK, input.rect.top() + HORIZONTAL_LABEL_OUTER_PADDING),
+                    egui::Align2::LEFT_TOP,
                     label,
                     crate::theme::regular(RULER_LABEL_SIZE),
                     style.label,
@@ -427,10 +461,12 @@ fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick,
         }
         RulerOrientation::Vertical => {
             painter.line_segment([egui::pos2(input.rect.right(), at), egui::pos2(input.rect.right() - length, at)], stroke);
-            if let Some(label) = &tick.label {
+            if let Some(label) = &tick.label
+                && vertical_label_fits(input.rect, at, label, length)
+            {
                 painter.text(
-                    egui::pos2(input.rect.right() - length - VERTICAL_LABEL_TICK_GAP, at),
-                    egui::Align2::RIGHT_CENTER,
+                    egui::pos2(input.rect.center().x, at - VERTICAL_LABEL_ABOVE_TICK),
+                    egui::Align2::CENTER_BOTTOM,
                     label,
                     crate::theme::regular(RULER_LABEL_SIZE),
                     style.label,
@@ -438,6 +474,24 @@ fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick,
             }
         }
     }
+}
+
+fn estimated_label_width(label: &str) -> f32 {
+    label.chars().count() as f32 * RULER_LABEL_SIZE * 0.62
+}
+
+fn horizontal_label_fits(rect: egui::Rect, at: f32, label: &str) -> bool {
+    let left = at + HORIZONTAL_LABEL_AFTER_TICK;
+    left >= rect.left() + 1.0 && left + estimated_label_width(label) <= rect.right() - 1.0
+}
+
+fn vertical_label_fits(rect: egui::Rect, at: f32, label: &str, _tick_length: f32) -> bool {
+    let half_width = estimated_label_width(label) * 0.5;
+    let centre = rect.center().x;
+    centre - half_width >= rect.left() + 1.0
+        && centre + half_width <= rect.right() - 1.0
+        && at - VERTICAL_LABEL_ABOVE_TICK - RULER_LABEL_SIZE >= rect.top() + 1.0
+        && at - VERTICAL_LABEL_ABOVE_TICK <= rect.bottom() - 1.0
 }
 
 fn tick_length(rect: egui::Rect, orientation: RulerOrientation, kind: TickKind) -> f32 {
@@ -449,9 +503,9 @@ fn tick_length(rect: egui::Rect, orientation: RulerOrientation, kind: TickKind) 
         (RulerOrientation::Horizontal, TickKind::Minor) => 2.0,
         (RulerOrientation::Horizontal, TickKind::Medium) => 4.0,
         (RulerOrientation::Horizontal, TickKind::Major) => 6.0,
-        (RulerOrientation::Vertical, TickKind::Minor) => 5.0,
-        (RulerOrientation::Vertical, TickKind::Medium) => 8.0,
-        (RulerOrientation::Vertical, TickKind::Major) => 11.0,
+        (RulerOrientation::Vertical, TickKind::Minor) => 2.0,
+        (RulerOrientation::Vertical, TickKind::Medium) => 4.0,
+        (RulerOrientation::Vertical, TickKind::Major) => 6.0,
     };
     desired.min(available)
 }
@@ -550,10 +604,10 @@ mod tests {
     #[test]
     fn common_scales_have_practical_unit_intervals() {
         let inches = choose_tick_spec(Unit::Inches, 96.0).unwrap();
-        assert_eq!(inches.minor_interval_units, 1.0 / 16.0);
+        assert_eq!(inches.minor_interval_units, 1.0 / 8.0);
         assert_eq!(inches.medium_every, 4);
         assert_eq!(inches.major_every, 8);
-        assert_eq!(inches.label_every, 16);
+        assert_eq!(inches.label_every, 8);
 
         let millimetres = choose_tick_spec(Unit::Millimetres, 96.0 / 25.4).unwrap();
         assert_eq!(millimetres.minor_interval_units, 2.0);
@@ -735,13 +789,50 @@ mod tests {
     }
 
     #[test]
-    fn vertical_labels_have_room_and_a_gap_before_major_ticks() {
+    fn vertical_labels_are_centred_above_major_ticks_without_overlap() {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 300.0));
-        let major_tick_left = rect.right() - tick_length(rect, RulerOrientation::Vertical, TickKind::Major);
-        let label_right = major_tick_left - VERTICAL_LABEL_TICK_GAP;
-        let available_label_width = label_right - rect.left();
-        assert!(major_tick_left - label_right >= VERTICAL_LABEL_TICK_GAP);
-        assert!(available_label_width >= 18.0, "multi-digit labels need room beside the major tick");
+        let at = 100.0;
+        assert!(vertical_label_fits(rect, at, "8", tick_length(rect, RulerOrientation::Vertical, TickKind::Major)));
+        let label_bottom = at - VERTICAL_LABEL_ABOVE_TICK;
+        assert!(label_bottom < at);
+        assert_eq!(rect.center().x, VERTICAL_RULER_WIDTH * 0.5);
+    }
+
+    #[test]
+    fn horizontal_labels_begin_after_their_major_tick() {
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
+        assert!(horizontal_label_fits(rect, 72.0, "1"));
+        assert!(!horizontal_label_fits(rect, rect.right() - 2.0, "8"));
+    }
+
+    #[test]
+    fn inch_ticks_use_binary_fractions_and_reference_label_cadence() {
+        let at_100 = choose_tick_spec(Unit::Inches, 96.0).unwrap();
+        assert_eq!(at_100.minor_interval_units, 1.0 / 8.0);
+        assert_eq!((at_100.medium_every, at_100.major_every, at_100.label_every), (4, 8, 8));
+
+        let zoomed_out = choose_tick_spec(Unit::Inches, 12.0).unwrap();
+        assert_eq!(zoomed_out.minor_interval_units, 1.0);
+        assert_eq!(zoomed_out.label_every, 8);
+    }
+
+    #[test]
+    fn inch_labels_show_magnitudes_on_both_sides_of_zero() {
+        assert_eq!(format_label(Unit::Inches, -8.0), "8");
+        assert_eq!(format_label(Unit::Inches, 8.0), "8");
+        assert_eq!(format_label(Unit::Inches, -0.0), "0");
+    }
+
+    #[test]
+    fn edge_labels_are_suppressed_instead_of_clipped() {
+        let horizontal = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(100.0, HORIZONTAL_RULER_HEIGHT));
+        assert!(horizontal_label_fits(horizontal, horizontal.left(), "32"));
+        assert!(horizontal_label_fits(horizontal, horizontal.center().x, "32"));
+        assert!(!horizontal_label_fits(horizontal, horizontal.right(), "32"));
+
+        let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 100.0));
+        assert!(!vertical_label_fits(vertical, vertical.top(), "8", 6.0));
+        assert!(vertical_label_fits(vertical, vertical.center().y, "8", 6.0));
     }
 
     #[test]

@@ -2514,14 +2514,9 @@ impl RulerLayout {
         }
     }
 
+    #[cfg(test)]
     fn fit_to_viewport(self, viewport: Rect) -> Self {
-        if !viewport.is_positive() {
-            return self;
-        }
-        let viewport = viewport.intersect(self.canvas);
-        if !viewport.is_positive() {
-            return self;
-        }
+        let viewport = viewport.intersect(self.outer);
         Self {
             corner: Rect::from_min_max(self.outer.min, viewport.min),
             horizontal: Rect::from_min_max(pos2(viewport.left(), self.outer.top()), pos2(viewport.right(), viewport.top())),
@@ -2532,7 +2527,8 @@ impl RulerLayout {
 }
 
 fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGeometry, units: crate::units::Unit) {
-    let layout = layout.fit_to_viewport(geometry.viewport_rect);
+    // Rulers are viewport chrome: paint across the complete available document area rather than
+    // shrinking to the current scroll viewport. Page geometry still supplies the moving origin.
     crate::ruler::paint_corner(ui, layout.corner, units);
 
     let active = geometry.active_page();
@@ -6796,11 +6792,11 @@ trailer << /Root 1 0 R >>
     #[test]
     fn ruler_layout_reserves_only_the_top_and_left_bands() {
         let outer = Rect::from_min_max(pos2(10.0, 20.0), pos2(810.0, 620.0));
-        let layout = RulerLayout::new(outer, 18.0, 32.0);
-        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(42.0, 38.0)));
-        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(42.0, 20.0), pos2(810.0, 38.0)));
-        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(42.0, 620.0)));
-        assert_eq!(layout.canvas, Rect::from_min_max(pos2(42.0, 38.0), pos2(810.0, 620.0)));
+        let layout = RulerLayout::new(outer, 18.0, 20.0);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(30.0, 38.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(30.0, 20.0), pos2(810.0, 38.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(30.0, 620.0)));
+        assert_eq!(layout.canvas, Rect::from_min_max(pos2(30.0, 38.0), pos2(810.0, 620.0)));
     }
 
     #[test]
@@ -6819,7 +6815,7 @@ trailer << /Root 1 0 R >>
     #[test]
     fn ruler_layout_tracks_the_actual_scroll_viewport_edges() {
         let outer = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
-        let base = RulerLayout::new(outer, 18.0, 32.0);
+        let base = RulerLayout::new(outer, 18.0, 20.0);
         let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
         let layout = base.fit_to_viewport(viewport);
         assert_eq!(layout.corner, Rect::from_min_max(outer.min, viewport.min));
