@@ -721,12 +721,22 @@ impl Automation {
             (Some(_), _) => return Err(ToolError::InvalidArgs("sheets applies to .xlsx only".into())),
         };
         let doc = self.doc_to_copy(a)?;
-        let bytes = match format {
-            pdfcraft_engine::compare::OfficeFormat::Xlsx => doc.export_xlsx(sheets, None),
-            _ => doc.export_office(format),
+        let export = match format {
+            pdfcraft_engine::compare::OfficeFormat::Xlsx => doc.export_xlsx_checked(sheets, None),
+            _ => doc.export_office_checked(format),
         };
-        write_atomic(&path, &bytes)?;
-        Ok(json!({ "path": path.to_string_lossy(), "bytes": bytes.len(), "format": format.extension() }))
+        write_atomic(&path, &export.bytes)?;
+        // Text left out to keep a hostile page bounded is said, not silent (#3120).
+        let truncated: Vec<usize> = export.truncated_pages.iter().map(|p| p.saturating_add(1)).collect();
+        let mut out = json!({ "path": path.to_string_lossy(), "bytes": export.bytes.len(), "format": format.extension(),
+            "truncated": !truncated.is_empty(), "truncated_pages": truncated });
+        if !export.truncated_pages.is_empty() {
+            use pdfcraft_engine::compare::{MAX_FORM_DEPTH, MAX_FORM_VISITS};
+            out["warnings"] = json!([format!(
+                "forms nested more than {MAX_FORM_DEPTH} deep, or past the first {MAX_FORM_VISITS} forms of a page (forms the page draws itself count too), were left out on the pages in truncated_pages: their text and images are missing from the export, although the viewer may still show them"
+            )]);
+        }
+        Ok(out)
     }
 
     fn pdfa_level(&self, a: &Args) -> Result<pdfcraft_engine::pdfa::Level> {

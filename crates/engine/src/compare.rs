@@ -4,6 +4,9 @@
 use std::sync::Arc;
 
 pub use pdfcraft_compare::{Change, Comparison, Kind, Side};
+// How far Office export reads into form XObjects; `OfficeExport::truncated_pages` lists the pages
+// that draw more.
+pub use pdfcraft_edit::{MAX_FORM_DEPTH, MAX_FORM_VISITS};
 
 use crate::{DocId, Edit, EditError, Markup, NewAnnotation, NoteIcon, Session, Shape};
 
@@ -157,12 +160,32 @@ impl OfficeFormat {
     }
 }
 
+/// A Word, Excel, PowerPoint, HTML or RTF export ([`crate::Document::export_office_checked`],
+/// [`crate::Document::export_xlsx_checked`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OfficeExport {
+    /// The exported file.
+    pub bytes: Vec<u8>,
+    /// Pages (0-based) that draw forms nested deeper than [`MAX_FORM_DEPTH`] or more of them
+    /// than [`MAX_FORM_VISITS`]: export stops reading there to stay bounded on hostile files, so
+    /// the text and images of those forms are missing from `bytes`.
+    pub truncated_pages: Vec<usize>,
+}
+
 impl crate::Document {
     /// The pages as paragraphs and images (for Word, HTML and RTF export), including what
     /// form XObjects draw.
     pub fn export_pages(&self) -> Vec<pdfcraft_export::Page> {
-        let Some(cos) = self.editor.as_ref().map(|e| &e.cos) else { return Vec::new() };
-        self.info
+        self.export_pages_checked().0
+    }
+
+    /// [`Self::export_pages`], and the pages whose forms were left partly unread
+    /// ([`OfficeExport::truncated_pages`]).
+    fn export_pages_checked(&self) -> (Vec<pdfcraft_export::Page>, Vec<usize>) {
+        let Some(cos) = self.editor.as_ref().map(|e| &e.cos) else { return (Vec::new(), Vec::new()) };
+        let mut truncated = Vec::new();
+        let pages = self
+            .info
             .pages
             .iter()
             .enumerate()
@@ -177,8 +200,12 @@ impl crate::Document {
                 let crop_width = f64::from(info.crop[2] - info.crop[0]);
                 let display_width = f64::from(if info.rotation % 180 == 0 { info.width } else { info.height });
                 let unit = if crop_width > 0.0 && crop_width.is_finite() && display_width.is_finite() { display_width / crop_width } else { 1.0 };
-                let blocks = pdfcraft_edit::reading_blocks(cos, i)
-                    .unwrap_or_default()
+                let reading = pdfcraft_edit::reading_blocks_checked(cos, i).unwrap_or_default();
+                if reading.truncated {
+                    truncated.push(i);
+                }
+                let blocks = reading
+                    .blocks
                     .into_iter()
                     .filter(|b| !b.text.trim().is_empty())
                     .map(|b| {
@@ -210,30 +237,45 @@ impl crate::Document {
                     .collect();
                 pdfcraft_export::Page { width: info.width as f64, height: info.height as f64, blocks, images }
             })
-            .collect()
+            .collect();
+        (pages, truncated)
     }
 
     /// The document as a Word, PowerPoint, HTML or RTF file.
     pub fn export_office(&self, format: OfficeFormat) -> Vec<u8> {
-        let pages = self.export_pages();
+        self.export_office_checked(format).bytes
+    }
+
+    /// [`Self::export_office`], and the pages whose text it had to leave out
+    /// ([`OfficeExport::truncated_pages`]).
+    pub fn export_office_checked(&self, format: OfficeFormat) -> OfficeExport {
+        let (pages, truncated_pages) = self.export_pages_checked();
         let title = self.info.title.clone().unwrap_or_else(|| self.name.trim_end_matches(".pdf").to_string());
-        match format {
+        let bytes = match format {
             OfficeFormat::Docx => pdfcraft_export::docx(&pages, &title),
             OfficeFormat::Xlsx => pdfcraft_export::xlsx(&pages, &title, XlsxSheets::default()),
             OfficeFormat::Pptx => pdfcraft_export::pptx(&pages, &title),
             OfficeFormat::Html => pdfcraft_export::html(&pages, &title).into_bytes(),
             OfficeFormat::Rtf => pdfcraft_export::rtf(&pages).into_bytes(),
-        }
+        };
+        OfficeExport { bytes, truncated_pages }
     }
 
     /// Export a PDF ▸ Excel with the sheets chosen: the whole document on one sheet, or a sheet
     /// per page; `pages` (0-based) limits it to some pages, in document order.
     pub fn export_xlsx(&self, sheets: XlsxSheets, pages: Option<&[usize]>) -> Vec<u8> {
-        let mut all = self.export_pages();
+        self.export_xlsx_checked(sheets, pages).bytes
+    }
+
+    /// [`Self::export_xlsx`], and the pages among those exported whose text it had to leave out
+    /// ([`OfficeExport::truncated_pages`]).
+    pub fn export_xlsx_checked(&self, sheets: XlsxSheets, pages: Option<&[usize]>) -> OfficeExport {
+        let (mut all, mut truncated_pages) = self.export_pages_checked();
         if let Some(keep) = pages {
             all = all.into_iter().enumerate().filter(|(i, _)| keep.contains(i)).map(|(_, p)| p).collect();
+            truncated_pages.retain(|i| keep.contains(i));
         }
         let title = self.info.title.clone().unwrap_or_else(|| self.name.trim_end_matches(".pdf").to_string());
-        pdfcraft_export::xlsx(&all, &title, sheets)
+        OfficeExport { bytes: pdfcraft_export::xlsx(&all, &title, sheets), truncated_pages }
     }
 }
