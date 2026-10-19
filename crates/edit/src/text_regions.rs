@@ -6,6 +6,7 @@ fn same_plane(a: &TextLine, b: &TextLine) -> bool {
     let at = Matrix(a.origin.tm).then(&Matrix(a.origin.ctm));
     let bt = Matrix(b.origin.tm).then(&Matrix(b.origin.ctm));
     a.scope == b.scope
+        && a.containers == b.containers
         && [0, 2].iter().all(|axis| {
             let ax = at.0.get(*axis).copied().unwrap_or(0.0);
             let ay = at.0.get(axis + 1).copied().unwrap_or(0.0);
@@ -106,7 +107,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 && (mixed || same_style(prev, first))
                 && same_plane(prev, first)
                 && aligned
-                && first.size.min(prev.size) >= first.size.max(prev.size) * 0.4
+                && row_style::compatible(prev_row, &row, lines)
                 && gap > first.size.min(prev.size) * 0.8
                 && gap < first.size.max(prev.size) * 2.5
         });
