@@ -318,9 +318,12 @@ update the numbers.
 - **Related, not part of this estimate: language-aware order of user text.** Comments (sort,
   author filter, search), Summarize Comments, form "Sort items", Combine and the bookmark filter
   sort in the order of the interface language (CLDR `vi` for Vietnamese, Root otherwise) and treat
-  NFC and NFD as equal (`pdfcraft-collate`); headless sessions get Root order with NFC = NFD.
-  Still missing: Find and Search & Redact keep the plain case-fold (no NFC match; they map hits
-  back to glyph positions), scripts other than Latin are not unified, and the comment summary
+  NFC and NFD as equal (`pdfcraft-collate`); the Vietnamese order applies when the interface
+  language is Vietnamese (the bookmark filter matches but does not sort), and every other language
+  and headless sessions get Root order with NFC = NFD, which puts letters such as Czech `č` beside
+  `c` instead of after `z`.
+  Still missing: Find, Search & Redact and the command palette keep the plain case-fold (no NFC
+  match; Find and Search & Redact map hits back to glyph positions), scripts other than Latin are not unified, and the comment summary
   report's font does not draw every Vietnamese letter.
 
 ### 15. Forms: JavaScript object model, actions, submit, XFA depth
@@ -405,7 +408,7 @@ update the numbers.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-19 | minor | Gap 14: user-visible lists sort in Vietnamese order (CLDR `vi`) and treat NFC and NFD as equal: Comments (sort, author filter, search), Summarize Comments, form "Sort items", Combine, the bookmark filter. Headless sessions get Root order with NFC = NFD; only Find and Search & Redact and scripts other than Latin keep the old behaviour. Estimates unchanged. |
+| 2026-10-19 | minor | Gap 14: user-visible lists sort in Vietnamese order (CLDR `vi`) and treat NFC and NFD as equal: Comments (sort, author filter, search), Summarize Comments, form "Sort items", Combine, the bookmark filter. The Vietnamese order applies when the interface language is Vietnamese; other languages and headless sessions get Root order with NFC = NFD; only Find, Search & Redact, the command palette and scripts other than Latin keep the old behaviour. Estimates unchanged. |
 | 2026-10-19 | minor | Gap 2: a Type 0 font whose `/ToUnicode` is the name `/Identity-H` or `/Identity-V` (WSCAD) reads its codes as Unicode, so such pages have text to select, find and edit (hayro-interpret patch 44, `view.render-cid-fonts`). Estimates unchanged. |
 | 2026-10-15 | minor | Gap 21: the side-by-side view had already shipped; the Compare panel filters text changes and visual differences. Estimate 10–20 h → 8–16 h |
 | 2026-10-20 | minor | Gap 6 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections, or a predefined non-Identity CMap; negative and indirect-reference regressions and a read-only automation test passed after failing before the fix. Per-glyph validation and embedded-font extraction remain separate. Scores and estimates unchanged. |

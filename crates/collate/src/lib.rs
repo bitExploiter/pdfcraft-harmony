@@ -109,6 +109,10 @@ fn reorder_marks(chars: &mut [char]) {
 /// Most primary elements a key holds: a megabyte paste does not make a megabyte key. The rest of
 /// a longer text only takes part through the final tie-break on [`fold_key`], which always holds
 /// the whole text.
+///
+/// A digit run of a natural key ([`natural`]) is one element however long it is, so such a key can
+/// exceed this by the digits of the run that crosses the cap (the count and the digits are pushed
+/// together); the work stays linear in the text.
 const MAX_PRIMARY: usize = 16_384;
 
 /// Secondary code of the stroke of `đ` (primary `d`). Mark codes start at 32, so it never equals

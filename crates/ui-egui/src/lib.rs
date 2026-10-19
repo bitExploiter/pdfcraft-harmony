@@ -3150,7 +3150,10 @@ impl eframe::App for PdfCraftApp {
         // Notices raised outside `ui` (opened files, OS events, the control channel) translate too.
         let lang = i18n::Lang::from_pref(&self.language);
         i18n::set_current(lang);
-        // Summaries and form choices sort in the interface language's order.
+        // Summaries and form choices sort in the interface language's order. The interface
+        // language is the single source (`i18n::collation()` reads the same one for the panels);
+        // the session mirrors it every frame, so a programmatic `set_sort_language` in the app is
+        // overwritten here.
         self.session.set_sort_language(lang.code());
         #[cfg(not(target_arch = "wasm32"))]
         {

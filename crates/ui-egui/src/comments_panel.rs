@@ -139,6 +139,27 @@ fn author_hidden(hidden: &[String], author: &str) -> bool {
     hidden.iter().any(|h| text_eq(h, author))
 }
 
+/// Switch `author` on (`shown`) or off in the filter. One entry stands for every spelling of the
+/// name, so either way every entry `text_eq` to it is cleared first; switching off then keeps
+/// exactly one (the spelling the person ticked), and switching on leaves none.
+fn set_author_shown(hidden: &mut Vec<String>, author: &str, shown: bool) {
+    hidden.retain(|h| !text_eq(h, author));
+    if !shown {
+        hidden.push(author.to_string());
+    }
+}
+
+/// Whether a comment's group label `g` continues the group `current` whose header is already
+/// drawn. By author the labels are authors, which are the same group when they are the same text
+/// (case and NFC/NFD, as in the filter); for any other sort a group is its exact label. No label
+/// (the date sort) equals no label.
+fn same_group(sort: SortBy, g: &Option<String>, current: &Option<String>) -> bool {
+    match (g, current) {
+        (Some(a), Some(b)) if sort == SortBy::Author => text_eq(a, b),
+        _ => g == current,
+    }
+}
+
 /// The types of the top-level comments for the filter list: the PDF-independent labels, ordered
 /// by what the panel shows (their translation) in `c` order.
 fn type_choices(info: &DocInfo, c: Collation) -> Vec<String> {
@@ -262,11 +283,7 @@ pub(crate) fn show(
         if sort != SortBy::Page {
             let g = group_of(a);
             // Authors that differ only in case or NFC/NFD are one group, as in the filter.
-            let same = match (&g, &group) {
-                (Some(a), Some(b)) if sort == SortBy::Author => text_eq(a, b),
-                _ => g == group,
-            };
-            if g.is_some() && !same {
+            if g.is_some() && !same_group(sort, &g, &group) {
                 ui.add_space(6.0);
                 let title = g.clone().unwrap_or_default();
                 // Catalog labels are already in display order; an author's name is put in it here.
@@ -651,10 +668,7 @@ pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocV
             // One entry stands for every spelling of the name: switching it back on clears them all.
             let mut shown = !author_hidden(&cv.hidden_authors, a);
             if ui.add(widgets::checkbox(&mut shown, label)).changed() {
-                cv.hidden_authors.retain(|h| !text_eq(h, a));
-                if !shown {
-                    cv.hidden_authors.push(a.clone());
-                }
+                set_author_shown(&mut cv.hidden_authors, a, shown);
             }
         }
         ui.separator();
@@ -700,7 +714,7 @@ pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocV
 
 #[cfg(test)]
 mod filter {
-    use super::{any_contains, author_choices, author_hidden, sort_roots};
+    use super::{any_contains, author_choices, author_hidden, same_group, set_author_shown, sort_roots};
     use crate::comments::SortBy;
     use pdfcraft_collate::Collation;
     use pdfcraft_render::{Annotation, DocInfo};
@@ -750,6 +764,61 @@ mod filter {
         assert!(author_hidden(&["lê ánh".to_string()], "Lê A\u{301}nh"));
         assert!(!author_hidden(&["lê ánh".to_string()], "Lê Anh"));
         assert!(!author_hidden(&[], "Lê Ánh"));
+    }
+
+    #[test]
+    fn author_filter_toggle_hides_and_shows_every_spelling() {
+        // The unknown author is the empty name: hide it and show it again.
+        let mut hidden: Vec<String> = Vec::new();
+        set_author_shown(&mut hidden, "", false);
+        assert!(author_hidden(&hidden, ""));
+        assert!(!author_hidden(&hidden, "Lê Ánh"));
+        set_author_shown(&mut hidden, "", true);
+        assert!(hidden.is_empty());
+
+        // Hiding one spelling hides all of them, whichever one is hidden.
+        for spelling in ["Lê Ánh", "lê ánh", "Lê A\u{301}nh"] {
+            let mut hidden: Vec<String> = Vec::new();
+            set_author_shown(&mut hidden, spelling, false);
+            assert_eq!(hidden, [spelling]);
+            for other in ["Lê Ánh", "lê ánh", "Lê A\u{301}nh"] {
+                assert!(author_hidden(&hidden, other), "{spelling:?} hides {other:?}");
+            }
+            assert!(!author_hidden(&hidden, "Lê Anh"));
+            // Hiding it again does not pile up entries.
+            set_author_shown(&mut hidden, spelling, false);
+            assert_eq!(hidden.len(), 1);
+        }
+
+        // Showing any one clears every equivalent entry and leaves other authors alone.
+        for shown in ["Lê Ánh", "lê ánh", "Lê A\u{301}nh"] {
+            let mut hidden: Vec<String> = vec!["Lê Ánh".into(), "Bình".into(), "lê ánh".into(), "Lê A\u{301}nh".into()];
+            set_author_shown(&mut hidden, shown, true);
+            assert_eq!(hidden, ["Bình"], "showing {shown:?}");
+            for other in ["Lê Ánh", "lê ánh", "Lê A\u{301}nh"] {
+                assert!(!author_hidden(&hidden, other));
+            }
+            assert!(author_hidden(&hidden, "bình"));
+        }
+    }
+
+    #[test]
+    fn group_headers_merge_equal_authors_only_when_sorted_by_author() {
+        let some = |s: &str| Some(s.to_string());
+        // Author sort: the same text in another case or encoding is the same group.
+        assert!(same_group(SortBy::Author, &some("Lê Ánh"), &some("lê ánh")));
+        assert!(same_group(SortBy::Author, &some("Lê Ánh"), &some("Lê A\u{301}nh")));
+        assert!(!same_group(SortBy::Author, &some("Lê Ánh"), &some("Lê Anh")));
+        // Any other sort compares exactly (labels such as "Highlight" or "#ffcc00").
+        assert!(!same_group(SortBy::Type, &some("Note"), &some("note")));
+        assert!(!same_group(SortBy::Color, &some("#FFCC00"), &some("#ffcc00")));
+        assert!(!same_group(SortBy::Page, &some("Lê Ánh"), &some("lê ánh")));
+        assert!(same_group(SortBy::Type, &some("Note"), &some("Note")));
+        // No group yet differs from a group; two missing groups are equal (the date sort).
+        assert!(!same_group(SortBy::Author, &some("Lê Ánh"), &None));
+        assert!(!same_group(SortBy::Author, &None, &some("Lê Ánh")));
+        assert!(!same_group(SortBy::Type, &some("Note"), &None));
+        assert!(same_group(SortBy::Date, &None, &None));
     }
 
     #[test]

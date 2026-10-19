@@ -36,10 +36,11 @@ list (author, source, license) is in ATTRIBUTION.md.
 - egui default fonts (epaint_default_fonts, via eframe) — Ubuntu Light (Ubuntu Font Licence 1.0),
   Hack (MIT / Bitstream Vera licence), Noto Emoji (SIL OFL 1.1), emoji-icon-font (MIT).
 - Colour profile in hayro-interpret — CGATS001Compat-v2-micro.icc (CC0-1.0, Clinton Ingram).
-- Unicode Character Database (crates/collate/src/ucd.rs) — Unicode License v3 (Unicode-3.0). The
-  canonical decomposition and combining-class tables behind text collation (Unicode 17.0, Latin
-  letters and U+0300..=U+036F), Copyright © 2020-2024 Unicode, Inc. The licence text is the header
-  of that file. It is Rust source, not a visual asset, so it has no row in ATTRIBUTION.md.
+- Unicode Character Database 17.0 data as packaged in ICU4X icu_normalizer_data 2.3.0
+  (crates/collate/src/ucd.rs) — Unicode License v3 (Unicode-3.0), Copyright © 2020-2024 Unicode,
+  Inc. The canonical decomposition and combining-class tables behind text collation (Latin
+  letters and U+0300..=U+036F). The licence text is the header of that file, the notice that
+  ships with icu_normalizer_data 2.3.0. It is Rust source, not a visual asset, so it has no row in ATTRIBUTION.md.
 
 Required notices:
 

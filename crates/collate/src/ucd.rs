@@ -40,7 +40,9 @@
 //
 // SPDX-License-Identifier: Unicode-3.0
 
-//! Unicode Character Database 17.0 data for the collation key: the canonical decomposition of
+//! Unicode Character Database 17.0 data as packaged in ICU4X `icu_normalizer_data` 2.3.0
+//! (Unicode-3.0, Copyright © 2020-2024 Unicode, Inc.; the licence above is that package's
+//! notice), for the collation key: the canonical decomposition of
 //! the Latin letters and the combining class of the marks U+0300..=U+036F. Data only; the code
 //! that reads these tables is in `lib.rs`.
 

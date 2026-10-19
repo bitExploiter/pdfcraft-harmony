@@ -522,6 +522,11 @@ pub fn current() -> Lang {
 }
 
 /// The order text sorts in for the interface language: Vietnamese for `vi`, root for the rest.
+///
+/// The interface language is the single source of the sort order in the app: the panels read it
+/// here, and `lib.rs` mirrors the same language into `Session::set_sort_language` every frame
+/// (summaries and form items), so the two cannot drift. A `set_sort_language` call made
+/// programmatically inside the running app is overwritten on the next frame.
 pub fn collation() -> pdfcraft_collate::Collation {
     pdfcraft_collate::Collation::from_tag(current().code())
 }
