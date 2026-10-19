@@ -63,7 +63,7 @@ fn decompose(c: char) -> Option<&'static str> {
 }
 
 /// `s` with every character in the table fully decomposed and each run of combining marks put in
-/// canonical order (what `EXACT` compares: NFC and NFD text give the same result). Case is kept
+/// canonical order (NFC and NFD text give the same result). Case is kept
 /// and characters outside the table are kept as they are. A run of more than 32 marks keeps its
 /// input order. ASCII text comes back unchanged.
 pub fn canonical(s: &str) -> String {
@@ -115,7 +115,7 @@ const MAX_PRIMARY: usize = 16_384;
 /// one.
 const STROKE: u16 = 11;
 
-/// Lowercase one char to exactly one char (no full case folding), like the criteria helpers do.
+/// Lowercase one char to exactly one char (no full case folding).
 fn lower_char(c: char) -> char {
     c.to_lowercase().next().unwrap_or(c)
 }
@@ -291,6 +291,60 @@ impl Collation {
     }
 }
 
+/// `s` (folded text) with the leading zeros of every run of ASCII digits dropped; a run of
+/// zeros only becomes one `0`. Linear.
+fn drop_leading_zeros(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut run = false; // inside a run of digits
+    let mut zeros_only = false; // ... that has had nothing but zeros so far
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            if !run {
+                (run, zeros_only) = (true, true);
+            }
+            if zeros_only && c == '0' {
+                continue;
+            }
+            zeros_only = false;
+        } else if run {
+            if zeros_only {
+                out.push('0');
+            }
+            run = false;
+        }
+        out.push(c);
+    }
+    if run && zeros_only {
+        out.push('0');
+    }
+    out
+}
+
+/// Push the primary weights of the number whose run of ASCII digits starts with `first` and goes
+/// on in `chars` (the run has no leading zero, except the single `0`): `zero` (the weight of the
+/// digit `0`, so a number sorts where the digits sort), the count of its digits (`0` for the
+/// number zero), then the digits. A longer number is larger; equal lengths compare digit by
+/// digit; no other element has the weight `zero`, so the element ends where both runs say. Linear
+/// in the run, whatever its length.
+fn push_number(first: char, chars: &mut std::iter::Peekable<std::str::Chars<'_>>, zero: u32, out: &mut Vec<u32>) {
+    let at = out.len();
+    out.push(zero);
+    out.push(0); // the count, set below
+    let digit = |c: char| c.to_digit(10).unwrap_or(0);
+    out.push(digit(first));
+    while let Some(c) = chars.next_if(char::is_ascii_digit) {
+        out.push(digit(c));
+    }
+    let digits = out.len().saturating_sub(at.saturating_add(2));
+    if digits == 1 && first == '0' {
+        out.pop(); // the number zero has no digits
+    }
+    let count = if digits == 1 && first == '0' { 0 } else { u32::try_from(digits).unwrap_or(u32::MAX) };
+    if let Some(slot) = out.get_mut(at.saturating_add(1)) {
+        *slot = count;
+    }
+}
+
 /// The weights `compare` compares, in order.
 ///
 /// - `primary`: one entry per element of the folded text. Root: the code point of a base
@@ -316,6 +370,18 @@ impl Key {
         }
     }
 
+    /// The key of `natural`: the key of `s` in `c`, except that each maximal run of ASCII digits
+    /// of the folded text is one element, weighed at the place of `0` and ordered by value
+    /// ([`push_number`]), and `text` is the folded text with the leading zeros of every run
+    /// dropped (so `a007` and `a7` give equal keys).
+    fn natural(s: &str, c: Collation) -> Key {
+        let text = drop_leading_zeros(&fold_key(s));
+        match c {
+            Collation::Root => Key::root_of(text, true),
+            Collation::Vi => Key::vi_of(text, true),
+        }
+    }
+
     /// The Vietnamese key (rule V of [`Collation::Vi`]): weights from the clusters of the folded
     /// text, each a base letter and the marks after it.
     ///
@@ -334,7 +400,11 @@ impl Key {
     ///   So tones are a secondary difference (`ma < mà < mả < mã < má < mạ`) and `Hoà` (tone on
     ///   `a`) sorts before `Hòa` (tone on `o`).
     fn vi(s: &str) -> Key {
-        let text = fold_key(s);
+        Key::vi_of(fold_key(s), false)
+    }
+
+    /// [`Key::vi`] of the folded `text`; with `numeric` a run of ASCII digits is one element.
+    fn vi_of(text: String, numeric: bool) -> Key {
         let mut primary: Vec<u32> = Vec::new();
         let mut secondary: Vec<u16> = Vec::new();
         let mut chars = text.chars().peekable();
@@ -346,9 +416,15 @@ impl Key {
             }
             // V1: merge the quality marks that are not blocked; keep the others in `rest`.
             rest.clear();
+            let number = numeric && c.is_ascii_digit();
+            if number {
+                push_number(c, &mut chars, weight('0', 0), &mut primary);
+            }
             let base = vi_merge(c, std::iter::from_fn(|| chars.next_if(|m| is_mark(*m))), |m| rest.push(m));
-            let (first, second, letter) = vi_letter(base);
-            primary.push(first);
+            let (first, second, letter) = if number { (0, None, 0) } else { vi_letter(base) };
+            if !number {
+                primary.push(first);
+            }
             let tone_mark = rest.iter().copied().find(|m| tone(*m) != 0);
             secondary.push(tone_mark.map_or(0, tone));
             if letter != 0 {
@@ -368,10 +444,15 @@ impl Key {
 
     /// The Root key.
     fn root(s: &str) -> Key {
-        let text = fold_key(s);
+        Key::root_of(fold_key(s), false)
+    }
+
+    /// [`Key::root`] of the folded `text`; with `numeric` a run of ASCII digits is one element.
+    fn root_of(text: String, numeric: bool) -> Key {
         let mut primary: Vec<u32> = Vec::new();
         let mut secondary: Vec<u16> = Vec::new();
-        for c in text.chars() {
+        let mut chars = text.chars().peekable();
+        while let Some(c) = chars.next() {
             if is_mark(c) {
                 if !primary.is_empty() {
                     secondary.push(mark_code(c));
@@ -384,7 +465,9 @@ impl Key {
             if !primary.is_empty() {
                 secondary.push(0);
             }
-            if c == 'đ' {
+            if numeric && c.is_ascii_digit() {
+                push_number(c, &mut chars, '0' as u32, &mut primary);
+            } else if c == 'đ' {
                 primary.push('d' as u32);
                 secondary.push(STROKE);
             } else {
@@ -444,53 +527,18 @@ pub fn text_key(s: &str, c: Collation) -> TextKey {
 // Natural order: numbers by value.
 // ---------------------------------------------------------------------------------------------
 
-/// The next run of `s` from byte offset `at`: a run of ASCII digits (`true`) or a run of anything
-/// else (`false`), with the offset after it. `None` at the end.
-fn next_run(s: &str, at: usize) -> Option<(bool, &str, usize)> {
-    let rest = s.get(at..)?;
-    let digit = rest.chars().next()?.is_ascii_digit();
-    let len = rest.find(|c: char| c.is_ascii_digit() != digit).unwrap_or(rest.len());
-    Some((digit, rest.get(..len)?, at.saturating_add(len)))
-}
-
-/// Two runs of ASCII digits by value: leading zeros dropped, then the longer run is the larger
-/// number, then digit by digit. (`007` equals `7`.) Linear in the runs, however long they are.
-fn digits_order(a: &str, b: &str) -> Ordering {
-    let (a, b) = (a.trim_start_matches('0'), b.trim_start_matches('0'));
-    a.len().cmp(&b.len()).then_with(|| a.cmp(b))
-}
-
-/// File names in the order people expect: numbers by value (`scan2` before `scan10`), letters by
-/// the collation `c` (case and NFC/NFD do not matter).
+/// File names in the order people expect: numbers by value (`scan2` before `scan10`), everything
+/// else by the collation `c` (case and NFC/NFD do not matter).
 ///
-/// Both strings are split into alternating runs of ASCII digits and of anything else, and the
-/// runs are compared in turn. Two digit runs compare by value (leading zeros dropped, a longer
-/// run is the larger number, then digit by digit), like the natural order of the Combine file
-/// list. Two other runs compare with [`compare`] in `c`. A digit run against another run is the
-/// smaller one (so a number comes before any text at the same place). The string that ends first
-/// is the smaller. It is a total preorder: strings that differ only in leading zeros or in
-/// case and encoding compare equal.
+/// It is [`compare`]'s key with one change: each maximal run of ASCII digits is a single element,
+/// weighed at the place of `0` and ordered by value (leading zeros dropped, a longer number is
+/// larger, equal lengths digit by digit), so `scan.pdf` < `scan1.pdf` < `scan2.pdf` <
+/// `scan10.pdf` and `dir/a/x` < `dir/a1/x`, as a character-by-character natural order gives.
+/// The keys are compared like [`text_key`]'s: all the elements first, then the marks. It is a
+/// total preorder (a key comparison); strings that differ only in leading zeros, case or
+/// encoding compare equal (`a007` = `a7`). Linear, whatever the length of a digit run.
 pub fn natural(a: &str, b: &str, c: Collation) -> Ordering {
-    let (mut ia, mut ib) = (0usize, 0usize);
-    loop {
-        match (next_run(a, ia), next_run(b, ib)) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some((da, ra, na)), Some((db, rb, nb))) => {
-                let o = match (da, db) {
-                    (true, true) => digits_order(ra, rb),
-                    (true, false) => Ordering::Less,
-                    (false, true) => Ordering::Greater,
-                    (false, false) => compare(ra, rb, c),
-                };
-                if o != Ordering::Equal {
-                    return o;
-                }
-                (ia, ib) = (na, nb);
-            }
-        }
-    }
+    Key::natural(a, c).cmp(&Key::natural(b, c))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -527,7 +575,8 @@ fn mark_at(s: &str, at: usize) -> bool {
 /// by a combining mark U+0300..=U+036F is not a match, so `e` is not found in `Nguyễn` while `ễ`
 /// and `nguyễn` are. Every occurrence is tried, overlapping ones too, so a rejected one never
 /// hides a later match. A needle that starts with a mark is taken as given. An empty needle is
-/// always found.
+/// always found. The cost is O(n + k·m) for a haystack of n bytes, a needle of m chars and k
+/// occurrences rejected because a mark follows them.
 pub fn search_contains_folded(folded_hay: &str, folded_needle: &str) -> bool {
     if folded_needle.is_empty() {
         return true;
@@ -661,7 +710,7 @@ mod tests {
         }
     }
 
-    /// The comparison before this module existed, kept as the oracle for ASCII text.
+    /// A plain case-insensitive char comparison, the oracle for ASCII text.
     fn old_compare_text(a: &str, b: &str) -> Ordering {
         let mut ai = a.chars().flat_map(char::to_lowercase);
         let mut bi = b.chars().flat_map(char::to_lowercase);
