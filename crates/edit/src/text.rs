@@ -2696,11 +2696,15 @@ pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, tra
     let lines = text_lines(doc, page)?;
     let blocks = group_blocks(&lines);
     let block = blocks.get(index).ok_or_else(|| EditError::Invalid("the selected paragraph no longer exists".into()))?;
-    let selected: std::collections::BTreeSet<_> = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|l| l.ops.iter().copied()).collect();
+    let mut selected: std::collections::BTreeSet<_> = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|l| l.ops.iter().copied()).collect();
     let res = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
     let fonts = res.get(b"Font").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
     let pieces = Pieces::join(&streams.iter().map(|(_, d)| d.as_slice()).collect::<Vec<_>>());
     let ops = pieces.parse().ops;
+    // Logical ActualText spans also list BDC/EMC boundaries. Keep those untouched;
+    // only glyph-show operations need a transform patch (including every show in a span).
+    selected.retain(|i| ops.get(*i).is_some_and(|op| matches!(op.op.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"")));
+
     let shown = interpret(doc, &ops, &fonts, &mut HashMap::new(), &mut Carry::new(), None, None);
     // ET commits accumulated text clipping. Splitting anywhere in such a text object
     // could clip selected or neighbouring glyphs earlier than the original ET.

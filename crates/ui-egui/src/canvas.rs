@@ -3171,7 +3171,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 };
                 crate::redact_ui::page_input(ui, &resp, &xf, i, info, over_text, view)
             };
-            let on_rotation = rotating_content && crate::rotation_ui::page_input(ui, &resp, &xf, i, doc, view, tool == QuickTool::Select);
+            let on_rotation =
+                rotating_content && crate::rotation_ui::page_input(ui, &resp, &xf, i, doc, view, tool == QuickTool::Select, editing_content);
             let image_owns_pointer = tool == QuickTool::EditText && crate::edit_text_ui::image_owns_pointer(ui, &xf, i, info, view);
             let on_objects = !on_rotation
                 && !image_owns_pointer

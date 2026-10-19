@@ -222,6 +222,7 @@ impl Automation {
         Ok(json!({"page":page+1,"generation":doc.edit_generation(),"count":items.len(),"objects":items}))
     }
 
+    /// Validate target generation and displayed coordinates before dispatching rotate or scale.
     pub(crate) fn object_transform(&mut self, a: &Args, scaling: bool) -> Result<Value> {
         use pdfcraft_engine::{ObjectKind, ObjectTarget};
         let page = self.page(a)?;

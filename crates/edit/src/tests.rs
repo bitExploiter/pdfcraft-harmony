@@ -5477,3 +5477,82 @@ fn object_rotation_restores_prior_advances_and_line_matrix() {
         }
     }
 }
+
+/// Retyping to a different height must use the same pivot for painting and saved bounds.
+#[test]
+fn object_rotation_retyped_line_count_uses_current_visible_pivot() {
+    let mut doc = text_page("");
+    added::add_content(
+        &mut doc,
+        0,
+        &Content::Text(added::AddedText { text: "First".into(), rect: [50.0, 300.0, 200.0, 330.0], ..Default::default() }),
+    )
+    .unwrap();
+    rotate_object(&mut doc, 0, ObjectTarget { kind: ObjectKind::Added, index: 0 }, 35.0).unwrap();
+    for value in ["First\nSecond\nThird", "Short", "A line that wraps repeatedly in a narrow text box"] {
+        let Content::Text(mut text) = added::list_added(&doc)[0].content.clone() else { panic!("text") };
+        text.text = value.into();
+        let expected = added::text_rect(&text);
+        added::update_content(&mut doc, 0, 0, &Content::Text(text)).unwrap();
+        doc = reopen(&doc);
+        let item = &added::list_added(&doc)[0];
+        assert_eq!(item.content.rect(), expected);
+        let matrix = pdfcraft_content::parse(&stream_bytes(&doc, &Object::Ref(item.obj)).unwrap())
+            .ops
+            .into_iter()
+            .find(|o| o.is("cm"))
+            .unwrap()
+            .nums::<6>()
+            .unwrap();
+        let pivot = [(expected[0] + expected[2]) / 2.0, (expected[1] + expected[3]) / 2.0];
+        let view = pdfcraft_content::Matrix(pdfcraft_model::pages(&doc)[0].view_matrix(&doc));
+        let expected_matrix = crate::objects::rotation_matrix(pivot, 35.0).then(&view);
+        assert!(
+            matrix.iter().zip(expected_matrix.0).all(|(a, b)| (a - b).abs() < 1e-5),
+            "paint must use persisted bounds: {matrix:?} != {:?}",
+            expected_matrix.0
+        );
+        assert!(item.display_rect().iter().zip(crate::objects::rotation_matrix(pivot, 35.0).bbox(expected)).all(|(a, b)| (a - b).abs() < 1e-5));
+    }
+}
+
+/// ActualText wrappers remain byte-identical while all enclosed glyph shows transform.
+#[test]
+fn object_rotation_actual_text_preserves_markup_and_neighbours() {
+    for (named, inside) in [(false, false), (false, true), (true, false), (true, true)] {
+        let marker = if named { "/Span /MC0 BDC" } else { "/Span << /ActualText (Logical label) >> BDC" };
+        let marked = if inside {
+            format!("BT /F1 12 Tf 40 400 Td {marker} (Glyph) Tj [(s) -120 ( here)] TJ EMC ET")
+        } else {
+            format!("{marker} BT /F1 12 Tf 40 400 Td (Glyph) Tj [(s) -120 ( here)] TJ ET EMC")
+        };
+        let content = format!("BT /F1 12 Tf 40 600 Td (Before) Tj ET {marked} BT /F1 12 Tf 40 100 Td (After) Tj ET");
+        let mut doc = build(&[
+            "<< /Type /Catalog /Pages 2 0 R >>",
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> /Properties << /MC0 << /ActualText (Logical label) >> >> >> /Contents 4 0 R >>",
+            &stream("", &content),
+            "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        ]);
+        let before = text::text_blocks(&doc, 0).unwrap();
+        let index = before.iter().position(|b| b.editor_text == "Logical label").unwrap();
+        let target = ObjectTarget { kind: ObjectKind::Text, index };
+        rotate_object(&mut doc, 0, target, 30.0).unwrap();
+        scale_object(&mut doc, 0, target, 1.25, [40.0, 400.0]).unwrap();
+        let doc = reopen(&doc);
+        assert_transform_text_context(&doc);
+        let data = page_content_bytes(&doc, 0);
+        let data = String::from_utf8_lossy(&data);
+        assert!(data.contains(marker), "{data}");
+        assert_eq!(data.matches("BDC").count(), 1);
+        assert_eq!(data.matches("EMC").count(), 1);
+        assert!(data.contains("(Glyph)") && data.contains("(s)") && data.contains("( here)"));
+        let after = text::text_blocks(&doc, 0).unwrap();
+        assert_eq!(after[index].editor_text, "Logical label");
+        for label in ["Before", "After"] {
+            let a = before.iter().find(|b| b.text == label).unwrap();
+            let b = after.iter().find(|b| b.text == label).unwrap();
+            assert!(a.rect.iter().zip(b.rect).all(|(a, b)| (a - b).abs() < 1e-6));
+        }
+    }
+}

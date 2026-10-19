@@ -56,3 +56,8 @@ checks stale references and save/reopen through the shared tool table.
 Review regressions check PDF 1.7 operator context (q/cm/Q outside BT/ET),
 restore the text and line matrices for following glyphs and line moves, and
 retain added-object rotation through indirect metadata, retyping and save/reopen.
+
+Additional regressions cover changed line counts after retyping rotated text,
+inline and named ActualText spans inside and outside text objects, and the live
+added-text move preview through pointer release and raster redraw. ActualText
+markup and neighboring text survive rotation, scaling and save/reopen.

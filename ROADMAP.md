@@ -597,3 +597,5 @@ Newest first: the date, what moved, and the new overall estimate.
 - 2026-10-19 (local M7 candidate): orient each rotation dial to its corner; add proportional glyph/image scaling and Select-tool translation, with shared engine/automation operations and transform-sequence regressions. Right-click menus unchanged.
 
 - 2026-10-19 (M7, PR #3544 review): correct scale-label catalog rows; preserve indirect added-object rotation; emit source-text transforms outside text objects and restore both text matrices. Add save/reopen, operator-context and shared-clipping refusal regressions. Estimates unchanged.
+
+- 2026-10-19 (M7, PR #3544 follow-up): restore live added-content dragging, use current retyped text bounds for the rotation pivot, and preserve ActualText markup during transforms. Add regressions and document gesture helpers. Estimates unchanged.

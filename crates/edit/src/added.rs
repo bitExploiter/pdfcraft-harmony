@@ -1051,7 +1051,11 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>, rota
         return Err(EditError::Invalid("the object rotation must be finite".into()));
     }
     let rotation = rotation.rem_euclid(360.0);
-    let r = c.rect();
+    // Painting and persisted text bounds both follow the newly laid-out line count.
+    let r = match c {
+        Content::Text(t) => text_rect(t),
+        Content::Image(i) => i.rect,
+    };
     let view =
         crate::objects::rotation_matrix([(r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0], rotation).then(&pdfcraft_content::Matrix(p.view_matrix(doc))).0;
     let user_unit = p.user_unit(doc);

@@ -33,6 +33,7 @@ enum DragMode {
     Scale { fixed: Pos2 },
 }
 
+/// Apply pending text first, then start a gesture only against a current object inventory.
 fn start_gesture(view: &mut DocView, doc: &Document, gesture: Gesture) {
     if view.content.hold_blocked() {
         return;
@@ -53,6 +54,7 @@ fn start_gesture(view: &mut DocView, doc: &Document, gesture: Gesture) {
     view.object_rotation.gesture = Some(gesture);
 }
 
+/// Uniform screen-space scaling around the opposite corner, with no jump for an off-center press.
 fn scale_preview(rect: Rect, start: Pos2, now: Pos2, fixed: Pos2) -> Rect {
     // Measure from the press, not the handle centre, so an off-centre grab never jumps.
     let horizontal = (now.x - start.x) * (start.x - fixed.x).signum() / rect.width();
@@ -62,18 +64,22 @@ fn scale_preview(rect: Rect, start: Pos2, now: Pos2, fixed: Pos2) -> Rect {
     Rect::from_min_max(fixed + (rect.min - fixed) * k, fixed + (rect.max - fixed) * k)
 }
 
+/// Paint a square scale grip separately from the curved rotation control.
 fn scale_handle(painter: &egui::Painter, at: Pos2) {
     painter.rect(Rect::from_center_size(at, egui::vec2(8.0, 8.0)), 0, Color32::WHITE, Stroke::new(1.0, BLUE), egui::StrokeKind::Middle);
 }
 
 impl Rotation {
+    /// Discard the uncommitted gesture without mutating the document.
     pub fn cancel(&mut self) {
         self.gesture = None;
     }
+    /// Whether the transform handler owns the current gesture on this page.
     pub fn dragging(&self, page: usize) -> bool {
         self.gesture.as_ref().is_some_and(|g| g.page == page)
     }
 
+    /// Invalidate cached geometry on edits and cancel gestures when input or focus is unavailable.
     pub fn prepare(&mut self, doc: &Document, enabled: bool, ctx: &egui::Context) {
         if !enabled || !ctx.input(|i| i.focused) {
             self.gesture = None;
@@ -107,20 +113,24 @@ impl Rotation {
     }
 }
 
+/// Screen-space corners in clockwise order, starting at the upper left.
 fn corners(r: Rect) -> [Pos2; 4] {
     [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()]
 }
 
+/// Place rotation controls outside each corner, clear of the scale grips.
 fn handles(r: Rect) -> [Pos2; 4] {
     corners(r).map(|p| p + egui::vec2((p.x - r.center().x).signum() * 16.0, (p.y - r.center().y).signum() * 16.0))
 }
 
+/// Rotate a screen-space point clockwise about the gesture pivot.
 fn turned(p: Pos2, pivot: Pos2, degrees: f32) -> Pos2 {
     let (s, c) = degrees.to_radians().sin_cos();
     let d = p - pivot;
     pivot + egui::vec2(c * d.x - s * d.y, s * d.x + c * d.y)
 }
 
+/// Signed pointer angle with optional 15-degree snapping and a stable center dead zone.
 fn angle(start: Pos2, now: Pos2, pivot: Pos2, snap: bool) -> f32 {
     let a = start - pivot;
     let b = now - pivot;
@@ -131,6 +141,7 @@ fn angle(start: Pos2, now: Pos2, pivot: Pos2, snap: bool) -> f32 {
     if snap { (degrees / 15.0).round() * 15.0 } else { degrees }
 }
 
+/// Draw the curved rotation control with the orientation of its corner.
 fn arrow(painter: &egui::Painter, at: Pos2, hot: bool, orientation: f32) {
     painter.circle_filled(at, 10.0, if hot { Color32::from_rgb(220, 235, 255) } else { Color32::WHITE });
     let points: Vec<_> = (0..=16)
@@ -159,7 +170,12 @@ pub(crate) fn page_input(
     doc: &Document,
     view: &mut DocView,
     select_tool: bool,
+    editing_content: bool,
 ) -> bool {
+    // Preserve the existing move renderer and its release/settling state once it owns a drag.
+    if view.content.dragging(page) {
+        return false;
+    }
     if view.image_selection.as_ref().is_some_and(|s| s.page == page && s.crop.is_some()) {
         view.object_rotation.gesture = None;
         view.object_rotation.selected = None;
@@ -277,7 +293,12 @@ pub(crate) fn page_input(
     }
     // Only intercept primary drags of an already selected object; right-click remains the
     // page/image menu's response, and unselected text keeps ordinary text selection.
-    if !owns && !dragging && (select_tool || single.is_none()) {
+    // Unrotated added content already has a live pixel preview in Edit a PDF.
+    // Keep that handler in charge of body drags; our separate corner widgets still own transforms.
+    let existing_move = editing_content
+        && target.kind == ObjectKind::Added
+        && doc.added().iter().filter(|a| a.page == page).nth(target.index).is_some_and(|a| a.rotation == 0.0);
+    if !owns && !dragging && !existing_move && (select_tool || single.is_none()) {
         let inset = (bounds.width().min(bounds.height()) * 0.2).min(8.0);
         let inside = |p: Pos2| bounds.shrink(inset).contains(p);
         if pointer.is_some_and(inside) && !ui.input(|i| i.pointer.secondary_down()) {
@@ -359,6 +380,7 @@ pub(crate) fn page_input(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Angle deltas stay continuous across the seam and respect snapping and the pivot dead zone.
     #[test]
     fn angles_cross_the_seam_and_snap_without_jumping() {
         let p = Pos2::ZERO;
@@ -368,6 +390,7 @@ mod tests {
         assert!((angle(turned(start, p, 179.0), turned(start, p, -179.0), p, false) - 2.0).abs() < 0.001);
         assert_eq!(angle(start, p, p, false), 0.0);
     }
+    /// Rotation targets remain outside the neighboring scale-grip hit areas.
     #[test]
     fn all_four_rotation_targets_are_clear_of_resize_corners() {
         let r = Rect::from_min_size(Pos2::ZERO, egui::vec2(200.0, 40.0));

@@ -90,6 +90,11 @@ pub struct ContentView {
 }
 
 impl ContentView {
+    /// Whether the existing added-content handler owns a drag on this page.
+    pub(crate) fn dragging(&self, page: usize) -> bool {
+        self.grab.is_some_and(|(p, _, _)| p == page)
+    }
+
     pub(crate) fn finish_draft(&mut self, added: &[Added]) -> Option<Edit> {
         self.draft.take().and_then(|d| finish(self, d, added))
     }
