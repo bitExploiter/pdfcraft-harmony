@@ -4791,6 +4791,14 @@ fn optimizing_to_a_target_size() {
     let again = ok(&mut a, "doc_optimize", json!({ "doc": doc, "path": "again.pdf" }));
     assert_eq!(again["bytes_after"].as_u64().unwrap(), base_len);
     assert!(matches!(a.call("doc_optimize", &json!({ "doc": doc, "path": "x.pdf", "target_bytes": 0 })), Err(ToolError::InvalidArgs(_))));
+    // A caller who asked for lossless images keeps them: retries only tighten the ppi, no JPEG quality.
+    let lossless = json!({ "compression": "zip" });
+    let r = ok(&mut a, "doc_optimize", json!({ "doc": doc, "path": "zip.pdf", "color": lossless, "gray": lossless, "target_bytes": 1 }));
+    assert_eq!(r["attempts"].as_u64(), Some(6), "{r}");
+    assert!(r["target_settings"]["max_ppi"].is_number() && r["target_settings"]["max_jpeg_quality"].is_null(), "{r}");
+    // A JPEG caller gets the quality step.
+    let r = ok(&mut a, "doc_optimize", json!({ "doc": doc, "path": "jpg.pdf", "target_bytes": 1 }));
+    assert!(r["target_settings"]["max_jpeg_quality"].is_number(), "{r}");
     // Confinement still applies.
     assert!(a.call("doc_optimize", &json!({ "doc": doc, "path": "../out.pdf", "target_bytes": 1000 })).is_err());
 }

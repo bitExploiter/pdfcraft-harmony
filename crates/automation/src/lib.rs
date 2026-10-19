@@ -93,6 +93,7 @@ const MAX_DPI: f64 = 600.0;
 /// How far a watermark may be moved from the page centre, in points (a page is at most 14,400).
 const WATERMARK_MAX_OFFSET: f64 = 20_000.0;
 /// `doc_optimize` with `target_bytes`: (max target ppi, max JPEG quality) per extra attempt, mildest first.
+/// The quality applies only to images the caller left on JPEG; zip and retain keep their encoding.
 const TARGET_LADDER: [(f64, u8); 5] = [(110.0, 45), (96.0, 35), (72.0, 28), (54.0, 20), (36.0, 12)];
 
 /// Bookmarks in one page of the bookmark list, by default and at most.
@@ -1143,10 +1144,10 @@ impl Automation {
                     img.downsample = true;
                     img.target_ppi = img.target_ppi.min(ppi);
                     img.above_ppi = img.above_ppi.min(ppi * 1.5).max(img.target_ppi);
-                    img.compression = match img.compression {
-                        Compression::Jpeg(q) => Compression::Jpeg(q.min(quality)),
-                        _ => Compression::Jpeg(quality),
-                    };
+                    // Only a caller who chose JPEG gets a lower quality; zip and retain stay as asked.
+                    if let Compression::Jpeg(q) = img.compression {
+                        img.compression = Compression::Jpeg(q.min(quality));
+                    }
                 }
                 let (b2, r2) = self.session.optimized_bytes(id, &s, &discard).map_err(failed)?;
                 attempts += 1;
@@ -1160,6 +1161,8 @@ impl Automation {
         let mut extra = json!({});
         if let Some(t) = target {
             let (ppi, quality) = step_used.checked_sub(1).and_then(|k| TARGET_LADDER.get(k)).copied().unzip();
+            let lossy = matches!(settings.color.compression, Compression::Jpeg(_)) || matches!(settings.gray.compression, Compression::Jpeg(_));
+            let quality = quality.filter(|_| lossy);
             extra = json!({
                 "target_bytes": t,
                 "target_reached": bytes.len() <= t,
