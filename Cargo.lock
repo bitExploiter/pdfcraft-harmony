@@ -4173,6 +4173,7 @@ dependencies = [
  "pdfcraft-a11y",
  "pdfcraft-annot",
  "pdfcraft-audit",
+ "pdfcraft-collate",
  "pdfcraft-compare",
  "pdfcraft-cos",
  "pdfcraft-create",
