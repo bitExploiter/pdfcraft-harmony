@@ -1013,8 +1013,10 @@ fn gs_args(output: &std::path::Path) -> Vec<String> {
 }
 
 /// Rasterize the exported PostScript with Ghostscript at 50 dpi into a 200×250 RGB
-/// raster. `None` (after a skip message) when gs is not installed; a failed gs run fails
-/// the test with gs's own stderr — the oracle exists to catch broken programs.
+/// raster. `None` (after a skip message) when gs is not installed — unless
+/// `PDFCRAFT_ORACLES_REQUIRED` is set, when the missing oracle fails the test
+/// (crates/oracle's contract); a failed gs run fails the test with gs's own stderr —
+/// the oracle exists to catch broken programs.
 fn gs_raster(ps: &[u8], tag: &str) -> Option<(u32, u32, Vec<u8>)> {
     let base = std::env::temp_dir().join(format!("pdfcraft-ps-oracle-{}-{tag}", std::process::id()));
     let ps_path = base.with_extension("ps");
@@ -1024,8 +1026,15 @@ fn gs_raster(ps: &[u8], tag: &str) -> Option<(u32, u32, Vec<u8>)> {
     let output = match run {
         Ok(output) => output,
         Err(why) => {
-            eprintln!("skipping the {tag} oracle fixture: gs could not be spawned ({why})");
             let _ = std::fs::remove_file(&ps_path);
+            // The shared oracle contract (crates/oracle): a missing oracle is a declared
+            // skip or a failure, never a silent pass — CI sets the variable, so absence
+            // breaks the build there and skips on a contributor's machine.
+            assert!(
+                std::env::var_os("PDFCRAFT_ORACLES_REQUIRED").is_none(),
+                "gs is required (PDFCRAFT_ORACLES_REQUIRED is set) but could not be spawned: {why}"
+            );
+            eprintln!("skipping the {tag} oracle fixture: gs could not be spawned ({why})");
             return None;
         }
     };
@@ -1103,7 +1112,9 @@ fn dump_png(path: std::path::PathBuf, width: u32, height: u32, rgb: &[u8]) {
 }
 
 /// The exported PS's extractable text via gs's txtwrite device (the ps2ascii
-/// engine). `None` (after a skip message) when gs is not installed. `-q` keeps
+/// engine). `None` (after a skip message) when gs is not installed — unless
+/// `PDFCRAFT_ORACLES_REQUIRED` is set, when the missing oracle fails the test
+/// (crates/oracle's contract). `-q` keeps
 /// gs's banner out of the capture, so the string is exactly what txtwrite
 /// wrote (CRLF line endings included — assert with `contains`, not equality).
 /// The Type 1 subsetting gate and the Inter extraction gate reuse this.
@@ -1115,8 +1126,12 @@ fn gs_text(ps: &[u8], tag: &str) -> Option<String> {
     let output = match run {
         Ok(output) => output,
         Err(why) => {
-            eprintln!("skipping the {tag} text oracle: gs could not be spawned ({why})");
             let _ = std::fs::remove_file(&ps_path);
+            assert!(
+                std::env::var_os("PDFCRAFT_ORACLES_REQUIRED").is_none(),
+                "gs is required (PDFCRAFT_ORACLES_REQUIRED is set) but could not be spawned: {why}"
+            );
+            eprintln!("skipping the {tag} text oracle: gs could not be spawned ({why})");
             return None;
         }
     };
@@ -1126,8 +1141,10 @@ fn gs_text(ps: &[u8], tag: &str) -> Option<String> {
 }
 
 /// Geometry: fills (both rules), strokes, dashes, Bézier fills and round joins — the same
-/// image from both rasterizers. Observed delta ≈ 0.7 (edge coverage quantization; under
-/// matched gs policy the exported program is pixel-identical to the source PDF's).
+/// image from both rasterizers. Observed delta ≈ 0.7 against PdfCraft's own raster (edge
+/// coverage quantization). A separate manual gs-vs-gs run (gs on the exported program
+/// against gs on the source PDF, matched policy) measured 0.000 — a hand-run observation
+/// this test does not make: it compares gs's raster with PdfCraft's, never gs with gs.
 #[test]
 fn geometry_page_matches_ghostscript() {
     assert_matches_oracle("geometry", &geometry_pdf(), TOLERANCE);
@@ -1356,6 +1373,11 @@ fn eps_output_raster_matches_ghostscript() {
     let output = match run {
         Ok(output) => output,
         Err(why) => {
+            let _ = std::fs::remove_file(&eps_path);
+            assert!(
+                std::env::var_os("PDFCRAFT_ORACLES_REQUIRED").is_none(),
+                "gs is required (PDFCRAFT_ORACLES_REQUIRED is set) but could not be spawned: {why}"
+            );
             eprintln!("skipping the EPS oracle fixture: gs could not be spawned ({why})");
             return;
         }
@@ -1859,7 +1881,7 @@ fn degraded_shading_paints_ink() {
 /// ([`embedded_real_truetype_draws_and_extracts_as_type42`]). Skips its gs
 /// half when gs is not installed.
 #[test]
-fn cff_promotion_page_matches_ghostscript_and_extracts() {
+fn cff_promotion_page_matches_ghostscript() {
     let (program, from_checkout) = match craft_face(&["Latn"]) {
         Some((bytes, FaceFlavor::Cff)) => (bytes, true),
         Some((_, flavor)) => {
@@ -1921,7 +1943,7 @@ fn cff_promotion_page_matches_ghostscript_and_extracts() {
 /// **Extraction is deliberately not asserted — the plan's own scoping, on this
 /// build's semantics.** CID arms carry no glyph names, and txtwrite maps their
 /// text to the raw codes as Unicode (see
-/// [`cff_promotion_page_matches_ghostscript_and_extracts`] for the probes), so
+/// [`cff_promotion_page_matches_ghostscript`] for the probes), so
 /// identity-CID CJK text has no recoverable Unicode through any name route:
 /// the extracted bytes would be the codes, not the characters. CJK fidelity is
 /// proven the stronger way instead — structural shape + oracle ink + raster

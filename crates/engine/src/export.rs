@@ -53,10 +53,11 @@ pub use pdfcraft_ps_export::{ExportedPs, FidelityNote, PsExportError, PsFormat};
 
 /// Export a PDF ▸ PostScript (`PsFormat::Ps`) or EPS (`PsFormat::Eps`): the pages redrawn as a
 /// DSC-structured PostScript program, from the document's working file (unsaved edits included,
-/// as on screen). See `pdfcraft_ps_export::export` for the semantics; the result's `warnings`
-/// list every degradation, once each.
+/// as on screen — and under the same viewer configuration: password, layer visibility and
+/// comment visibility). See `pdfcraft_ps_export::export_with_config` for the semantics; the
+/// result's `warnings` list every degradation, once each.
 pub fn postscript(src: &ExportSource, pages: &[usize], format: PsFormat) -> Result<ExportedPs, PsExportError> {
-    pdfcraft_ps_export::export(src.bytes.clone(), pages, format)
+    pdfcraft_ps_export::export_with_config(src.bytes.clone(), &src.config, pages, format)
 }
 
 /// The file name for the `index`-th (1-based) exported image: `<stem>_Page_<n>_Image_<index>.<ext>`.

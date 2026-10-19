@@ -705,9 +705,10 @@ pub(crate) fn paint_ops(emit: &mut Emitter, paint: &Paint<'_>) {
                 _ => rgba_color_ops(emit, color),
             }
             // Alpha is not representable in PostScript: the colour is still emitted
-            // (drawn opaque), and the drop is recorded — for every arm.
+            // (drawn opaque), and the drop is recorded — once per page, for every
+            // arm (a page full of alpha paints would otherwise repeat the note).
             if Color::to_rgba(color).components()[3] < 1.0 {
-                emit.note("transparency ignored (paint alpha)");
+                emit.note_once("transparency ignored (paint alpha)");
             }
         }
         Paint::Pattern(_) => shading::pattern_approx(paint, emit),
