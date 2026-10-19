@@ -2319,6 +2319,9 @@ fn anchored_scroll(point: Pos2, rel: Vec2, content: Vec2, viewport: Vec2) -> Vec
 }
 
 /// Lines of a hover popup in the order egui must be given so Arabic and Hebrew read right to left.
+/// Painting goes through [`crate::widgets::wrapped_text`], which uses the same wrap. This is the
+/// order the tests lock.
+#[cfg(test)]
 fn annotation_hover_display(text: &str) -> Vec<crate::bidi::Line> {
     if crate::bidi::has_rtl(text) {
         crate::bidi::wrap(text, |_| true)
@@ -2327,8 +2330,15 @@ fn annotation_hover_display(text: &str) -> Vec<crate::bidi::Line> {
     }
 }
 
+/// A plain label leaves Arabic in stored order. egui does not reorder a mixed line, and a
+/// Latin label in front of Arabic (`Note: واحد اثنين`) makes the paragraph left to right, so
+/// the paragraph direction is the wrong test.
+fn hover_paints_plain(text: &str) -> bool {
+    !crate::bidi::has_rtl(text)
+}
+
 fn paint_hover_text(ui: &mut egui::Ui, text: &str) {
-    if annotation_hover_display(text).iter().all(|line| !line.rtl) {
+    if hover_paints_plain(text) {
         ui.label(text);
         return;
     }
@@ -5821,6 +5831,20 @@ mod tests {
         assert_eq!(lines[1].text, "اثنين واحد");
         assert!(lines[1].rtl);
         assert_eq!(annotation_hover_display("Hello").iter().map(|l| l.text.as_str()).collect::<Vec<_>>(), ["Hello"]);
+        assert!(hover_paints_plain("Hello"));
+    }
+
+    #[test]
+    fn a_latin_note_with_arabic_is_not_painted_as_stored() {
+        let text = "Note: واحد اثنين";
+        let lines = annotation_hover_display(text);
+        let shown = lines.iter().map(|line| line.text.as_str()).collect::<Vec<_>>().join("\n");
+        assert!(lines.iter().all(|line| !line.rtl), "the paragraph starts with Latin, so its direction flag stays left to right");
+        assert_ne!(shown, text, "the hover string must not be the stored order: {shown:?}");
+        let second = shown.find("اثنين").expect("the second Arabic word");
+        let first = shown.find("واحد").expect("the first Arabic word");
+        assert!(second < first, "Arabic words stayed in stored order: {shown:?}");
+        assert!(!hover_paints_plain(text), "a mixed line was sent to a plain label");
     }
 
     #[test]
