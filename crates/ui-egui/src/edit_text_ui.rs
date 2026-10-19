@@ -1122,9 +1122,12 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
     definitions.font_data.retain(|name, _| !name.starts_with("pdf-source-"));
     definitions.families.retain(|family, _| !matches!(family, FontFamily::Name(name) if name.starts_with("pdf-source-")));
     let mut families = BTreeMap::new();
+    let mut data = BTreeMap::new();
     for (index, program) in programs.iter().enumerate() {
         let name = format!("pdf-source-{index}");
-        definitions.font_data.insert(name.clone(), Arc::new(egui::FontData::from_owned(program.bytes.clone())));
+        let font =
+            data.entry(Arc::as_ptr(&program.bytes) as usize).or_insert_with(|| Arc::new(egui::FontData::from_owned(program.bytes.as_ref().clone())));
+        definitions.font_data.insert(name.clone(), font.clone());
         families.insert(program.resource.clone(), name);
     }
     for program in &programs {

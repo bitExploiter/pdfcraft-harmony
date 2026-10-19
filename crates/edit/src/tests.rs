@@ -75,7 +75,8 @@ fn added_unicode_font_roundtrip_keeps_program_text_and_editability() {
             let mut reopened = Document::open(Arc::new(bytes)).unwrap();
             let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
             assert_eq!(saved.text, t.text);
-            assert_eq!(saved.font.as_deref().unwrap().as_slice(), t.font_bytes().unwrap());
+            assert_eq!(saved.font_bytes().unwrap(), t.font_bytes().unwrap());
+            assert_eq!(saved.font.is_some(), t.font.is_some(), "automatic fallback stays automatic");
             assert!(text::text_lines(&reopened, 1).unwrap().iter().any(|l| l.text == t.text));
             let updated = AddedText { text: "До свидания!".into(), ..saved };
             update_content(&mut reopened, 1, 0, &Content::Text(updated.clone())).unwrap();
@@ -123,7 +124,9 @@ fn added_custom_thai_font_shapes_marks_and_keeps_logical_clusters() {
         .map(|p| std::fs::read(p).unwrap())
         .or_else(|| pdfcraft_fonts::document_thai_font().filter(|f| pdfcraft_fonts::embedding::validate(f.bytes).is_ok()).map(|f| f.bytes.to_vec()));
     let Some(bytes) = bytes else { return };
-    pdfcraft_fonts::embedding::validate_document_input(&bytes).unwrap();
+    // Exercise structural shaping with external input; runtime import licence policy is
+    // unchanged and its GPL-exception decision lives in a separate PR.
+    pdfcraft_fonts::embedding::validate(&bytes).unwrap();
     let mut doc = fixture();
     let t = AddedText {
         text: "Hello กิ่ น้ำ ผู้ใช้ ปู่ ๑๒๓".into(),
@@ -142,6 +145,69 @@ fn added_custom_thai_font_shapes_marks_and_keeps_logical_clusters() {
     let rows = super::added::lines(&narrow);
     assert_eq!(rows.concat(), narrow.text);
     assert!(rows.iter().all(|s| s.starts_with('ก')));
+}
+
+#[test]
+fn added_automatic_font_and_explicit_font_keep_their_choice_on_reopen() {
+    for explicit in [false, true] {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: "Привет".into(),
+            rect: [20.0, 100.0, 400.0, 300.0],
+            font: explicit.then(pdfcraft_fonts::inter_regular_shared),
+            ..Default::default()
+        };
+        add_content(&mut doc, 0, &Content::Text(t)).unwrap();
+        let mut doc = reopen(&doc);
+        let Content::Text(t) = list_added(&doc).remove(0).content else { panic!() };
+        assert_eq!(t.font.is_some(), explicit);
+        let latin = AddedText { text: "Latin".into(), ..t };
+        assert_eq!(latin.font_bytes().is_some(), explicit);
+        update_content(&mut doc, 0, 0, &Content::Text(latin)).unwrap();
+        let output = streams(&doc, 0).pop().unwrap();
+        assert_eq!(output.contains("/PCFHelvetica"), !explicit);
+    }
+}
+
+#[test]
+fn added_items_share_programs_and_batch_horizontal_glyphs() {
+    let mut doc = fixture();
+    let font = Arc::new(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec());
+    for text in ["First Привет", "Second До свидания"] {
+        add_content(
+            &mut doc,
+            0,
+            &Content::Text(AddedText { text: text.into(), rect: [20.0, 100.0, 580.0, 300.0], font: Some(font.clone()), ..Default::default() }),
+        )
+        .unwrap();
+    }
+    let doc = reopen(&doc);
+    let items = list_added(&doc);
+    let programs: Vec<_> = items
+        .iter()
+        .map(|i| {
+            let Content::Text(t) = &i.content else { panic!() };
+            t.font.as_ref().unwrap()
+        })
+        .collect();
+    assert!(Arc::ptr_eq(programs[0], programs[1]));
+    for output in streams(&doc, 0).iter().filter(|s| s.contains("/ActualText")) {
+        assert_eq!(output.matches(" Tm ").count(), 1, "one baseline matrix, not one per glyph: {output}");
+        assert_eq!(output.matches("] TJ").count(), 1);
+    }
+}
+
+#[test]
+fn added_budget_errors_do_not_blame_a_supported_character() {
+    let mut doc = fixture();
+    for text in ["a".repeat(262_145), format!("e{}", "\u{301}".repeat(2200))] {
+        let t = AddedText { text, rect: [20.0, 100.0, 400.0, 300.0], font: Some(pdfcraft_fonts::inter_regular_shared()), ..Default::default() };
+        assert_eq!(first_undrawable(&t), None);
+        let message = super::added::text_error(&t).unwrap();
+        assert!(message.contains("262144") || message.contains("budget"), "{message}");
+        assert!(add_content(&mut doc, 0, &Content::Text(t)).is_err());
+        assert!(list_added(&doc).is_empty());
+    }
 }
 
 #[test]

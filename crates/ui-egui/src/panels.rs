@@ -503,12 +503,17 @@ fn added_format_panel(
     if let Some((i, _)) = app.active_ids() {
         app.views[i].content.format_focus = ui.rect_contains_pointer(ui.max_rect());
     }
-    let mut fonts = vec![("Inter".into(), std::sync::Arc::new(pdfcraft_fonts::INTER_REGULAR.to_vec()))];
+    let mut fonts = vec![("Inter".into(), pdfcraft_fonts::inter_regular_shared())];
     let document_fonts = app.active_ids().and_then(|(_, id)| app.session.get(id)).map(|d| d.text_editor_fonts(page)).unwrap_or_default();
-    for font in document_fonts.into_iter().filter(|f| !f.resource.starts_with("PCApproved")) {
-        if !fonts.iter().any(|(_, bytes)| **bytes == font.bytes) {
-            fonts.push((font.face, std::sync::Arc::new(font.bytes)));
+    for font in document_fonts.into_iter().filter(|f| !f.resource.starts_with("PCApproved") && !f.subset) {
+        if !fonts.iter().any(|(_, bytes)| std::sync::Arc::ptr_eq(bytes, &font.bytes)) {
+            fonts.push((font.face, font.bytes));
         }
+    }
+    if let Some(bytes) = &style.font
+        && !fonts.iter().any(|(_, b)| std::sync::Arc::ptr_eq(b, bytes))
+    {
+        fonts.push((crate::content_ui::added_font_label(ui.ctx(), style), bytes.clone()));
     }
     let changed = crate::content_ui::format_panel(ui, t, style, &fonts);
     font_file_controls(app, ui, crate::files::FilePurpose::AddedTextFont { page });
@@ -518,14 +523,20 @@ fn added_format_panel(
 impl PdfCraftApp {
     pub(crate) fn select_added_font(&mut self, page: usize, bytes: std::sync::Arc<Vec<u8>>) {
         self.text_style.font = Some(bytes.clone());
+        self.text_style.bold = false;
+        self.text_style.italic = false;
         let Some((i, id)) = self.active_ids() else { return };
         if let Some(draft) = self.views[i].content.draft.as_mut().filter(|d| d.page == page) {
             draft.style.font = Some(bytes);
+            draft.style.bold = false;
+            draft.style.italic = false;
             draft.focus = true;
         } else if let Some((p, index)) = self.views[i].content.selected.filter(|(p, _)| *p == page) {
             let content = self.session.get(id).and_then(|d| d.added().iter().filter(|a| a.page == p).nth(index)).map(|a| a.content.clone());
             if let Some(pdfcraft_engine::AddedContent::Text(mut text)) = content {
                 text.font = Some(bytes);
+                text.bold = false;
+                text.italic = false;
                 self.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(text) });
             }
         }

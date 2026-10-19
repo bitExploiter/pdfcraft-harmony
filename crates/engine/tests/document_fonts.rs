@@ -50,7 +50,7 @@ fn exercise(font: Vec<u8>, text: &str, expected_family: &str) {
     let id = s.open("source.pdf", None, document(), None).unwrap();
     let original = pixels(s.get(id).unwrap().display.clone());
     s.apply(id, Edit::RegisterTextFont { page: 0, bytes: Arc::new(font.clone()) }).unwrap();
-    let resource = s.get(id).unwrap().text_editor_fonts(0).into_iter().find(|f| f.bytes == font).unwrap().resource;
+    let resource = s.get(id).unwrap().text_editor_fonts(0).into_iter().find(|f| f.bytes.as_slice() == font.as_slice()).unwrap().resource;
     let style = BlockStyle { resource: Some(resource), width: Some(240.0), ..Default::default() };
     s.apply(id, Edit::EditTextBlock { page: 0, block: 0, text: text.into(), style: style.clone() }).unwrap();
     let edited = s.get(id).unwrap();

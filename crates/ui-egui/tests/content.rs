@@ -94,7 +94,8 @@ fn add_text_accepts_cyrillic_and_selected_font_survives_reopen() {
     let id = reopened.open("again.pdf", None, bytes, None).unwrap();
     let pdfcraft_engine::AddedContent::Text(text) = &reopened.get(id).unwrap().added()[0].content else { panic!() };
     assert_eq!(text.text, "Привет, мир!");
-    assert_eq!(text.font.as_deref().unwrap().as_slice(), pdfcraft_fonts::INTER_REGULAR);
+    assert_eq!(text.font_bytes().unwrap(), pdfcraft_fonts::INTER_REGULAR);
+    assert!(text.font.is_none(), "reopening retains the automatic selection");
 }
 
 #[test]

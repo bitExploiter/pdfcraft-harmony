@@ -1,8 +1,8 @@
 # PdfCraft roadmap
 
-> **Last reviewed:** 2026-10-19 · **Last updated:** 2026-10-19 · **Change:** minor (M7: Add Text shares document-font Unicode shaping and embedding with Edit Text; custom static TTF/OTF, Cyrillic fallback, save/reopen and missing-font regressions; estimates unchanged)
-
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
+
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M7: PR #3528 review, cached shared fonts/layouts, persistent automatic fallback, one-step undo; licence-policy decision separate; estimates unchanged)
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -174,6 +174,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M7, PR #3528 review):** Cache document-font catalogues per page/revision and share decoded programs across added items and refreshes; reuse prepared shaping and batch horizontal glyphs. Preserve automatic fallback on reopen, exclude subsets, report layout budgets accurately, and commit loaded fonts with a single Add/Update undo step. Licence-policy changes are separate; Real Thai/CFF external-input tests and CFF metadata assertions are opt-in; existing synthetic CFF smoke coverage remains unconditional. Estimates unchanged.
 - **2026-10-19 (M7, Add Text fonts):** Add Text accepts document and imported static TTF/OTF faces through the existing font loader and headless tools. Shared OpenType shaping, script itemization, bidi, cluster wrapping, Unicode mappings and embedded programs preserve Thai marks, Cyrillic, extraction and search through full/incremental save and reopen. Font changes retain the draft; missing glyphs/programs fail atomically. Engine, font, automation and serial UI regressions pass with external TH Sarabun New and CFF inputs. See [font workflow](docs/adding-text-fonts.md). Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.

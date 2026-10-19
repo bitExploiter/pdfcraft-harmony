@@ -59,18 +59,11 @@ pub fn validate_document_input(bytes: &[u8]) -> Result<(), String> {
         return Err("Adobe-authored font assets are excluded by the project's asset policy".into());
     }
     let license: String = f.localized_strings(StringId::LICENSE_DESCRIPTION).map(|s| s.to_string()).collect();
-    // User-selected document input can declare a font-embedding exception (e.g. TH Sarabun
-    // New). This does not add the font to the application's shipped/build-input assets.
-    let font_exception = license.contains("GNU General Public License")
-        && license.contains("As a special exception")
-        && license.contains("embed this font")
-        && license.contains("does not by itself cause the resulting document");
     if !["SIL OPEN FONT", "SIL Open Font", "Apache License", "Ubuntu Font Licence", "Bitstream Vera", "MIT License"]
         .iter()
         .any(|l| license.contains(l))
-        && !font_exception
     {
-        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera, MIT or GPL with a font-embedding exception)".into());
+        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera or MIT)".into());
     }
     Ok(())
 }

@@ -70,13 +70,24 @@ impl Automation {
             if a.get("font").is_some() {
                 return Err(bad("choose font or font_resource, not both"));
             }
+            if a.get("bold").is_some() || a.get("italic").is_some() {
+                return Err(bad("font_resource selects an actual face; choose its bold/italic font file instead of style flags"));
+            }
+            if resource.starts_with("PCApproved") {
+                return Err(bad("font_resource is a preview-only face; import a full document font"));
+            }
             let font = self
                 .doc(a)?
                 .text_editor_fonts(page)
                 .into_iter()
                 .find(|f| f.resource == resource)
                 .ok_or_else(|| bad("font_resource is missing on this page; use text_font_import or text_fonts"))?;
-            t.font = Some(std::sync::Arc::new(font.bytes));
+            if font.subset {
+                return Err(bad("font_resource is a subset; import its complete font"));
+            }
+            t.font = Some(font.bytes);
+            t.bold = false;
+            t.italic = false;
         } else if a.get("font").is_some() {
             t.font = None;
         }

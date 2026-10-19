@@ -1,6 +1,7 @@
 //! End-to-end tests of the automation tools and the MCP server, on synthetic PDFs.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[cfg(feature = "mcp")]
 use pdfcraft_automation::mcp::McpServer;
@@ -6123,14 +6124,36 @@ fn added_unicode_document_fonts_through_tools() {
     }
     for (case, (bytes, text, replacement)) in cases.into_iter().enumerate() {
         let mut a = auto(&dir);
-        let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+        // A GPL-exception font is an external PDF test input, not admitted by runtime import
+        // policy here. Exercise the same tool with that document's complete embedded face.
+        let mut existing = None;
+        let input = if let Some(bytes) = bytes.as_ref().filter(|b| pdfcraft_fonts::embedding::validate_document_input(b).is_err()) {
+            let mut source = pdfcraft_cos::Document::open(Arc::new(std::fs::read(dir.join("a.pdf")).unwrap())).unwrap();
+            let page = pdfcraft_model::pages(&source).remove(0);
+            let mut resources = source.dict(page.dict.get(b"Resources").unwrap()).unwrap();
+            let mut fonts = source.dict(resources.get(b"Font").unwrap()).unwrap();
+            let (_, name) = pdfcraft_fonts::embedding::names(bytes).unwrap();
+            existing = Some(pdfcraft_fonts::embedding::embed(&mut source, &mut fonts, bytes, &name).unwrap());
+            resources.set(b"Font".to_vec(), pdfcraft_cos::Object::Dict(fonts));
+            source.update_dict(page.obj, |d| d.set(b"Resources".to_vec(), pdfcraft_cos::Object::Dict(resources))).unwrap();
+            std::fs::write(dir.join("external.pdf"), pdfcraft_cos::write_incremental(&source, &Default::default()).unwrap()).unwrap();
+            "external.pdf"
+        } else {
+            "a.pdf"
+        };
+        let doc = ok(&mut a, "doc_open", json!({"path":input}))["doc"].as_u64().unwrap();
         let mut args = json!({"doc":doc,"page":1,"text":text,"at":[10,20],"width":180,"size":10});
         if let Some(bytes) = bytes {
             std::fs::write(dir.join("input.ttf"), bytes).unwrap();
-            let imported = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
-            let again = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
-            assert_eq!(again["resource"], imported["resource"]);
-            args["font_resource"] = imported["resource"].clone();
+            if let Some(resource) = existing {
+                assert!(a.call("text_font_import", &json!({"doc":doc,"page":1,"path":"input.ttf"})).is_err());
+                args["font_resource"] = json!(resource);
+            } else {
+                let imported = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+                let again = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+                assert_eq!(again["resource"], imported["resource"]);
+                args["font_resource"] = imported["resource"].clone();
+            }
             assert!(args["font_resource"].is_string());
         }
         ok(&mut a, "page_add_text", args);
@@ -6167,6 +6190,51 @@ fn added_unicode_document_fonts_through_tools() {
         assert!(a.call("content_update", &json!({"doc":reopened,"page":1,"index":1,"font_resource":"missing"})).is_err());
         assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened})), before);
     }
+}
+
+#[test]
+fn added_font_resources_reject_style_flags_subsets_and_preview_only_faces() {
+    let dir = workdir("added-font-admission");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+    std::fs::write(dir.join("inter.ttf"), pdfcraft_fonts::INTER_REGULAR).unwrap();
+    let resource = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"inter.ttf"}))["resource"].clone();
+    let base = json!({"doc":doc,"page":1,"text":"Привет","at":[10,20],"font_resource":resource});
+    let before = ok(&mut a, "content_list", json!({"doc":doc}));
+    for flag in ["bold", "italic", "font"] {
+        let mut args = base.clone();
+        args[flag] = if flag == "font" { json!("helvetica") } else { json!(false) };
+        assert!(a.call("page_add_text", &args).is_err());
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), before);
+    }
+    let mut preview = base.clone();
+    preview["font_resource"] = json!("PCApprovedInter");
+    assert!(a.call("page_add_text", &preview).unwrap_err().to_string().contains("preview-only"));
+    ok(&mut a, "page_add_text", base);
+    for flag in ["bold", "italic"] {
+        let mut args = json!({"doc":doc,"page":1,"index":1,"font_resource":resource});
+        args[flag] = json!(true);
+        assert!(a.call("content_update", &args).is_err());
+    }
+    // The page catalogue must retain subsets for Edit Text while refusing them for Add Text.
+    let mut source = pdfcraft_cos::Document::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&source).remove(0);
+    let mut fonts = pdfcraft_cos::Dict::new();
+    let resource = pdfcraft_fonts::embedding::embed(&mut source, &mut fonts, pdfcraft_fonts::INTER_REGULAR, "Inter").unwrap();
+    let top = fonts.get(resource.as_bytes()).unwrap().as_ref().unwrap();
+    source.update_dict(top, |d| d.set(b"BaseFont".to_vec(), pdfcraft_cos::Object::name("ABCDEF+Inter"))).unwrap();
+    let mut resources = pdfcraft_cos::Dict::new();
+    resources.set(b"Font".to_vec(), pdfcraft_cos::Object::Dict(fonts));
+    source.update_dict(page.obj, |d| d.set(b"Resources".to_vec(), pdfcraft_cos::Object::Dict(resources))).unwrap();
+    std::fs::write(dir.join("subset.pdf"), pdfcraft_cos::write_incremental(&source, &Default::default()).unwrap()).unwrap();
+    let subset = ok(&mut a, "doc_open", json!({"path":"subset.pdf"}))["doc"].as_u64().unwrap();
+    assert!(
+        a.call("page_add_text", &json!({"doc":subset,"page":1,"text":"Test","at":[10,20],"font_resource":resource}))
+            .unwrap_err()
+            .to_string()
+            .contains("subset")
+    );
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":subset}))["count"], 0);
 }
 
 #[test]

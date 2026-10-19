@@ -520,7 +520,7 @@ impl PdfCraftApp {
         });
         if let Some(c) = blocked {
             self.active = Some(i);
-            self.notify(crate::content_ui::undrawable_message(c));
+            self.notify(c);
             return false;
         }
         let typing = self

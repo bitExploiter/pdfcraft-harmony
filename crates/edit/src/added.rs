@@ -33,6 +33,9 @@ fn selected_font(t: &AddedText) -> Option<&[u8]> {
 }
 
 impl AddedText {
+    pub fn font_program(&self) -> Option<std::sync::Arc<Vec<u8>>> {
+        self.font.clone().or_else(|| selected_font(self).map(|_| pdfcraft_fonts::inter_regular_shared()))
+    }
     pub fn font_bytes(&self) -> Option<&[u8]> {
         selected_font(self)
     }
@@ -268,7 +271,7 @@ pub fn lines(t: &AddedText) -> Vec<String> {
 fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
     if let Some(bytes) = selected_font(t) {
         return font::layout(t, bytes)
-            .map(|rows| rows.into_iter().map(|r| (r.text, r.rtl)).collect())
+            .map(|layout| layout.rows.iter().map(|r| (r.text.clone(), r.rtl)).collect())
             .unwrap_or_else(|_| t.text.split('\n').map(|s| (s.to_string(), false)).collect());
     }
     let width = (t.rect[2] - t.rect[0]).max(t.size);
@@ -361,10 +364,9 @@ fn is_hebrew(c: char) -> bool {
 /// keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
     if let Some(bytes) = selected_font(t) {
-        if font::layout(t, bytes).is_ok() {
-            return None;
-        }
-        return t.text.chars().find(|c| !pdfcraft_fonts::embedding::covers(bytes, &c.to_string())).or_else(|| t.text.chars().next());
+        // This API reports missing characters only. Layout/embedding/budget errors have
+        // their own diagnostic; a supported first character must never be blamed for them.
+        return pdfcraft_fonts::source_shaping::first_missing(bytes, &t.text);
     }
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
@@ -543,12 +545,7 @@ pub fn text_rect(t: &AddedText) -> [f64; 4] {
 /// The widest explicit line before wrapping, measured with the PDF writing fonts.
 pub fn text_width(t: &AddedText) -> f64 {
     if let Some(bytes) = selected_font(t) {
-        return t
-            .text
-            .split('\n')
-            .filter_map(|s| pdfcraft_fonts::source_shaping::shape(bytes, s).ok())
-            .map(|r| r.advance * t.size)
-            .fold(0.0, f64::max);
+        return font::layout(t, bytes).map_or(0.0, |layout| layout.natural_width * t.size);
     }
     t.text.split('\n').map(|line| shaped_width(t, line, unicode_bidi::get_base_direction(line) == unicode_bidi::Direction::Rtl)).fold(0.0, f64::max)
 }
@@ -928,7 +925,7 @@ fn params(c: &Content) -> Dict {
     d
 }
 
-fn parse(doc: &Document, d: &Dict) -> Option<Content> {
+fn parse(doc: &Document, d: &Dict, fonts: &mut pdfcraft_fonts::pdf::EmbeddedFontCache) -> Option<Content> {
     let r = nums(doc, d.get(b"Rect"));
     let rect: [f64; 4] = r.try_into().ok()?;
     match d.name(b"Kind")? {
@@ -941,9 +938,16 @@ fn parse(doc: &Document, d: &Dict) -> Option<Content> {
                 family,
                 // A missing/corrupt saved program stays explicit: editing must report the
                 // missing font rather than silently switching to a standard face.
-                font: d
-                    .get(b"CustomFont")
-                    .map(|f| std::sync::Arc::new(doc.dict(f).and_then(|f| pdfcraft_fonts::pdf::embedded_sfnt(doc, &f)).unwrap_or_default())),
+                font: d.get(b"CustomFont").and_then(|f| {
+                    let bytes = doc.dict(f).and_then(|f| fonts.read(doc, &f)).unwrap_or_default();
+                    if matches!(d.get(b"AutoFont"), Some(Object::Bool(true)))
+                        && std::sync::Arc::ptr_eq(&bytes, &pdfcraft_fonts::inter_regular_shared())
+                    {
+                        None
+                    } else {
+                        Some(bytes)
+                    }
+                }),
                 bold,
                 italic,
                 size: d.get(b"Size").and_then(Object::as_f64).unwrap_or(12.0),
@@ -995,6 +999,11 @@ fn for_each_content_entry(doc: &Document, page: &pdfcraft_model::Page, mut visit
 
 /// Finds page marks and editable added content in one pass over the page content entries.
 pub fn scan_markers(doc: &Document) -> MarkerScan {
+    scan_markers_with_fonts(doc, &mut pdfcraft_fonts::pdf::EmbeddedFontCache::default())
+}
+
+/// As [`scan_markers`], retaining decoded full programs across document refreshes.
+pub fn scan_markers_with_fonts(doc: &Document, fonts: &mut pdfcraft_fonts::pdf::EmbeddedFontCache) -> MarkerScan {
     let mut scan = MarkerScan::default();
     for (pi, page) in page_list(doc).iter().enumerate() {
         for_each_content_entry(doc, page, |entry| {
@@ -1023,7 +1032,7 @@ pub fn scan_markers(doc: &Document) -> MarkerScan {
                 let Some(params_object) = dict.get(b"PCAdded") else { return };
                 with_resolved(doc, params_object, |resolved_params| {
                     let Some(params) = resolved_params.as_dict() else { return };
-                    if let Some(content) = parse(doc, params) {
+                    if let Some(content) = parse(doc, params, fonts) {
                         // Display points depend on the page's /UserUnit. An item records the one it was
                         // written for; none means 1, as for items written before display space followed
                         // /UserUnit.
@@ -1058,7 +1067,6 @@ fn validate(c: &Content) -> Result<(), EditError> {
                 return Err(EditError::Invalid("the text box is too narrow".into()));
             }
             if let Some(bytes) = selected_font(t) {
-                pdfcraft_fonts::embedding::validate(bytes).map_err(EditError::Invalid)?;
                 font::layout(t, bytes)?;
                 return Ok(());
             }
@@ -1089,11 +1097,20 @@ fn validate(c: &Content) -> Result<(), EditError> {
     Ok(())
 }
 
+/// The refusal shown by the inline editor, including non-glyph layout/budget failures.
+pub fn text_error(t: &AddedText) -> Option<String> {
+    if t.text.trim().is_empty() {
+        return None;
+    }
+    validate(&Content::Text(t.clone())).err().map(|e| e.to_string())
+}
+
 /// Write an item's stream (new, or replacing `obj`) and make its resources available to the page.
 fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
     if matches!(c, Content::Text(t) if selected_font(t).is_some()) {
-        // Embedding and appending page content form one edit. Work on the cheap COS
-        // copy-on-write snapshot so direct crate callers also get an atomic failure.
+        // Embedding and appending page content form one edit. Stage a document clone so
+        // direct crate callers also get an atomic failure. Source data and objects are shared;
+        // the edited-object overlay BTreeMap itself is copied.
         let mut staged = doc.clone();
         let result = write_item(&mut staged, page, c, obj)?;
         *doc = staged;
@@ -1135,6 +1152,9 @@ fn write_item(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>)
         && let Some((_, face)) = fonts.iter().next()
     {
         added.set(b"CustomFont".to_vec(), face.clone());
+        if t.font.is_none() {
+            added.set(b"AutoFont".to_vec(), Object::Bool(true));
+        }
     }
     if user_unit != 1.0 {
         added.set(b"UserUnit".to_vec(), Object::Real(user_unit));

@@ -585,7 +585,7 @@ impl Automation {
                 }
                 let bytes = Arc::new(bytes);
                 let mut out = self.apply(&a, Edit::RegisterTextFont { page, bytes: bytes.clone() })?;
-                let added = self.doc(&a)?.text_editor_fonts(page).into_iter().find(|f| f.bytes == *bytes && !f.resource.starts_with("PCApproved"));
+                let added = self.doc(&a)?.text_editor_fonts(page).into_iter().find(|f| f.bytes == bytes && !f.resource.starts_with("PCApproved"));
                 if let Some(f) = added {
                     out["resource"] = json!(f.resource);
                     out["font"] = json!(f.face);

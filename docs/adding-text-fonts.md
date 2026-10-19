@@ -18,9 +18,10 @@ there is no language-specific font import path.
 
 The font program is document input, not an interface fallback. Import retains
 the existing validation of format, size, Unicode mapping and embedding rights.
-The name-table licence check also recognizes the GPL font-embedding exception
-declared by TH Sarabun New. This does not bundle that font or add GPL fonts to
-the application's asset manifest.
+The existing licence allowlist is unchanged. GPL fonts declaring an embedding
+exception, including TH Sarabun New, are not accepted by the file importer;
+that policy decision is separate from Add Text. External test inputs and PDFs
+already embedding those programs can exercise the shared shaping/writing path.
 
 The PDF stores actual glyph positions, cluster ToUnicode mappings and logical
 ActualText. Wrapping never separates a shaping cluster, including Thai vowel
@@ -31,6 +32,20 @@ retains the choice after full or incremental saves. Moving, resizing and
 retyping therefore require no original file or installed font. An unavailable
 or invalid saved font stays explicit and editing fails visibly, preserving the
 document. Unsupported glyphs and late embedding failures are atomic errors.
+Automatic Inter fallback retains its automatic status on reopen, so retyping
+plain Latin returns to the standard face. Explicit Inter selection stays explicit.
+Bold/italic controls are disabled while a complete face supplies the style.
+
+The font catalogue is cached for the current page and COS document revision;
+decoded native Unicode programs are shared through `Arc` across items and refreshes
+in a bounded 32 MiB/128-program cache. Legacy preview cmaps synthesized from PDF
+mappings are not shared across mappings. Subsets and preview-only approved faces
+remain available to Edit Text, but cannot be chosen as full Add Text faces.
+One bounded layout per thread reuses shaping for measurement, validation and writing,
+with one parsed shaper per layout. Horizontal glyphs use batched `TJ` arrays;
+vertical mark offsets start another array without changing their positions.
+Loading an Add Text font changes only the draft/style; embedding happens with the
+single Add/Update undo step. Discarding a draft leaves document history untouched.
 
 Headless use follows the existing font workflow:
 
@@ -38,7 +53,7 @@ Headless use follows the existing font workflow:
    `text_fonts` for an existing resource. File paths retain the usual `--root`
    confinement; repeated imports return the reusable resource.
 2. Pass the returned `font_resource` to `page_add_text` or `content_update`.
-   It is mutually exclusive with the standard `font` argument.
+   It is mutually exclusive with `font`, `bold` and `italic` arguments.
 3. `content_list` reports the selected face; subsequent text updates preserve it.
 
 Regression tests use the already bundled Inter. Additional real-font checks
@@ -55,5 +70,15 @@ cargo test -p pdfcraft-ui-egui -j 2 --test content -- --test-threads=1
 
 The Thai edit test also runs with a suitable optional craft-fonts Thai face.
 The OTF input in these tests must cover Cyrillic, Greek, combining acute and
-Latin. The automation test covers import/reuse, saving, reopening, extraction,
+Latin. Thai and CFF tests return early without these external inputs (the Thai
+edit test can also use a suitable craft-fonts face). CI does not set these
+variables: the real-font scenarios and
+`cff_encoding_cmap_declares_its_character_collection` are local opt-in checks,
+not unconditional CI evidence. The existing engine test
+`opentype_cff_document_font_preserves_program_codes_and_rendering_after_reopen`
+runs unconditionally with a synthetic CFF face. It exercises the CFF writer and
+save/reopen/rendering, but does not assert the CMap metadata invariants.
+With TH Sarabun New, the automation
+test uses an externally embedded PDF font and checks that file import is refused
+by the unchanged policy. With allowed fonts it covers import/reuse, saving, reopening, extraction,
 search, rendering, retyping, undo/redo and missing-resource refusal.
