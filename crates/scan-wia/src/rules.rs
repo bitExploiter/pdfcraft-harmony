@@ -369,7 +369,12 @@ pub fn item_handling_select(choices: &HandlingChoices, current: Option<i32>, dup
             let wanted = two_sided(current.unwrap_or(0));
             Ok((current != Some(wanted)).then_some(wanted))
         }
-        HandlingChoices::Flags(_) => Ok(current.filter(|value| has_duplex(*value)).map(|value| value & !HANDLING_DUPLEX)),
+        HandlingChoices::Flags(mask) => Ok(current.filter(|value| has_duplex(*value)).map(|value| {
+            // Clearing DUPLEX from a lone DUPLEX would write 0, which a feeder that publishes FRONT_ONLY | DUPLEX can refuse
+            // (and the soft write would then leave the scan two-sided): say FRONT_ONLY when the mask offers it.
+            let cleared = value & !HANDLING_DUPLEX;
+            if cleared & single_side == 0 && mask & HANDLING_FRONT_ONLY != 0 { cleared | HANDLING_FRONT_ONLY } else { cleared }
+        })),
     }
 }
 

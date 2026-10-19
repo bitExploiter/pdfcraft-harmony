@@ -363,6 +363,14 @@ fn duplex_is_selected_on_the_feeder_item_from_what_it_publishes() {
     let wsd_flags = C::Flags(FRONT | DUP);
     assert_eq!(pick(&wsd_flags, Some(FRONT), true).expect("offered"), Some(DUP));
     assert_eq!(pick(&wsd_flags, Some(DUP), true).expect("already"), None, "nothing to write when it already holds duplex");
+    // Back to single-sided after a duplex scan: the item holds DUPLEX alone, and 0 is not a value this item takes, so
+    // the simplex value is FRONT_ONLY. Already single-sided (or unread) writes nothing.
+    assert_eq!(pick(&wsd_flags, Some(DUP), false).expect("simplex"), Some(FRONT));
+    assert_eq!(pick(&wsd_flags, Some(FRONT), false).expect("already simplex"), None);
+    assert_eq!(pick(&wsd_flags, None, false).expect("unread"), None);
+    // A mask without FRONT_ONLY has nothing to say but the cleared value; one with BACK_ONLY kept it.
+    assert_eq!(pick(&C::Flags(DUP), Some(DUP), false).expect("only duplex published"), Some(0));
+    assert_eq!(pick(&C::Flags(DUP | 0x40), Some(DUP | 0x40), false).expect("back only stays"), Some(0x40));
     // The same as a list: never the contradictory FRONT_ONLY | DUPLEX.
     let wsd = C::List(vec![FRONT, FRONT | DUP]);
     assert_eq!(pick(&wsd, Some(FRONT), true).expect("offered"), Some(DUP));
