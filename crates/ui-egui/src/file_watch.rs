@@ -278,10 +278,12 @@ impl FileWatch {
     /// Whether the file at `path` is another version than the one `doc` came from: something
     /// else wrote it since the document was opened, reloaded or last saved (#2166). A file
     /// that is missing or can't be looked at, or a document whose version was never recorded,
-    /// is not a difference.
-    pub fn disk_differs(&self, doc: DocId, path: &str) -> bool {
+    /// is not a difference, and neither is a file that still holds `saved`, the bytes the
+    /// document came from: macOS rewrites a saved file's extended attributes a moment after the
+    /// save, which moves its change time and nothing else (#3443).
+    pub fn disk_differs(&self, doc: DocId, path: &str, saved: &[u8]) -> bool {
         match (Stamp::at(path), self.basis.get(&doc)) {
-            (Some(now), Some(basis)) => now != *basis,
+            (Some(now), Some(basis)) if now != *basis => now.len != saved.len() as u64 || std::fs::read(path).is_ok_and(|b| b != saved),
             _ => false,
         }
     }
@@ -376,6 +378,14 @@ impl PdfCraftApp {
         }
         // PdfCraft wrote this version itself (a save), or it was handled already.
         if self.watch.known.get(&c.doc) == Some(&c.stamp) {
+            return;
+        }
+        // The file still holds the bytes the document came from: only its metadata moved (macOS
+        // rewrites a saved file's extended attributes a moment after the save, #3443). The same
+        // version, not a change.
+        if self.session.get(c.doc).is_some_and(|d| d.saved_bytes().as_slice() == c.bytes.as_slice()) {
+            self.watch.known.insert(c.doc, c.stamp);
+            self.watch.basis.insert(c.doc, c.stamp);
             return;
         }
         self.watch.known.insert(c.doc, c.stamp);
@@ -561,5 +571,87 @@ mod tests {
         assert_eq!(d.path.as_deref(), Some(new_path.as_str()));
         assert_eq!(d.info.pages.len(), 2, "the old file's version was not applied to the new one");
         assert!(d.can_undo().is_some() && !d.dirty, "the saved document and its history stay");
+    }
+
+    /// The path the document is watched under, as the watcher reports it.
+    fn watched_path(app: &PdfCraftApp, id: DocId) -> String {
+        app.session.get(id).and_then(|d| d.path.clone()).unwrap()
+    }
+
+    /// `stamp` with only its change time moved, as macOS leaves a saved file a moment later
+    /// when it rewrites the file's extended attributes (#3443).
+    fn ctime_moved(stamp: Stamp) -> Stamp {
+        let mut later = stamp;
+        later.extra[3] = later.extra[3].wrapping_add(1);
+        later
+    }
+
+    /// #3443: after a save, the watcher finds the file with only its change time moved (macOS
+    /// rewrote its extended attributes). It holds the saved bytes, so it is not reloaded: the
+    /// undo history stays and the version is remembered, so a later save doesn't ask either.
+    #[test]
+    fn a_saved_file_whose_metadata_alone_moves_is_not_reloaded() {
+        let (_dir, path) = TempDir::new("metadata-only", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        let id = app.views[0].id;
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        assert!(app.save_active(SaveTarget::InPlace));
+        let later = ctime_moved(Stamp::at(&path).unwrap());
+        let bytes = Arc::new(std::fs::read(&path).unwrap());
+        let epoch = app.watch.epoch(id);
+        // Handed over directly: on disk (Windows here) the change time can't be moved alone.
+        app.file_changed(Changed { doc: id, path: watched_path(app, id), epoch, stamp: later, bytes });
+        let app = h.state();
+        assert!(doc(&h).can_undo().is_some(), "not reloaded: the undo history stays");
+        assert_eq!((app.watch.known.get(&id), app.watch.basis.get(&id)), (Some(&later), Some(&later)), "the moved stamp is this version");
+    }
+
+    /// #3443: a stamp with only its change time moved but other bytes in the file is a new
+    /// version (a writer that keeps the length and the modification time), reloaded as before.
+    #[test]
+    fn a_metadata_only_stamp_with_other_bytes_is_still_reloaded() {
+        let (_dir, path) = TempDir::new("metadata-other-bytes", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        let id = app.views[0].id;
+        let later = ctime_moved(app.watch.known.get(&id).copied().unwrap());
+        let epoch = app.watch.epoch(id);
+        app.file_changed(Changed { doc: id, path: watched_path(app, id), epoch, stamp: later, bytes: Arc::new(fixture(3)) });
+        assert_eq!(doc(&h).info.pages.len(), 3, "the other bytes were applied");
+    }
+
+    /// #3443: with reloading off, Save asks before writing over a file that changed since the
+    /// document came from it (#2166). A file whose change time alone moved, still holding the
+    /// document's bytes, is not such a change; the same stamps with other bytes in the file are.
+    #[test]
+    fn save_asks_only_when_the_bytes_on_disk_changed() {
+        let (_dir, path) = TempDir::new("metadata-save", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        app.reload_changed_files = false;
+        let id = app.views[0].id;
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        // The document came from this file, and the system moved its change time since.
+        let came_from = ctime_moved(Stamp::at(&path).unwrap());
+        app.watch.basis.insert(id, came_from);
+        assert!(app.save_active(SaveTarget::InPlace), "saved without asking");
+        assert!(app.dialog.is_none());
+
+        // Other bytes of the same length under a stamp that differs from the basis only in its
+        // change time: still another version, so Save asks.
+        let saved = std::fs::read(&path).unwrap();
+        let mut other = saved.clone();
+        let at = other.iter().rposition(|&b| b == b'%').unwrap();
+        other[at] = b' ';
+        std::fs::write(&path, &other).unwrap();
+        let app = h.state_mut();
+        app.watch.basis.insert(id, ctime_moved(Stamp::at(&path).unwrap()));
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        assert!(!app.save_active(SaveTarget::InPlace), "asks first");
+        assert!(matches!(app.dialog, Some(crate::Dialog::OverwriteChanged)));
     }
 }
