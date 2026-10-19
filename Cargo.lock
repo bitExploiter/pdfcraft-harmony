@@ -4273,9 +4273,11 @@ dependencies = [
 name = "pdfcraft-preflight"
 version = "0.9.0"
 dependencies = [
+ "flate2",
  "pdfcraft-content",
  "pdfcraft-cos",
  "pdfcraft-model",
+ "roxmltree",
 ]
 
 [[package]]
