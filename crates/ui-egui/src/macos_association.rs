@@ -20,7 +20,13 @@ pub(crate) struct OpeningMetadata {
 }
 
 impl OpeningMetadata {
+    /// Snapshot readable opening attributes for preservation, including non-PDFCraft bindings.
     pub(crate) fn read(path: &Path) -> io::Result<Self> {
+        Self::read_for(path, false)
+    }
+
+    /// Repair stops after the first attribute when quarantine is absent.
+    fn read_for(path: &Path, repair: bool) -> io::Result<Self> {
         use std::os::unix::fs::MetadataExt as _;
         let identity = match path.symlink_metadata() {
             Ok(meta) if meta.is_file() => (meta.dev(), meta.ino()),
@@ -28,20 +34,22 @@ impl OpeningMetadata {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
             Err(e) => return Err(e),
         };
-        let snapshot =
-            Self { association: read_attribute(path, OPEN_WITH)?, quarantine: read_attribute(path, QUARANTINE)?, identity: Some(identity) };
+        let quarantine = read_attribute(path, QUARANTINE)?;
+        let association = if repair && quarantine.is_none() { None } else { read_attribute(path, OPEN_WITH)? };
+        let snapshot = Self { association, quarantine, identity: Some(identity) };
         let current = path.symlink_metadata()?;
         if !current.is_file() || (current.dev(), current.ino()) != identity {
-            return Err(io::Error::new(io::ErrorKind::Interrupted, "the file changed while reading its opening settings"));
+            return Err(io::Error::other("the file changed while reading its opening settings"));
         }
         Ok(snapshot)
     }
 
+    /// Copy known values to the staging descriptor; a copy failure must prevent replacement.
     pub(crate) fn apply(&self, staging: &std::fs::File) -> io::Result<()> {
-        use xattr::FileExt;
-        self.apply_with(|name, value| staging.set_xattr(name, value))
+        self.apply_with(|name, value| rustix::fs::fsetxattr(staging, name, value, rustix::fs::XattrFlags::empty()).map_err(Into::into))
     }
 
+    /// Copy each readable attribute, keeping metadata errors distinct from flush fallback.
     fn apply_with(&self, mut set: impl FnMut(&str, &[u8]) -> io::Result<()>) -> io::Result<()> {
         for (name, value) in [(OPEN_WITH, &self.association), (QUARANTINE, &self.quarantine)] {
             if let Some(value) = value {
@@ -51,10 +59,6 @@ impl OpeningMetadata {
             }
         }
         Ok(())
-    }
-
-    fn still_matches(&self, path: &Path) -> bool {
-        matches!(Self::read(path), Ok(current) if current.eq(self))
     }
 }
 
@@ -77,26 +81,36 @@ pub(crate) fn write_document(
     write_atomically_with(Path::new(path), bytes, StagingName::TagThenSuffix, suffixes, sync)
 }
 
+/// Read a last-component-symlink-safe attribute with a strict allocation cap.
 fn read_attribute(path: &Path, name: &str) -> io::Result<Option<Vec<u8>>> {
     read_attribute_with(|buffer| rustix::fs::lgetxattr(path, name, buffer))
 }
 
-fn read_attribute_with(get: impl FnOnce(&mut [u8]) -> rustix::io::Result<usize>) -> io::Result<Option<Vec<u8>>> {
+/// Probe the length before allocating. A concurrently grown value fails safely; unreadable
+/// attributes are best effort, but a known oversized value must not be silently discarded.
+fn read_attribute_with(mut get: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>) -> io::Result<Option<Vec<u8>>> {
     use rustix::io::Errno;
-    // A fixed-size buffer bounds allocation before the OS reads untrusted file metadata.
-    // Do not follow a last-component symlink, including one swapped in after the stat above.
-    let mut bytes = vec![0; MAX_ATTRIBUTE];
+    let unreadable = |error| match error {
+        Errno::RANGE => Err(io::Error::new(io::ErrorKind::InvalidData, "opening metadata exceeds 64 KiB or changed while reading")),
+        _ => Ok(None),
+    };
+    let len = match get(&mut []) {
+        Ok(len) if len <= MAX_ATTRIBUTE => len,
+        Ok(_) => return unreadable(Errno::RANGE),
+        Err(e) => return unreadable(e),
+    };
+    let mut bytes = vec![0; len];
     match get(bytes.as_mut_slice()) {
-        Ok(len) => {
+        Ok(len) if len <= bytes.len() => {
             bytes.truncate(len);
-            Ok(Some(bytes))
+            Ok(Some(bytes.into_boxed_slice().into_vec()))
         }
-        Err(Errno::NOATTR | Errno::NOTSUP | Errno::OPNOTSUPP) => Ok(None),
-        Err(Errno::RANGE) => Err(io::Error::new(io::ErrorKind::InvalidData, "opening metadata exceeds 64 KiB")),
-        Err(e) => Err(e.into()),
+        Ok(_) => unreadable(Errno::RANGE),
+        Err(e) => unreadable(e),
     }
 }
 
+/// Accept only the supported native schema identifying this exact running bundle.
 fn points_to_this_app(data: &[u8], app: &Path) -> bool {
     if data.len() > MAX_ATTRIBUTE {
         return false;
@@ -120,42 +134,98 @@ fn points_to_this_app(data: &[u8], app: &Path) -> bool {
     Path::new(&binding.path) == app
 }
 
+/// Queue bounded, deduplicated recovery work without filesystem I/O on the UI thread.
+/// The framework's safe NSWorkspace binding is callable on a worker; its completion remains
+/// asynchronous. A stalled volume consumes at most one worker and a bounded queue.
 pub(crate) fn repair(path: &Path) {
-    use block2::RcBlock;
-    use objc2_app_kit::NSWorkspace;
-    use objc2_foundation::{NSBundle, NSError, NSURL};
+    use objc2_foundation::NSBundle;
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError, mpsc};
 
-    // This API was introduced in macOS 12; the application still supports macOS 11.
-    if !objc2::available!(macos = 12.0) || objc2::MainThreadMarker::new().is_none() {
-        return;
-    }
-    if !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf")) {
+    if !objc2::available!(macos = 12.0)
+        || objc2::MainThreadMarker::new().is_none()
+        || !path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
+    {
         return;
     }
     let bundle = NSBundle::mainBundle();
     if bundle.bundleIdentifier().is_none_or(|id| id.to_string() != BUNDLE_ID) {
-        return; // Tests, CLI binaries, and unbundled development runs never change associations.
+        return;
     }
-    let app_url = bundle.bundleURL();
-    let Some(app_path) = app_url.to_file_path() else { return };
-    let metadata = match OpeningMetadata::read(path) {
+    let Some(app) = bundle.bundleURL().to_file_path() else { return };
+    static QUEUE: OnceLock<Option<RepairQueue>> = OnceLock::new();
+    let Some(queue) = QUEUE.get_or_init(|| {
+        let (tx, rx) = mpsc::sync_channel::<RepairJob>(32);
+        let pending = Arc::new(Mutex::new(HashSet::new()));
+        std::thread::Builder::new()
+            .name("pdfcraft-association".into())
+            .spawn(move || {
+                for job in rx {
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| objc2::rc::autoreleasepool(|_| repair_job(job)))).is_err() {
+                        log::warn!("PDF association recovery skipped after a worker error");
+                    }
+                }
+            })
+            .ok()?;
+        Some(RepairQueue { tx, pending })
+    }) else {
+        return;
+    };
+    let path = path.to_path_buf();
+    {
+        let mut pending = queue.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        if pending.len() >= 32 || !pending.insert(path.clone()) {
+            return;
+        }
+    }
+    let job = RepairJob { app, pending: Pending { path, set: queue.pending.clone() } };
+    let _ = queue.tx.try_send(job); // A refused send drops the job and releases its pending entry.
+}
+
+/// One process-wide worker and the paths queued or awaiting native completion.
+struct RepairQueue {
+    tx: std::sync::mpsc::SyncSender<RepairJob>,
+    pending: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
+}
+
+/// The exact running bundle captured on the main thread and its bounded pending entry.
+struct RepairJob {
+    app: std::path::PathBuf,
+    pending: Pending,
+}
+
+/// Release deduplication on every exit, including errors and native callback destruction.
+struct Pending {
+    path: std::path::PathBuf,
+    set: std::sync::Arc<std::sync::Mutex<std::collections::HashSet<std::path::PathBuf>>>,
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.set.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&self.path);
+    }
+}
+
+/// Read one identity-checked snapshot immediately before dispatch. No second xattr pass:
+/// the native API has no compare-and-set, so a post-dispatch external change can still race it.
+fn repair_job(job: RepairJob) {
+    use block2::RcBlock;
+    use objc2_app_kit::NSWorkspace;
+    use objc2_foundation::{NSError, NSURL};
+    let metadata = match OpeningMetadata::read_for(&job.pending.path, true) {
         Ok(metadata) => metadata,
         Err(_) => {
             log::warn!("PDF association recovery skipped: could not read opening metadata");
             return;
         }
     };
-    if metadata.quarantine.is_none() || !metadata.association.as_deref().is_some_and(|data| points_to_this_app(data, &app_path)) {
+    if metadata.quarantine.is_none() || !metadata.association.as_deref().is_some_and(|data| points_to_this_app(data, &job.app)) {
         return;
     }
-    let Some(file_url) = NSURL::from_file_path(path) else { return };
-    // Recheck the file identity and both attributes immediately before the request. The native
-    // API has no compare-and-set; a later external change can still race its asynchronous work.
-    if !metadata.still_matches(path) {
-        return;
-    }
-    let completion = RcBlock::new(|error: *mut NSError| {
-        // The safe binding exposes an opaque NSError pointer. Do not dereference it or log paths.
+    let (Some(app_url), Some(file_url)) = (NSURL::from_file_path(&job.app), NSURL::from_file_path(&job.pending.path)) else { return };
+    let pending = job.pending;
+    let completion = RcBlock::new(move |error: *mut NSError| {
+        let _ = &pending;
         if error.is_null() {
             log::info!("PDF association recovery completed");
         } else {
@@ -172,12 +242,14 @@ mod tests {
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
 
+    /// Create an isolated scratch directory for parallel metadata tests.
     fn directory() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("pdfcraft-association-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&p).unwrap();
         p
     }
 
+    /// Build either native plist encoding with controlled identity fields.
     fn binding(app: &Path, id: &str, version: u32, binary: bool) -> Vec<u8> {
         let value = plist::Value::Dictionary(
             [
@@ -197,6 +269,7 @@ mod tests {
         bytes
     }
 
+    /// Reject foreign apps, unsupported schema versions, malformed data and relative paths.
     #[test]
     fn requires_matching_identifier_path_and_native_schema() {
         let app = directory();
@@ -220,6 +293,7 @@ mod tests {
         std::fs::remove_dir_all(other).unwrap();
     }
 
+    /// Preserve destination values verbatim without interpreting them as new preferences.
     #[test]
     fn atomic_save_preserves_own_other_and_malformed_bindings_and_quarantine() {
         let dir = directory();
@@ -236,6 +310,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A new Save As destination must not inherit a source association or quarantine.
     #[test]
     fn new_destination_does_not_acquire_an_association() {
         let dir = directory();
@@ -246,6 +321,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A refused attribute copy must not trigger the plain-fsync success fallback.
     #[test]
     fn metadata_copy_failure_cannot_be_treated_as_an_unsupported_flush() {
         use pdfcraft_platform::staging::{StagingName, write_atomically_with};
@@ -266,6 +342,7 @@ mod tests {
         }
     }
 
+    /// Bound allocation and retain the original file when a known value exceeds the cap.
     #[test]
     fn oversized_attribute_is_refused_before_preservation_or_parsing() {
         let dir = directory();
@@ -279,6 +356,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Snapshots distinguish replaced inodes even with identical attribute bytes.
     #[test]
     fn preflight_refuses_a_replaced_file_even_with_identical_attributes() {
         let dir = directory();
@@ -291,13 +369,14 @@ mod tests {
         };
         prepare(&file);
         let metadata = OpeningMetadata::read(&file).unwrap();
-        assert!(metadata.still_matches(&file));
+        assert!(OpeningMetadata::read(&file).unwrap() == metadata);
         prepare(&replacement);
         std::fs::rename(replacement, &file).unwrap();
-        assert!(!metadata.still_matches(&file), "the file successfully opened is no longer at this path");
+        assert!(OpeningMetadata::read(&file).unwrap() != metadata, "the file successfully opened is no longer at this path");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Snapshots distinguish changed quarantine and ignore last-component symlinks.
     #[test]
     fn preflight_refuses_changed_quarantine_and_symbolic_links() {
         let dir = directory();
@@ -307,7 +386,7 @@ mod tests {
         xattr::set(&file, QUARANTINE, b"0082;1234;Preview;").unwrap();
         let metadata = OpeningMetadata::read(&file).unwrap();
         xattr::set(&file, QUARANTINE, b"0082;5678;another app;").unwrap();
-        assert!(!metadata.still_matches(&file));
+        assert!(OpeningMetadata::read(&file).unwrap() != metadata);
         let link = dir.join("link.pdf");
         std::os::unix::fs::symlink(&file, &link).unwrap();
         let linked = OpeningMetadata::read(&link).unwrap();
@@ -315,6 +394,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Do not resolve aliases or mount paths supplied in untrusted binding metadata.
     #[test]
     fn untrusted_bundle_aliases_are_skipped_without_resolving_them() {
         let dir = directory();
@@ -326,6 +406,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Recovery and export writes retain their original metadata-independent behavior.
     #[test]
     fn unrelated_atomic_writes_do_not_read_opening_metadata() {
         let dir = directory();
@@ -337,6 +418,7 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// Check a real captured native binding and the packaged application identity.
     #[test]
     fn native_binding_and_packaging_identity_match() {
         // Captured via Apple's API on a synthetic PDF on macOS 27.0.1. Contains only the
@@ -349,6 +431,7 @@ mod tests {
         assert_eq!(package.as_dictionary().unwrap().get("CFBundleIdentifier").unwrap().as_string(), Some(BUNDLE_ID));
     }
 
+    /// Exercise arbitrary and damaged metadata through the strict native parser.
     #[test]
     fn malformed_plists_and_truncated_native_schemas_do_not_panic() {
         let app = Path::new("/Applications/PdfCraft.app");
@@ -379,14 +462,75 @@ mod tests {
         }
     }
 
+    /// Preservation is visible on the actual staging descriptor even when the subsequent
+    /// flush fails; removing apply() makes this test fail before the injected flush error.
+    #[test]
+    fn document_flush_sees_preserved_attributes_and_failure_keeps_original() {
+        let dir = directory();
+        let path = dir.join("document.pdf");
+        std::fs::write(&path, b"old PDF").unwrap();
+        xattr::set(&path, OPEN_WITH, b"binding").unwrap();
+        xattr::set(&path, QUARANTINE, b"0082;1234;Preview;").unwrap();
+        let result = write_document(path.to_str().unwrap(), b"new PDF", [7], |staging| {
+            use xattr::FileExt;
+            assert_eq!(staging.get_xattr(OPEN_WITH).unwrap(), Some(b"binding".to_vec()));
+            assert_eq!(staging.get_xattr(QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
+            Err(io::Error::other("injected flush failure"))
+        });
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"old PDF");
+        assert_eq!(xattr::get(&path, OPEN_WITH).unwrap(), Some(b"binding".to_vec()));
+        assert_eq!(xattr::get(&path, QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Length probing allocates only the value, rejects oversize before a second call,
+    /// and treats growth between the probe and read as a safe preservation failure.
+    #[test]
+    fn attribute_probes_bound_allocation_and_detect_growth() {
+        let mut calls = 0;
+        let small = read_attribute_with(|out| {
+            calls += 1;
+            if calls == 1 {
+                assert!(out.is_empty());
+                return Ok(3);
+            }
+            assert_eq!(out.len(), 3);
+            out.copy_from_slice(b"abc");
+            Ok(3)
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(small, b"abc");
+        assert_eq!(small.capacity(), 3);
+        assert!(read_attribute_with(|_| Ok(MAX_ATTRIBUTE + 1)).is_err());
+        let mut calls = 0;
+        assert!(
+            read_attribute_with(|_| {
+                calls += 1;
+                if calls == 1 { Ok(3) } else { Err(rustix::io::Errno::RANGE) }
+            })
+            .is_err()
+        );
+    }
+
+    /// Volumes may expose no readable attributes with errors beyond ENOTSUP.
+    #[test]
+    fn unreadable_attributes_are_best_effort() {
+        use rustix::io::Errno;
+        for errno in [Errno::NOSYS, Errno::INVAL, Errno::PERM, Errno::ACCESS, Errno::IO] {
+            assert_eq!(read_attribute_with(|_| Err(errno)).unwrap(), None);
+        }
+    }
+
+    /// Skip unavailable attributes while retaining the hard limit on known oversized values.
     #[test]
     fn unsupported_attribute_volumes_are_distinct_from_read_failures() {
         use rustix::io::Errno;
         for errno in [Errno::NOATTR, Errno::NOTSUP, Errno::OPNOTSUPP] {
             assert_eq!(read_attribute_with(|_| Err(errno)).unwrap(), None, "{errno}");
         }
-        for errno in [Errno::ACCESS, Errno::IO, Errno::RANGE] {
-            assert!(read_attribute_with(|_| Err(errno)).is_err(), "{errno}");
-        }
+        assert!(read_attribute_with(|_| Err(Errno::RANGE)).is_err());
     }
 }

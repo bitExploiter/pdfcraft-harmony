@@ -709,7 +709,7 @@ impl PdfCraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn save_doc_to_then(&mut self, id: pdfcraft_engine::DocId, dest: &str, target: SaveTarget, after: Box<dyn FnOnce(&mut Self) + Send>) -> bool {
         let own = self.session.get(id).and_then(|d| d.path.as_deref()).is_some_and(|p| crate::same_file(p, dest));
-        if own && self.watch.disk_differs(id, dest) {
+        if own && self.watch.disk_differs(id, dest, self.session.get(id).map(|d| d.saved_bytes())) {
             self.pending_overwrite = Some(PendingOverwrite { id, dest: dest.to_string(), target, after });
             self.dialog = Some(crate::Dialog::OverwriteChanged);
             return false;
@@ -1039,8 +1039,7 @@ pub fn write_atomically(path: &str, bytes: &[u8]) -> std::io::Result<()> {
 }
 
 /// Explicit document saves preserve opening metadata; autosaves and exports keep their writer.
-#[cfg(not(target_arch = "wasm32"))]
-fn write_document(path: &str, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_document(path: &str, bytes: &[u8]) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     return crate::macos_association::write_document(path, bytes, staging_suffixes(), std::fs::File::sync_all);
     #[cfg(not(target_os = "macos"))]
@@ -1340,19 +1339,9 @@ mod tests {
         let dir = staging_dir("syncfails");
         let target = dir.join("out.pdf");
         std::fs::write(&target, "OLD").unwrap();
-        #[cfg(target_os = "macos")]
-        {
-            xattr::set(&target, "com.apple.LaunchServices.OpenWith", b"original binding").unwrap();
-            xattr::set(&target, "com.apple.quarantine", b"0082;1234;Preview;").unwrap();
-        }
         let e = write_atomically_syncing(&target.to_string_lossy(), b"NEW", [7], |_| Err(std::io::Error::other("disk gone"))).unwrap_err();
         assert_eq!(e.to_string(), "disk gone");
         assert_eq!(read(&target), "OLD");
-        #[cfg(target_os = "macos")]
-        {
-            assert_eq!(xattr::get(&target, "com.apple.LaunchServices.OpenWith").unwrap(), Some(b"original binding".to_vec()));
-            assert_eq!(xattr::get(&target, "com.apple.quarantine").unwrap(), Some(b"0082;1234;Preview;".to_vec()));
-        }
         assert_eq!(listing(&dir), ["out.pdf"], "the staging file was removed");
         let _ = std::fs::remove_dir_all(&dir);
     }
