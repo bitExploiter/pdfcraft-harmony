@@ -3,7 +3,7 @@
 //! `q … cm … Q` with the extra transform), replace (it draws another XObject in the same place),
 //! or delete. Only the stream that draws it is rewritten, as a new object.
 
-use kurbo::{BezPath, Point, Shape};
+use kurbo::{BezPath, PathEl, Point, Shape};
 use pdfcraft_content::{Matrix, Op, Pieces, parse};
 use pdfcraft_cos::{Dict, Document, ObjRef, Object};
 use std::sync::Arc;
@@ -129,19 +129,40 @@ struct ImageState {
 }
 
 impl ImageState {
+    /// Constructs a new image graphics state with the given transformation matrix, clip bounds, and clipping paths.
     fn new(matrix: Matrix, clip: [f64; 4], clips: Vec<ClipPath>) -> Self {
         Self { placement: Placement { matrix, clip, clips }, stack: Vec::new(), path: BezPath::new(), pending_clip: None }
     }
 
+    /// Returns the current point of the active subpath, or the starting point of the
+    /// preceding closed subpath if the path currently terminates with a [`PathEl::ClosePath`]
+    /// (per ISO 32000-1 Table 59). Returns `None` if the path is empty.
     fn current_point(&self) -> Option<Point> {
-        self.path.elements().last().and_then(|e| e.end_point())
+        let mut last_move = None;
+        for el in self.path.elements().iter().rev() {
+            match el {
+                PathEl::MoveTo(p) => {
+                    last_move = Some(*p);
+                    break;
+                }
+                PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => {
+                    if last_move.is_none() {
+                        return Some(*p);
+                    }
+                }
+                PathEl::ClosePath => {}
+            }
+        }
+        last_move
     }
 
+    /// Applies the current transformation matrix to transform user space coordinates into device space.
     fn point(&self, x: f64, y: f64) -> Point {
         let (x, y) = self.placement.matrix.apply(x, y);
         Point::new(x, y)
     }
 
+    /// Applies a content stream operator to update clipping paths and graphics state.
     fn apply(&mut self, op: &Op) -> Result<(), EditError> {
         if matches!(op.op.as_slice(), b"cm" | b"m" | b"l" | b"c" | b"v" | b"y" | b"re")
             && op.operands.iter().any(|v| v.as_f64().is_some_and(|v| !v.is_finite() || v.abs() > 1e12))
@@ -169,36 +190,36 @@ impl ImageState {
                 }
             }
             b"l" => {
-                if let Some([x, y]) = op.nums::<2>() {
-                    if self.current_point().is_some() {
-                        self.path.line_to(self.point(x, y));
-                    }
+                if let Some([x, y]) = op.nums::<2>()
+                    && !self.path.elements().is_empty()
+                {
+                    self.path.line_to(self.point(x, y));
                 }
             }
             b"c" => {
-                if let Some([x1, y1, x2, y2, x3, y3]) = op.nums::<6>() {
-                    if self.current_point().is_some() {
-                        self.path.curve_to(self.point(x1, y1), self.point(x2, y2), self.point(x3, y3));
-                    }
+                if let Some([x1, y1, x2, y2, x3, y3]) = op.nums::<6>()
+                    && !self.path.elements().is_empty()
+                {
+                    self.path.curve_to(self.point(x1, y1), self.point(x2, y2), self.point(x3, y3));
                 }
             }
             b"v" => {
-                if let Some([x1, y1, x2, y2]) = op.nums::<4>() {
-                    if let Some(current) = self.current_point() {
-                        self.path.curve_to(current, self.point(x1, y1), self.point(x2, y2));
-                    }
+                if let Some([x1, y1, x2, y2]) = op.nums::<4>()
+                    && let Some(current) = self.current_point()
+                {
+                    self.path.curve_to(current, self.point(x1, y1), self.point(x2, y2));
                 }
             }
             b"y" => {
-                if let Some([x1, y1, x2, y2]) = op.nums::<4>() {
-                    if self.current_point().is_some() {
-                        let end = self.point(x2, y2);
-                        self.path.curve_to(self.point(x1, y1), end, end);
-                    }
+                if let Some([x1, y1, x2, y2]) = op.nums::<4>()
+                    && !self.path.elements().is_empty()
+                {
+                    let end = self.point(x2, y2);
+                    self.path.curve_to(self.point(x1, y1), end, end);
                 }
             }
             b"h" => {
-                if self.current_point().is_some() {
+                if !self.path.elements().is_empty() {
                     self.path.close_path();
                 }
             }
@@ -900,10 +921,10 @@ mod tests {
         state.apply(&Op::new("h", vec![])).unwrap();
         assert_eq!(state.path.elements().len(), 6);
 
-        // After h has closed the subpath, there is no open current point.
-        // Subsequent segment operators must skip safely rather than panic.
+        // ISO 32000-1 Table 59 permits appending another segment to begin a new subpath after h.
+        // Segments after closepath (h) must be appended, preserving geometry rather than dropped.
         state.apply(&Op::new("l", vec![Object::Real(1.0), Object::Real(1.0)])).unwrap();
-        assert_eq!(state.path.elements().len(), 6);
+        assert_eq!(state.path.elements().len(), 7);
 
         state
             .apply(&Op::new(
@@ -911,16 +932,16 @@ mod tests {
                 vec![Object::Real(1.0), Object::Real(1.0), Object::Real(2.0), Object::Real(2.0), Object::Real(3.0), Object::Real(3.0)],
             ))
             .unwrap();
-        assert_eq!(state.path.elements().len(), 6);
+        assert_eq!(state.path.elements().len(), 8);
 
         state.apply(&Op::new("v", vec![Object::Real(1.0), Object::Real(1.0), Object::Real(2.0), Object::Real(2.0)])).unwrap();
-        assert_eq!(state.path.elements().len(), 6);
+        assert_eq!(state.path.elements().len(), 9);
 
         state.apply(&Op::new("y", vec![Object::Real(1.0), Object::Real(1.0), Object::Real(2.0), Object::Real(2.0)])).unwrap();
-        assert_eq!(state.path.elements().len(), 6);
+        assert_eq!(state.path.elements().len(), 10);
 
         state.apply(&Op::new("h", vec![])).unwrap();
-        assert_eq!(state.path.elements().len(), 6);
+        assert_eq!(state.path.elements().len(), 11);
     }
 
     #[test]
@@ -941,6 +962,17 @@ mod tests {
         // Control stream: valid path with m
         let control_doc = test_doc("q 0 0 m 1 1 l S Q BT /F1 24 Tf 72 200 Td (AFTER) Tj ET");
         assert!(page_images(&control_doc, 0).unwrap().is_empty());
+
+        // Segments after re and h preserve geometry and return clip bounds [0, 0, 20, 20]
+        let re_doc = test_doc("q 0 0 10 10 re 20 0 l 20 20 l h W n 100 0 0 100 0 0 cm /Im0 Do Q");
+        let re_images = page_images(&re_doc, 0).unwrap();
+        assert_eq!(re_images.len(), 1);
+        assert_eq!(re_images[0].clip_rect, Some([0.0, 0.0, 20.0, 20.0]));
+
+        let h_segment_doc = test_doc("q 0 0 m 10 0 l 10 10 l 0 10 l h 20 0 l 20 20 l h W n 100 0 0 100 0 0 cm /Im0 Do Q");
+        let h_images = page_images(&h_segment_doc, 0).unwrap();
+        assert_eq!(h_images.len(), 1);
+        assert_eq!(h_images[0].clip_rect, Some([0.0, 0.0, 20.0, 20.0]));
 
         // Ensure images on the page are still properly discovered
         let img_doc = test_doc("q 1 1 l S Q 100 0 0 100 50 50 cm /Im0 Do Q");
