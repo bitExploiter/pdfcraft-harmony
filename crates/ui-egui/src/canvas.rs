@@ -1902,7 +1902,8 @@ impl DocView {
         // A result can go to both views, so one view holding its rasters holds them for both.
         if !group.iter().any(|&i| views.get(i).is_some_and(|v| v.hold_rasters)) {
             receive_batch(pool, |r| {
-                let wanting: Vec<usize> = group.iter().copied().filter(|&i| views.get(i).is_some_and(|v| v.last_queue.contains(&r.request))).collect();
+                let wanting: Vec<usize> =
+                    group.iter().copied().filter(|&i| views.get(i).is_some_and(|v| v.last_queue.contains(&r.request))).collect();
                 let Some((&last, rest)) = wanting.split_last() else { return 0 };
                 let mut uploaded = 0usize;
                 for &i in rest {
