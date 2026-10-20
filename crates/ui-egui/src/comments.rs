@@ -188,12 +188,17 @@ impl CommentTool {
 
     /// Whether the line-thickness control applies.
     pub fn has_width(self) -> bool {
-        self.draws() || self.clicks_points()
+        self.draws() || self.clicks_points() || matches!(self, Self::TextBox | Self::Callout)
     }
 
-    /// Whether the fill-colour control applies: shapes with an interior (#686).
+    /// Text comments may have no border while retaining visible text or fill.
+    fn min_width(self) -> f64 {
+        if matches!(self, Self::TextBox | Self::Callout) { 0.0 } else { 0.5 }
+    }
+
+    /// Whether the fill-colour control applies to this tool.
     pub fn has_fill(self) -> bool {
-        matches!(self, Self::Rectangle | Self::Oval | Self::Polygon | Self::Cloud)
+        matches!(self, Self::Rectangle | Self::Oval | Self::Polygon | Self::Cloud | Self::TextBox | Self::Callout)
     }
 
     /// A placeholder shape of this kind (for per-tool default styles).
@@ -284,7 +289,7 @@ impl CommentPrefs {
 
     pub fn set_width(&mut self, tool: CommentTool, w: f64) {
         if let Some((_, s)) = self.styles.iter_mut().find(|(t, _)| *t == tool) {
-            s.width = w.clamp(0.5, 12.0);
+            s.width = w.clamp(tool.min_width(), 12.0);
         }
     }
 
@@ -295,7 +300,7 @@ impl CommentPrefs {
         }
     }
 
-    /// The tool's fill (`None`: no fill). Only shapes with an interior keep one.
+    /// The tool's fill (`None`: no fill).
     pub fn set_fill(&mut self, tool: CommentTool, fill: Option<Rgb>) {
         if let Some((_, s)) = self.styles.iter_mut().find(|(t, _)| *t == tool) {
             s.fill = if tool.has_fill() { fill.filter(|c| c.iter().all(|x| x.is_finite())).map(|c| c.map(|x| x.clamp(0.0, 1.0))) } else { None };
@@ -533,6 +538,9 @@ pub struct CommentView {
     pub props_request: Option<(usize, usize)>,
     /// Make Current Properties Default was asked for: (page, index).
     pub default_request: Option<(usize, usize)>,
+    /// A file attachment comment's file was asked for: (page, index, open it in a new tab
+    /// rather than save it).
+    pub attachment_request: Option<(usize, usize, bool)>,
     /// Replace Text: the struck-out text's quads while the replacement is typed.
     pub replace: Option<Vec<[f64; 8]>>,
     /// Attach file: where the icon goes (page, top-left in user space), for the app to pick a file.
@@ -1624,6 +1632,23 @@ pub(crate) fn keys(ctx: &egui::Context, view: &mut DocView, tool: &mut QuickTool
     }
 }
 
+/// Save attachment… and, for a PDF, Open in a new tab, first in a file attachment comment's
+/// menus as in the Attachments panel: the comment is where the reader finds its file. Reading
+/// the file changes nothing, so a read-only document offers them too.
+pub(crate) fn attachment_items(ui: &mut egui::Ui, view: &mut DocView, info: &DocInfo, a: &Annotation) {
+    let source = pdfcraft_render::AttachmentSource::Annotation { page: a.page, index: a.index };
+    let Some(file) = info.attachments.iter().find(|f| f.source == source) else { return };
+    if ui.button(tl!("Save attachment…")).clicked() {
+        view.comments.attachment_request = Some((a.page, a.index, false));
+        ui.close();
+    }
+    if file.name.to_lowercase().ends_with(".pdf") && ui.button(tl!("Open in a new tab")).clicked() {
+        view.comments.attachment_request = Some((a.page, a.index, true));
+        ui.close();
+    }
+    ui.separator();
+}
+
 /// Items of the canvas context menu for the selected comment (or the page).
 pub(crate) fn context_menu(ui: &mut egui::Ui, view: &mut DocView, info: &DocInfo, prefs: &CommentPrefs, allowed: bool) -> Option<CanvasAction> {
     let mut action = None;
@@ -1631,6 +1656,7 @@ pub(crate) fn context_menu(ui: &mut egui::Ui, view: &mut DocView, info: &DocInfo
     match selected {
         Some(a) => {
             let (page, index) = (a.page, a.index);
+            attachment_items(ui, view, info, a);
             if ui.add_enabled(allowed, egui::Button::new(tl!("Edit text…"))).clicked() {
                 view.comments.composer = Some(Composer {
                     page,
@@ -1907,7 +1933,7 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
             ui.set_min_width(180.0);
             let mut w = style.width;
             ui.label(egui::RichText::new(tl!("Line thickness")).font(theme::semibold(12.0)));
-            if ui.add(egui::Slider::new(&mut w, 0.5..=12.0).step_by(0.5).suffix(" pt")).changed() {
+            if ui.add(egui::Slider::new(&mut w, tool.min_width()..=12.0).step_by(0.5).suffix(" pt")).changed() {
                 prefs.set_width(tool, w);
             }
         });
