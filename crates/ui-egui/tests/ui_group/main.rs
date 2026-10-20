@@ -18,6 +18,7 @@ mod pdf_links;
 mod protect;
 mod redact;
 mod split_view;
+mod split_view_edits;
 mod text_select;
 mod theme;
 mod updates;

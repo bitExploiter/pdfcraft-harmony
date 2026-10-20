@@ -237,7 +237,11 @@ impl PdfCraftApp {
     /// Returns false when a field refused the typing queued for it (its editor is open again).
     pub(crate) fn process_pending_edits(&mut self) -> bool {
         let Some(i) = self.active else { return true };
-        let applied = self.apply_queued_edit(i);
+        // Split view: the other pane's tab can hold an edit too (its field committed when the
+        // click that brought this pane forward took the focus). It goes in first, as it came first.
+        let (other_applied, stay) = self.apply_other_pane_edit(i);
+        let modal = self.modal_open();
+        let applied = self.apply_queued_edit(i) && other_applied;
         if !applied {
             // Nor may a shortcut pressed with it (⌘S right after Enter) run behind the refusal.
             self.deferred_commands.clear();
@@ -273,7 +277,54 @@ impl PdfCraftApp {
             }
             None => {}
         }
+        // That tab comes forward when its value was refused (its editor is open again with the
+        // text) or its edit opened a dialog for its document, unless this tab's action opened one.
+        if let Some(key) = stay
+            && self.active == Some(i)
+            && (modal || !self.modal_open())
+        {
+            self.active = self.tab_with_key(key).or(self.active);
+        }
         applied
+    }
+
+    /// Split view: apply the edit queued on the tab the other pane shows, with that tab active
+    /// while it goes in (tab `i`, the active one, is active again afterwards). Left queued, it was
+    /// lost when the next frame replaced that tab to follow a change made through tab `i`
+    /// (`settle_panes`). Returns false when a field refused it, and that tab's view key when it
+    /// should come forward: its value was refused, or its edit opened a dialog.
+    fn apply_other_pane_edit(&mut self, i: usize) -> (bool, Option<u64>) {
+        use crate::panes::Place;
+        let Some(place) = self.views.get(i).map(|v| v.place()) else { return (true, None) };
+        let other = if place == Place::Main { Place::Second } else { Place::Main };
+        let Some((k, key, id)) = self
+            .panes
+            .split
+            .and_then(|_| self.pane_front(other))
+            .filter(|&k| k != i)
+            .and_then(|k| self.views.get(k).filter(|v| v.pending_edit.is_some()).map(|v| (k, v.view_key(), v.id)))
+        else {
+            return (true, None);
+        };
+        let generation = |app: &Self| app.session.get(id).map(|d| d.edit_generation());
+        let (before, modal) = (generation(self), self.modal_open());
+        self.active = Some(k);
+        let applied = self.apply_queued_edit(k);
+        let opened = !modal && self.modal_open();
+        self.active = Some(i);
+        // Tab `i` on the same document catches up now, keeping what it holds (this frame's click
+        // may have queued an edit or opened a field): the next frame replaces only the tab that
+        // isn't active, as if this change had come through the active one.
+        if generation(self) != before
+            && let Some(doc) = self.session.get(id)
+        {
+            for (j, v) in self.views.iter_mut().enumerate() {
+                if j != k && v.id == id {
+                    v.document_changed(&doc.info);
+                }
+            }
+        }
+        (applied, (!applied || opened).then_some(key))
     }
 
     /// Enhance ▸ Camera image ▸ clean-up slider: undo the enhancement (and the turns made since)
