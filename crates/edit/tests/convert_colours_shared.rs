@@ -39,15 +39,6 @@ fn stream_text(doc: &Document, r: ObjRef) -> String {
     }
 }
 
-/// The page's `/Contents` references.
-fn contents(doc: &Document, page: usize) -> Vec<ObjRef> {
-    let p = pdfcraft_model::pages(doc).swap_remove(page);
-    match &*doc.resolve(p.dict.get(b"Contents").unwrap()) {
-        Object::Array(a) => a.iter().filter_map(Object::as_ref).collect(),
-        _ => p.dict.get(b"Contents").and_then(Object::as_ref).into_iter().collect(),
-    }
-}
-
 fn no_images(_: &Document, _: &Stream, _: ColourTarget) -> Option<Stream> {
     None
 }
