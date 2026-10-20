@@ -4062,6 +4062,7 @@ impl Session {
         Self::refresh_with_indexes(doc, false, true)
     }
 
+    /// Rebuilds document-derived state while selectively invalidating marker and link indexes.
     fn refresh_with_indexes(doc: &mut Document, invalidate_markers: bool, invalidate_links: bool) -> Result<(), EditError> {
         // A full refresh may follow structural or annotation changes: cached appearances
         // may be stale, so they are rebuilt below.

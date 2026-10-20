@@ -2270,6 +2270,7 @@ struct FormScan {
     has_unwrapped_do: bool,
 }
 
+/// Plans a widget-local appearance rewrite for a supported layered valid signature.
 fn plan_validated_widget(doc: &Document, widget_ref: ObjRef, wd: &Dict) -> Option<ValidatedWidgetPatch> {
     let ap = doc.resolve(wd.get(b"AP")?).as_dict().cloned()?;
     let ap_ref = wd.get(b"AP").and_then(Object::as_ref);
@@ -2396,6 +2397,7 @@ fn plan_validated_widget(doc: &Document, widget_ref: ObjRef, wd: &Dict) -> Optio
     })
 }
 
+/// Applies a validated appearance patch using cloned widget-local PDF objects.
 fn apply_validated_widget(doc: &mut Document, patch: ValidatedWidgetPatch) {
     let glyph_ref = doc.add(Object::Stream(Stream::from_raw(patch.glyph_dict, patch.glyph_ops)));
     let caption_ref = doc.add(Object::Stream(Stream::from_raw(patch.caption_dict, patch.caption_ops)));
@@ -2429,6 +2431,7 @@ fn apply_validated_widget(doc: &mut Document, patch: ValidatedWidgetPatch) {
     doc.set(patch.widget_ref, Object::Dict(widget_dict));
 }
 
+/// Finds the safe layered frame form beneath an appearance wrapper.
 fn find_frame_form(doc: &Document, start: ObjRef) -> Option<(ObjRef, Stream, [f64; 4], Dict, FormScan)> {
     let mut curr = start;
     let mut seen = HashSet::new();
@@ -2466,6 +2469,7 @@ fn find_frame_form(doc: &Document, start: ObjRef) -> Option<(ObjRef, Stream, [f6
     None
 }
 
+/// Reads and normalizes a finite, non-empty Form XObject bounding box.
 fn form_bbox(doc: &Document, d: &Dict) -> Option<[f64; 4]> {
     let b = nums(doc, d, b"BBox")?;
     let [x0, y0, x1, y1] = <[f64; 4]>::try_from(b.as_slice()).ok()?;
@@ -2477,6 +2481,7 @@ fn form_bbox(doc: &Document, d: &Dict) -> Option<[f64; 4]> {
     (max_x - min_x > 0.5 && max_y - min_y > 0.5).then_some([min_x, min_y, max_x, max_y])
 }
 
+/// Reports whether extracted layer text is a known unverified-signature caption.
 fn is_unverified_caption(lines: &[String]) -> bool {
     if lines.is_empty() {
         return false;
@@ -2485,11 +2490,13 @@ fn is_unverified_caption(lines: &[String]) -> bool {
     matches!(joined.as_str(), "signature not verified" | "validity unknown" | "signature validity is unknown")
 }
 
+/// Reports whether extracted layer text is the standalone question-mark glyph.
 fn is_question_mark_text(lines: &[String]) -> bool {
     let joined: String = lines.iter().flat_map(|l| l.split_whitespace()).collect::<Vec<_>>().join(" ");
     joined == "?"
 }
 
+/// Reports whether path points form a border around most of a layer’s bounding box.
 fn is_perimeter_border(points: &[(f64, f64)], bbox: [f64; 4]) -> bool {
     if points.len() < 4 {
         return false;
@@ -2514,6 +2521,7 @@ fn is_perimeter_border(points: &[(f64, f64)], bbox: [f64; 4]) -> bool {
     })
 }
 
+/// Builds PDF operators for the green checkmark used in a validated display copy.
 fn valid_glyph_ops(bbox: [f64; 4]) -> Vec<u8> {
     let [bx0, by0, bx1, by1] = bbox;
     let (bw, bh) = (bx1 - bx0, by1 - by0);
@@ -2539,6 +2547,7 @@ fn valid_glyph_ops(bbox: [f64; 4]) -> Vec<u8> {
     out.into_bytes()
 }
 
+/// Builds PDF text operators for the validated signature caption.
 fn valid_caption_ops(cap_bbox: [f64; 4], frame_bbox: [f64; 4]) -> Vec<u8> {
     let [bx0, by0, bx1, by1] = cap_bbox;
     let (bw, bh) = ((bx1 - bx0).max(1.0), (by1 - by0).max(1.0));
@@ -2572,6 +2581,7 @@ fn is_pdf_delim(b: u8) -> bool {
     matches!(b, b'/' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'%')
 }
 
+/// Parses the next token from a PDF content stream, including nested arrays.
 fn next_stream_token(bytes: &[u8], pos: &mut usize, depth: usize) -> Option<StreamToken> {
     if depth > 6 {
         return None;
@@ -2741,10 +2751,12 @@ fn next_stream_token(bytes: &[u8], pos: &mut usize, depth: usize) -> Option<Stre
     }
 }
 
+/// Decodes PDFDocEncoding bytes into text used while classifying appearance layers.
 fn decode_pdf_bytes(bytes: &[u8]) -> String {
     bytes.iter().map(|b| pdfcraft_cos::pdfdoc_char(*b)).collect()
 }
 
+/// Multiplies two PDF affine transformation matrices in content-stream order.
 fn concat_matrix(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
     [
         a[0] * b[0] + a[1] * b[2],
@@ -2756,10 +2768,12 @@ fn concat_matrix(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
     ]
 }
 
+/// Reports whether a PDF affine matrix is effectively the identity transform.
 fn is_identity_matrix(m: [f64; 6]) -> bool {
     (m[0] - 1.0).abs() < 1e-4 && m[1].abs() < 1e-4 && m[2].abs() < 1e-4 && (m[3] - 1.0).abs() < 1e-4 && m[4].abs() < 1e-4 && m[5].abs() < 1e-4
 }
 
+/// Scans a Form XObject stream for text, paths, nested layers, and unsafe operators.
 fn scan_form_stream(bytes: &[u8]) -> FormScan {
     let mut scan = FormScan {
         do_calls: Vec::new(),
