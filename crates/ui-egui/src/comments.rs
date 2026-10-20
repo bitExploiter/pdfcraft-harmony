@@ -890,6 +890,10 @@ impl PageCx<'_> {
         if a.fill_sign && a.subtype == "Stamp" && (x1 - x0).abs() <= 48.0 && (y1 - y0).abs() <= 48.0 {
             return (vec![r.center()], Some(12.0));
         }
+        // A line by its ends, connected lines and polygons by their corners.
+        if reshapable(a) {
+            return (a.points.iter().map(|q| self.to_screen([f64::from(q[0]), f64::from(q[1])])).collect(), None);
+        }
         (vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], None)
     }
 }
@@ -1459,6 +1463,11 @@ fn select_input(
         (Some(Gesture::Resize { page, index, handle, from, .. }), Some(p)) if *page == cx.page => {
             cx.get(*index).map(|a| cx.snap_drag(&[handle_pos(cx.screen_rect(a), *handle)], None, *from, p))
         }
+        // A line's end or a corner dragged: onto a target (Shift holds the angle instead).
+        (Some(Gesture::Reshape { page, .. }), Some(p)) if *page == cx.page && !ui.input(|i| i.modifiers.shift) => {
+            let (u, kind) = cx.snapped(p);
+            Some((cx.to_screen(u), kind.map(|k| (u, k))))
+        }
         _ => None,
     };
     if let Some((_, Some((at, kind)))) = dragged {
@@ -1493,8 +1502,13 @@ fn select_input(
                 cv.gesture = None;
                 let shift = ui.input(|i| i.modifiers.shift);
                 let moved = points.get(point).is_some_and(|q| cx.to_screen(*q).distance(p) >= 2.0);
+                // The target itself when it snapped, not its round trip through the screen.
+                let to = match dragged {
+                    Some((_, Some((u, _)))) => u,
+                    _ => cx.to_user(p),
+                };
                 if moved {
-                    view.pending_edit = Some(Edit::ReshapeAnnotation { page, index, points: reshaped(&points, point, cx.to_user(p), shift) });
+                    view.pending_edit = Some(Edit::ReshapeAnnotation { page, index, points: reshaped(&points, point, to, shift) });
                 }
             }
             _ => {}
@@ -1655,6 +1669,11 @@ fn changing_points(
 fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &Annotation, pointer: Option<Pos2>, shift: bool) {
     let cv = &view.comments;
     let points: Vec<[f64; 2]> = a.points.iter().map(|q| [f64::from(q[0]), f64::from(q[1])]).collect();
+    // As the release will have it: a dragged end onto a snap target, unless Shift holds the angle.
+    let pointer = match &cv.gesture {
+        Some(Gesture::Reshape { .. }) if !shift => pointer.map(|p| cx.to_screen(cx.snapped(p).0)),
+        _ => pointer,
+    };
     let changing = changing_points(cv.gesture.as_ref(), view.pending_edit.as_ref(), (cx.page, a.index), &points, |p| cx.to_user(p), pointer, shift);
     let changed = changing.is_some();
     let points = changing.unwrap_or(points);
@@ -1670,6 +1689,7 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
     for c in screen {
         painter.circle(c, 4.5, Color32::WHITE, Stroke::new(1.0, SELECT_BLUE));
     }
+    paint_snap_marker(painter, cx, view);
     paint_gesture(painter, cx, view);
 }
 
