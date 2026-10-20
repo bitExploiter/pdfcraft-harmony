@@ -12,6 +12,7 @@
 //! PAdES B-B recipe (`ETSI.CAdES.detached`).
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 use std::sync::Arc;
 
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, SaveOptions, Stream};
@@ -492,7 +493,8 @@ pub(crate) struct Field {
     /// The field dictionary (and its widget(s)).
     r: Option<ObjRef>,
     dict: Dict,
-    pub(crate) widgets: Vec<(Option<ObjRef>, Dict)>,
+    /// A widget several fields list is listed under each of them, as one shared copy.
+    pub(crate) widgets: Vec<(Option<ObjRef>, Rc<Dict>)>,
 }
 
 impl Field {
@@ -509,46 +511,153 @@ impl Field {
     }
 }
 
+/// Most fields looked at for signature fields. Only a crafted or damaged form has more. The rest
+/// goes unread without a note, like the crate's other walk bounds (`dss_walk`,
+/// `signed_page_resources`): a note needs a signature row, and a field left out has none.
+const MAX_FIELDS: usize = 20_000;
+/// Most entries read from `/Fields` and all the `/Kids` arrays together: room for a few widgets
+/// for each of [`MAX_FIELDS`]. A `/Kids` array several fields list is read under each of them, so
+/// this bounds the walk where the field count can't. Past it the walk stops, as with
+/// [`MAX_FIELDS`].
+const MAX_ENTRIES: usize = 100_000;
+/// Longest fully qualified field name read, in bytes. Real names are far shorter; a field named
+/// longer is passed over without a note, as with [`MAX_FIELDS`].
+pub(crate) const MAX_FIELD_NAME_BYTES: usize = 4096;
+
 /// Every signature field, depth first in `/Fields` order.
 pub(crate) fn sig_fields(doc: &Document) -> Vec<Field> {
+    walk_sig_fields(doc).0
+}
+
+/// [`sig_fields`], and whether the walk read the whole form. It did not when a cap stopped it or a
+/// field was passed over for its name; a field it did not reach may then claim one of the widgets
+/// listed.
+///
+/// Kids share their parent's name instead of each copying it. A widget is listed under every field
+/// that lists it, so two claims on one widget stay visible, and it is copied once. A field taken
+/// by reference is taken where the walk first reaches it; one written in place in an indirect
+/// array is queued once, however many fields list that array.
+pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
     let mut out = Vec::new();
-    let Some(root) = doc.root() else { return out };
+    let Some(root) = doc.root() else { return (out, true) };
     let Some(af) = doc.get(root).as_dict().and_then(|c| c.get(b"AcroForm").map(|a| doc.resolve(a))).and_then(|a| a.as_dict().cloned()) else {
-        return out;
+        return (out, true);
     };
-    let Some(fields) = af.get(b"Fields").map(|f| doc.resolve(f)).and_then(|f| f.as_array().cloned()) else { return out };
+    let Some(top) = af.get(b"Fields") else { return (out, true) };
+    let (mut fields_left, mut entries_left, mut whole) = (MAX_FIELDS, MAX_ENTRIES, true);
+    // Fields by reference, and by slot those written in place in an indirect array.
     let mut seen = HashSet::new();
-    let mut stack: Vec<(Object, String, Option<Vec<u8>>)> = fields.into_iter().rev().map(|f| (f, String::new(), None)).collect();
-    while let Some((o, prefix, inherited_ft)) = stack.pop() {
+    let mut copies: HashMap<(ObjRef, Option<usize>), Rc<Dict>> = HashMap::new();
+    let unnamed: Rc<str> = Rc::from("");
+    let mut stack: Vec<(Object, Rc<str>, bool)> = Vec::new();
+    let fields = doc.resolve(top);
+    for (i, f) in fields.as_array().into_iter().flatten().enumerate() {
+        if !take(&mut entries_left) {
+            whole = false;
+            break;
+        }
+        if slot(f, top.as_ref(), i).is_some_and(|s| !seen.insert(s)) {
+            continue;
+        }
+        if !take(&mut fields_left) {
+            whole = false;
+            break;
+        }
+        stack.push((f.clone(), unnamed.clone(), false));
+    }
+    stack.reverse();
+    while let Some((o, prefix, inherited_sig)) = stack.pop() {
         if let Some(r) = o.as_ref()
-            && !seen.insert(r)
+            && !seen.insert((r, None))
         {
             continue;
         }
         let Some(d) = doc.resolve(&o).as_dict().cloned() else { continue };
-        let part = text(doc, &d, b"T");
-        let name = match (&part, prefix.is_empty()) {
-            (Some(p), true) => p.clone(),
-            (Some(p), false) => format!("{prefix}.{p}"),
-            (None, _) => prefix.clone(),
-        };
-        let ft = d.name(b"FT").map(<[u8]>::to_vec).or(inherited_ft);
-        let kids: Vec<Object> = d.get(b"Kids").map(|k| doc.resolve(k)).and_then(|k| k.as_array().cloned()).unwrap_or_default();
-        // Kids with a /T are fields; others are this field's widgets.
-        let (sub, widgets): (Vec<Object>, Vec<Object>) = kids.into_iter().partition(|k| doc.resolve(k).as_dict().is_some_and(|kd| kd.contains(b"T")));
-        for k in sub.into_iter().rev() {
-            stack.push((k, name.clone(), ft.clone()));
+        // Even as UTF-16, a name within the cap takes at most twice its length plus a two-byte
+        // mark. A /T stored in more is passed over undecoded, whatever it would trim to: a long
+        // string named by many fields would otherwise be decoded once for each.
+        let stored = d.get(b"T").map(|t| doc.resolve(t)).map_or(0, |t| match &*t {
+            Object::String(s) => s.bytes.len(),
+            Object::Name(n) => n.len(),
+            _ => 0,
+        });
+        if stored > 2 * MAX_FIELD_NAME_BYTES + 2 {
+            whole = false;
+            continue;
         }
-        if ft.as_deref() == Some(b"Sig") && part.is_some() {
-            let mut ws: Vec<(Option<ObjRef>, Dict)> =
-                widgets.iter().filter_map(|w| doc.resolve(w).as_dict().cloned().map(|wd| (w.as_ref(), wd))).collect();
-            if d.name(b"Subtype") == Some(b"Widget") {
-                ws.insert(0, (o.as_ref(), d.clone()));
+        let part = text(doc, &d, b"T");
+        let name: Rc<str> = match (&part, prefix.is_empty()) {
+            (Some(p), true) => p.as_str().into(),
+            (Some(p), false) => format!("{prefix}.{p}").into(),
+            (None, _) => prefix,
+        };
+        if name.len() > MAX_FIELD_NAME_BYTES {
+            whole = false;
+            continue;
+        }
+        let sig = d.name(b"FT").map_or(inherited_sig, |ft| ft == b"Sig");
+        let listed = sig && part.is_some();
+        let mut ws: Vec<(Option<ObjRef>, Rc<Dict>)> = Vec::new();
+        if listed && d.name(b"Subtype") == Some(b"Widget") {
+            ws.push((o.as_ref(), Rc::new(d.clone())));
+        }
+        let array = d.get(b"Kids").and_then(Object::as_ref);
+        let kids = d.get(b"Kids").map(|k| doc.resolve(k));
+        let mut sub = Vec::new();
+        for (i, k) in kids.as_deref().and_then(Object::as_array).into_iter().flatten().enumerate() {
+            if !take(&mut entries_left) {
+                whole = false;
+                break;
             }
-            out.push(Field { name, r: o.as_ref(), dict: d, widgets: ws });
+            let resolved;
+            let kd = match k {
+                Object::Ref(r) => {
+                    resolved = doc.get(*r);
+                    resolved.as_dict()
+                }
+                direct => direct.as_dict(),
+            };
+            let Some(kd) = kd else { continue };
+            let at = slot(k, array, i);
+            // Kids with a /T are fields; others are this field's widgets.
+            if kd.contains(b"T") {
+                if at.is_some_and(|s| !seen.insert(s)) {
+                    continue;
+                }
+                if !take(&mut fields_left) {
+                    whole = false;
+                    continue;
+                }
+                sub.push(k.clone());
+            } else if listed {
+                let w = match k.as_ref().map(|r| (r, None)).or(at) {
+                    Some(key) => copies.entry(key).or_insert_with(|| Rc::new(kd.clone())).clone(),
+                    None => Rc::new(kd.clone()),
+                };
+                ws.push((k.as_ref(), w));
+            }
+        }
+        for k in sub.into_iter().rev() {
+            stack.push((k, name.clone(), sig));
+        }
+        if listed {
+            out.push(Field { name: name.to_string(), r: o.as_ref(), dict: d, widgets: ws });
         }
     }
-    out
+    (out, whole)
+}
+
+/// The slot of an entry written in place in an indirect array, which tells it apart when several
+/// fields list that array. An entry by reference, or in a direct array (one owner), has none.
+fn slot(entry: &Object, array: Option<ObjRef>, i: usize) -> Option<(ObjRef, Option<usize>)> {
+    array.filter(|_| entry.as_ref().is_none()).map(|a| (a, Some(i)))
+}
+
+/// Take one from a budget; false once it is spent.
+fn take(left: &mut usize) -> bool {
+    let some = *left > 0;
+    *left = left.saturating_sub(1);
+    some
 }
 
 /// Which page holds each annotation.

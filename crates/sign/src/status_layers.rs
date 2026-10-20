@@ -16,13 +16,14 @@
 //! The icons are the Lucide ones the Signatures panel uses (`assets/icons`).
 
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 use pdfcraft_content::{Op, num, serialize_ops, string};
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
 use pdfcraft_fonts::source_shaping::ShapedRun;
 use pdfcraft_fonts::{INTER_REGULAR, embedding, first_non_win_ansi, helvetica_width, win_ansi};
 
-use crate::pdf::{SignatureInfo, Status, sig_fields};
+use crate::pdf::{SignatureInfo, Status, walk_sig_fields};
 
 /// The words of the regenerated `n4` caption, one per state. The caller chooses them, so an
 /// interface that speaks another language passes its own; the default is English.
@@ -273,7 +274,7 @@ fn appearance(doc: &Document, widget: &Dict) -> Option<ObjRef> {
 }
 
 /// A field's widgets: each one's reference (when it has one) and dictionary.
-type Widgets = Vec<(Option<ObjRef>, Dict)>;
+type Widgets = Vec<(Option<ObjRef>, Rc<Dict>)>;
 
 /// The signature fields' widgets by field name, and which widgets (by object number) more than
 /// one field claims.
@@ -286,7 +287,12 @@ impl Fields {
     fn of(doc: &Document) -> Self {
         let mut by_name: HashMap<String, Vec<Widgets>> = HashMap::new();
         let mut claims: HashMap<u32, usize> = HashMap::new();
-        for f in sig_fields(doc) {
+        let (fields, whole) = walk_sig_fields(doc);
+        // A field the walk did not reach could claim any of these widgets too: draw none.
+        if !whole {
+            return Self { by_name, claims };
+        }
+        for f in fields {
             for r in f.widgets.iter().filter_map(|(r, _)| r.map(|r| r.num)).collect::<HashSet<_>>() {
                 *claims.entry(r).or_default() += 1;
             }
@@ -297,7 +303,7 @@ impl Fields {
 
     /// The widgets of the one field called `name`. Two fields of one name leave it unclear which
     /// verdict is whose, so neither is drawn.
-    fn widgets(&self, name: &str) -> Option<&[(Option<ObjRef>, Dict)]> {
+    fn widgets(&self, name: &str) -> Option<&[(Option<ObjRef>, Rc<Dict>)]> {
         match self.by_name.get(name)?.as_slice() {
             [one] => Some(one),
             _ => None,
@@ -1391,6 +1397,19 @@ mod tests {
             assert_eq!(widget_n(&doc, 4), ObjRef::new(10, 0), "{name}");
             assert!(sigs.iter().all(|s| !s.verdict_shown), "{name}");
         }
+    }
+
+    #[test]
+    fn a_form_the_field_walk_cannot_read_whole_is_left_alone() {
+        // The second field's name is past the walk's cap, so its claim on widget 4 goes unseen.
+        let long = "x".repeat(crate::pdf::MAX_FIELD_NAME_BYTES + 1);
+        let fixture = Fixture::layered().with(|f| {
+            f.split = true;
+            f.extra = vec![(5, "<< /Fields [8 0 R 33 0 R] /SigFlags 3 >>".into()), (33, format!("<< /FT /Sig /T ({long}) /V 9 0 R /Kids [4 0 R] >>"))]
+        });
+        let mut doc = fixture.open();
+        assert!(!show(&mut doc, Status::Valid).verdict_shown);
+        assert_eq!(widget_n(&doc, 4), ObjRef::new(10, 0));
     }
 
     #[test]
