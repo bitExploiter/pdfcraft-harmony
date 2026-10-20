@@ -362,8 +362,8 @@ struct TextDevice {
     /// What the open `/ActualText` replacement paints besides glyphs (paths, images), as far as
     /// it can be seen: where its text reads when it marks no glyph (words drawn as outlines).
     painted: Option<Painted>,
-    /// The visible area while clip paths are in force (view space), innermost last. Each entry is
-    /// already the intersection of those before it.
+    /// The bounding boxes of the clip paths in force (view space), innermost last, each cut to the
+    /// one before it: an outer bound on what can show.
     clips: Vec<Rect>,
     /// Every `/ActualText` replacement made on the page.
     replaced: Vec<Replaced>,
@@ -451,7 +451,6 @@ fn quarter_turn(dx: f64, dy: f64) -> usize {
 /// What an `/ActualText` replacement paints besides glyphs, measured as [`merge`] measures
 /// glyphs: along the writing direction of the first of it (its transform's x axis, `u`) and
 /// across it.
-#[derive(Clone, Copy)]
 struct Painted {
     quarter: usize,
     u: [f64; 2],
@@ -468,23 +467,21 @@ impl Painted {
         Painted { quarter: quarter_turn(u[0], u[1]), u, along: empty, across: empty }
     }
 
-    /// `prev` (or a new measure in `transform`'s direction) grown by the view-space box `b`.
-    fn add(prev: Option<Self>, b: Rect, transform: Affine) -> Self {
-        let mut p = prev.unwrap_or_else(|| Painted::new(transform));
-        let n = [-p.u[1], p.u[0]];
+    /// Grow the measure by the view-space box `b`.
+    fn add(&mut self, b: Rect) {
+        let n = [-self.u[1], self.u[0]];
         for (x, y) in [(b.x0, b.y0), (b.x1, b.y0), (b.x1, b.y1), (b.x0, b.y1)] {
-            let (s, t) = (x * p.u[0] + y * p.u[1], x * n[0] + y * n[1]);
-            p.along = [p.along[0].min(s), p.along[1].max(s)];
-            p.across = [p.across[0].min(t), p.across[1].max(t)];
+            let (s, t) = (x * self.u[0] + y * self.u[1], x * n[0] + y * n[1]);
+            self.along = [self.along[0].min(s), self.along[1].max(s)];
+            self.across = [self.across[0].min(t), self.across[1].max(t)];
         }
-        p
     }
 
     /// A stand-in glyph with no text of its own, boxed around what was painted and read along its
     /// direction; `None` when that is too big to be the place of words.
     fn glyph(self) -> Option<Drawn> {
         let ([s0, s1], [t0, t1]) = (self.along, self.across);
-        // Also false for NaN and for a measure nothing was added to.
+        // Too big to be the place of words, or NaN.
         if !(s1 - s0 <= MAX_GLYPH_EXTENT && t1 - t0 <= MAX_GLYPH_EXTENT) {
             return None;
         }
@@ -591,7 +588,7 @@ impl TextDevice {
             }
             None => b,
         };
-        self.painted = Some(Painted::add(self.painted, seen, transform));
+        self.painted.get_or_insert_with(|| Painted::new(transform)).add(seen);
     }
 
     /// Ends the page. Some producers draw text twice, the copy for an outline, shadow or
@@ -776,13 +773,15 @@ impl<'a> Device<'a> for TextDevice {
             None => self.glyphs.push((dir, direction, glyph)),
         }
     }
-    fn draw_image(&mut self, _: Image<'a, '_>, transform: Affine) {
+    fn draw_image(&mut self, image: Image<'a, '_>, transform: Affine) {
         // A picture of words, like an outline, places a replacement that marks no glyph; with
         // images excluded, it is not counted.
         if self.actual.is_none() || self.excluded_depth.is_some() || self.filter.images {
             return;
         }
-        let corners = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)].map(|(x, y)| transform * kurbo::Point::new(x, y));
+        // The transform places the picture's pixels, not a unit square.
+        let (w, h) = (f64::from(image.width()), f64::from(image.height()));
+        let corners = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)].map(|(x, y)| transform * kurbo::Point::new(x, y));
         let [a, b, c, d] = corners;
         if corners.iter().all(|p| p.is_finite()) {
             self.paint(Rect::from_points(a, c).union_pt(b).union_pt(d), transform);
@@ -2041,10 +2040,18 @@ mod tests {
         for page in 4..7 {
             assert_eq!(marked_text(&pdf, page).plain_text(), "", "page {page}");
         }
+    }
+
+    #[test]
+    fn the_painted_filter_leaves_out_replacements_that_mark_no_glyph() {
         // A page's own text, without words that only /ActualText names.
-        let own = TextFilter { painted: true, ..Default::default() };
-        assert_eq!(extract_page_filtered(&pdf, 0, &InterpreterSettings::default(), own.clone()).unwrap().plain_text(), "");
-        let between = extract_page_filtered(&pdf, 2, &InterpreterSettings::default(), own).unwrap().plain_text();
+        let pdf = marked_pages(&[
+            "/Span <</ActualText (valid)>> BDC 100 40 m 160 40 l 160 60 l 100 60 l f EMC",
+            "BT /F1 20 Tf 1 0 0 1 20 150 Tm (a) Tj ET /Span <</ActualText (b)>> BDC 100 140 60 20 re f EMC BT /F1 20 Tf 1 0 0 1 200 150 Tm (c) Tj ET",
+        ]);
+        let own = |page| extract_page_filtered(&pdf, page, &InterpreterSettings::default(), TextFilter { painted: true, ..Default::default() });
+        assert_eq!(own(0).unwrap().plain_text(), "");
+        let between = own(1).unwrap().plain_text();
         assert!(between.contains('a') && between.contains('c') && !between.contains('b'), "the glyphs stay: {between:?}");
     }
 
@@ -2079,7 +2086,8 @@ mod tests {
 
     #[test]
     fn actual_text_over_a_picture_reads_where_it_is_drawn() {
-        let pdf = marked_pages(&["/Span <</ActualText (E=mc2)>> BDC q 60 0 0 20 100 40 cm BI /W 1 /H 1 /CS /G /BPC 8 ID A EI Q EMC"]);
+        // Two pixels square, so a box placed in pixels rather than across the picture shows.
+        let pdf = marked_pages(&["/Span <</ActualText (E=mc2)>> BDC q 60 0 0 20 100 40 cm BI /W 2 /H 2 /CS /G /BPC 8 ID AAAA EI Q EMC"]);
         let text = marked_text(&pdf, 0);
         assert_eq!(text.plain_text(), "E=mc2");
         assert_eq!(text.glyphs[0].rect, [100.0, 240.0, 160.0, 260.0]);
