@@ -941,6 +941,38 @@ fn document_properties_edit_dates_is_one_undoable_step() {
 }
 
 #[test]
+fn document_properties_date_validation_shows_error_and_disables_ok() {
+    let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
+    let created = h.get_by_role_and_label(Role::TextInput, "Created");
+    created.focus();
+    created.type_text("not-a-valid-date");
+    h.run_steps(2);
+
+    // Error text is displayed
+    h.get_by_label_contains("Please follow pattern: MM/DD/YY, h:mm:ss AM/PM");
+
+    // Clicking OK while invalid does nothing / is disabled
+    h.get_by_label("OK").click();
+    h.run_steps(2);
+    // Dialog should still be open because OK is disabled
+    assert!(h.state().dialog.is_some());
+
+    // Fix the date to a valid format
+    if let Some((_, draft)) = h.state_mut().props_draft.as_mut() {
+        draft[4] = "10/20/26, 4:16:49 PM Z".into();
+    }
+    h.run_steps(2);
+
+    // Clicking OK now succeeds
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.info.creation_date.as_deref(), Some("D:20261020161649Z"));
+    assert!(app.dialog.is_none());
+}
+
+#[test]
 fn cancelling_properties_discards_the_draft() {
     let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
     let title = h.get_by_role_and_label(Role::TextInput, "Title");

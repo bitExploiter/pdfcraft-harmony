@@ -628,6 +628,270 @@ pub fn local_utc_offset() -> i64 {
     return 0;
 }
 
+fn days_in_month(y: u32, m: u32) -> u32 {
+    match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            let is_leap = (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
+            if is_leap { 29 } else { 28 }
+        }
+        _ => 0,
+    }
+}
+
+/// Validate whether an input string matches an acceptable date format:
+/// - Human 12-hour format: `MM/DD/YY, h:mm:ss AM/PM` (or `MM/DD/YYYY, h:mm:ss AM/PM`)
+/// - ISO format: `YYYY-MM-DD`, `YYYY-MM-DD HH:MM:SS`, `YYYY-MM-DDTHH:MM:SS`
+/// - PDF format: `D:YYYYMMDD...`
+/// - Empty string (which clears the date entry)
+pub fn is_valid_pdf_date_input(s: &str) -> bool {
+    let s = s.trim();
+    if s.is_empty() {
+        return true;
+    }
+
+    // PDF format: D:YYYYMMDD... or d:YYYYMMDD...
+    if let Some(rest) = s.strip_prefix("D:").or_else(|| s.strip_prefix("d:")) {
+        let rest = rest.trim();
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if digits.len() < 4 {
+            return false;
+        }
+        let Some(y_str) = digits.get(0..4) else { return false };
+        let Ok(y) = y_str.parse::<u32>() else { return false };
+        if y == 0 {
+            return false;
+        }
+        let m = if digits.len() >= 6 {
+            let Some(m_str) = digits.get(4..6) else { return false };
+            let Ok(m) = m_str.parse::<u32>() else { return false };
+            if !(1..=12).contains(&m) {
+                return false;
+            }
+            m
+        } else {
+            1
+        };
+        if digits.len() >= 8 {
+            let Some(d_str) = digits.get(6..8) else { return false };
+            let Ok(d) = d_str.parse::<u32>() else { return false };
+            if d < 1 || d > days_in_month(y, m) {
+                return false;
+            }
+        }
+        if digits.len() >= 10 {
+            let Some(h_str) = digits.get(8..10) else { return false };
+            let Ok(h) = h_str.parse::<u32>() else { return false };
+            if h > 23 {
+                return false;
+            }
+        }
+        if digits.len() >= 12 {
+            let Some(mi_str) = digits.get(10..12) else { return false };
+            let Ok(mi) = mi_str.parse::<u32>() else { return false };
+            if mi > 59 {
+                return false;
+            }
+        }
+        if digits.len() >= 14 {
+            let Some(s_str) = digits.get(12..14) else { return false };
+            let Ok(sec) = s_str.parse::<u32>() else { return false };
+            if sec > 59 {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    let upper = s.to_ascii_uppercase();
+    let is_pm = upper.contains("PM");
+    let is_am = upper.contains("AM");
+
+    // Human M/D/Y format: e.g. 10/20/26, 4:16:49 PM or 10/20/2026, 4:16:49 PM
+    if s.contains('/') {
+        let mut parts = s.split(|c: char| c == ',' || c.is_whitespace()).filter(|p| !p.is_empty());
+        let Some(date_part) = parts.next() else { return false };
+        let slash_parts: Vec<&str> = date_part.split('/').collect();
+        if slash_parts.len() != 3 {
+            return false;
+        }
+        let Some(n1_str) = slash_parts.get(0) else { return false };
+        let Some(n2_str) = slash_parts.get(1) else { return false };
+        let Some(n3_str) = slash_parts.get(2) else { return false };
+        let Ok(n1) = n1_str.parse::<u32>() else { return false };
+        let Ok(n2) = n2_str.parse::<u32>() else { return false };
+        let Ok(n3) = n3_str.parse::<u32>() else { return false };
+
+        let (y, m, d) = if n1_str.len() == 4 {
+            // YYYY/MM/DD
+            if n1 == 0 {
+                return false;
+            }
+            (n1, n2, n3)
+        } else {
+            // MM/DD/YY or MM/DD/YYYY
+            let full_year = if n3 < 70 {
+                2000u32.saturating_add(n3)
+            } else if n3 < 100 {
+                1900u32.saturating_add(n3)
+            } else {
+                n3
+            };
+            (full_year, n1, n2)
+        };
+
+        if !(1..=12).contains(&m) || d < 1 || d > days_in_month(y, m) {
+            return false;
+        }
+
+        let mut found_time = false;
+        for part in parts {
+            let upper_part = part.to_ascii_uppercase();
+            if upper_part == "AM" || upper_part == "PM" || upper_part == "Z" {
+                continue;
+            }
+            if (part.starts_with('+') || part.starts_with('-')) && part.len() >= 3 {
+                continue;
+            }
+            let cleaned = part.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+            if cleaned.contains(':') {
+                let time_chunks: Vec<&str> = cleaned.split(':').collect();
+                if time_chunks.len() < 2 || time_chunks.len() > 3 {
+                    return false;
+                }
+                let Some(h_str) = time_chunks.get(0) else { return false };
+                let Some(m_str) = time_chunks.get(1) else { return false };
+                let Ok(h) = h_str.parse::<u32>() else { return false };
+                let Ok(mi) = m_str.parse::<u32>() else { return false };
+                let sec = if let Some(s_str) = time_chunks.get(2) {
+                    let Ok(s) = s_str.parse::<u32>() else { return false };
+                    s
+                } else {
+                    0
+                };
+
+                if (is_am || is_pm) && (h < 1 || h > 12) {
+                    return false;
+                }
+                if !is_am && !is_pm && h > 23 {
+                    return false;
+                }
+                if mi > 59 || sec > 59 {
+                    return false;
+                }
+                found_time = true;
+            } else {
+                return false;
+            }
+        }
+
+        if (is_am || is_pm) && !found_time {
+            return false;
+        }
+
+        return true;
+    }
+
+    // ISO format: YYYY-MM-DD or YYYY-MM-DD HH:MM:SS
+    if s.contains('-') {
+        let parts: Vec<&str> = s.split(|c: char| c == 'T' || c.is_whitespace()).filter(|p| !p.is_empty()).collect();
+        if let Some(date_part) = parts.first() {
+            let dash_parts: Vec<&str> = date_part.split('-').collect();
+            if dash_parts.len() == 3 {
+                let Some(y_str) = dash_parts.get(0) else { return false };
+                let Some(m_str) = dash_parts.get(1) else { return false };
+                let Some(d_str) = dash_parts.get(2) else { return false };
+                let Ok(y) = y_str.parse::<u32>() else { return false };
+                let Ok(m) = m_str.parse::<u32>() else { return false };
+                let Ok(d) = d_str.parse::<u32>() else { return false };
+                if y == 0 || !(1..=12).contains(&m) || d < 1 || d > days_in_month(y, m) {
+                    return false;
+                }
+                if let Some(time_part) = parts.get(1) {
+                    let cleaned = time_part.trim_end_matches(|c: char| c == 'Z' || c == 'z' || c.is_ascii_alphabetic());
+                    let cleaned = if let Some(idx) = cleaned.find('+').or_else(|| cleaned.find('-')) {
+                        cleaned.get(..idx).unwrap_or(cleaned)
+                    } else {
+                        cleaned
+                    };
+                    let time_chunks: Vec<&str> = cleaned.split(':').collect();
+                    if !time_chunks.is_empty() {
+                        let Some(h_str) = time_chunks.get(0) else { return false };
+                        let Ok(h) = h_str.parse::<u32>() else { return false };
+                        if h > 23 {
+                            return false;
+                        }
+                        if let Some(m_str) = time_chunks.get(1) {
+                            let Ok(mi) = m_str.parse::<u32>() else { return false };
+                            if mi > 59 {
+                                return false;
+                            }
+                        }
+                        if let Some(s_str) = time_chunks.get(2) {
+                            let Ok(sec) = s_str.parse::<u32>() else { return false };
+                            if sec > 59 {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                return true;
+            }
+        }
+    }
+
+    // Pure digits: at least 4 digits for year
+    if s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 4 && s.len() <= 14 {
+        let Some(y_str) = s.get(0..4) else { return false };
+        let Ok(y) = y_str.parse::<u32>() else { return false };
+        if y == 0 {
+            return false;
+        }
+        let m = if s.len() >= 6 {
+            let Some(m_str) = s.get(4..6) else { return false };
+            let Ok(m) = m_str.parse::<u32>() else { return false };
+            if !(1..=12).contains(&m) {
+                return false;
+            }
+            m
+        } else {
+            1
+        };
+        if s.len() >= 8 {
+            let Some(d_str) = s.get(6..8) else { return false };
+            let Ok(d) = d_str.parse::<u32>() else { return false };
+            if d < 1 || d > days_in_month(y, m) {
+                return false;
+            }
+        }
+        if s.len() >= 10 {
+            let Some(h_str) = s.get(8..10) else { return false };
+            let Ok(h) = h_str.parse::<u32>() else { return false };
+            if h > 23 {
+                return false;
+            }
+        }
+        if s.len() >= 12 {
+            let Some(mi_str) = s.get(10..12) else { return false };
+            let Ok(mi) = mi_str.parse::<u32>() else { return false };
+            if mi > 59 {
+                return false;
+            }
+        }
+        if s.len() >= 14 {
+            let Some(s_str) = s.get(12..14) else { return false };
+            let Ok(sec) = s_str.parse::<u32>() else { return false };
+            if sec > 59 {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    false
+}
+
 /// Suffix for a PDF date in the local timezone (e.g. `+03'00'` or `Z`).
 pub fn local_tz_suffix() -> String {
     let offset = local_utc_offset();
@@ -865,6 +1129,9 @@ pub fn set_info(doc: &mut Document, key: &str, value: &str) -> Result<(), Organi
     }
     let value = value.trim();
     let value = if key == "CreationDate" || key == "ModDate" {
+        if !is_valid_pdf_date_input(value) {
+            return Err(OrganizeError::Invalid(format!("invalid date format: expected MM/DD/YY, h:mm:ss AM/PM, got '{value}'")));
+        }
         normalize_pdf_date(value)
     } else {
         value.to_string()

@@ -576,6 +576,47 @@ fn format_pdf_date_formats_and_normalizes_correctly() {
 }
 
 #[test]
+fn is_valid_pdf_date_input_checks_pattern_correctly() {
+    use crate::{is_valid_pdf_date_input, set_info};
+
+    // Valid formats:
+    assert!(is_valid_pdf_date_input(""));
+    assert!(is_valid_pdf_date_input("   "));
+    assert!(is_valid_pdf_date_input("10/20/26, 4:16:49 PM"));
+    assert!(is_valid_pdf_date_input("10/20/26, 4:16:49\u{202f}PM"));
+    assert!(is_valid_pdf_date_input("10/20/26, 4:16:49 PM Z"));
+    assert!(is_valid_pdf_date_input("10/20/26, 4:16:49 PM +03:00"));
+    assert!(is_valid_pdf_date_input("5/8/24, 9:05:03 AM"));
+    assert!(is_valid_pdf_date_input("1/1/24, 12:00:00 AM"));
+    assert!(is_valid_pdf_date_input("10/20/2026, 4:16:49 PM"));
+    assert!(is_valid_pdf_date_input("2026-10-20 16:16:49"));
+    assert!(is_valid_pdf_date_input("2026-10-20T16:16:49Z"));
+    assert!(is_valid_pdf_date_input("D:20261020161649+03'00'"));
+    assert!(is_valid_pdf_date_input("D:20261020161649Z"));
+
+    // Invalid formats:
+    assert!(!is_valid_pdf_date_input("not-a-date"));
+    assert!(!is_valid_pdf_date_input("random words"));
+    assert!(!is_valid_pdf_date_input("10/20"));
+    assert!(!is_valid_pdf_date_input("13/20/26, 4:16:49 PM")); // month 13
+    assert!(!is_valid_pdf_date_input("10/32/26, 4:16:49 PM")); // day 32
+    assert!(!is_valid_pdf_date_input("2/29/26, 4:16:49 PM"));  // 2026 is not a leap year
+    assert!(is_valid_pdf_date_input("2/29/24, 4:16:49 PM"));   // 2024 is a leap year
+    assert!(!is_valid_pdf_date_input("10/20/26, 13:16:49 PM")); // hour 13 with PM
+    assert!(!is_valid_pdf_date_input("10/20/26, 0:16:49 PM"));  // hour 0 with PM
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:60:49 PM"));  // minute 60
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:60 PM"));  // second 60
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:49 XM"));  // invalid AM/PM
+    assert!(!is_valid_pdf_date_input("D:invalid"));
+    assert!(!is_valid_pdf_date_input("D:20261301")); // month 13 in PDF date
+
+    // set_info rejects invalid date format with error:
+    let mut doc = open(fixture());
+    let err = set_info(&mut doc, "CreationDate", "bad-date-string").unwrap_err();
+    assert!(matches!(err, crate::OrganizeError::Invalid(_)));
+}
+
+#[test]
 fn document_info_edits_leave_files_without_usable_xmp_alone() {
     // No packet: none is added.
     let mut doc = open(fixture());

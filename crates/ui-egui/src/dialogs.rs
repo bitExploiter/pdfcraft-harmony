@@ -149,8 +149,19 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                             other => tl!(other),
                                         };
                                         let l = ui.label(egui::RichText::new(label).color(t.text_muted));
-                                        ui.add(widgets::line(v).desired_width(420.0).background_color(t.field).id_salt(("info", *k)))
-                                            .labelled_by(l.id);
+                                        let is_date = *k == "CreationDate" || *k == "ModDate";
+                                        let is_err = is_date && !pdfcraft_engine::is_valid_pdf_date_input(v);
+                                        ui.vertical(|ui| {
+                                            ui.add(widgets::line(v).desired_width(420.0).background_color(t.field).id_salt(("info", *k)))
+                                                .labelled_by(l.id);
+                                            if is_err {
+                                                ui.label(
+                                                    egui::RichText::new(tl!("Please follow pattern: MM/DD/YY, h:mm:ss AM/PM (e.g. 10/20/26, 4:16:49 PM)"))
+                                                        .color(egui::Color32::from_rgb(220, 60, 60))
+                                                        .small(),
+                                                );
+                                            }
+                                        });
                                         ui.end_row();
                                     }
                                 }
@@ -1226,7 +1237,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     close = true;
                 }
             } else if changed {
-                if widgets::pill_button(ui, tl!("OK"), true).clicked() {
+                let has_error = app.props_draft.as_ref().is_some_and(|(_, draft)| {
+                    INFO_KEYS.iter().zip(draft.iter()).any(|(k, v)| {
+                        (*k == "CreationDate" || *k == "ModDate") && !pdfcraft_engine::is_valid_pdf_date_input(v)
+                    })
+                });
+                if ui.add_enabled_ui(!has_error, |ui| widgets::pill_button(ui, tl!("OK"), true)).inner.clicked() {
                     apply = true;
                     close = true;
                 }
