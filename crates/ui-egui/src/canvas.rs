@@ -3390,7 +3390,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                                     let (to_first, to_last) = click_unit(&text, clicks, h).unwrap_or((h, h));
                                     (*anchor, *head) = if to_first < first { (last, to_first) } else { (first, to_last.max(last)) };
                                     // A drag, so it selects table rows as a plain drag does, by whole units.
-                                    *head_x = Some(vx).filter(|x| x.is_finite());
+                                    // The page unit (four clicks) is the page's text in reading order.
+                                    *head_x = Some(vx).filter(|x| x.is_finite() && clicks < 4);
                                 }
                             }
                             Span::Run { head, head_x, .. } => {

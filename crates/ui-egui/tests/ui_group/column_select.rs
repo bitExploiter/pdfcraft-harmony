@@ -215,6 +215,30 @@ trailer << /Root 1 0 R >>\n%%EOF",
 /// drag would take don't apply, though its last glyph is not the lowest.
 #[test]
 fn select_all_keeps_every_line_of_uneven_columns() {
+    let mut h = uneven_harness();
+    assert!(h.state_mut().views[0].select_all());
+    h.run_steps(1);
+    assert_eq!(text(&h).as_deref(), Some(UNEVEN_PAGE_TEXT));
+}
+
+/// Four clicks select the page, and a pointer that moves on a little after the fourth press
+/// keeps it whole: the page unit has no rows to take.
+#[test]
+fn four_clicks_then_a_short_drag_keep_the_whole_page() {
+    let mut h = uneven_harness();
+    let at = glyph(&h, 2);
+    for _ in 0..3 {
+        for pressed in [true, false] {
+            h.hover_at(at);
+            h.event(Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+        }
+    }
+    drag(&mut h, at, at + vec2(30.0, 8.0), Modifiers::NONE);
+    assert_eq!(text(&h).as_deref(), Some(UNEVEN_PAGE_TEXT));
+}
+
+fn uneven_harness() -> Harness<'static, PdfCraftApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_eframe(|_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
@@ -222,10 +246,10 @@ fn select_all_keeps_every_line_of_uneven_columns() {
         app
     });
     crate::support::wait_until(&mut h, "the page's text layer", |app| app.views[0].glyph_screen_pos(0, 0).is_some() && !app.render_pending());
-    assert!(h.state_mut().views[0].select_all());
-    h.run_steps(1);
-    assert_eq!(text(&h).as_deref(), Some("Left first line.\nLeft other line.\nLeft final line.\nRight first line.\nRight final line."));
+    h
 }
+
+const UNEVEN_PAGE_TEXT: &str = "Left first line.\nLeft other line.\nLeft final line.\nRight first line.\nRight final line.";
 
 /// A drag after a double-click extends by whole words, and over a table it takes the rows as a
 /// plain drag does: from "Name" down to "12", not reading order's detour through "Pear".
