@@ -1949,3 +1949,73 @@ fn saving_writes_a_note_onto_its_comment_after_an_earlier_one_is_deleted() {
     assert_eq!(draft(&h), None);
     let _ = std::fs::remove_dir_all(out.parent().unwrap());
 }
+
+/// Highlight, type `note` into its note, then undo the highlight: the document is back as it was
+/// opened, so only the note, now without its comment, is unsaved.
+fn note_left_by_an_undone_highlight(note: &str) -> Harness<'static, PdfCraftApp> {
+    let mut h = highlight_with_open_note();
+    set_note(&mut h, note);
+    h.state_mut().undo();
+    h.run_steps(2);
+    assert!(comments(&h).is_empty(), "the highlight is gone");
+    let s = h.state();
+    assert!(!s.session.get(s.views[0].id).unwrap().dirty, "the document is as it was opened");
+    h
+}
+
+#[test]
+fn closing_with_a_typed_note_left_by_an_undone_highlight_asks_and_cancel_lets_redo_recover_it() {
+    let out = saved_path("orphan-cancel");
+    let mut h = note_left_by_an_undone_highlight("Keep me");
+    assert_eq!(h.state().first_dirty(), Some(0), "the typed note is unsaved work (Close, Close all and Quit ask)");
+    h.state_mut().request_close_tab(0);
+    assert!(h.state().close_request.is_some(), "the user is asked before the note is lost");
+    let ctx = h.ctx.clone();
+    h.state_mut().resolve_close(&ctx, None);
+    h.run_steps(2);
+    assert_eq!(h.state().views.len(), 1, "Cancel keeps the document open");
+    assert_eq!(draft(&h).map(|d| d.2), Some("Keep me".to_string()), "and the note");
+    // Redo brings the highlight back with its /NM: the note is its own again, and saves.
+    h.state_mut().redo();
+    h.run_steps(2);
+    assert_eq!(comments(&h).len(), 1);
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    assert!(save(&mut h));
+    assert_eq!(contents(&saved_comments(&out)[0]), "Keep me", "the recovered note is saved with its highlight");
+    let _ = std::fs::remove_dir_all(out.parent().unwrap());
+}
+
+#[test]
+fn choosing_save_for_a_note_left_by_an_undone_highlight_drops_it_and_closes() {
+    let out = saved_path("orphan-save");
+    let mut h = note_left_by_an_undone_highlight("Nowhere to go");
+    h.state_mut().request_close_tab(0);
+    assert!(h.state().close_request.is_some(), "the user is asked");
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    let ctx = h.ctx.clone();
+    h.state_mut().resolve_close(&ctx, Some(true));
+    h.run_steps(2);
+    assert!(h.state().views.is_empty(), "saved, then closed");
+    assert!(saved_comments(&out).is_empty(), "the note had no comment to go onto, so none was written");
+    let _ = std::fs::remove_dir_all(out.parent().unwrap());
+}
+
+#[test]
+fn choosing_dont_save_for_a_note_left_by_an_undone_highlight_closes() {
+    let mut h = note_left_by_an_undone_highlight("Never mind");
+    h.state_mut().request_close_tab(0);
+    assert!(h.state().close_request.is_some(), "the user is asked");
+    let ctx = h.ctx.clone();
+    h.state_mut().resolve_close(&ctx, Some(false));
+    h.run_steps(2);
+    assert!(h.state().views.is_empty(), "Don't Save closes, discarding the note");
+}
+
+#[test]
+fn an_empty_note_left_by_an_undone_highlight_does_not_ask_on_close() {
+    let mut h = note_left_by_an_undone_highlight("");
+    assert_eq!(h.state().first_dirty(), None, "nothing typed: nothing unsaved");
+    h.state_mut().request_close_tab(0);
+    assert!(h.state().close_request.is_none(), "no prompt");
+    assert!(h.state().views.is_empty(), "the tab just closes");
+}
