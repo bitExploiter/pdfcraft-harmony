@@ -376,6 +376,10 @@ impl StandardKind {
         Self::new_with_standard(dict, font, !exact, resolver)
     }
 
+    /// Build a standard-face substitute from the PDF dictionary and the host resolver.
+    /// `fallback` distinguishes a substituted family from an exact Standard-14 match when
+    /// fitting primary outlines to widths. Return `None` if widths cannot be read, the
+    /// resolver has no face, or its font program cannot be parsed. Per-code caches start empty.
     pub(crate) fn new_with_standard(
         dict: &Dict<'_>,
         base_font: StandardFont,
@@ -422,6 +426,13 @@ impl StandardKind {
             })
     }
 
+    /// Resolve a byte to a drawable primary glyph, an accent composite, then an alternate
+    /// outline or missing-glyph box. Empty named/cmap outlines do not stop fallback;
+    /// ToUnicode can rescue unknown names without replacing supported primary glyphs.
+    /// Cache successes and failures for at most 256 codes, refreshing the reverse mapping
+    /// on cache hits. Only successful primary Unicode aliases retain canonical metrics;
+    /// rejected empty aliases keep the alternate face's advance. Map before querying
+    /// widths that depend on an alias or alternate face.
     pub(crate) fn map_code(&self, code: u8, to_unicode: Option<&CMap>) -> GlyphId {
         // PdfCraft patch (35): a simple font has at most 256 mappings. Avoid repeated
         // CFF name scans and Unicode decoding, including unsuccessful lookups.
@@ -466,6 +477,9 @@ impl StandardKind {
             && !self.base_font_blob.outline_glyph(glyph).elements().is_empty()
     }
 
+    /// Look up a drawable primary glyph by Unicode cmap, then by its canonical glyph name
+    /// for CFF stand-ins without a cmap. Missing, .notdef and empty outlines return `None`
+    /// so the caller can continue through composites and alternate faces.
     fn primary_unicode_glyph(&self, character: char) -> Option<GlyphId> {
         self.base_font_blob
             .unicode_to_glyph(character as u32)
@@ -478,6 +492,9 @@ impl StandardKind {
             })
     }
 
+    /// Return Standard-14 metrics for the encoding name or a successfully mapped primary
+    /// Unicode alias. Return `None` when neither has metrics; PDF widths, MissingWidth
+    /// and alternate-face advances are deliberately handled by `glyph_width` instead.
     fn primary_width(&self, code: u8) -> Option<f32> {
         self.code_to_ps_name(code)
             .and_then(|name| self.base_font.get_width(name))
@@ -549,6 +566,10 @@ impl StandardKind {
         Some(path)
     }
 
+    /// Return the cached, already fitted alternate outline, or construct a primary/composite
+    /// outline. Exact standard faces use standard metrics for stretching; substituted
+    /// families use an explicit PDF width when available. Missing fitting metrics leave
+    /// the path unchanged, and alternate outlines are never stretched a second time.
     pub(crate) fn outline_glyph(&self, glyph: GlyphId) -> BezPath {
         if let Some(path) = self.glyph_fallback.outline(glyph) {
             return path;
@@ -593,6 +614,11 @@ impl StandardKind {
         path
     }
 
+    /// Return the advance in 1000-unit text space. An explicit Widths value, including
+    /// zero, wins; a missing entry inside the array uses MissingWidth or zero. Outside
+    /// the array (including an absent Widths array), prefer primary standard metrics,
+    /// then explicit MissingWidth, then a cached alternate's natural advance or box width.
+    /// Alias and alternate metrics require `map_code` first; return `None` if none exist.
     pub(crate) fn glyph_width(&self, code: u8) -> Option<f32> {
         match self.widths.get(code as usize).copied() {
             Some(Width::Value(w)) => Some(w),

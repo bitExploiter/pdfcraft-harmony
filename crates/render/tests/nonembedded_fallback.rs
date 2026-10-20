@@ -6,6 +6,8 @@ use std::sync::Arc;
 const FONTS: [&str; 4] = ["ArialMT", "Arial-BoldMT", "Calibri", "TimesNewRomanPSMT"];
 const CYRILLIC: &str = "Обща цена, лв. Здравей";
 
+/// Build WinAnsi Differences mapping bytes 192..=255 to Cyrillic A through ya,
+/// excluding Yo, using the corresponding afii glyph names.
 fn cyrillic_encoding() -> Object {
     let mut differences = vec![Object::Integer(192)];
     for i in 0..64 {
@@ -15,6 +17,8 @@ fn cyrillic_encoding() -> Object {
     dictionary! {"Type"=>"Encoding", "BaseEncoding"=>"WinAnsiEncoding", "Differences"=>differences}.into()
 }
 
+/// Build a non-embedded TrueType dictionary with 600-unit widths for bytes 32..=255.
+/// Callers replace widths, subtype or descriptor programs to construct controls.
 fn simple_font(name: &str, encoding: Object) -> Object {
     dictionary! {
         "Type"=>"Font", "Subtype"=>"TrueType", "BaseFont"=>Object::Name(name.as_bytes().to_vec()),
@@ -29,6 +33,9 @@ fn simple_font(name: &str, encoding: Object) -> Object {
     .into()
 }
 
+/// Serialize a 595 by 842 single-page fixture with dictionary fonts named F0, F1, etc.
+/// Lift descriptor programs and ToUnicode streams into indirect objects; fixture
+/// construction and serialization must succeed.
 fn pdf(fonts: Vec<Object>, content: Vec<u8>) -> Vec<u8> {
     let mut doc = Document::with_version("1.4");
     let pages = doc.new_object_id();
@@ -62,6 +69,8 @@ fn pdf(fonts: Vec<Object>, content: Vec<u8>) -> Vec<u8> {
     bytes
 }
 
+/// Reproduce the four reported families with Latin prefixes and Bulgarian text on
+/// separate baselines, using explicit 600-unit advances for predictable ink cells.
 fn reporter_pdf() -> Vec<u8> {
     let mut content = Vec::new();
     for (i, name) in FONTS.iter().enumerate() {
@@ -76,6 +85,7 @@ fn reporter_pdf() -> Vec<u8> {
     pdf(FONTS.iter().map(|name| simple_font(name, cyrillic_encoding())).collect(), content)
 }
 
+/// Render page zero at 96 dpi with production font selection, asserting no render error.
 fn render(bytes: Vec<u8>) -> RenderedPage {
     let mut renderer = PageRenderer::new(Arc::new(bytes), RenderConfig::default());
     let page = renderer.render(RenderRequest { scale: 96.0 / 72.0, ..Default::default() });
@@ -83,6 +93,8 @@ fn render(bytes: Vec<u8>) -> RenderedPage {
     page
 }
 
+/// Require ink in every alphabetic Cyrillic cell for each family; rendering only
+/// the Latin prefix cannot satisfy this regression check.
 #[test]
 fn all_four_reported_nonembedded_fonts_draw_every_cyrillic_letter() {
     let page = render(reporter_pdf());
@@ -104,6 +116,7 @@ fn all_four_reported_nonembedded_fonts_draw_every_cyrillic_letter() {
     }
 }
 
+/// Verify all four Bulgarian strings extract independently of missing primary outlines.
 #[test]
 fn reporter_text_decodes_independently_of_missing_outlines() {
     let mut renderer = PageRenderer::new(Arc::new(reporter_pdf()), RenderConfig::default());
@@ -113,6 +126,8 @@ fn reporter_text_decodes_independently_of_missing_outlines() {
     assert_eq!(text.matches(CYRILLIC).count(), 4, "{text}");
 }
 
+/// Check that an overflowing Differences cursor neither panics nor loses a later
+/// valid reset: Cyrillic decodes, draws and resolves its alternate only once.
 #[test]
 fn overflowing_differences_indices_do_not_crash_or_discard_later_entries() {
     let encoding = dictionary! {"BaseEncoding"=>"WinAnsiEncoding", "Differences"=>vec![
@@ -148,12 +163,16 @@ struct DrawnGlyph {
 
 #[derive(Default)]
 struct Probe(Vec<DrawnGlyph>);
+/// Observe glyph geometry only; painting, masks, clips, images and groups are ignored
+/// because this probe compares interpreter placement rather than composited pixels.
 impl<'a> Device<'a> for Probe {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
     fn draw_path(&mut self, _: &BezPath, _: Affine, _: &Paint<'a>, _: &PathDrawMode) {}
     fn push_clip_path(&mut self, _: &ClipPath) {}
     fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'a>>, _: BlendMode) {}
+    /// Record semantic text, outline/id, advance, embedding status and the combined page
+    /// and glyph transform at draw time, preserving interpreter order for comparisons.
     fn draw_glyph(&mut self, g: &Glyph<'a>, transform: Affine, glyph_transform: Affine, _: &Paint<'a>, _: &GlyphDrawMode) {
         let text = match g.as_unicode() {
             Some(hayro::hayro_interpret::hayro_cmap::BfString::Char(c)) => c.to_string(),
@@ -171,6 +190,8 @@ impl<'a> Device<'a> for Probe {
     fn pop_transparency_group(&mut self) {}
 }
 
+/// Interpret page zero of a valid fixture into glyph observations with the supplied
+/// resolver settings. Fixture parsing must succeed.
 fn probe(bytes: Vec<u8>, settings: InterpreterSettings) -> Vec<DrawnGlyph> {
     let parsed = hayro::hayro_syntax::Pdf::new(bytes).unwrap();
     let page = &parsed.pages()[0];
@@ -181,8 +202,9 @@ fn probe(bytes: Vec<u8>, settings: InterpreterSettings) -> Vec<DrawnGlyph> {
     device.0
 }
 
-// Exercise the vendored resolver seam separately from production face selection. A stable Arc
-// also verifies the intended face-cache contract. No installed font affects these tests.
+/// Return a test resolver and MissingGlyph request counter. Alternate bytes share one
+/// stable Arc to exercise face caching; absent, corrupt or non-covering bytes are
+/// intentional inputs. Other queries use the default resolver, without system fonts.
 fn settings(fallback: Option<&'static [u8]>) -> (InterpreterSettings, Arc<AtomicUsize>) {
     let standard = InterpreterSettings::default().font_resolver;
     let data = fallback.map(|bytes| Arc::new(bytes) as FontData);
@@ -203,6 +225,8 @@ fn settings(fallback: Option<&'static [u8]>) -> (InterpreterSettings, Arc<Atomic
     )
 }
 
+/// Build explicit 600-unit widths for all bytes and supplied Differences pairs.
+/// Keep arbitrary signed indices to exercise malformed encodings.
 fn encoded_font(name: &str, names: &[(i64, &str)]) -> Object {
     let differences = names.iter().flat_map(|(code, name)| [Object::Integer(*code), Object::Name(name.as_bytes().to_vec())]).collect::<Vec<_>>();
     let mut f = simple_font(name, dictionary! {"BaseEncoding"=>"WinAnsiEncoding","Differences"=>differences}.into());
@@ -212,11 +236,15 @@ fn encoded_font(name: &str, names: &[(i64, &str)]) -> Object {
     f
 }
 
+/// Show the supplied bytes as one hexadecimal text string at 20 pt and (40, 700),
+/// avoiding literal-string escaping in byte-code fixtures.
 fn glyph_pdf(font: Object, codes: &[u8]) -> Vec<u8> {
     let hex = codes.iter().map(|b| format!("{b:02X}")).collect::<String>();
     pdf(vec![font], format!("BT /F0 20 Tf 40 700 Td <{hex}> Tj ET").into_bytes())
 }
 
+/// Compare absent Widths against explicit natural alternate advances, including
+/// spacing, TJ adjustments, transforms, raster output and repeated-code cache reuse.
 #[test]
 fn standard_fonts_without_widths_use_alternate_advances_and_keep_text_placement() {
     use skrifa::{
@@ -270,6 +298,8 @@ fn standard_fonts_without_widths_use_alternate_advances_and_keep_text_placement(
     }
 }
 
+/// Keep explicit widths, including zero, ahead of alternate metrics; array holes
+/// must use MissingWidth, including an explicit zero.
 #[test]
 fn explicit_zero_and_missing_width_keep_priority_over_alternate_metrics() {
     for (entry, missing_width, expected) in
@@ -292,6 +322,8 @@ fn explicit_zero_and_missing_width_keep_priority_over_alternate_metrics() {
     }
 }
 
+/// Check MissingWidth precedence over alternate advances without a Widths array,
+/// including zero and the resulting following-glyph positions.
 #[test]
 fn explicit_missing_width_without_widths_keeps_priority_over_alternate_metrics() {
     for width in [0, 400] {
@@ -307,6 +339,8 @@ fn explicit_missing_width_without_widths_keeps_priority_over_alternate_metrics()
     }
 }
 
+/// Require visible 600-unit missing boxes when neither PDF widths nor a covering
+/// alternate exists, preventing collapsed text placement.
 #[test]
 fn unavailable_alternate_without_widths_spaces_missing_boxes() {
     let mut font = encoded_font("Helvetica", &[(192, "afii10033")]);
@@ -318,6 +352,8 @@ fn unavailable_alternate_without_widths_spaces_missing_boxes() {
     assert!((glyphs[1].matrix[4] - glyphs[0].matrix[4] - 12.0).abs() < 0.0001);
 }
 
+/// Preserve a combining alternate's natural zero advance instead of substituting 600;
+/// repeated codes reuse resolution and retain the same position.
 #[test]
 fn zero_advance_combining_fallback_without_widths_stays_zero() {
     let mut font = encoded_font("Helvetica", &[(192, "uni0301")]);
@@ -330,6 +366,8 @@ fn zero_advance_combining_fallback_without_widths_stays_zero() {
     assert_eq!(glyphs[0].matrix, glyphs[1].matrix);
 }
 
+/// Keep Latin and primary accent-composite paths while sourcing unsupported characters
+/// from another face, without exposing substitutes as embedded font programs.
 #[test]
 fn mixed_runs_keep_primary_composites_and_use_a_second_outline_source() {
     let bytes =
@@ -348,6 +386,8 @@ fn mixed_runs_keep_primary_composites_and_use_a_second_outline_source() {
     assert_ne!(glyphs[1].path, primary[1].path, "a real Cyrillic outline replaces the missing box");
 }
 
+/// Replacing missing boxes with alternate outlines must preserve PDF advances,
+/// TJ/character/word spacing, transforms and baselines.
 #[test]
 fn pdf_advances_spacing_transforms_and_baselines_are_independent_of_fallback() {
     let font = encoded_font("ArialMT", &[(192, "afii10017")]);
@@ -370,6 +410,8 @@ fn pdf_advances_spacing_transforms_and_baselines_are_independent_of_fallback() {
     assert_eq!(before[3].path, after[3].path);
 }
 
+/// Keep distinct explicit widths and fitted paths for two codes naming one character,
+/// with one alternate resolution per repeated code.
 #[test]
 fn repeated_aliases_keep_distinct_widths_and_cache_one_resolution_per_code() {
     let mut font = encoded_font("TimesNewRomanPSMT", &[(65, "afii10017"), (66, "uni0410"), (67, "A")]);
@@ -389,6 +431,8 @@ fn repeated_aliases_keep_distinct_widths_and_cache_one_resolution_per_code() {
     assert!((w(1) - 3.0 * w(0)).abs() < 0.01, "{} {}", w(0), w(1));
 }
 
+/// Absent, corrupt and non-covering alternates yield the same box; covering Inter
+/// replaces Cyrillic while an unsupported emoji still receives a box.
 #[test]
 fn unavailable_corrupt_and_noncovering_faces_draw_the_same_explicit_box() {
     let font = encoded_font("Calibri", &[(65, "afii10017"), (66, "u1FAE0")]);
@@ -409,6 +453,8 @@ fn unavailable_corrupt_and_noncovering_faces_draw_the_same_explicit_box() {
     assert_eq!(missing[1].path, g[1].path, "unsupported emoji stays explicit");
 }
 
+/// Keep spaces, invisible/default-ignorable characters and invalid names free of
+/// invented ink or guessed Unicode, without unnecessary alternate-face queries.
 #[test]
 fn invisible_and_invalid_names_do_not_gain_visible_boxes_or_guess_unicode() {
     let names = ["uni0000", "uni200D", "uni2060", "uniFE0F", "uni034F", "space", "uni00AD", "not_a_glyph", "u110000", "uniD800"];
@@ -421,10 +467,14 @@ fn invisible_and_invalid_names_do_not_gain_visible_boxes_or_guess_unicode() {
     assert_eq!(calls.load(Ordering::Relaxed), 0);
 }
 
+/// Wrap CMap operators in an eight-bit codespace stream for later insertion as an
+/// indirect ToUnicode object.
 fn to_unicode(mappings: &str) -> Object {
     Object::Stream(Stream::new(dictionary!{},format!("/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapName /Synthetic def /CMapType 2 def 1 begincodespacerange <00> <FF> endcodespacerange {mappings} endcmap end end").into_bytes()))
 }
 
+/// Allow single-scalar ToUnicode recovery for unknown names. Preserve sequence
+/// semantics without selecting the first scalar, and keep supported primary outlines.
 #[test]
 fn single_scalar_to_unicode_can_rescue_unknown_names_but_never_overrides_primary_glyphs() {
     let mut font = encoded_font("Calibri", &[(1, "unknownOne"), (2, "unknownTwo")]);
@@ -442,6 +492,8 @@ fn single_scalar_to_unicode_can_rescue_unknown_names_but_never_overrides_primary
     assert_eq!(g[2].path, latin[0].path, "ToUnicode text semantics do not change a supported visual A");
 }
 
+/// Primary Latin, Symbol and Dingbat outlines must remain unchanged across alternate
+/// resolvers and issue no MissingGlyph requests.
 #[test]
 fn latin_only_symbol_and_dingbat_outlines_ignore_the_fallback_resolver() {
     for (name, codes) in [
@@ -465,6 +517,8 @@ fn latin_only_symbol_and_dingbat_outlines_ignore_the_fallback_resolver() {
     }
 }
 
+/// Keep embedded programs authoritative, including missing glyphs: alternate faces
+/// must not affect ids, outlines or advances or trigger MissingGlyph queries.
 #[test]
 fn embedded_fonts_keep_their_programs_and_missing_glyphs_without_fallback_override() {
     for bytes in [pdfcraft_fonts::INTER_REGULAR, include_bytes!("../../../assets/fonts/DancingScript.ttf").as_slice()] {
@@ -491,6 +545,8 @@ fn embedded_fonts_keep_their_programs_and_missing_glyphs_without_fallback_overri
     }
 }
 
+/// Check the alternate's 0.2126 horizontal shear while preserving vertical bounds,
+/// baseline and advance relative to the upright control.
 #[test]
 fn italic_fallback_slants_the_outline_without_moving_the_baseline_or_advance() {
     let bytes = |name| glyph_pdf(encoded_font(name, &[(65, "afii10017")]), b"A");
@@ -507,6 +563,8 @@ fn italic_fallback_slants_the_outline_without_moving_the_baseline_or_advance() {
     assert_eq!(a.bounding_box().y1, b.bounding_box().y1);
 }
 
+/// Exercise non-embedded Type1: Cyrillic decodes and receives alternate outlines with
+/// PDF advances while supported Latin retains its primary path.
 #[test]
 fn type1_nonembedded_fonts_use_the_same_per_glyph_fallback() {
     let mut font = encoded_font("Helvetica", &[(192, "afii10017")]);
@@ -523,6 +581,8 @@ fn type1_nonembedded_fonts_use_the_same_per_glyph_fallback() {
     assert_eq!(calls.load(Ordering::Relaxed), 1);
 }
 
+/// Select distinct alternates for Cyrillic and lcaron in one run, retaining primary
+/// Latin outlines and reusing resolved faces.
 #[test]
 fn one_run_can_use_distinct_fallback_faces_without_replacing_primary_glyphs() {
     let bytes = glyph_pdf(encoded_font("ArialMT", &[(192, "afii10017"), (193, "lcaron")]), &[65, 192, 193, 192]);
@@ -547,6 +607,8 @@ fn one_run_can_use_distinct_fallback_faces_without_replacing_primary_glyphs() {
     assert_eq!(selected[1].path, selected[3].path);
 }
 
+/// Exercise malformed encoding types, unknown bases and out-of-range Differences
+/// without panics or invented Cyrillic; supported Latin A remains drawable.
 #[test]
 fn malformed_encoding_entries_do_not_panic_or_invent_cyrillic() {
     for encoding in [
@@ -563,6 +625,7 @@ fn malformed_encoding_entries_do_not_panic_or_invent_cyrillic() {
     }
 }
 
+/// Compare a full stop following alternate Cyrillic against its primary-only control.
 #[test]
 fn terminal_full_stop_keeps_its_primary_outline_next_to_fallback() {
     let bytes = glyph_pdf(encoded_font("ArialMT", &[(192, "afii10017")]), &[192, b'.']);
@@ -575,6 +638,8 @@ fn terminal_full_stop_keeps_its_primary_outline_next_to_fallback() {
     assert_eq!(glyphs[1].text, ".");
 }
 
+/// Keep a multi-scalar name as a box without resolving its first scalar, even with
+/// conflicting ToUnicode; extraction retains ToUnicode semantics.
 #[test]
 fn multi_scalar_glyph_names_get_a_box_without_guessing_a_first_scalar() {
     let mut font = encoded_font("ArialMT", &[(192, "dalethatafpatah")]);
@@ -588,6 +653,8 @@ fn multi_scalar_glyph_names_get_a_box_without_guessing_a_first_scalar() {
     assert_eq!(glyphs[0].text, "А", "text extraction retains ToUnicode semantics");
 }
 
+/// Exercise truncated alternate programs at several lengths: printable text remains
+/// visible and explicit 600-unit advances survive parsing failures.
 #[test]
 fn truncated_fallback_programs_fail_safely_with_visible_printable_text() {
     let program: &'static [u8] = pdfcraft_fonts::INTER_REGULAR;
@@ -600,6 +667,8 @@ fn truncated_fallback_programs_fail_safely_with_visible_printable_text() {
     }
 }
 
+/// Keep primary A outlines for Unicode, suffix and ToUnicode aliases without
+/// requesting an alternate face.
 #[test]
 fn unicode_aliases_and_to_unicode_keep_a_supported_primary_outline() {
     let mut font = encoded_font("ArialMT", &[(192, "uni0041"), (193, "unknownName"), (194, "A.alt")]);
@@ -612,6 +681,8 @@ fn unicode_aliases_and_to_unicode_keep_a_supported_primary_outline() {
     }
 }
 
+/// Keep the primary A advance (667 units) and following positions for aliases without
+/// PDF widths in both Helvetica and ArialMT.
 #[test]
 fn unicode_aliases_without_pdf_widths_keep_primary_advances() {
     for base in ["Helvetica", "ArialMT"] {
@@ -628,8 +699,8 @@ fn unicode_aliases_without_pdf_widths_keep_primary_advances() {
     }
 }
 
-// Derive an in-memory malformed primary face from our approved Inter fixture. Its cmap and
-// PostScript glyph names still identify A, but the glyf record has no contours. No asset is saved.
+/// Create an in-memory Inter variant retaining A's cmap/post names but emptying its
+/// glyf record. Require expected tables and glyph record; never write a font asset.
 fn primary_face_without_a_outline() -> Vec<u8> {
     use skrifa::{FontRef, MetadataProvider};
     let mut bytes = pdfcraft_fonts::INTER_REGULAR.to_vec();
@@ -653,6 +724,8 @@ fn primary_face_without_a_outline() -> Vec<u8> {
     bytes
 }
 
+/// Empty named/cmap primaries must reach an alternate or box, retain explicit widths,
+/// reuse per-code resolution and leave spaces and primary B intact.
 #[test]
 fn empty_primary_glyphs_use_alternate_outlines_or_missing_boxes() {
     for alternate in [true, false] {
@@ -677,6 +750,8 @@ fn empty_primary_glyphs_use_alternate_outlines_or_missing_boxes() {
     }
 }
 
+/// Without PDF widths, rejected empty aliases must keep alternate natural advances
+/// or 600-unit box advances consistently across repeats and following positions.
 #[test]
 fn empty_primary_aliases_without_pdf_widths_keep_fallback_metrics_consistent() {
     use skrifa::{

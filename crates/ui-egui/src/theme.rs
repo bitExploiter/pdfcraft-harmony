@@ -349,6 +349,9 @@ pub(crate) fn on_interface_baseline(mut data: FontData) -> FontData {
     data
 }
 
+/// Assemble egui's font definitions using shared bundled bytes and optional craft-fonts faces.
+/// `prefer_hans` selects the CJK fallback order; `platform` selects the primary-font tweak policy.
+/// Preserve the Inter/Mono fallback stacks and the named medium/semibold families.
 fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform) -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let add = |fonts: &mut FontDefinitions, name: &str, bytes: &'static [u8]| {

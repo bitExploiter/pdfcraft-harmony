@@ -123,6 +123,10 @@ pub struct InterpreterSettings {
 }
 
 impl Default for InterpreterSettings {
+    /// Use embedded standard/family substitutes with `embed-fonts`, otherwise resolve no
+    /// fonts. MissingGlyph queries return `None` unless the host supplies a resolver.
+    /// CMaps depend on `embed-cmaps`; annotations are enabled, with no viewer overrides,
+    /// cancellation, preview shortcuts or warning callback effects.
     fn default() -> Self {
         Self {
             #[cfg(not(feature = "embed-fonts"))]

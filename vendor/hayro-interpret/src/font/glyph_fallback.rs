@@ -32,6 +32,8 @@ pub(super) struct SimpleGlyphFallback {
 }
 
 impl fmt::Debug for SimpleGlyphFallback {
+    /// Format the selected standard family without formatting resolver state, font bytes,
+    /// or cached outlines.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("SimpleGlyphFallback")
             .field("standard", &self.standard)
@@ -40,6 +42,9 @@ impl fmt::Debug for SimpleGlyphFallback {
 }
 
 impl SimpleGlyphFallback {
+    /// Create empty per-code and per-face caches for one non-embedded simple font.
+    /// `standard` supplies the requested family/style; `resolver` is called lazily for printable
+    /// missing characters, not while constructing the cache.
     pub(super) fn new(resolver: FontResolverFn, standard: StandardFont) -> Self {
         Self {
             resolver,
@@ -49,6 +54,15 @@ impl SimpleGlyphFallback {
         }
     }
 
+    /// Resolve and cache a display-only virtual glyph for this byte, including failed mappings.
+    /// Encoding `name` takes precedence over `unicode`; multi-scalar text gets a box rather than
+    /// a guessed first character. Invisible or undecodable input returns `None`.
+    ///
+    /// `width` is the advance already selected by the caller, including an explicit zero. Fit a
+    /// usable alternate outline to it when possible; without it, retain the alternate's natural
+    /// advance, or 600 units for a missing box. Cache at most 256 codes and eight parsed faces.
+    /// Reject empty, oversized or non-finite alternate outlines; keep a finite missing box instead.
+    /// The cached natural advance is separate from the caller's explicit PDF width.
     pub(super) fn map_code(
         &self,
         code: u8,
@@ -123,6 +137,9 @@ impl SimpleGlyphFallback {
         present.then_some(id)
     }
 
+    /// Parse a resolver-supplied face at `index`, caching success or failure by Arc identity
+    /// and face index. Return `None` for invalid data or after eight distinct face entries;
+    /// retained byte Arcs keep identity stable for subsequent lookups.
     fn face(&self, data: FontData, index: u32) -> Option<OpenTypeFontBlob> {
         let mut faces = self.faces.borrow_mut();
         if let Some((_, _, face)) = faces
@@ -139,6 +156,8 @@ impl SimpleGlyphFallback {
         face
     }
 
+    /// Clone the cached path for a virtual fallback ID. Return `None` for a non-fallback ID,
+    /// an unmapped byte or a cached failure; callers may then try their primary/composite path.
     pub(super) fn outline(&self, glyph: GlyphId) -> Option<BezPath> {
         let code = u8::try_from(glyph.to_u32().checked_sub(FIRST_GLYPH)?).ok()?;
         self.paths
@@ -148,7 +167,9 @@ impl SimpleGlyphFallback {
             .map(|g| g.path.clone())
     }
 
-    /// Used only when neither PDF widths nor the standard metrics define an advance.
+    /// Return the cached natural advance in 1000-unit glyph space, including a real zero advance
+    /// for combining marks or the missing box's 600-unit default. Return `None` before a successful
+    /// `map_code` call or for a cached failure. Callers use this only after PDF and standard metrics.
     pub(super) fn advance(&self, code: u8) -> Option<f32> {
         self.paths.borrow().get(&code)?.as_ref().map(|g| g.advance)
     }
@@ -161,6 +182,9 @@ pub(super) enum Decoded {
     Sequence(bool),
 }
 
+/// Decode the appearance named by the Encoding/Differences entry, dropping its glyph suffix.
+/// Use the AGL or a Unicode glyph name first; only an unknown name consults the byte's ToUnicode
+/// entry. Return `None` for an absent/empty mapping, preserving semantic sequences as sequences.
 pub(super) fn decode(code: u8, name: Option<&str>, unicode: Option<&CMap>) -> Option<Decoded> {
     if let Some(name) = name.and_then(|n| n.split('.').next()) {
         if let Some(s) = glyph_names::get(name) {
@@ -176,6 +200,8 @@ pub(super) fn decode(code: u8, name: Option<&str>, unicode: Option<&CMap>) -> Op
     }
 }
 
+/// Classify non-empty mapped text as one scalar or a sequence. The sequence flag records
+/// whether any scalar needs visible ink; an empty string has no mapping.
 fn decode_string(s: &str) -> Option<Decoded> {
     let mut chars = s.chars();
     let first = chars.next()?;
@@ -186,6 +212,8 @@ fn decode_string(s: &str) -> Option<Decoded> {
     })
 }
 
+/// Scale an outline horizontally only when both advances are finite and the source advance
+/// is positive. Otherwise return it unchanged; a finite target zero is a valid fit.
 fn fit_width(path: BezPath, width: Option<f32>, actual: Option<f32>) -> BezPath {
     match width.zip(actual) {
         Some((width, actual)) if width.is_finite() && actual.is_finite() && actual > 0.0 => {
@@ -207,7 +235,8 @@ fn invisible(c: char) -> bool {
         '\u{1bca0}'..='\u{1bca3}' | '\u{1d173}'..='\u{1d17a}' | '\u{e0000}'..='\u{e0fff}')
 }
 
-/// Contributor-original outline, rather than an unrelated substitute glyph or a silent blank.
+/// Build the contributor-original missing-glyph box, fitting only a positive supplied width.
+/// Without such a width, keep the 600-unit design space; this path does not select text advance.
 fn missing_box(width: Option<f32>) -> BezPath {
     let mut path = BezPath::new();
     path.move_to((70.0, 0.0));

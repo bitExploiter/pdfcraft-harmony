@@ -36,6 +36,10 @@ static FACES: LazyLock<Vec<Face>> = LazyLock::new(|| {
         .collect()
 });
 
+/// Choose a covering approved face for a `MissingGlyph` query; return `None` for other queries
+/// or uncovered characters. Prefer matching serif/monospace traits, then weight, with registry
+/// order breaking ties. Returned bytes are shared and the face index is zero; no font is loaded
+/// from the filesystem or installed-font configuration.
 pub(crate) fn resolve(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::MissingGlyph { character, standard_font } = query else {
         return None;
@@ -57,6 +61,8 @@ mod tests {
     use super::*;
     use hayro::hayro_interpret::font::StandardFont;
 
+    /// Verify coverage and family/weight selection against the shared bundled bytes, including
+    /// optional Mincho preference, an uncovered character and reuse of the same font-data Arc.
     #[test]
     fn bundled_coverage_and_style_selection_are_deterministic() {
         let get = |standard_font, character| resolve(&FontQuery::MissingGlyph { character, standard_font });

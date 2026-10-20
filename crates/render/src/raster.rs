@@ -68,6 +68,9 @@ pub struct RenderConfig {
 }
 
 impl RenderConfig {
+    /// Build interpreter settings for this document's layer overrides and comment visibility.
+    /// Try approved per-glyph faces, then the optional Japanese CID substitute, then hayro's default
+    /// resolver; unresolved queries retain those resolvers' existing fallback behavior.
     fn settings(&self) -> InterpreterSettings {
         let standard = InterpreterSettings::default().font_resolver;
         InterpreterSettings {
