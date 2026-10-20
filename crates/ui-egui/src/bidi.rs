@@ -582,6 +582,20 @@ mod tests {
     }
 
     #[test]
+    fn visual_auto_roundtrip_and_word_replacement() {
+        let logical = "\u{062d}\u{0627}\u{0648}\u{0644}\u{0646}\u{0627} \u{0627}\u{0646}\u{0634}\u{0627}\u{0621} \u{0645}\u{0644}\u{0641} \u{062a}\u{0646}\u{0641}\u{064a}\u{0630}\u{064a} \u{0648}\u{0627}\u{0633}\u{062a}\u{063a}\u{0631}\u{0642} \u{0627}\u{0644}\u{0627}\u{0645}\u{0631}";
+        let visual = visual_auto(logical);
+        let back = visual_auto(&visual);
+        assert_eq!(logical, back.as_ref());
+        let malaf = "\u{0645}\u{0644}\u{0641}";
+        let malafan = "\u{0645}\u{0644}\u{0641}\u{0627}\u{0646}";
+        let edited_visual = visual.replace(malaf, malafan);
+        let edited_logical = visual_auto(&edited_visual);
+        let expected_logical = logical.replace(malaf, malafan);
+        assert_eq!(edited_logical.as_ref(), expected_logical);
+    }
+
+    #[test]
     fn odd_input_never_panics() {
         let long = "ا ب ".repeat(20_000);
         let odd = [

@@ -1496,6 +1496,19 @@ fn no_hebrew_font() -> EditError {
 /// Hebrew face first (its Latin and digits too, so a line keeps one look), then the Japanese
 /// faces for anything it lacks; other text takes the Japanese faces, as before.
 fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(Vec<&'static CraftFont>, bool), EditError> {
+    // Arabic letters take their shape from their neighbours, which a font of one glyph per
+    // character can't draw; a paragraph rewritten in its own style shapes them with the Arabic
+    // face instead (`rewrite_styled_block`). Refuse rather than ask the Japanese face for them.
+    if text.chars().any(crate::added::is_arabic) {
+        return Err(match pdfcraft_fonts::document_arabic_font() {
+            None => crate::added::arabic_error(GlyphError::NoFont, text),
+            Some(_) => EditError::Invalid(
+                "Arabic letters this font lacks can only be added by editing the whole paragraph in its own font and weight \
+                 (not a single line, turned text, text that also has Hebrew, or a paragraph given another font family or weight)"
+                    .into(),
+            ),
+        });
+    }
     let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(family == crate::added::Family::Times, bold);
     if !text.chars().any(crate::bidi::is_hebrew) {
         return Ok((japanese, false));

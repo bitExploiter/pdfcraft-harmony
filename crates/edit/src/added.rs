@@ -312,8 +312,8 @@ fn is_thai(c: char) -> bool {
 
 /// Arabic letters, marks, digits and punctuation: an item with any of them is shaped with the
 /// craft-fonts Arabic face.
-fn is_arabic(c: char) -> bool {
-    matches!(u32::from(c), 0x0600..=0x06FF | 0x0750..=0x077F | 0x0870..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFC)
+pub(crate) fn is_arabic(c: char) -> bool {
+    crate::bidi::is_arabic(c)
 }
 
 /// Hebrew letters, points, cantillation marks and punctuation (and the presentation forms): an
@@ -368,7 +368,7 @@ fn shaped_arabic(c: char) -> bool {
 }
 
 /// Direction marks, embeddings, overrides and isolates: they steer the order and are not drawn.
-fn is_bidi_control(c: char) -> bool {
+pub(crate) fn is_bidi_control(c: char) -> bool {
     matches!(c, '\u{061C}' | '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}')
 }
 
@@ -464,7 +464,7 @@ fn shaped_width(t: &AddedText, s: &str, rtl: bool) -> f64 {
     shaped_layout(t, s, rtl).map(|(_, w)| w).unwrap_or_else(|_| t.family.width(s, t.size, t.bold, t.italic))
 }
 
-fn arabic_error(e: GlyphError, text: &str) -> EditError {
+pub(crate) fn arabic_error(e: GlyphError, text: &str) -> EditError {
     EditError::Invalid(match e {
         GlyphError::NoFont => "Arabic text needs PdfCraft's Arabic font, which this build doesn't include \
                                (to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout that has an Arab face)"
@@ -512,7 +512,7 @@ fn font_name(base: &str) -> String {
 
 /// Most glyphs in one Type 3 font: its codes are single bytes, 1–240. An item gets one such font
 /// per 240 distinct glyphs it needs.
-const GLYPHS_PER_FONT: usize = 240;
+pub(crate) const GLYPHS_PER_FONT: usize = 240;
 
 /// A line of a shaped-text item after layout: its text, whether its paragraph runs right to left,
 /// its pieces in drawing order and its width at the item's size.
@@ -641,14 +641,14 @@ fn draw_laid_shaped(
 
 /// What makes two clusters the same Type 3 glyph: text, glyphs, offsets and advance (bit for bit;
 /// equal clusters come from the same font units).
-type ClusterKey<'a> = (ShapedScript, &'a str, Vec<(u32, u64, u64)>, u64);
+pub(crate) type ClusterKey<'a> = (ShapedScript, &'a str, Vec<(u32, u64, u64)>, u64);
 
-fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
+pub(crate) fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
     (c.script, c.text.as_str(), c.glyphs.iter().map(|(id, [x, y])| (*id, x.to_bits(), y.to_bits())).collect(), c.advance.to_bits())
 }
 
 /// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`.
-fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32), GlyphOutline>) -> ObjRef {
+pub(crate) fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32), GlyphOutline>) -> ObjRef {
     let mut charprocs = Dict::new();
     let mut differences = vec![Object::Int(1)];
     let mut widths = Vec::with_capacity(clusters.len());

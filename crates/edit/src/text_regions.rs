@@ -109,6 +109,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 && first.size.min(prev.size) >= first.size.max(prev.size) * 0.4
                 && gap > first.size.min(prev.size) * 0.8
                 && gap < first.size.max(prev.size) * 2.5
+                && crate::bidi::rtl_base(&prev.text) == crate::bidi::rtl_base(&first.text)
         });
         if !joins {
             blocks.push(TextBlock {
@@ -193,6 +194,34 @@ fn shape_source(
         }
     }
     Err(EditError::Invalid("complex text needs the complete source TrueType/OpenType face; load that font before editing".into()))
+}
+
+/// The resource name of characters drawn with the craft-fonts Arabic face. No PDF name
+/// holds a NUL byte, so it never names a real resource. Their Type 3 fonts are written once the
+/// rows are known, because each row's Arabic is shaped as a whole.
+const ARABIC_FACE: &str = "\0Arabic";
+
+/// `text` (a row, or part of one, in typing order) shaped with the Arabic face: each directional
+/// run (UAX #9) in drawing order, its clusters left to right.
+fn shape_arabic_row(text: &str) -> Result<Vec<pdfcraft_fonts::ShapedCluster>, EditError> {
+    // unicode-bidi indexes the first level of a line, so an empty one would panic.
+    if text.is_empty() {
+        return Ok(Vec::new());
+    }
+    let base = if crate::bidi::rtl_base(text) { unicode_bidi::Level::rtl() } else { unicode_bidi::Level::ltr() };
+    let info = unicode_bidi::ParagraphBidiInfo::new(text, Some(base));
+    let (levels, runs) = info.visual_runs(0..text.len());
+    let mut clusters = Vec::new();
+    for run in runs {
+        let rtl = levels.get(run.start).is_some_and(unicode_bidi::Level::is_rtl);
+        // Runs lie on character boundaries; a missing slice is skipped, never a panic.
+        let Some(run) = text.get(run) else { continue };
+        let run: String = run.chars().filter(|c| !crate::added::is_bidi_control(*c)).collect();
+        if !run.is_empty() {
+            clusters.extend(pdfcraft_fonts::shape_arabic(&run, rtl).map_err(|e| crate::added::arabic_error(e, &run))?);
+        }
+    }
+    Ok(clusters)
 }
 
 /// For each output row (a range of the draft's characters), whether it is exactly the source row
@@ -377,7 +406,11 @@ pub(super) fn rewrite_styled_block(
     }
     // A visual row grows even when it contains several source/font runs. Multi-row
     // paragraphs retain their container width; an explicit width always wins.
-    let natural = if block.invisible || block.rows.len() == 1 {
+    // A right-to-left row is right-aligned (below), so it grows to the left margin instead.
+    let rtl = crate::bidi::rtl_base(draft);
+    let natural = if (block.invisible || block.rows.len() == 1) && rtl {
+        (block.rect[2] + dx - (p.crop(doc)[0] + 36.0)).max(block.rect[2] - block.rect[0])
+    } else if block.invisible || block.rows.len() == 1 {
         (p.crop(doc)[2] - 36.0 - (block.rect[0] + dx)).max(block.rect[2] - block.rect[0])
     } else {
         block.rect[2] - block.rect[0]
@@ -391,17 +424,31 @@ pub(super) fn rewrite_styled_block(
     let mut programs: HashMap<String, Option<std::sync::Arc<Vec<u8>>>> = HashMap::new();
     for (range, index) in styled_spans {
         let source = lines.get(index).unwrap_or(first);
-        for ch in draft.get(range).unwrap_or_default().chars() {
+        let span = draft.get(range).unwrap_or_default();
+        let explicit = overrides.get(&index).and_then(|r| r.resource.as_ref()).or(style.resource.as_ref());
+        // Arabic that the run's own font can't shape (a subset, which has neither every letter nor
+        // the tables that join them) is drawn with the Arabic face: all of the run the face has,
+        // so that each word is shaped as one.
+        let arabic = explicit.is_none()
+            && pdfcraft_fonts::document_arabic_font().is_some()
+            && span.chars().any(crate::added::is_arabic)
+            && !span.split('\n').all(|row| {
+                !row.chars().any(crate::added::is_arabic) || shape_source(doc, &fonts, &source.font, row).is_ok_and(|shaped| shaped.is_some())
+            });
+        for ch in span.chars() {
             if ch == '\n' {
                 chars.push((ch, index, source.font.clone()));
                 continue;
             }
             let s = ch.to_string();
-            let name = if let Some(resource) = overrides.get(&index).and_then(|r| r.resource.as_ref()).or(style.resource.as_ref()) {
+            let name = if let Some(resource) = explicit {
                 if !metrics.get(resource).is_some_and(|m| source_encodes(m, &s)) {
                     return Err(EditError::Invalid(format!("the selected font resource {resource} cannot show U+{:04X}", u32::from(ch))));
                 }
                 resource.clone()
+            } else if arabic && pdfcraft_fonts::arabic_has(ch) {
+                substituted = pdfcraft_fonts::document_arabic_font().map(|face| face.family.to_string());
+                ARABIC_FACE.to_owned()
             } else if metrics.get(&source.font).is_some_and(|m| source_encodes(m, &s)) {
                 source.font.clone()
             } else if let Some((name, _)) = metrics.iter().find(|(_, m)| {
@@ -548,7 +595,12 @@ pub(super) fn rewrite_styled_block(
             }
             let segment = items.get(at..end).unwrap_or_default();
             let string: String = segment.iter().map(|v| v.0).collect();
-            if let Some((_, shaped, _)) = shape_source(doc, &fonts, &item.2, &string)? {
+            let shaped = if item.2 == ARABIC_FACE {
+                Some(shape_arabic_row(&string)?.iter().map(|c| c.advance).sum::<f64>())
+            } else {
+                shape_source(doc, &fonts, &item.2, &string)?.map(|(_, shaped, _)| shaped.advance)
+            };
+            if let Some(shaped_advance) = shaped {
                 let source = lines.get(item.1).unwrap_or(first);
                 let scale =
                     overrides.get(&item.1).and_then(|r| r.scale).or(style.scale).map_or(source.origin.state.scale, |s| (s / 100.0).clamp(0.1, 10.0));
@@ -557,7 +609,7 @@ pub(super) fn rewrite_styled_block(
                     .and_then(|r| r.char_spacing)
                     .or(style.char_spacing)
                     .map_or(source.origin.state.char_spacing, |s| s / source.origin.k.max(1e-6));
-                width += (shaped.advance * size_of(source, item.1)
+                width += (shaped_advance * size_of(source, item.1)
                     + spacing * string.chars().count() as f64
                     + source.origin.state.word_spacing * string.matches(' ').count() as f64)
                     * scale
@@ -646,7 +698,7 @@ pub(super) fn rewrite_styled_block(
     let o = &lead.origin;
     for (row, _) in rows.iter().zip(&kept).filter(|(_, k)| !**k) {
         let text: String = row.iter().map(|v| v.0).collect();
-        if pdfcraft_fonts::source_shaping::required(&text) && row.first().is_some_and(|first| row.iter().any(|v| v.1 != first.1 || v.2 != first.2)) {
+        if pdfcraft_fonts::source_shaping::required(&text) && row.first().is_some_and(|first| row.iter().any(|v| v.2 != first.2)) {
             return Err(EditError::Invalid(
                 "contextual/bidi text across font or style boundaries needs a uniform full-face row; mixed contextual runs are not yet supported"
                     .into(),
@@ -655,6 +707,8 @@ pub(super) fn rewrite_styled_block(
     }
     let measured: Vec<_> = rows.iter().map(|r| measure(r)).collect::<Result<_, _>>()?;
     let mut shaped_runs = HashMap::new();
+    // Ordered, so the glyph codes and so the saved bytes are the same on every run.
+    let mut arabic_runs = std::collections::BTreeMap::new();
     let mut segment_advances = HashMap::new();
     for (row_index, row) in rows.iter().enumerate().filter(|(r, _)| !kept.get(*r).copied().unwrap_or(false)) {
         let mut at = 0;
@@ -665,7 +719,9 @@ pub(super) fn rewrite_styled_block(
             }
             segment_advances.insert((row_index, at), row.get(at..end).unwrap_or_default().iter().map(&advance).sum::<f64>());
             let string: String = row.get(at..end).unwrap_or_default().iter().map(|v| v.0).collect();
-            if let Some((bytes, shaped, family)) = shape_source(doc, &fonts, &item.2, &string)? {
+            if item.2 == ARABIC_FACE {
+                arabic_runs.insert((row_index, at), shape_arabic_row(&string)?);
+            } else if let Some((bytes, shaped, family)) = shape_source(doc, &fonts, &item.2, &string)? {
                 shaped_runs.insert((row_index, at), (bytes, shaped, family));
             }
             at = end;
@@ -676,6 +732,40 @@ pub(super) fn rewrite_styled_block(
         let mappings: Vec<_> = shaped.glyphs.iter().map(|g| (g.text.clone(), g.id)).collect();
         let resource = pdfcraft_fonts::embedding::embed_mapping(doc, &mut fonts, bytes, family, &mappings).map_err(EditError::Invalid)?;
         glyph_resources.insert(*key, resource);
+    }
+    // The Arabic face is drawn as Add text draws it: each distinct cluster (a letter in one of its
+    // joining forms, with its marks) is one glyph of a Type 3 font made from the face's outlines,
+    // so no font file is embedded, and every outline is read before a font is written.
+    let mut arabic_clusters: Vec<&pdfcraft_fonts::ShapedCluster> = Vec::new();
+    let mut arabic_codes: HashMap<crate::added::ClusterKey, usize> = HashMap::new();
+    for cluster in arabic_runs.values().flatten() {
+        arabic_codes.entry(crate::added::cluster_key(cluster)).or_insert_with(|| {
+            arabic_clusters.push(cluster);
+            arabic_clusters.len() - 1
+        });
+    }
+    if arabic_clusters.len() > crate::added::GLYPHS_PER_FONT * 64 {
+        return Err(EditError::Invalid("the replacement has too many different Arabic glyphs".into()));
+    }
+    let mut outlines = HashMap::new();
+    for cluster in &arabic_clusters {
+        for (id, _) in &cluster.glyphs {
+            if let std::collections::hash_map::Entry::Vacant(entry) = outlines.entry((cluster.script, *id)) {
+                entry.insert(pdfcraft_fonts::shaped_glyph(cluster.script, *id).map_err(|e| crate::added::arabic_error(e, &cluster.text))?);
+            }
+        }
+    }
+    let mut arabic_fonts = Vec::new();
+    for chunk in arabic_clusters.chunks(crate::added::GLYPHS_PER_FONT) {
+        let font = crate::added::type3_shaped(doc, chunk, &outlines);
+        let mut name = String::from("PCEdAr");
+        let mut suffix = 0usize;
+        while fonts.contains(name.as_bytes()) {
+            suffix = suffix.saturating_add(1);
+            name = format!("PCEdAr{suffix}");
+        }
+        fonts.set(name.clone().into_bytes(), Object::Ref(font));
+        arabic_fonts.push(name);
     }
     let n = pdfcraft_content::num;
     let mut block_ops = vec![Op::new("q", vec![])];
@@ -717,7 +807,14 @@ pub(super) fn rewrite_styled_block(
             continue;
         }
         let w = measured.get(row_index).copied().unwrap_or(0.0);
-        let align = style.align.unwrap_or(if centered { crate::added::Align::Center } else { crate::added::Align::Left });
+        // Right-to-left rows (more Arabic or Hebrew letters than Latin) keep their right edge.
+        let align = style.align.unwrap_or(if centered {
+            crate::added::Align::Center
+        } else if crate::bidi::rtl_base(&row.iter().map(|c| c.0).collect::<String>()) {
+            crate::added::Align::Right
+        } else {
+            crate::added::Align::Left
+        });
         let original_rect = block.rows.get(row_index).and_then(|row| row_rect(row, lines)).unwrap_or(block.rect);
         let left = if style.width.is_none() && style.align.is_none() { original_rect[0] } else { block.rect[0] };
         let available = if style.width.is_none() && style.align.is_none() { original_rect[2] - original_rect[0] } else { width };
@@ -737,7 +834,6 @@ pub(super) fn rewrite_styled_block(
             }
             let segment = row.get(pos..end).unwrap_or_default();
             let string: String = segment.iter().map(|c| c.0).collect();
-            let m = metrics.get(&item.2).ok_or_else(|| EditError::Invalid("the paragraph font is missing".into()))?;
             let mut state = source.origin.state.clone();
             state.font = Some((item.2.clone(), size_of(source, item.1)));
             if let Some(c) = overrides.get(&item.1).and_then(|r| r.char_spacing).or(style.char_spacing) {
@@ -746,7 +842,7 @@ pub(super) fn rewrite_styled_block(
             if let Some(s) = overrides.get(&item.1).and_then(|r| r.scale).or(style.scale) {
                 state.scale = (s / 100.0).clamp(0.1, 10.0);
             }
-            if !shaped_runs.contains_key(&(row_index, pos)) {
+            if !shaped_runs.contains_key(&(row_index, pos)) && !arabic_runs.contains_key(&(row_index, pos)) {
                 state.scale *= calibration.get(&item.1).copied().unwrap_or(1.0);
             }
             if let Some([r, g, b]) = overrides.get(&item.1).and_then(|r| r.color).or(style.color) {
@@ -784,7 +880,43 @@ pub(super) fn rewrite_styled_block(
                 }
                 block_ops.push(Op::new("EMC", vec![]));
                 segment_width = (shaped.advance * size + extra) * state.scale * source.origin.k;
+            } else if let Some(clusters) = arabic_runs.get(&(row_index, pos)) {
+                // Each cluster at its pen position, in one text object; ActualText keeps the
+                // logical text, since the clusters are in drawing order.
+                let size = size_of(source, item.1);
+                let mut properties = Dict::new();
+                properties.set(b"ActualText".to_vec(), Object::String(PdfString::text(&string)));
+                block_ops.push(Op::new("BDC", vec![Object::name("Span"), Object::Dict(properties)]));
+                block_ops.push(Op::new("BT", vec![]));
+                let mut current = arabic_fonts.first();
+                state.font = current.map(|name| (name.clone(), size));
+                block_ops.extend(state.ops());
+                let mut pen = 0.0;
+                let mut extra = 0.0;
+                for cluster in clusters {
+                    let missing = || EditError::Invalid("an Arabic glyph of the replacement is missing".into());
+                    let k = arabic_codes.get(&crate::added::cluster_key(cluster)).copied().ok_or_else(missing)?;
+                    let name = arabic_fonts.get(k / crate::added::GLYPHS_PER_FONT).ok_or_else(missing)?;
+                    // Codes start at 1; k % 240 + 1 is at most 240.
+                    let code = u8::try_from(k % crate::added::GLYPHS_PER_FONT + 1).map_err(|_| missing())?;
+                    if current != Some(name) {
+                        block_ops.push(Op::new("Tf", vec![Object::name(name), n(size)]));
+                        current = Some(name);
+                    }
+                    let mut matrix = tm;
+                    let x = (pen * size + extra) * state.scale;
+                    matrix[4] += matrix[0] * x;
+                    matrix[5] += matrix[1] * x;
+                    block_ops.push(Op::new("Tm", matrix.map(n).to_vec()));
+                    block_ops.push(Op::new("Tj", vec![Object::String(PdfString::literal(vec![code]))]));
+                    pen += cluster.advance;
+                    extra += state.char_spacing * cluster.text.chars().count() as f64 + state.word_spacing * cluster.text.matches(' ').count() as f64;
+                }
+                block_ops.push(Op::new("ET", vec![]));
+                block_ops.push(Op::new("EMC", vec![]));
+                segment_width = (pen * size + extra) * state.scale * source.origin.k;
             } else {
+                let m = metrics.get(&item.2).ok_or_else(|| EditError::Invalid("the paragraph font is missing".into()))?;
                 block_ops.push(Op::new("BT", vec![]));
                 block_ops.extend(state.ops());
                 block_ops.push(Op::new("Tm", tm.iter().map(|v| n(*v)).collect()));

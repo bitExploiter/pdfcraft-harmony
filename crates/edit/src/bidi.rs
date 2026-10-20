@@ -39,17 +39,30 @@ pub(crate) fn is_hebrew_mark(c: char) -> bool {
     matches!(u32::from(c), 0x0591..=0x05BD | 0x05BF | 0x05C1..=0x05C2 | 0x05C4..=0x05C5 | 0x05C7 | 0xFB1E)
 }
 
+/// The Arabic blocks and the Arabic presentation forms.
+pub(crate) fn is_arabic(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x0600..=0x06FF | 0x0750..=0x077F | 0x08A0..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFC
+    )
+}
+
+/// Arabic combining marks and vowel signs.
+pub(crate) fn is_arabic_mark(c: char) -> bool {
+    matches!(
+        u32::from(c),
+        0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E4 | 0x06E7..=0x06E8 | 0x06EA..=0x06ED | 0xFE20..=0xFE2F
+    )
+}
+
 fn is_digit(c: char) -> bool {
     c.is_ascii_digit() || matches!(c, '\u{0660}'..='\u{0669}' | '\u{06F0}'..='\u{06F9}')
 }
 
+
 /// Combining marks that ride on the character before them.
 fn is_mark(c: char) -> bool {
-    is_hebrew_mark(c)
-        || matches!(
-            u32::from(c),
-            0x0300..=0x036F | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E4 | 0x06E7..=0x06E8 | 0x06EA..=0x06ED | 0xFE20..=0xFE2F
-        )
+    is_hebrew_mark(c) || is_arabic_mark(c) || matches!(u32::from(c), 0x0300..=0x036F)
 }
 
 /// Direction marks, embeddings, overrides and isolates: they steer the reordering and are not drawn.

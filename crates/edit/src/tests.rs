@@ -2464,11 +2464,23 @@ fn the_graphics_state_carries_over_between_content_streams() {
 /// One page whose font draws a few Hebrew letters (ToUnicode): A ב, B ד, C י, D ו, E ק, F ש,
 /// G ל, H ם. Content streams draw Hebrew in visual order, so "בדיוק" is `(EDCBA)`.
 fn hebrew_page(content: &str) -> Document {
-    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapType 2 def \
-                1 begincodespacerange <00> <FF> endcodespacerange 9 beginbfchar \
-                <20> <0020> <41> <05D1> <42> <05D3> <43> <05D9> <44> <05D5> <45> <05E7> <46> <05E9> <47> <05DC> <48> <05DD> \
-                endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
-    // Widths for codes 32..=72: a space, then the eight letters at 65..=72.
+    letters_page("FakeHebrew", &["05D1", "05D3", "05D9", "05D5", "05E7", "05E9", "05DC", "05DD"], content)
+}
+
+fn arabic_page(content: &str) -> Document {
+    letters_page("FakeArabic", &["0627", "0644", "0645", "0631", "062D", "0628"], content)
+}
+
+fn letters_page(name: &str, letters: &[&str], content: &str) -> Document {
+    let entries: String = letters.iter().zip(b'A'..).map(|(u, code)| format!("<{code:02X}> <{u}> ")).collect();
+    let cmap = format!(
+        "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapType 2 def \
+         1 begincodespacerange <00> <FF> endcodespacerange {} beginbfchar <20> <0020> {entries}\
+         endbfchar endcmap CMapName currentdict /CMap defineresource pop end end",
+        letters.len() + 1
+    );
+    // Widths for codes 32..=72: a space, then up to eight letters at 65..=72.
+    assert!(letters.len() <= 8, "the font's widths stop at code 72");
     let widths: Vec<&str> = (32..=72)
         .map(|c| {
             if c == 32 {
@@ -2486,7 +2498,7 @@ fn hebrew_page(content: &str) -> Document {
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
         format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
         format!(
-            "<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+FakeHebrew /FirstChar 32 /LastChar 72 /Widths [{}] /ToUnicode 6 0 R >>",
+            "<< /Type /Font /Subtype /Type1 /BaseFont /ABCDEF+{name} /FirstChar 32 /LastChar 72 /Widths [{}] /ToUnicode 6 0 R >>",
             widths.join(" ")
         ),
         format!("<< /Length {} >>\nstream\n{cmap}\nendstream", cmap.len()),
@@ -2628,6 +2640,55 @@ fn hebrew_letters_the_page_font_lacks_use_the_hebrew_face() {
     let mut doc = hebrew_page("BT /F1 12 Tf 300 700 Td (EDCBA) Tj ET");
     assert_eq!(text::replace_block(&mut doc, 0, 0, "עברית מלאה").unwrap().substituted.as_deref(), Some("Noto Sans Hebrew Type3"));
     assert_eq!(text::text_blocks(&reopen(&doc), 0).unwrap()[0].text, "עברית מלאה");
+}
+
+/// The Type 3 glyphs of the page's generated Arabic fonts (`PCEdAr...`) that read back as `text`.
+fn arabic_glyphs_reading(doc: &Document, text: &str) -> usize {
+    let hex: String = text.encode_utf16().map(|u| format!("{u:04X}")).collect();
+    let p = pdfcraft_model::pages(doc).swap_remove(0);
+    let res = doc.resolve(p.dict.get(b"Resources").unwrap());
+    let fonts = doc.resolve(res.as_dict().unwrap().get(b"Font").unwrap());
+    let mut count = 0;
+    for (_, font) in fonts.as_dict().unwrap().iter().filter(|(name, _)| name.starts_with(b"PCEdAr")) {
+        let font = doc.resolve(font);
+        let pdfcraft_cos::Object::Stream(s) = &*doc.resolve(font.as_dict().unwrap().get(b"ToUnicode").unwrap()) else { panic!("ToUnicode stream") };
+        let cmap = String::from_utf8(s.decoded().unwrap()).unwrap();
+        count += cmap.matches(&format!("> <{hex}>")).count();
+    }
+    count
+}
+
+#[test]
+fn arabic_letters_the_page_font_lacks_are_shaped_with_the_arabic_face() {
+    let mut doc = arabic_page("BT /F1 12 Tf 300 700 Td (AFEDC) Tj ET");
+    let initial_word = "\u{0645}\u{0631}\u{062d}\u{0628}\u{0627}";
+    assert_eq!(text::text_blocks(&doc, 0).unwrap()[0].text, initial_word);
+    let before = page_content_bytes(&doc, 0);
+    let right = text::text_lines(&doc, 0).unwrap()[0].rect[2];
+    let typed = "\u{0645}\u{0631}\u{062d}\u{0628}\u{0627} \u{0633}\u{0644}\u{0627}\u{0645}";
+    let line = text::replace_line(&mut doc, 0, 0, typed);
+    let Err(EditError::Invalid(msg)) = line else { panic!("expected a clear error, got {line:?}") };
+    let expected = if pdfcraft_fonts::document_arabic_font().is_some() { "whole paragraph" } else { "Arabic font" };
+    assert!(msg.contains(expected), "{msg}");
+    assert_eq!(page_content_bytes(&doc, 0), before);
+    let edit = text::replace_block(&mut doc, 0, 0, typed);
+    if pdfcraft_fonts::document_arabic_font().is_none() {
+        let Err(EditError::Invalid(msg)) = edit else { panic!("expected a clear error, got {edit:?}") };
+        assert!(msg.contains("Arabic font") && msg.contains("CRAFT_FONTS_DIR"), "{msg}");
+        assert_eq!(page_content_bytes(&doc, 0), before);
+        eprintln!("built without a craft-fonts Arab face: the shaped path is checked with CRAFT_FONTS_DIR");
+        return;
+    }
+    assert_eq!(edit.unwrap().substituted.as_deref(), Some("Noto Sans Arabic"));
+    let doc = reopen(&doc);
+    let block = text::text_blocks(&doc, 0).unwrap().swap_remove(0);
+    assert_eq!(block.editor_text, typed);
+    assert_eq!(arabic_glyphs_reading(&doc, "\u{0645}"), 2);
+    assert!((block.rect[2] - right).abs() < 0.5, "right edge {right} -> {:?}", block.rect);
+
+    let mut doc = doc;
+    text::replace_block(&mut doc, 0, 0, "\u{0633}\u{0644}\u{0627}\u{0645}").unwrap();
+    assert_eq!(text::text_blocks(&reopen(&doc), 0).unwrap()[0].editor_text, "\u{0633}\u{0644}\u{0627}\u{0645}");
 }
 
 /// #2013: the dialog asks `first_undrawable` before offering OK, so it must refuse exactly what
@@ -4975,3 +5036,65 @@ fn flattening_comments_keeps_annotations_that_are_not_comments() {
     let without_widget: Vec<&str> = all.iter().copied().filter(|s| *s != "Widget").collect();
     assert_eq!(left(&reopen(&doc)), without_widget, "flattening fields touches no annotation that isn't a widget");
 }
+
+#[test]
+fn test_invoice_arabic_extraction() {
+    let path = r"C:\Users\it\.gemini\antigravity-ide\brain\099aced2-95e4-434c-bb74-8a5613e17fb9\scratch\invoice.pdf";
+    let Ok(bytes) = std::fs::read(path) else { return };
+    let doc = Document::open(Arc::new(bytes)).unwrap();
+    let lines = text::text_lines(&doc, 0).unwrap();
+    for l in &lines {
+        if l.text.chars().any(crate::bidi::is_arabic) {
+            eprintln!("LINE: {:?}", l.text);
+        }
+    }
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    for (i, b) in blocks.iter().enumerate() {
+        if b.text.chars().any(crate::bidi::is_arabic) {
+            eprintln!("BLOCK {i}: text={:?}, editor_text={:?}", b.text, b.editor_text);
+        }
+    }
+    let mut doc_edit = doc.clone();
+    let res = text::replace_block(&mut doc_edit, 0, 2, "\u{0643}\u{0634}\u{0641} \u{062d}\u{0633}\u{0627}\u{0628}").unwrap();
+    eprintln!("REPLACE BLOCK 2 RESULT: {:?}", res);
+    let modified_name = "\u{0627}\u{0628}\u{0648} \u{064a}\u{0648}\u{0633}\u{0641} \u{0627}\u{0644}\u{062c}\u{062f}\u{064a}\u{062f}";
+    let res12 = text::replace_block(&mut doc_edit, 0, 12, modified_name).unwrap();
+    eprintln!("REPLACE BLOCK 12 WITH NEW ARABIC NAME: {:?}", res12);
+    let reopened = reopen(&doc_edit);
+    let re_blocks = text::text_blocks(&reopened, 0).unwrap();
+    eprintln!("REOPENED BLOCK 12: {:?}", re_blocks[12].editor_text);
+    assert_eq!(re_blocks[12].editor_text, modified_name);
+    let out_path = r"C:\Users\it\.gemini\antigravity-ide\brain\099aced2-95e4-434c-bb74-8a5613e17fb9\scratch\edited_invoice.pdf";
+    let bytes = write_incremental(&doc_edit, &SaveOptions::default()).unwrap();
+    let _ = std::fs::write(out_path, bytes);
+}
+
+#[test]
+fn test_arabic_fallback_on_helvetica_page() {
+    let mut doc = text_page("BT /F1 12 Tf 72 700 Td (Hello) Tj ET");
+    let res = text::replace_line(&mut doc, 0, 0, "\u{0634}\u{0644}\u{0648}\u{0645}");
+    assert!(res.is_err(), "expected replace_line with Arabic to be refused with clear instruction to use paragraph edit");
+}
+
+#[test]
+fn test_arabic_block_replacement_on_helvetica_page() {
+    let mut doc = text_page("BT /F1 12 Tf 300 700 Td (Hello) Tj ET");
+    let res = text::replace_block(&mut doc, 0, 0, "\u{0643}\u{0634}\u{0641} \u{062d}\u{0633}\u{0627}\u{0628}").unwrap();
+    eprintln!("REPLACE BLOCK ON HELVETICA: {:?}", res);
+    let reopened = reopen(&doc);
+    let lines = text::text_lines(&reopened, 0).unwrap();
+    eprintln!("READ BACK BLOCK: {:?}", lines[0].text);
+    assert_eq!(lines[0].text, "\u{0643}\u{0634}\u{0641} \u{062d}\u{0633}\u{0627}\u{0628}");
+}
+
+#[test]
+fn test_arabic_presentation_forms() {
+    let arabic = pdfcraft_fonts::document_arabic_font().unwrap();
+    eprintln!("U+FE8D (Alef isol): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FE8D}').is_ok());
+    eprintln!("U+FE8E (Alef final): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FE8E}').is_ok());
+    eprintln!("U+FE91 (Baa init): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FE91}').is_ok());
+    eprintln!("U+FE92 (Baa medi): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FE92}').is_ok());
+    eprintln!("U+FEFB (Lam-Alef isol): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FEFB}').is_ok());
+    eprintln!("U+FEFC (Lam-Alef final): {:?}", pdfcraft_fonts::japanese_glyph_from(arabic, '\u{FEFC}').is_ok());
+}
+

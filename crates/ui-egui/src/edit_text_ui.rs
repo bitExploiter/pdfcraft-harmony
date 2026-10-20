@@ -62,9 +62,10 @@ impl TextBackground {
             }
         }
         if let Some(ed) = editor {
-            let draft_key = (ed.text.clone(), ed.style());
+            let logical_text = ed.logical_text();
+            let draft_key = (logical_text.clone(), ed.style());
             if self.draft_key.as_ref() != Some(&draft_key) {
-                self.draft_rect = doc.text_edit_layout(ed.page, ed.block, &ed.text, &draft_key.1).ok().and_then(|layout| layout.draft_rect);
+                self.draft_rect = doc.text_edit_layout(ed.page, ed.block, &logical_text, &draft_key.1).ok().and_then(|layout| layout.draft_rect);
                 self.draft_key = Some(draft_key);
             }
         }
@@ -273,12 +274,26 @@ impl LineEditor {
         self.focus = true;
     }
 
+    /// The text converted back to logical reading order for storage and engine operations.
+    pub(crate) fn logical_text(&self) -> String {
+        if crate::bidi::has_rtl(&self.text) {
+            crate::bidi::visual_auto(&self.text).into_owned()
+        } else {
+            self.text.clone()
+        }
+    }
+
     /// Adopt the rewritten paragraph's current geometry before the next overlay frame.
     pub(crate) fn refresh_source(&mut self, block: &pdfcraft_engine::TextBlock, lines: Vec<pdfcraft_engine::TextLine>) {
         self.source_rect = block.rect.map(|v| v as f32);
         self.multiline = block.rows.len() > 1;
         self.source = Some((block.clone(), lines));
-        self.text = block.editor_text.clone();
+        let is_rtl = crate::bidi::has_rtl(&block.editor_text);
+        self.text = if is_rtl {
+            crate::bidi::visual_auto(&block.editor_text).into_owned()
+        } else {
+            block.editor_text.clone()
+        };
         self.original = self.text.clone();
     }
 }
@@ -945,15 +960,30 @@ fn open_editor(
     let scale = (b.width() - 4.0) / ((l.rect[2] - l.rect[0]).max(1.0) as f32);
     // How far the editor box may grow: a single-line paragraph's rewrite grows to the
     // page's right edge, a multi-line paragraph rewraps to its own width.
+    let is_rtl = crate::bidi::has_rtl(&text);
+    let editor_text = if is_rtl {
+        crate::bidi::visual_auto(&text).into_owned()
+    } else {
+        text
+    };
     let right = xf.rect.right().min(view.viewport_rect().right()) - 6.0;
-    let max_width = if l.rows.len() == 1 { (right - b.left()).max(b.width()) } else { b.width() };
+    let max_width = if l.rows.len() == 1 {
+        if is_rtl {
+            let left = (xf.rect.left().max(view.viewport_rect().left()) + 6.0).min(b.right());
+            (b.right() - left).max(b.width())
+        } else {
+            (right - b.left()).max(b.width())
+        }
+    } else {
+        b.width()
+    };
     view.line_editor = Some(LineEditor {
         selection: None,
         font_resource: None,
         page,
         block,
-        text: text.clone(),
-        original: text,
+        text: editor_text.clone(),
+        original: editor_text,
         rect: *b,
         source_rect: l.rect.map(|v| v as f32),
         multiline: l.rows.len() > 1,
@@ -1094,19 +1124,21 @@ pub(crate) fn page_input(
         // A click that moves the editor to another paragraph applies the open one first, so its
         // typed text is not dropped with the switched-away editor (#2022). A click on the open
         // box's own frame, which the editor's overlay does not cover, keeps it open instead.
-        if let Some(open) = view.line_editor.as_ref().filter(|e| e.has_changes()) {
+        if let Some(open) = view.line_editor.as_ref() {
             if open.page == page && open.block == hit {
                 return true;
             }
-            if let Some(old) = view.line_editor.take() {
-                let style = old.style();
-                if old.text != old.original || style != pdfcraft_engine::BlockStyle::default() {
-                    view.pending_edit = Some(Edit::EditTextBlock { page: old.page, block: old.block, text: old.text, style });
+            if open.has_changes() {
+                if let Some(old) = view.line_editor.take() {
+                    let style = old.style();
+                    if old.text != old.original || style != pdfcraft_engine::BlockStyle::default() {
+                        view.pending_edit = Some(Edit::EditTextBlock { page: old.page, block: old.block, text: old.logical_text(), style });
+                    }
                 }
+                // The clicked box opens next frame, from the document with that edit applied.
+                view.pending_text_open = Some((page, hit));
+                return true;
             }
-            // The clicked box opens next frame, from the document with that edit applied.
-            view.pending_text_open = Some((page, hit));
-            return true;
         }
         open_editor(ui, xf, doc, lines, &boxes, page, hit, view);
     }
@@ -1152,11 +1184,27 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
     families
 }
 
-fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> egui::text::LayoutJob {
+fn editor_job(ctx: &egui::Context, ed: &LineEditor, text: &str, scale: f32, width: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
     // An unchanged PDF row already has an authoritative line break. Do not rewrap it
     // because font rounding or a fallback face measures a fraction of a pixel wider.
     job.wrap.max_width = if text == ed.original && ed.look == ed.look0 && ed.extras == ed.extras0 { f32::INFINITY } else { width };
+    let is_rtl = crate::bidi::has_rtl(text);
+    if is_rtl {
+        let font = editor_font(&ed.look, (ed.look.size as f32 * scale).clamp(1.0, 300.0));
+        job.append(
+            text,
+            0.0,
+            egui::TextFormat {
+                font_id: font,
+                extra_letter_spacing: 0.0,
+                color: color32(ed.look.color),
+                italics: ed.look.italic,
+                ..Default::default()
+            },
+        );
+        return job;
+    }
     if let Some((block, lines)) = &ed.source {
         let lefts: Vec<_> = block.rows.iter().filter_map(|r| r.first().and_then(|i| lines.get(*i)).map(|l| l.rect[0])).collect();
         let left_span = lefts.iter().copied().fold(f64::NEG_INFINITY, f64::max) - lefts.iter().copied().fold(f64::INFINITY, f64::min);
@@ -1194,15 +1242,20 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
             }
             let mut font = editor_font(&look, (look.size as f32 * scale).clamp(1.0, 300.0));
             let original_face = ed.look.family == ed.look0.family && ed.look.bold == ed.look0.bold && ed.look.italic == ed.look0.italic;
+            let span_text = text.get(range).unwrap_or_default();
             let embedded = original_face && ed.fonts.contains_key(&line.font);
             if embedded && let Some(name) = ed.fonts.get(&line.font) {
                 font.family = FontFamily::Name(name.clone().into());
             }
-            let native_width = ui.fonts_mut(|f| f.layout_no_wrap(line.text.clone(), font.clone(), Color32::BLACK).size().x);
+            let native_width = ctx.fonts_mut(|f| f.layout_no_wrap(line.text.clone(), font.clone(), Color32::BLACK).size().x);
             let target_width = ((line.rect[2] - line.rect[0]) * look.size / line.size.max(0.01)) as f32 * scale;
-            let spacing = if original_face { (target_width - native_width) / line.text.chars().count().saturating_sub(1).max(1) as f32 } else { 0.0 };
+            let spacing = if original_face {
+                (target_width - native_width) / line.text.chars().count().saturating_sub(1).max(1) as f32
+            } else {
+                0.0
+            };
             job.append(
-                text.get(range).unwrap_or_default(),
+                span_text,
                 0.0,
                 egui::TextFormat {
                     font_id: font,
@@ -1231,7 +1284,7 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
 /// Align the editable galley's baselines to the source rows instead of egui's interface
 /// leading. Glyphs, meshes, caret and selection receive the same transform.
 fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> Arc<egui::Galley> {
-    let mut job = editor_job(ui, ed, text, scale, width);
+    let mut job = editor_job(ui.ctx(), ed, text, scale, width);
     let centered = job.halign == egui::Align::Center;
     job.halign = egui::Align::LEFT;
     let mut galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
@@ -1263,6 +1316,7 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
     let g = Arc::make_mut(&mut galley);
     let mut bounds = Rect::NOTHING;
     let mut meshes = Rect::NOTHING;
+    let is_rtl = crate::bidi::has_rtl(text);
     for (index, placed) in g.rows.iter_mut().enumerate() {
         let (last_baseline, last_rect) = sources.last().copied().unwrap_or((first_baseline, first_rect));
         let (baseline, source_rect) = sources
@@ -1276,7 +1330,13 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
         let base_y = (block.rect[3] - baseline) as f32 * scale;
         let row = Arc::make_mut(&mut placed.row);
         placed.pos.y = base_y - ascent;
-        placed.pos.x = if centered { (width - row.size.x) / 2.0 } else { (source_rect[0] - block.rect[0]) as f32 * scale };
+        placed.pos.x = if centered {
+            (width - row.size.x) / 2.0
+        } else if is_rtl {
+            (width - row.size.x).max(0.0)
+        } else {
+            (source_rect[0] - block.rect[0]) as f32 * scale
+        };
         for glyph in &mut row.glyphs {
             let dy = ascent - glyph.pos.y;
             glyph.pos.y = ascent;
@@ -1336,26 +1396,32 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
         ed.source.as_ref().and_then(|(block, lines)| block.lines.iter().filter_map(|i| lines.get(*i)).map(|l| l.size as f32).reduce(f32::min));
     let font = editor_font(&ed.look, smallest.map_or(ed.size, |s| (s * scale * 0.5).clamp(1.0, 300.0).min(ed.size)));
     let text_color = color32(ed.look.color);
+    let is_rtl = crate::bidi::has_rtl(&ed.text);
+    let single_run = ed.source.as_ref().is_some_and(|(block, _)| block.rows.len() == 1 || block.invisible);
+    let width = if !ed.multiline && single_run && !ed.text.contains('\n') && ed.has_changes() {
+        let job = editor_job(ctx, ed, &ed.text, scale, f32::INFINITY);
+        let natural = ctx.fonts_mut(|f| f.layout_job(job)).size().x;
+        if is_rtl {
+            natural.max(ed.size * 0.4).min((ed.rect.right() - xf.rect.left() - 36.0 * scale).max(ed.rect.width()))
+        } else {
+            natural.max(ed.size * 0.4).min((xf.rect.right() - ed.rect.left() - 36.0 * scale).max(ed.rect.width()))
+        }
+    } else {
+        ed.rect.width().max(1.0)
+    };
+    let area_left = if is_rtl {
+        ed.rect.right() - width
+    } else {
+        ed.rect.left()
+    };
     let mut done = None;
-    egui::Area::new(egui::Id::new("edit-text-line")).order(egui::Order::Foreground).fixed_pos(Pos2::new(ed.rect.left(), ed.rect.top())).show(
+    egui::Area::new(egui::Id::new("edit-text-line")).order(egui::Order::Foreground).fixed_pos(Pos2::new(area_left, ed.rect.top())).show(
         ctx,
         |ui| {
-            // The editor opens at the source size. Once text changes, show the real draft
-            // extent: single rows grow toward the page edge, paragraphs rewrap at their
-            // source width, and the visible frame grows/shrinks vertically with their rows.
-            // An OCR phrase (several stretched words on one scanned line) also grows rightwards.
-            let single_run = ed.source.as_ref().is_some_and(|(block, _)| block.rows.len() == 1 || block.invisible);
-            let width = if !ed.multiline && single_run && !ed.text.contains('\n') && ed.has_changes() {
-                let job = editor_job(ui, ed, &ed.text, scale, f32::INFINITY);
-                let natural = ui.fonts_mut(|f| f.layout_job(job)).size().x;
-                natural.max(ed.size * 0.4).min((xf.rect.right() - ed.rect.left() - 36.0 * scale).max(ed.rect.width()))
-            } else {
-                ed.rect.width().max(1.0)
-            };
             ui.set_width(width);
             let measured = editor_galley(ui, ed, &ed.text, scale, width);
             ed.overflow = ed.has_changes() && (measured.rect.width() > ed.rect.width() + 1.5 || measured.rect.height() > ed.rect.height() + 1.5);
-            let visible = Rect::from_min_size(ed.rect.min, measured.rect.size().max(egui::vec2(1.0, 1.0)));
+            let visible = Rect::from_min_size(Pos2::new(area_left, ed.rect.top()), measured.rect.size().max(egui::vec2(width, 1.0)));
             // Unsupported source programs use an interface fallback whose glyph advances
             // can differ from the PDF's. Keep every visible row inside the growing frame.
             let live = draft_rect.map_or(visible, |bounds| bounds.union(visible));
@@ -1374,7 +1440,8 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             // Until the background worker finishes, cover the entire source box, including
             // lines the draft no longer occupies. Shrinking the text must never expose a copy.
             if !background_ready {
-                ui.painter().rect_filled(ed.rect.expand(1.0), CornerRadius::ZERO, fill);
+                let fill_rect = Rect::from_min_max(Pos2::new(area_left.min(ed.rect.left()), ed.rect.top()), Pos2::new(ed.rect.right(), ed.rect.bottom()));
+                ui.painter().rect_filled(fill_rect.expand(1.0), CornerRadius::ZERO, fill);
             }
             egui::Frame::NONE.fill(fill).show(ui, |ui| {
                 // A textless PDF preview keeps its real page background through the transparent editor.
@@ -1397,10 +1464,26 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     .show(ui);
                 if let Some(cursor) = output.cursor_range {
                     let selected = cursor.as_sorted_char_range();
+                    let (start, end) = if is_rtl {
+                        let a = mirror_rtl_offset(&ed.text, selected.start.into());
+                        let b = mirror_rtl_offset(&ed.text, selected.end.into());
+                        (a.min(b), a.max(b))
+                    } else {
+                        (selected.start.into(), selected.end.into())
+                    };
                     let byte = |index| ed.text.char_indices().nth(index).map_or(ed.text.len(), |(at, _)| at);
-                    ed.selection = (!selected.is_empty()).then(|| byte(selected.start.into())..byte(selected.end.into()));
+                    ed.selection = (start != end).then(|| byte(start)..byte(end));
                 }
                 let r = output.response;
+                if is_rtl && r.clicked() {
+                    if let Some(cursor) = output.cursor_range {
+                        let target = mirror_rtl_offset(&ed.text, cursor.primary.index.into());
+                        if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), r.id) {
+                            st.cursor.set_char_range(Some(egui::text::CCursorRange::one(egui::text::CCursor::new(target))));
+                            st.store(ui.ctx(), r.id);
+                        }
+                    }
+                }
                 if r.changed() {
                     // The next pass measures the updated draft with the Apply/Save rewrite.
                     ctx.request_repaint();
@@ -1434,7 +1517,7 @@ pub(crate) fn finished_edit(ed: LineEditor) -> Option<Edit> {
     (ed.text != ed.original || style != pdfcraft_engine::BlockStyle::default()).then_some(Edit::EditTextBlock {
         page: ed.page,
         block: ed.block,
-        text: ed.text,
+        text: ed.logical_text(),
         style,
     })
 }
@@ -1443,6 +1526,21 @@ pub(crate) fn finished_edit(ed: LineEditor) -> Option<Edit> {
 pub(crate) fn caret_color_on(fill: Color32) -> Color32 {
     let luma = 299 * u32::from(fill.r()) + 587 * u32::from(fill.g()) + 114 * u32::from(fill.b());
     if luma > 127_500 { Color32::BLACK } else { Color32::WHITE }
+}
+
+fn mirror_rtl_offset(text: &str, raw_idx: usize) -> usize {
+    let mut line_start = 0;
+    for line in text.split_inclusive('\n') {
+        let line_len = line.trim_end_matches('\n').chars().count();
+        let has_nl = line.ends_with('\n');
+        let line_end = line_start + line_len;
+        if raw_idx >= line_start && raw_idx <= line_end {
+            let offset = raw_idx - line_start;
+            return line_start + line_len.saturating_sub(offset);
+        }
+        line_start += line_len + if has_nl { 1 } else { 0 };
+    }
+    raw_idx
 }
 
 #[cfg(test)]
@@ -1565,5 +1663,56 @@ mod tests {
         assert_eq!(caret_color_on(Color32::from_rgb(0xFF, 0xFF, 0xF4)), Color32::BLACK);
         assert_eq!(caret_color_on(Color32::BLACK), Color32::WHITE);
         assert_eq!(caret_color_on(DARK_EDITOR_FILL), Color32::WHITE);
+    }
+
+    #[test]
+    fn rtl_editor_layout_uses_proportional_font_no_spacing_and_display_order() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions());
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let (_, mut ed) = preview_app();
+            let logical = "\u{062d}\u{0627}\u{0648}\u{0644}\u{0646}\u{0627} \u{062a}\u{062d}\u{0648}\u{064a}\u{0644}";
+            let visual = crate::bidi::visual_auto(logical).into_owned();
+            ed.text = visual.clone();
+            ed.original = visual;
+            assert_eq!(ed.logical_text(), logical);
+            let job = editor_job(ui.ctx(), &ed, &ed.text, 1.0, 400.0);
+            for section in &job.sections {
+                assert_eq!(section.format.extra_letter_spacing, 0.0);
+            }
+            let galley = editor_galley(ui, &ed, &ed.text, 1.0, 400.0);
+            assert!(!galley.rows.is_empty());
+        });
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn rtl_editor_in_place_word_replacement() {
+        let (_, mut ed) = preview_app();
+        let logical = "\u{0646}\u{062d}\u{0646} \u{062d}\u{0627}\u{0648}\u{0644}\u{0646}\u{0627} \u{0627}\u{0646}\u{0634}\u{0627}\u{0621} \u{0645}\u{0644}\u{0641} \u{062a}\u{0646}\u{0641}\u{064a}\u{0630}\u{064a}";
+        let visual = crate::bidi::visual_auto(logical).into_owned();
+        ed.text = visual.clone();
+        ed.original = visual;
+        let target = "\u{0645}\u{0644}\u{0641}";
+        let replacement = "\u{0645}\u{0644}\u{0641}\u{0627}\u{0646}";
+        assert!(ed.text.contains(target));
+        ed.text = ed.text.replace(target, replacement);
+        let expected_logical = logical.replace(target, replacement);
+        assert_eq!(ed.logical_text(), expected_logical);
+    }
+
+    #[test]
+    fn rtl_offset_mirroring() {
+        let s = "\u{0645}\u{0644}\u{0641}";
+        assert_eq!(mirror_rtl_offset(s, 0), 3);
+        assert_eq!(mirror_rtl_offset(s, 1), 2);
+        assert_eq!(mirror_rtl_offset(s, 2), 1);
+        assert_eq!(mirror_rtl_offset(s, 3), 0);
+
+        let multiline = "\u{0645}\u{0644}\u{0641}\n\u{0627}\u{0628}";
+        assert_eq!(mirror_rtl_offset(multiline, 0), 3);
+        assert_eq!(mirror_rtl_offset(multiline, 3), 0);
+        assert_eq!(mirror_rtl_offset(multiline, 4), 6);
+        assert_eq!(mirror_rtl_offset(multiline, 6), 4);
     }
 }
