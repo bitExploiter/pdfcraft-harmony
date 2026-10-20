@@ -81,6 +81,8 @@ mod dialogs;
 mod edit_text_ui;
 pub use edit_text_ui::CropMode;
 mod editing;
+#[doc(hidden)]
+pub use editing::download_mime_type;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod file_watch;
 mod files;

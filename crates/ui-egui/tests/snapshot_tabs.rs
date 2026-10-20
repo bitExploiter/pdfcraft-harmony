@@ -91,3 +91,16 @@ fn save_as_image_writes_this_tabs_area() {
     assert_eq!(size(&png), (wa, ha), "tab A's area, not tab B's ({wb} × {hb})");
     assert_eq!(png, pdfcraft_engine::export::encode_png(wa, ha, &pa).unwrap(), "tab A's pixels");
 }
+
+/// Print area… opens Print on the area; the area stays outlined (with its menu) in the tab, as
+/// the parity note says, until another tool is chosen.
+#[test]
+fn the_area_stays_after_print_area() {
+    let mut h = harness();
+    let area = [10.0, 130.0, 150.0, 170.0];
+    snapshot_in(&mut h, 0, area);
+    h.get_by_label("Print area…").click();
+    h.run_steps(4);
+    assert_eq!(h.state().dialog, Some(pdfcraft_ui_egui::Dialog::Print));
+    assert_eq!(h.state().views[0].area_pick, Some((0, area)));
+}

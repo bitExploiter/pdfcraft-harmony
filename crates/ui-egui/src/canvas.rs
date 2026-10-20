@@ -3981,10 +3981,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         && let Some((page, area)) = app.views[index].area_pick
     {
         match choice {
-            crate::zoom_snap::AreaChoice::Print => {
-                app.views[index].area_pick = None;
-                app.open_print_area(page, area);
-            }
+            crate::zoom_snap::AreaChoice::Print => app.open_print_area(page, area),
             crate::zoom_snap::AreaChoice::Save => app.save_snapshot_image(index, page, area),
         }
     }
