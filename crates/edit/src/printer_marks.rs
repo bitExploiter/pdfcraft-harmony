@@ -205,7 +205,9 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
         let needed = [trim[0] - reach, trim[1] - reach, trim[2] + reach, trim[3] + reach];
         let within = |b: [f64; 4]| b[0] <= needed[0] && b[1] <= needed[1] && b[2] >= needed[2] && b[3] >= needed[3];
         // The crop box is what shows, so the marks need room inside it, not only inside the media box.
-        if !within(crop) && let Some(room) = marks.make_room {
+        if !within(crop)
+            && let Some(room) = marks.make_room
+        {
             let new_media = if within(media) {
                 None
             } else {
@@ -215,7 +217,12 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
             // Without a wider media box, only the crop box grows, to the marks and no further than the media box.
             let new_crop = match new_media {
                 Some(m) => m,
-                None => [crop[0].min(needed[0]).max(media[0]), crop[1].min(needed[1]).max(media[1]), crop[2].max(needed[2]).min(media[2]), crop[3].max(needed[3]).min(media[3])],
+                None => [
+                    crop[0].min(needed[0]).max(media[0]),
+                    crop[1].min(needed[1]).max(media[1]),
+                    crop[2].max(needed[2]).min(media[2]),
+                    crop[3].max(needed[3]).min(media[3]),
+                ],
             };
             let rect = |r: [f64; 4]| Object::Array(r.iter().map(|v| Object::Real(*v)).collect());
             let page = page_list(doc)[i].clone();
