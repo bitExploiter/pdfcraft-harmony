@@ -917,11 +917,11 @@ fn document_properties_edit_dates_is_one_undoable_step() {
     let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
     let created = h.get_by_role_and_label(Role::TextInput, "Created");
     created.focus();
-    created.type_text("2024-01-15 10:30:00");
+    created.type_text("2024-01-15 10:30:00Z");
     h.run_steps(2);
     let modified = h.get_by_role_and_label(Role::TextInput, "Modified");
     modified.focus();
-    modified.type_text("2024-02-20 14:45:00");
+    modified.type_text("2024-02-20 14:45:00Z");
     h.run_steps(2);
     h.get_by_label("OK").click();
     h.run_steps(3);

@@ -620,6 +620,27 @@ pub fn format_pdf_date(s: &str) -> String {
     raw.to_string()
 }
 
+/// Local timezone offset in seconds east of UTC (0 on WASM or when unknown).
+pub fn local_utc_offset() -> i64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    return i64::from(chrono::Local::now().offset().local_minus_utc());
+    #[cfg(target_arch = "wasm32")]
+    return 0;
+}
+
+/// Suffix for a PDF date in the local timezone (e.g. `+03'00'` or `Z`).
+pub fn local_tz_suffix() -> String {
+    let offset = local_utc_offset();
+    if offset == 0 {
+        return "Z".to_string();
+    }
+    let sign = if offset < 0 { '-' } else { '+' };
+    let total_mins = offset.unsigned_abs() / 60;
+    let h = total_mins / 60;
+    let m = total_mins % 60;
+    format!("{sign}{h:02}'{m:02}'")
+}
+
 /// Normalize a human date, ISO date, or PDF date string into standard PDF date format `D:YYYYMMDDHHmmSS...`.
 ///
 /// Accepts:
@@ -667,19 +688,26 @@ pub fn normalize_pdf_date(s: &str) -> String {
                 let mut h = 0u32;
                 let mut mi = 0u32;
                 let mut sec = 0u32;
+                let mut tz_part = "";
 
                 for part in parts {
-                    let cleaned = part.trim_end_matches(|c: char| c.is_ascii_alphabetic());
-                    if cleaned.contains(':') {
-                        let time_chunks: Vec<&str> = cleaned.split(':').collect();
-                        if let Some(h_str) = time_chunks.first() {
-                            h = h_str.parse().unwrap_or(0);
-                        }
-                        if let Some(m_str) = time_chunks.get(1) {
-                            mi = m_str.parse().unwrap_or(0);
-                        }
-                        if let Some(s_str) = time_chunks.get(2) {
-                            sec = s_str.parse().unwrap_or(0);
+                    if part == "Z" || part == "z" {
+                        tz_part = "Z";
+                    } else if (part.starts_with('+') || part.starts_with('-')) && part.len() >= 3 {
+                        tz_part = part;
+                    } else {
+                        let cleaned = part.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+                        if cleaned.contains(':') {
+                            let time_chunks: Vec<&str> = cleaned.split(':').collect();
+                            if let Some(h_str) = time_chunks.first() {
+                                h = h_str.parse().unwrap_or(0);
+                            }
+                            if let Some(m_str) = time_chunks.get(1) {
+                                mi = m_str.parse().unwrap_or(0);
+                            }
+                            if let Some(s_str) = time_chunks.get(2) {
+                                sec = s_str.parse().unwrap_or(0);
+                            }
                         }
                     }
                 }
@@ -695,7 +723,19 @@ pub fn normalize_pdf_date(s: &str) -> String {
                 let mi = mi.clamp(0, 59);
                 let sec = sec.clamp(0, 59);
 
-                return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}Z");
+                let tz = if tz_part.eq_ignore_ascii_case("Z") {
+                    "Z".to_string()
+                } else if !tz_part.is_empty() {
+                    let sign = tz_part.chars().next().unwrap_or('+');
+                    let tz_digits: String = tz_part.chars().filter(|c| c.is_ascii_digit()).collect();
+                    let th = tz_digits.get(0..2).unwrap_or("00");
+                    let tm = tz_digits.get(2..4).unwrap_or("00");
+                    format!("{sign}{th}'{tm}'")
+                } else {
+                    local_tz_suffix()
+                };
+
+                return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");
             }
         }
     }
@@ -740,14 +780,16 @@ pub fn normalize_pdf_date(s: &str) -> String {
         }
         let h = h.clamp(0, 23);
 
-        let tz = if tz_part.eq_ignore_ascii_case("Z") || tz_part.is_empty() {
+        let tz = if tz_part.eq_ignore_ascii_case("Z") {
             "Z".to_string()
-        } else {
+        } else if !tz_part.is_empty() {
             let sign = tz_part.chars().next().unwrap_or('+');
             let tz_digits: String = tz_part.chars().filter(|c| c.is_ascii_digit()).collect();
             let th = tz_digits.get(0..2).unwrap_or("00");
             let tm = tz_digits.get(2..4).unwrap_or("00");
             format!("{sign}{th}'{tm}'")
+        } else {
+            local_tz_suffix()
         };
 
         return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");

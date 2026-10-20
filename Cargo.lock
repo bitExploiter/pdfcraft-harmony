@@ -4242,6 +4242,7 @@ version = "0.10.1"
 name = "pdfcraft-organize"
 version = "0.10.1"
 dependencies = [
+ "chrono",
  "hayro-syntax",
  "pdfcraft-content",
  "pdfcraft-cos",

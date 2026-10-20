@@ -519,7 +519,7 @@ fn document_info_edits_update_the_xmp_packet() {
 fn creation_and_mod_date_edits_round_trip_and_update_xmp() {
     let mut doc = doc_with_xmp(LIBREOFFICE_XMP.as_bytes());
     // Edit with human-readable and PDF date formats
-    set_info(&mut doc, "CreationDate", "2024-05-10 14:30:00").unwrap();
+    set_info(&mut doc, "CreationDate", "2024-05-10 14:30:00Z").unwrap();
     set_info(&mut doc, "ModDate", "D:20261020193210Z").unwrap();
     let saved = save_and_reopen(&doc);
     assert_eq!(info(&saved, "CreationDate").as_deref(), Some("D:20240510143000Z"));
@@ -549,19 +549,22 @@ fn format_pdf_date_formats_and_normalizes_correctly() {
 
     // User's exact case:
     assert_eq!(format_pdf_date("D:20261020161649+03'00'"), "10/20/26, 4:16:49 PM");
-    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49 PM"), "D:20261020161649Z");
-    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49\u{202f}PM"), "D:20261020161649Z");
+    let local_suffix = crate::local_tz_suffix();
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49 PM"), format!("D:20261020161649{local_suffix}"));
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49\u{202f}PM"), format!("D:20261020161649{local_suffix}"));
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49 PM Z"), "D:20261020161649Z");
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49 PM +03:00"), "D:20261020161649+03'00'");
 
     // Morning and midnight/noon cases
     assert_eq!(format_pdf_date("D:20240508090503Z"), "5/8/24, 9:05:03 AM");
-    assert_eq!(normalize_pdf_date("5/8/24, 9:05:03 AM"), "D:20240508090503Z");
+    assert_eq!(normalize_pdf_date("5/8/24, 9:05:03 AM Z"), "D:20240508090503Z");
     assert_eq!(format_pdf_date("D:20240101000000Z"), "1/1/24, 12:00:00 AM");
-    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 AM"), "D:20240101000000Z");
+    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 AM Z"), "D:20240101000000Z");
     assert_eq!(format_pdf_date("D:20240101120000Z"), "1/1/24, 12:00:00 PM");
-    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 PM"), "D:20240101120000Z");
+    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 PM Z"), "D:20240101120000Z");
 
     // 4-digit year format
-    assert_eq!(normalize_pdf_date("10/20/2026, 4:16:49 PM"), "D:20261020161649Z");
+    assert_eq!(normalize_pdf_date("10/20/2026, 4:16:49 PM Z"), "D:20261020161649Z");
 
     // ISO format
     assert_eq!(format_pdf_date("2026-10-20T16:16:49Z"), "10/20/26, 4:16:49 PM");

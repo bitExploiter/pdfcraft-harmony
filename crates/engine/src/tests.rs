@@ -522,8 +522,8 @@ fn save_is_incremental_stamps_mod_date_and_rebases() {
 #[test]
 fn edit_creation_and_mod_date_persists_across_save_and_undo() {
     let (mut s, id) = session_with(1);
-    s.apply(id, Edit::SetInfo { key: "CreationDate".into(), value: "2021-03-15 09:00:00".into() }).unwrap();
-    s.apply(id, Edit::SetInfo { key: "ModDate".into(), value: "2022-07-20 18:30:00".into() }).unwrap();
+    s.apply(id, Edit::SetInfo { key: "CreationDate".into(), value: "2021-03-15 09:00:00Z".into() }).unwrap();
+    s.apply(id, Edit::SetInfo { key: "ModDate".into(), value: "2022-07-20 18:30:00Z".into() }).unwrap();
 
     let doc = s.get(id).unwrap();
     assert_eq!(doc.info.creation_date.as_deref(), Some("D:20210315090000Z"));
