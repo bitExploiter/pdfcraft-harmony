@@ -213,12 +213,17 @@ const MAX_AREA_COLUMNS: usize = 1 << 25;
 /// blocks aligned to the target grid stay exact, flat colours (#624).
 ///
 /// `add_row(y, weight, columns)` adds `weight ×` source row `y` (`source.0 × N` samples) into
-/// `columns`. Rows are visited in order, each source row once per target row it overlaps. The
-/// source rows of one target row are summed down the columns first (a plain multiply-add over
-/// contiguous samples), and only then walked across once per *target* row: walking every source
-/// row across cost about 4× as much on a 10718 × 13701 scan. Memory is one row of column sums
-/// and one target row of sums besides the output. Coordinates are integers in units where a
-/// source pixel is `target` long and a target pixel `source` long, so every overlap is exact.
+/// `columns`. Rows are visited in order. When shrinking (or keeping) the height, each source row
+/// is added once per target row it overlaps (at most twice): the source rows of one target row
+/// are summed down the columns first (a plain multiply-add over contiguous samples), and only
+/// then walked across once per *target* row, since walking every source row across cost about
+/// 4× as much on a 10718 × 13701 scan. When enlarging the height, a source row covers several
+/// target rows, so it is added and walked across once, and that row is reused for each of them:
+/// adding it again per target row cost source width × target height, about nine billion samples
+/// for a 1,100,000 × 1 strip drawn 16 × 8192. Either way the integer sums are the same. Memory is
+/// one row of column sums and one or two target rows of sums besides the output. Coordinates are
+/// integers in units where a source pixel is `target` long and a target pixel `source` long, so
+/// every overlap is exact.
 fn area_average<const N: usize>(
     source: (u32, u32),
     target: (u32, u32),
@@ -241,25 +246,52 @@ fn area_average<const N: usize>(
     let mut columns = zeroed_buffer::<u64>(columns_len)?;
     let mut sums = zeroed_buffer::<u64>(sums_len)?;
     let (sh, th) = (u64::from(sh), u64::from(th));
-    let (mut pos, mut sy, mut ty) = (0u64, 0u64, 0u64);
+    // Enlarging the height: the current source row walked across (each target column's sum,
+    // at most 255 × `sw`), filled when that row is first reached.
+    let mut row = if th > sh {
+        Some(zeroed_buffer::<u64>(sums_len)?)
+    } else {
+        None
+    };
+    let (mut pos, mut sy, mut ty, mut row_ready) = (0u64, 0u64, 0u64, false);
     while sy < sh && ty < th {
         let (source_end, target_end) = ((sy + 1) * th, (ty + 1) * sh);
         let end = source_end.min(target_end);
+        let weight = end - pos;
         // `sy < sh ≤ u32::MAX`, so it fits usize.
-        add_row(sy as usize, end - pos, &mut columns)?;
+        match &mut row {
+            Some(row) => {
+                if !row_ready {
+                    columns.fill(0);
+                    add_row(sy as usize, 1, &mut columns)?;
+                    area_average_row::<N>(&columns, sw, tw, row);
+                    row_ready = true;
+                }
+                for (sum, value) in sums.iter_mut().zip(row.iter()) {
+                    *sum += weight * value;
+                }
+            }
+            None => add_row(sy as usize, weight, &mut columns)?,
+        }
         pos = end;
         if end == target_end {
-            area_average_row::<N>(&columns, sw, tw, &mut sums);
+            if row.is_none() {
+                area_average_row::<N>(&columns, sw, tw, &mut sums);
+                columns.fill(0);
+            }
             // A mean of samples, so at most 255.
             out.extend(
                 sums.iter()
                     .map(|sum| ((sum + total / 2) / total).min(255) as u8),
             );
-            columns.fill(0);
+            if row.is_some() {
+                sums.fill(0);
+            }
             ty += 1;
         }
         if end == source_end {
             sy += 1;
+            row_ready = false;
         }
     }
     (out.len() == out_len).then_some(out)
@@ -529,8 +561,12 @@ fn snap_minified_image(
     if !(a > 0.0 && d > 0.0 && b.abs() <= tiny && c.abs() <= tiny) {
         return None;
     }
+    // Halves round up, not away from zero as `f64::round` does, so shifting the page by whole
+    // pixels (a tile) shifts the rectangle without resizing it: with `round`, an image at
+    // x = 0.5 snapped to 1..5 on the page but −1..4 in a tile starting at x = 1.
+    let round = |v: f64| (v + 0.5).floor();
     let edge = |origin: f64, scale: f64, side: u32| {
-        let (lo, hi) = (origin.round(), (origin + scale * f64::from(side)).round());
+        let (lo, hi) = (round(origin), round(origin + scale * f64::from(side)));
         (hi - lo >= 1.0 && lo.abs() < 1e6 && hi.abs() < 1e6).then_some((lo, hi))
     };
     let (x0, x1) = edge(e, a, source.0)?;
@@ -2146,9 +2182,10 @@ mod area_average_tests {
 
     /// Tiles are rendered with the page shifted by whole device pixels, so a shrunk image must
     /// snap to the same rectangle, shifted by the same amount, whatever the tile's origin.
-    /// `f64::round` rounds halves away from zero: an 8-column image drawn 4 pixels wide at
-    /// x = 0.5 snaps to 1..5 in the full page, but to −1..4 (five columns) in a tile starting at
-    /// x = 1, so the tile averages different source areas and seams show at tile edges.
+    /// `f64::round`, used before, rounds halves away from zero: an 8-column image drawn 4 pixels
+    /// wide at x = 0.5 snapped to 1..5 in the full page, but to −1..4 (five columns) in a tile
+    /// starting at x = 1, so the tile averaged different source areas and seams showed at tile
+    /// edges.
     #[test]
     fn snapped_minified_image_is_invariant_under_whole_pixel_shifts() {
         let snap = |x: f64, y: f64| {
@@ -2161,6 +2198,58 @@ mod area_average_tests {
                 let expected = page.map(|(w, h, x0, y0)| (w, h, x0 - shift, y0 - shift));
                 assert_eq!(tile, expected, "origin {origin}, tile shifted by {shift}");
             }
+        }
+    }
+
+    /// The overlap of source span `s` and target span `t` along one axis, in units where a
+    /// source pixel is `target` long and a target pixel `source` long.
+    fn overlap(s: u64, t: u64, source: u64, target: u64) -> u64 {
+        let lo = (s * target).max(t * source);
+        let hi = ((s + 1) * target).min((t + 1) * source);
+        hi.saturating_sub(lo)
+    }
+
+    /// Both ways through [`area_average`] (shrinking the height, and enlarging it, which reuses
+    /// each source row) give each target pixel the coverage-weighted mean of the source, computed
+    /// here pixel by pixel, for every size up to 6 × 6 each way.
+    #[test]
+    fn area_average_matches_a_pixel_by_pixel_reference() {
+        const N: usize = 3;
+        for (sw, sh, tw, th) in (1..=6u32).flat_map(|sw| {
+            (1..=6u32).flat_map(move |sh| {
+                (1..=6u32).flat_map(move |tw| (1..=6u32).map(move |th| (sw, sh, tw, th)))
+            })
+        }) {
+            let samples: Vec<u8> = (0..sw * sh * N as u32)
+                .map(|i| (i * 37 % 251) as u8)
+                .collect();
+            let row_len = sw as usize * N;
+            let got = area_average::<N>((sw, sh), (tw, th), |y, weight, columns| {
+                let row = samples.get(y * row_len..(y + 1) * row_len)?;
+                for (column, sample) in columns.iter_mut().zip(row) {
+                    *column += weight * u64::from(*sample);
+                }
+                Some(())
+            });
+            let total = u64::from(sw * sh);
+            let mut want = Vec::new();
+            for ty in 0..u64::from(th) {
+                for tx in 0..u64::from(tw) {
+                    for c in 0..N {
+                        let mut sum = 0;
+                        for sy in 0..u64::from(sh) {
+                            for sx in 0..u64::from(sw) {
+                                let weight = overlap(sx, tx, sw.into(), tw.into())
+                                    * overlap(sy, ty, sh.into(), th.into());
+                                let i = (sy * u64::from(sw) + sx) as usize * N + c;
+                                sum += weight * u64::from(samples[i]);
+                            }
+                        }
+                        want.push(((sum + total / 2) / total) as u8);
+                    }
+                }
+            }
+            assert_eq!(got, Some(want), "{sw} × {sh} → {tw} × {th}");
         }
     }
 }
