@@ -5552,6 +5552,47 @@ endstream endobj
         }
     }
 
+    /// A tile shows the same pixels as the full page under it. A shrunk image starting on a half
+    /// pixel snapped differently in the two: an 8-column ramp drawn 4 pixels wide at x = 0.5
+    /// snaps to columns 1..5 of the page, but `round` takes the tile starting at x = 1 to −1..4,
+    /// five columns, so the tile averaged other source areas and seams showed at tile edges.
+    #[test]
+    fn tiles_match_full_render_for_half_pixel_minified_images() {
+        let ramp: Vec<u8> = (0..8).map(|i| i * 32).collect();
+        let image = hex(&ramp);
+        let content = "q 4 0 0 1 0.5 0 cm /Im0 Do Q";
+        let mut mismatches = Vec::new();
+        for interp in ["", "/Interpolate true "] {
+            let pdf = format!(
+                "%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+                 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+                 3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 8 1] /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> >> >> endobj\n\
+                 4 0 obj << /Length {} >> stream\n{content}\nendstream endobj\n\
+                 5 0 obj << /Type /XObject /Subtype /Image /Width 8 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8 {interp}/Filter /ASCIIHexDecode /Length {} >> stream\n{image}>\nendstream endobj\n\
+                 trailer << /Root 1 0 R >>\n%%EOF\n",
+                content.len(),
+                image.len() + 1
+            );
+            let mut r = PageRenderer::new(Arc::new(pdf.into_bytes()), RenderConfig::default());
+            let full = r.render(RenderRequest { page: 0, kind: RequestKind::Pixels, scale: 1.0, ..Default::default() });
+            assert!(full.error.is_none(), "{:?}", full.error);
+            let part = r.render(RenderRequest {
+                page: 0,
+                kind: RequestKind::Pixels,
+                tile: Some(Tile { x: 1, y: 0, w: 7, h: 1 }),
+                scale: 1.0,
+                ..Default::default()
+            });
+            assert!(part.error.is_none(), "{:?}", part.error);
+            let grays = |page: &RenderedPage| page.rgba.as_chunks::<4>().0.iter().map(|px| px[0]).collect::<Vec<u8>>();
+            let (full, part) = (grays(&full), grays(&part));
+            if full.get(1..) != Some(part.as_slice()) {
+                mismatches.push(format!("{interp}page {full:?}, tile {part:?}"));
+            }
+        }
+        assert!(mismatches.is_empty(), "the tile differs from the page under it: {mismatches:#?}");
+    }
+
     #[test]
     fn non_interpolated_alpha_images_keep_their_colours_and_mask_when_minified() {
         let palette: [[u8; 3]; 8] = [[0, 0, 0], [255, 255, 255], [255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [255, 0, 255], [0, 255, 255]];

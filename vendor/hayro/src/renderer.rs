@@ -2117,3 +2117,50 @@ pub fn tiling_cell_scale(scale: f32, step: f32, max_pixels: f32) -> f32 {
         scale
     }
 }
+
+// PdfCraft patch: unit tests for area averaging and the snapping of minified images.
+#[cfg(test)]
+mod area_average_tests {
+    use super::{area_average, snap_minified_image};
+    use kurbo::Affine;
+
+    /// An image shrunk across but enlarged down (a long strip drawn as a tall, narrow box) must
+    /// read each source row a bounded number of times. Repeating a source row once per target
+    /// row it covers walks the whole source width again for every target row: a validated
+    /// 1,100,000 × 1 image drawn 16 × 8192 visited about nine billion samples per pass, which
+    /// stalls the render (and the browser's inline renderer). A row straddling a target-row
+    /// boundary is read twice when shrinking, so two is the most allowed.
+    #[test]
+    fn area_average_reads_each_source_row_at_most_twice() {
+        for (source, target) in [((1024, 1), (4, 1024)), ((1024, 3), (4, 1000)), ((1024, 1024), (4, 4))] {
+            let mut reads = vec![0usize; source.1 as usize];
+            let out = area_average::<1>(source, target, |y, _, _| {
+                *reads.get_mut(y)? += 1;
+                Some(())
+            });
+            assert!(out.is_some(), "{source:?} → {target:?}");
+            let most = reads.iter().max().copied().unwrap_or(0);
+            assert!(most <= 2, "{source:?} → {target:?}: a source row was read {most} times");
+        }
+    }
+
+    /// Tiles are rendered with the page shifted by whole device pixels, so a shrunk image must
+    /// snap to the same rectangle, shifted by the same amount, whatever the tile's origin.
+    /// `f64::round` rounds halves away from zero: an 8-column image drawn 4 pixels wide at
+    /// x = 0.5 snaps to 1..5 in the full page, but to −1..4 (five columns) in a tile starting at
+    /// x = 1, so the tile averages different source areas and seams show at tile edges.
+    #[test]
+    fn snapped_minified_image_is_invariant_under_whole_pixel_shifts() {
+        let snap = |x: f64, y: f64| {
+            snap_minified_image(&Affine::new([0.5, 0.0, 0.0, 0.5, x, y]), (8, 8), (4, 4))
+        };
+        for origin in [0.5, 1.5, 2.5, 0.25, 0.75, 3.0] {
+            for shift in [1.0, 2.0, 3.0] {
+                let page = snap(origin, origin);
+                let tile = snap(origin - shift, origin - shift);
+                let expected = page.map(|(w, h, x0, y0)| (w, h, x0 - shift, y0 - shift));
+                assert_eq!(tile, expected, "origin {origin}, tile shifted by {shift}");
+            }
+        }
+    }
+}
