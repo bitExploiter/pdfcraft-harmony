@@ -267,6 +267,8 @@ pub struct CommentPrefs {
     /// (endpoints, midpoints, intersections, paths), as the measuring tools do and as CAD's
     /// object snap does.
     pub snap: bool,
+    /// Which targets snapping offers (CAD's object snap modes), for commenting and measuring.
+    pub snap_targets: measure::snap::SnapOptions,
 }
 
 impl Default for CommentPrefs {
@@ -278,9 +280,13 @@ impl Default for CommentPrefs {
             group_tool: [CommentTool::Note, CommentTool::Highlight, CommentTool::Ink],
             hide_empty_highlight_hover: false,
             snap: false,
+            snap_targets: measure::snap::SnapOptions::default(),
         }
     }
 }
+
+/// Where something snapped to: the point in user space and what it is.
+pub(crate) type SnapHit = ([f64; 2], measure::snap::SnapKind);
 
 /// How close (screen points) the pointer must be to a path for a drawing tool's point to snap.
 pub const SNAP_SENSITIVITY: f64 = 6.0;
@@ -598,6 +604,12 @@ pub struct CommentView {
     /// Where the pointer would snap to right now: (page, point in user space, what it is), for
     /// the marker on the page.
     pub snap_hover: Option<(usize, [f64; 2], measure::snap::SnapKind)>,
+    /// The nearest snap target under the pointer (its first candidate) and its page, while there
+    /// is one: Tab cycles from it.
+    pub snap_first: Option<(usize, [f64; 2])>,
+    /// Tab's place among the candidates under the pointer: (their first one, presses forward).
+    /// Another set of candidates starts again from its first.
+    pub snap_cycle: Option<([f64; 2], isize)>,
 }
 
 /// A one-off change to the keyboard focus of the Comments panel's inline editor. The editor
@@ -612,6 +624,17 @@ pub(crate) enum EditorFocus {
 }
 
 impl CommentView {
+    /// Tab (`step` 1) or Shift+Tab (-1) over a snap marker: the next or previous candidate under
+    /// the pointer. Returns whether there was a marker to cycle.
+    pub fn cycle_snap(&mut self, step: isize) -> bool {
+        let Some((_, first)) = self.snap_first else { return false };
+        self.snap_cycle = Some(match self.snap_cycle {
+            Some((f, n)) if measure::distance(f, first) <= 1e-6 => (f, n.saturating_add(step)),
+            _ => (first, step),
+        });
+        true
+    }
+
     /// Takes back the last point of a polygon, cloud or connected lines being drawn; the first
     /// point's removal cancels the drawing. Returns whether there was such a drawing.
     pub fn undo_point(&mut self) -> bool {
@@ -674,6 +697,8 @@ pub(crate) struct PageCx<'a> {
     /// The page's paths, when the tool's points snap to the drawing (Snap to drawing is on and
     /// the tool sets points or corners).
     pub snap: Option<std::sync::Arc<measure::snap::Geometry>>,
+    /// Tab's place among the snap candidates (see [`CommentView::snap_cycle`]).
+    pub snap_cycle: Option<([f64; 2], isize)>,
 }
 
 impl PageCx<'_> {
@@ -682,13 +707,55 @@ impl PageCx<'_> {
     /// snapped to.
     pub(crate) fn snapped(&self, p: Pos2) -> ([f64; 2], Option<measure::snap::SnapKind>) {
         let u = self.to_user(p);
-        let Some(geometry) = &self.snap else { return (u, None) };
+        let all = self.snap_candidates(u);
+        let Some(first) = all.first() else { return (u, None) };
+        // Tab moves through the candidates; another set starts again from its first.
+        let step = match self.snap_cycle {
+            Some((f, n)) if measure::distance(f, first.point) <= 1e-6 => n,
+            _ => 0,
+        };
+        let i = usize::try_from(step.rem_euclid(all.len().max(1) as isize)).unwrap_or(0);
+        all.get(i).map_or((u, None), |hit| (hit.point, Some(hit.kind)))
+    }
+
+    /// The snap targets the user's choice allows within the reach (6 screen points at this zoom)
+    /// of user point `u`, nearest first; none without snapping.
+    pub(crate) fn snap_candidates(&self, u: [f64; 2]) -> Vec<measure::snap::Snap> {
+        let Some(geometry) = &self.snap else { return Vec::new() };
         // The reach in user units: the screen distance of one user unit, at this zoom.
         let pixels_per_unit = self.to_screen([u[0] + 1.0, u[1]]).distance(self.to_screen(u)).max(1e-6);
         let tolerance = (SNAP_SENSITIVITY / f64::from(pixels_per_unit)).min(10_000.0);
-        match geometry.snap(u, tolerance, measure::snap::SnapOptions::default()) {
-            Ok(Some(hit)) => (hit.point, Some(hit.kind)),
-            _ => (u, None),
+        geometry.candidates(u, tolerance, self.prefs.snap_targets).unwrap_or_default()
+    }
+
+    /// The pointer `p` of a drag that started at `from`, moved so the first of `anchors` (screen
+    /// points that travel with the drag: a comment's corners, a handle) that comes within reach
+    /// of a snap target lands on it (a Fill & Sign mark `side` points across goes by its centre,
+    /// as when it is placed); with that target. Unchanged without snapping or a target in reach.
+    pub(crate) fn snap_drag(&self, anchors: &[Pos2], mark: Option<f64>, from: Pos2, p: Pos2) -> (Pos2, Option<SnapHit>) {
+        if self.snap.is_none() {
+            return (p, None);
+        }
+        let travel = p - from;
+        // A corner on a target point (an end, a centre…) beats one merely on a path, then the
+        // nearer one.
+        let mut best: Option<((bool, f32), egui::Vec2, SnapHit)> = None;
+        for anchor in anchors {
+            let moved = *anchor + travel;
+            let (u, kind) = match mark {
+                Some(side) => self.snapped_mark(moved, side),
+                None => self.snapped(moved),
+            };
+            let Some(kind) = kind else { continue };
+            let shift = self.to_screen(u) - moved;
+            let rank = (kind == measure::snap::SnapKind::Path, shift.length());
+            if best.is_none_or(|b| rank < b.0) {
+                best = Some((rank, shift, (u, kind)));
+            }
+        }
+        match best {
+            Some((_, shift, hit)) => (p + shift, Some(hit)),
+            None => (p, None),
         }
     }
 
@@ -700,6 +767,7 @@ impl PageCx<'_> {
         let u = self.to_user(p);
         let (long, short) = (10.0 * side, 3.0 * side);
         if let Some(geometry) = &self.snap
+            && self.prefs.snap_targets.centres
             && let Some([x0, y0, x1, y1]) = geometry.enclosing_box(u, long)
             && let (w, h) = (x1 - x0, y1 - y0)
             && ((w <= long && h <= short) || (w <= short && h <= long))
@@ -802,12 +870,27 @@ impl PageCx<'_> {
             );
         }
         match (gesture, pointer) {
-            (Some(Gesture::Move { page, index, from }), Some(p)) if (*page, *index) == (self.page, a.index) => r.translate(p - *from),
+            (Some(Gesture::Move { page, index, from }), Some(p)) if (*page, *index) == (self.page, a.index) => {
+                let (anchors, mark) = self.move_anchors(a);
+                r.translate(self.snap_drag(&anchors, mark, *from, p).0 - *from)
+            }
             (Some(Gesture::Resize { page, index, handle, from, aspect_ratio }), Some(p)) if (*page, *index) == (self.page, a.index) => {
+                let p = self.snap_drag(&[handle_pos(r, *handle)], None, *from, p).0;
                 resized(r, *handle, p - *from, corner_ratio(r, *aspect_ratio, shift))
             }
             _ => r,
         }
+    }
+
+    /// What snaps when comment `a` is dragged: its corners on screen, or, for a Fill & Sign mark
+    /// (a tick, cross, dot or line), its centre, which goes where a new mark would.
+    pub(crate) fn move_anchors(&self, a: &Annotation) -> (Vec<Pos2>, Option<f64>) {
+        let r = self.screen_rect(a);
+        let [x0, y0, x1, y1] = a.rect;
+        if a.fill_sign && a.subtype == "Stamp" && (x1 - x0).abs() <= 48.0 && (y1 - y0).abs() <= 48.0 {
+            return (vec![r.center()], Some(12.0));
+        }
+        (vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], None)
     }
 }
 
@@ -919,6 +1002,12 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
     // (The Fill & Sign tools set their own, before this runs.)
     if !matches!(cx.tool, QuickTool::Fill(_)) && cv.snap_hover.is_some_and(|(page, _, _)| page == cx.page) {
         cv.snap_hover = None;
+    }
+    // The nearest target under the pointer, which Tab cycles from.
+    match pointer.filter(|_| over_page && cx.snap.is_some()) {
+        Some(p) => cv.snap_first = cx.snap_candidates(cx.to_user(p)).first().map(|s| (cx.page, s.point)),
+        None if cv.snap_first.is_some_and(|(page, _)| page == cx.page) => cv.snap_first = None,
+        None => {}
     }
     if cv.gesture.is_some() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
         cv.gesture = None;
@@ -1360,9 +1449,25 @@ fn select_input(
     if matches!(cv.gesture, Some(Gesture::Move { page, .. } | Gesture::Resize { page, .. } | Gesture::Reshape { page, .. }) if page == cx.page) {
         consumed = true;
     }
+    // Snapping while a comment is moved or resized: its corner (a mark's centre, a resize
+    // handle) nearest a target lands on it, and the marker shows where.
+    let dragged = match (&cv.gesture, pointer) {
+        (Some(Gesture::Move { page, index, from }), Some(p)) if *page == cx.page => cx.get(*index).map(|a| {
+            let (anchors, mark) = cx.move_anchors(a);
+            cx.snap_drag(&anchors, mark, *from, p)
+        }),
+        (Some(Gesture::Resize { page, index, handle, from, .. }), Some(p)) if *page == cx.page => {
+            cx.get(*index).map(|a| cx.snap_drag(&[handle_pos(cx.screen_rect(a), *handle)], None, *from, p))
+        }
+        _ => None,
+    };
+    if let Some((_, Some((at, kind)))) = dragged {
+        cv.snap_hover = Some((cx.page, at, kind));
+    }
     if resp.drag_stopped()
         && let Some(p) = pointer
     {
+        let p = dragged.map_or(p, |(p, _)| p);
         match cv.gesture.clone() {
             Some(Gesture::Move { page, index, from }) if page == cx.page => {
                 cv.gesture = None;
@@ -1585,7 +1690,7 @@ fn paint_snap_marker(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
                 measure::snap::SnapKind::Midpoint => "Midpoint",
                 measure::snap::SnapKind::Intersection => "Intersection",
                 measure::snap::SnapKind::Path => "Path",
-                measure::snap::SnapKind::Centre => "Box centre",
+                measure::snap::SnapKind::Centre => "Centre point",
             }),
             crate::theme::regular(11.0),
             green,
@@ -1745,6 +1850,7 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
         allowed: true,
         hidden: false,
         snap: None,
+        snap_cycle: None,
         redact_mark: ([0.89, 0.13, 0.13], 1.0),
     };
     let anchor = cx.to_screen(c.at);
@@ -2264,6 +2370,22 @@ pub fn fill_picker(ui: &mut egui::Ui, current: Option<Rgb>) -> Option<Option<Rgb
     picked
 }
 
+/// Takes Tab presses out of `events`, for cycling snap targets: +1 for each Tab, -1 for each
+/// Shift+Tab (their releases go too). Tabs with other modifiers stay.
+pub(crate) fn take_snap_tabs(events: &mut Vec<egui::Event>) -> isize {
+    let mut step = 0isize;
+    events.retain(|e| match e {
+        egui::Event::Key { key: egui::Key::Tab, pressed, modifiers, .. } if modifiers.is_none() || modifiers.shift_only() => {
+            if *pressed {
+                step += if modifiers.shift { -1 } else { 1 };
+            }
+            false
+        }
+        _ => true,
+    });
+    step
+}
+
 /// The quick bar's Snap to drawing switch (F3), for the tools whose points snap.
 pub(crate) fn snap_button(ui: &mut egui::Ui, prefs: &mut CommentPrefs) {
     let key = crate::commands::command_shortcut_label(ui.ctx(), "comment.snap");
@@ -2271,6 +2393,21 @@ pub(crate) fn snap_button(ui: &mut egui::Ui, prefs: &mut CommentPrefs) {
     if icons::button(ui, "circle-dot", 32.0, prefs.snap, &tip).clicked() {
         prefs.snap = !prefs.snap;
     }
+    // What snaps (CAD's object snap modes), for commenting and measuring alike.
+    let resp = icons::button(ui, "chevron-down", 32.0, false, tl!("Snap targets"));
+    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+        snap_target_boxes(ui, &mut prefs.snap_targets);
+    });
+}
+
+/// The snap targets as check boxes (the quick bar's menu, the measuring panel).
+pub(crate) fn snap_target_boxes(ui: &mut egui::Ui, targets: &mut measure::snap::SnapOptions) {
+    ui.add(crate::widgets::checkbox(&mut targets.endpoints, tl!("Endpoints")));
+    ui.add(crate::widgets::checkbox(&mut targets.midpoints, tl!("Midpoints")));
+    ui.add(crate::widgets::checkbox(&mut targets.centres, tl!("Centre points")));
+    ui.add(crate::widgets::checkbox(&mut targets.intersections, tl!("Intersections")));
+    ui.add(crate::widgets::checkbox(&mut targets.paths, tl!("Paths")));
+    ui.label(egui::RichText::new(tl!("Tab: the next target under the pointer")).small());
 }
 
 /// The comment tools' extra quick-bar controls: pin, colour, fill, opacity and thickness.
@@ -2591,6 +2728,30 @@ mod tests {
             drawn_shape(CommentTool::Arrow, &[[0.0, 0.0], [5.0, 0.0]]),
             Some(Shape::Line { start: LineEnding::None, end: LineEnding::OpenArrow, .. })
         ));
+    }
+
+    #[test]
+    fn tab_presses_are_taken_for_cycling_snap_targets() {
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        let mut events = vec![
+            key(egui::Key::Tab, true, egui::Modifiers::NONE),
+            key(egui::Key::Tab, false, egui::Modifiers::NONE),
+            key(egui::Key::A, true, egui::Modifiers::NONE),
+            key(egui::Key::Tab, true, egui::Modifiers::NONE),
+            key(egui::Key::Tab, true, egui::Modifiers::SHIFT),
+            key(egui::Key::Tab, true, egui::Modifiers::COMMAND),
+        ];
+        assert_eq!(take_snap_tabs(&mut events), 1, "two forward, one back");
+        assert_eq!(events.len(), 2, "the A and the ⌘Tab stay: {events:?}");
+        let mut cv = CommentView::default();
+        assert!(!cv.cycle_snap(1), "no marker: nothing to cycle");
+        cv.snap_first = Some((0, [1.0, 2.0]));
+        assert!(cv.cycle_snap(1) && cv.cycle_snap(1));
+        assert_eq!(cv.snap_cycle, Some(([1.0, 2.0], 2)));
+        // Elsewhere, another set of targets: counting starts again.
+        cv.snap_first = Some((0, [5.0, 5.0]));
+        cv.cycle_snap(-1);
+        assert_eq!(cv.snap_cycle, Some(([5.0, 5.0], -1)));
     }
 
     #[test]

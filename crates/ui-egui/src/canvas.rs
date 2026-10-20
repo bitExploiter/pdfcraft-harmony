@@ -3323,9 +3323,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // Snap to drawing (M5): the page's paths, for the drawing tools that set points and
             // the tools that place text or a Fill & Sign mark, on the page the pointer is over
             // (extracting a plan's paths takes up to a second).
+            // The Select tool too: a comment moved or resized snaps by its corners.
             let snaps = match tool {
                 QuickTool::Comment(t) => t.snaps(),
                 QuickTool::Fill(t) => t.snaps(),
+                QuickTool::Select => true,
                 _ => false,
             };
             let snap = if prefs.snap && snaps && (resp.hovered() || resp.dragged()) {
@@ -3338,7 +3340,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             } else {
                 None
             };
-            let pcx = comments::PageCx { page: i, xf: &xf, info, tool, prefs, allowed, hidden: comments_hidden, redact_mark, snap };
+            let snap_cycle = view.comments.snap_cycle;
+            let pcx = comments::PageCx { page: i, xf: &xf, info, tool, prefs, allowed, hidden: comments_hidden, redact_mark, snap, snap_cycle };
             if let QuickTool::Measure(measure_tool) = tool {
                 crate::measure_ui::page_input(ui, &resp, doc, view, &pcx, measure_tool, units);
             }
