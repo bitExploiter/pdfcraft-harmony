@@ -13,13 +13,7 @@ fn compose_to(to: &[&str]) -> Compose {
 
 #[test]
 fn a_mailto_uri_recipient_is_refused() {
-    for bad in [
-        "mailto:x@y?bcc=evil@z&attach=/home/u/.ssh/id_rsa",
-        "MAILTO:x@y",
-        "MailTo:x@y",
-        "  mailto:x@y?bcc=evil@z",
-        "\tmailto:x@y",
-    ] {
+    for bad in ["mailto:x@y?bcc=evil@z&attach=/home/u/.ssh/id_rsa", "MAILTO:x@y", "MailTo:x@y", "  mailto:x@y?bcc=evil@z", "\tmailto:x@y"] {
         assert_eq!(check(&compose_to(&[bad])), Err(MailError::BadRecipient(bad.into())), "{bad:?}");
     }
     // One bad recipient among good ones still refuses the message.

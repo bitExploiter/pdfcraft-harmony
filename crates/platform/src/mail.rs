@@ -186,9 +186,7 @@ pub fn check(compose: &Compose) -> Result<(), MailError> {
         return Err(MailError::NoFile(compose.path.clone()));
     }
     let is_mailto = |a: &str| a.trim_start().get(.."mailto:".len()).is_some_and(|head| head.eq_ignore_ascii_case("mailto:"));
-    if let Some(bad) =
-        compose.to.iter().find(|a| a.trim().is_empty() || a.starts_with('-') || is_mailto(a) || a.chars().any(char::is_control))
-    {
+    if let Some(bad) = compose.to.iter().find(|a| a.trim().is_empty() || a.starts_with('-') || is_mailto(a) || a.chars().any(char::is_control)) {
         return Err(MailError::BadRecipient(bad.clone()));
     }
     Ok(())

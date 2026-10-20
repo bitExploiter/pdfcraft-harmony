@@ -9,12 +9,8 @@ use pdfcraft_platform::mail::{Compose, DefaultMail, Route, plan_for};
 const WINDOWS_LIMIT: usize = 32_767;
 
 fn run_plan(body: String) -> (usize, Option<String>) {
-    let compose = Compose {
-        path: PathBuf::from("C:\Temp\Invoice 26340.pdf"),
-        subject: "Invoice 26340".into(),
-        body,
-        to: vec!["ap@example.org".into()],
-    };
+    let compose =
+        Compose { path: PathBuf::from(r"C:\Temp\Invoice 26340.pdf"), subject: "Invoice 26340".into(), body, to: vec!["ap@example.org".into()] };
     let plan = plan_for("windows", &DefaultMail::Mapi("Mozilla Thunderbird".into()), &compose);
     match plan.map(|p| p.route) {
         // The whole line: the program, then each argument and the space before it (quotes aside).
