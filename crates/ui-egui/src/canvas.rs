@@ -254,11 +254,17 @@ impl Selection {
         anchor.min(head)..anchor.max(head).saturating_add(1)
     }
 
+    /// What a drag over table rows selects by rows, not reading order's detour down each column.
+    /// Only a drag (or ⇧-click) has a pointer end; a word, line or page unit, Select all and a
+    /// command's selection keep reading order, which is the text they stand for.
+    fn by_rows(text: &PageText, anchor: usize, head: usize, head_x: Option<f32>) -> Option<Vec<usize>> {
+        head_x.and_then(|x| text.visual_between(anchor, head, Some(x)))
+    }
+
     /// One rectangle per selected piece of a line, in view space (highlighting, markup quads).
     fn rects(&self, text: &PageText) -> Vec<[f32; 4]> {
         match self.span {
-            // A drag along table rows selects those rows, not reading order's detour.
-            Span::Run { anchor, head, head_x } => match text.visual_between(anchor, head, head_x) {
+            Span::Run { anchor, head, head_x } => match Self::by_rows(text, anchor, head, head_x) {
                 Some(row) => text.glyph_rects(&row),
                 None => text.line_rects(Self::range(anchor, head)),
             },
@@ -269,7 +275,7 @@ impl Selection {
     /// The selected text, as Copy puts it on the clipboard.
     fn text(&self, text: &PageText) -> String {
         match self.span {
-            Span::Run { anchor, head, head_x } => match text.visual_between(anchor, head, head_x) {
+            Span::Run { anchor, head, head_x } => match Self::by_rows(text, anchor, head, head_x) {
                 Some(row) => text.column_text(&row),
                 None => text.text_of(Self::range(anchor, head)),
             },

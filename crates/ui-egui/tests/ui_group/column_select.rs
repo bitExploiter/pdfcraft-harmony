@@ -190,3 +190,39 @@ fn a_drag_ending_between_the_columns_selects_the_rows() {
     drag(&mut h, from, pear, Modifiers::NONE);
     assert_eq!(text(&h).as_deref(), Some("Name\nApple\nPear"));
 }
+
+/// Two article columns, the right one a line shorter: its last glyph, the end of reading order,
+/// sits above the left column's last line.
+fn uneven_columns() -> Vec<u8> {
+    let content = "BT /F1 14 Tf \
+        1 0 0 1 20 250 Tm (Left first line.) Tj 1 0 0 1 220 250 Tm (Right first line.) Tj \
+        1 0 0 1 20 225 Tm (Left other line.) Tj 1 0 0 1 220 225 Tm (Right final line.) Tj \
+        1 0 0 1 20 200 Tm (Left final line.) Tj ET";
+    format!(
+        "%PDF-1.7\n\
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n\
+4 0 obj << /Length {} >> stream\n{content}\nendstream endobj\n\
+5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Courier >> endobj\n\
+trailer << /Root 1 0 R >>\n%%EOF",
+        content.len()
+    )
+    .into_bytes()
+}
+
+/// Select all takes the page's text in reading order, whole: it has no pointer, so the rows a
+/// drag would take don't apply, though its last glyph is not the lowest.
+#[test]
+fn select_all_keeps_every_line_of_uneven_columns() {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("uneven.pdf", None, uneven_columns()).expect("opens");
+        app
+    });
+    crate::support::wait_until(&mut h, "the page's text layer", |app| app.views[0].glyph_screen_pos(0, 0).is_some() && !app.render_pending());
+    assert!(h.state_mut().views[0].select_all());
+    h.run_steps(1);
+    assert_eq!(text(&h).as_deref(), Some("Left first line.\nLeft other line.\nLeft final line.\nRight first line.\nRight final line."));
+}

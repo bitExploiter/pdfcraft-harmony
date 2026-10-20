@@ -159,10 +159,12 @@ impl PageText {
             .collect()
     }
 
-    /// Index of the glyph nearest to a view-space point (for selection anchors). A point level
-    /// with some text takes the nearest glyph of that row, however far along it: past the end of
-    /// a short table cell, a longer cell in the next row must not win. Between rows, the nearest
-    /// glyph by distance, vertical distance weighing more.
+    /// Index of the glyph nearest to a view-space point (for selection anchors): by distance,
+    /// vertical distance weighing more. A point level with some text prefers the nearest glyph
+    /// of that row, so past the end of a short table cell a longer cell in the next row does not
+    /// win; but a point in the leading right beside another line, parted by a gutter (see
+    /// [`Self::gutter_between`]) from the row level with it, takes that line: between two lines of
+    /// one column, it is not taken by another column's line that different baselines put level.
     pub fn nearest(&self, x: f32, y: f32) -> Option<usize> {
         let mut on_row: Option<(usize, f32)> = None;
         let mut any: Option<(usize, f32)> = None;
@@ -191,7 +193,19 @@ impl PageText {
                 any = Some((i, d));
             }
         }
-        on_row.or(any).map(|(i, _)| i)
+        match (on_row, any) {
+            // The point sits in the leading right beside another line (within half its height), and
+            // a gutter parts it from the row level with it: that row is another column's.
+            (Some((r, _)), Some((i, _))) if r != i => {
+                let (Some(g), Some(n)) = (self.glyphs.get(r), self.glyphs.get(i)) else { return Some(r) };
+                let beside = (n.rect[1] - y).max(y - n.rect[3]) <= (n.rect[3] - n.rect[1]) * 0.5;
+                let h = g.rect[3] - g.rect[1];
+                let edge = if x > g.rect[2] { g.rect[2] } else { g.rect[0] };
+                let reach = h * GUTTER_ROWS;
+                Some(if beside && self.gutter_between(edge, x, y - reach, y + reach, h) { i } else { r })
+            }
+            (on_row, any) => on_row.or(any).map(|(i, _)| i),
+        }
     }
 
     /// The word around glyph `i` as its first and last glyph (double-click): it stops at word
@@ -3022,13 +3036,30 @@ mod tests {
         word(&mut v, "Short", 10.0, 10.0, 6.0);
         word(&mut v, "A much longer row", 10.0, 22.0, 6.0);
         let t = layout(v);
-        // Level with "Short" (y 10..20), far right of it, above the end of the long row.
+        // Level with "Short" (y 10..20, ending at x 40), 60 past it, above the long row.
         assert_eq!(t.nearest(100.0, 15.0), Some(4), "the \"t\" of \"Short\"");
         // In the gap between the rows the nearer glyph still wins.
         let below = t.nearest(100.0, 21.5).and_then(|i| t.line_of.get(i).copied());
         assert_eq!(below, Some(1), "just above the long row, nearer to it than to the short one");
         assert_eq!(PageText::default().nearest(0.0, 0.0), None);
         assert!(t.nearest(f32::NAN, 15.0).is_some(), "a NaN point still answers, never panics");
+    }
+
+    /// Two columns whose baselines don't line up: a point in the leading between two right-hand
+    /// lines, level with a left-hand line far away, takes the right-hand line next to it.
+    #[test]
+    fn a_point_between_lines_is_not_taken_by_a_far_line_level_with_it() {
+        let mut v = Vec::new();
+        for row in 0..3 {
+            word(&mut v, "Left text", 10.0, 10.0 + row as f32 * 12.0, 6.0);
+        }
+        for row in 0..2 {
+            word(&mut v, "Right text", 200.0, 16.0 + row as f32 * 12.0, 6.0);
+        }
+        let t = layout(v);
+        // y 27: between the right lines (16..26 and 28..38), within the left line at 22..32.
+        let i = t.nearest(205.0, 27.0).expect("a glyph");
+        assert!(t.glyphs[i].rect[0] >= 200.0, "took {:?} at {:?}", t.glyphs[i].text, t.glyphs[i].rect);
     }
 
     /// A rectangle that misses every glyph, or is not a number, selects nothing.
