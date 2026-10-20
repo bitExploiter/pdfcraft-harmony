@@ -43,13 +43,28 @@ fn is_digit(c: char) -> bool {
     c.is_ascii_digit() || matches!(c, '\u{0660}'..='\u{0669}' | '\u{06F0}'..='\u{06F9}')
 }
 
-/// Combining marks that ride on the character before them.
+/// Combining marks that ride on the character before them (Thaana fili included).
 fn is_mark(c: char) -> bool {
     is_hebrew_mark(c)
         || matches!(
             u32::from(c),
-            0x0300..=0x036F | 0x0610..=0x061A | 0x064B..=0x065F | 0x0670 | 0x06D6..=0x06DC | 0x06DF..=0x06E4 | 0x06E7..=0x06E8 | 0x06EA..=0x06ED | 0xFE20..=0xFE2F
+            0x0300..=0x036F
+                | 0x0610..=0x061A
+                | 0x064B..=0x065F
+                | 0x0670
+                | 0x06D6..=0x06DC
+                | 0x06DF..=0x06E4
+                | 0x06E7..=0x06E8
+                | 0x06EA..=0x06ED
+                | 0x07A6..=0x07B0
+                | 0xFE20..=0xFE2F
         )
+}
+
+/// Whether `text` is one base character with the combining marks after it (`ރު`, `בָּ`), the
+/// way Chrome and Edge label each shaped right-to-left cluster with its own ActualText.
+pub(crate) fn is_one_cluster(text: &str) -> bool {
+    clusters(text).len() == 1
 }
 
 /// Direction marks, embeddings, overrides and isolates: they steer the reordering and are not drawn.
@@ -350,6 +365,16 @@ mod tests {
         assert_eq!(first, Some('ם'));
         assert!(visual.contains("לוֹ") || visual.contains("וֹל"), "{visual:?}");
         assert_eq!(to_logical(&visual), "שָׁלוֹם");
+    }
+
+    #[test]
+    fn thaana_fili_stay_on_their_letter() {
+        for logical in ["ރަ އިވަރު", "ދިވެހި ބަސް", "ސަފްހާ 12"] {
+            let visual = drawn(logical);
+            assert_eq!(to_logical(&visual), logical, "{logical:?} drawn as {visual:?}");
+        }
+        assert_eq!(drawn("ރަ އިވަރު"), "ރުވައި ރަ");
+        assert!(is_one_cluster("ރު") && is_one_cluster("ސް") && !is_one_cluster("ރަރު") && !is_one_cluster(""));
     }
 
     #[test]

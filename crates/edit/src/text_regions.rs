@@ -192,7 +192,7 @@ fn shape_source(
             return Ok(Some((bytes, shaped, family)));
         }
     }
-    Err(EditError::Invalid("complex text needs the complete source TrueType/OpenType face; load that font before editing".into()))
+    Err(EditError::Invalid(format!("{}; load that font before editing", crate::text::NEEDS_FULL_SOURCE_FACE)))
 }
 
 /// For each output row (a range of the draft's characters), whether it is exactly the source row

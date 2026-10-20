@@ -1109,10 +1109,12 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
     let mut last: Option<(usize, Pen)> = None; // the stream piece and where its last run ended
     for mut s in shown {
         // A single RTL glyph's ActualText (e.g. lam-alef) is an inline ligature, not a
-        // separate logical line. Put its letters into visual order before joining the
-        // surrounding glyphs; the completed line is recovered to typing order below.
-        // Multi-glyph and mixed-direction replacements keep their authoritative order.
-        if s.logical_order && s.glyph_count == 1 && s.text.chars().all(crate::bidi::is_rtl) {
+        // separate logical line, and so is one letter with its marks drawn as several glyphs
+        // (Chrome and Edge label each Thaana cluster such as `ރު` this way). Put its letters
+        // into visual order before joining the surrounding glyphs; the completed line is
+        // recovered to typing order below. Other multi-glyph and mixed-direction replacements
+        // keep their authoritative order.
+        if s.logical_order && (s.glyph_count == 1 || crate::bidi::is_one_cluster(&s.text)) && s.text.chars().all(crate::bidi::is_rtl) {
             s.text = crate::bidi::to_visual(&s.text);
             s.logical_order = false;
         }
@@ -1559,6 +1561,18 @@ fn unicode_hex(ch: char) -> String {
     encoded.iter().map(|u| format!("{u:04X}")).collect()
 }
 
+/// The wording shared by the errors that a font chosen for the paragraph would resolve: see
+/// [`needs_document_font`].
+const NO_FALLBACK_FONT: &str = "this build has no fallback font for it";
+pub(crate) const NEEDS_FULL_SOURCE_FACE: &str = "complex text needs the complete source TrueType/OpenType face";
+
+/// Whether `e` says that neither the paragraph's font nor a fallback this build has can draw the
+/// replacement, so the edit can succeed with a font that has the characters (one installed on
+/// the system, registered with [`register_text_font`] and passed as [`BlockStyle::resource`]).
+pub fn needs_document_font(e: &EditError) -> bool {
+    matches!(e, EditError::Invalid(m) if m.contains(NO_FALLBACK_FONT) || m.starts_with(NEEDS_FULL_SOURCE_FACE))
+}
+
 /// No font this build has can draw `text`. Only Japanese text is about the Japanese face: other
 /// characters are missing from the paragraph's font, and choosing a font that has them works too.
 fn no_fallback_font(text: &str) -> EditError {
@@ -1568,7 +1582,7 @@ fn no_fallback_font(text: &str) -> EditError {
     }
     let Some(ch) = text.chars().find(|c| !c.is_whitespace() && !is_win_ansi_char(*c)) else { return no_japanese_font() };
     EditError::Invalid(format!(
-        "the paragraph's font has no glyph for {ch} (U+{:04X}) and this build has no fallback font for it; \
+        "the paragraph's font has no glyph for {ch} (U+{:04X}) and {NO_FALLBACK_FONT}; \
          choose a font that has it (Load font… or Installed fonts…), or use an official release, which includes \
          PdfCraft's fallback fonts (to build them in, set CRAFT_FONTS_DIR to a craft-fonts checkout)",
         u32::from(ch)

@@ -2561,7 +2561,31 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         }
         Edit::MoveObjects { page, objects, offset } => pdfcraft_edit::move_objects(doc, *page, objects, *offset)?,
         Edit::EditTextBlock { page, block, text, style } => {
-            pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), style)?;
+            // When neither the paragraph's font nor a built-in fallback can draw the text (Dhivehi
+            // letters the PDF's subset lacks) and no font was chosen, use an installed font that
+            // has them all, as choosing it under Installed fonts… would: one edit, one undo step.
+            let before = style.resource.is_none().then(|| doc.clone());
+            match pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), style) {
+                Err(e)
+                    if pdfcraft_edit::text::needs_document_font(&e)
+                        && let Some(clean) = before =>
+                {
+                    let base_font = pdfcraft_edit::text::text_blocks(&clean, *page)
+                        .ok()
+                        .and_then(|blocks| blocks.get(*block).map(|b| b.base_font.clone()))
+                        .unwrap_or_default();
+                    let invalid = |m: String| EditError::Edit(pdfcraft_edit::EditError::Invalid(m));
+                    let font = text_fonts::installed_font_for(text, &base_font).map_err(|why| invalid(format!("{e}; {why}")))?;
+                    *doc = clean;
+                    let with_font = |e: pdfcraft_edit::EditError| invalid(format!("with the installed font {}: {e}", font.family));
+                    let resource = pdfcraft_edit::text::register_text_font(doc, *page, &font.bytes).map_err(with_font)?;
+                    let style = pdfcraft_edit::BlockStyle { resource: Some(resource), ..style.clone() };
+                    pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), &style).map_err(with_font)?;
+                }
+                result => {
+                    result?;
+                }
+            }
         }
         Edit::RegisterTextFont { page, bytes } => {
             pdfcraft_edit::text::register_text_font(doc, *page, bytes)?;

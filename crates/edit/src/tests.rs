@@ -3718,6 +3718,43 @@ fn multi_glyph_rtl_actual_text_keeps_its_own_reading_order() {
     }
 }
 
+/// Chrome and Edge draw `ރަ އިވަރު` in visual order with one ActualText span per letter and its
+/// fili. Synthetic codes: A ރ, B ވ, C އ, a ަ, i ި, u ު.
+#[test]
+fn thaana_clusters_with_actual_text_read_in_typing_order() {
+    let cmap = "/CIDInit /ProcSet findresource begin 12 dict begin begincmap /CMapType 2 def \
+         1 begincodespacerange <00> <FF> endcodespacerange 7 beginbfchar \
+         <20> <0020> <41> <0783> <42> <0788> <43> <0787> <61> <07A6> <69> <07A8> <75> <07AA> \
+         endbfchar endcmap CMapName currentdict /CMap defineresource pop end end";
+    let widths: Vec<_> = (32..=117).map(|c| if c == 32 { "250" } else { "500" }).collect();
+    let span = |logical: &str, codes: &str| {
+        let hex: String = logical.encode_utf16().map(|u| format!("{u:04X}")).collect();
+        let draw: String = codes.chars().map(|c| format!("({c}) Tj ")).collect();
+        format!("/Span <</ActualText <FEFF{hex}>>> BDC {draw}EMC ")
+    };
+    let content = format!(
+        "BT /F1 12 Tf 72 700 Td /ReversedChars BMC {}{}{}( ) Tj {}EMC ET",
+        span("ރު", "uA"),
+        span("ވަ", "aB"),
+        span("އި", "iC"),
+        span("ރަ", "aA")
+    );
+    let doc = build(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
+        &stream("", &content),
+        &format!(
+            "<< /Type /Font /Subtype /Type1 /BaseFont /FakeThaana /FirstChar 32 /LastChar 117 /Widths [{}] /ToUnicode 6 0 R >>",
+            widths.join(" ")
+        ),
+        &stream("", cmap),
+    ]);
+    for doc in [&doc, &reopen(&doc)] {
+        assert_eq!(text::text_blocks(doc, 0).unwrap()[0].editor_text, "ރަ އިވަރު");
+    }
+}
+
 #[test]
 fn replacing_word_with_actual_text_ligature_removes_all_its_source_operators() {
     let mut doc = arabic_ligature_page(
