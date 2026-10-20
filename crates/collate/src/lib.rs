@@ -18,9 +18,9 @@
 //! U+0300..=U+036F with a nonzero combining class. Anything outside them is left alone (a
 //! starter without a decomposition): this is not a general NFD, it is the part of NFD that
 //! Vietnamese and the Latin scripts need. The tables are generated from the Unicode Character
-//! Database 17.0 (via ICU4X `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 / ICU 78.1rc,
-//! the `icuexport` tag in `icu_normalizer_data` 2.3.0) and verified against it by the test
-//! `tables_match_icu_normalizer`. Canonical decompositions are frozen by Unicode's normalization
+//! Database 17.0 (via ICU4X `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 and
+//! ICU release-78.1rc, as stated in `icu_normalizer_data` 2.3.0) and verified against it by the
+//! test `tables_match_icu_normalizer`. Canonical decompositions are frozen by Unicode's normalization
 //! stability policy, so later Unicode versions do not change them.
 //!
 //! Nothing here panics: lookups use `get` and binary search, and the work is linear in the input
