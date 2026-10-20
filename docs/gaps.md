@@ -1,6 +1,6 @@
 # Where PdfCraft falls short of Acrobat Pro
 
-> **Last reviewed:** 2026-10-19 · **Last updated:** 2026-10-19 · **Change:** minor (gap 14, related note: language-aware order and NFC = NFD in the user-visible text lists; Find and Search & Redact and scripts other than Latin remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-19 · **Last updated:** 2026-10-19 · **Change:** minor (gap 14, related note: language-aware order and NFC = NFD for Latin letters in the user-visible text lists; the bookmark filter matches but does not sort; Find and Search & Redact and scripts other than Latin remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (gap 6 #3673: Character encoding CJK mapping routes corrected; no readiness re-estimate)
 
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-19 · **Change:** minor (gap 2: composite fonts with `/ToUnicode /Identity-H` read as Unicode, hayro-interpret patch 44; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -316,15 +316,18 @@ update the numbers.
 - **Estimate:** 25–45 h (Arabic RTL 20–35, three catalogs 8–12 plus review). **Doc:**
   [localization-parity.md](localization-parity.md).
 - **Related, not part of this estimate: language-aware order of user text.** Comments (sort,
-  author filter, search), Summarize Comments, form "Sort items", Combine and the bookmark filter
-  sort in the order of the interface language (CLDR `vi` for Vietnamese, Root otherwise) and treat
-  NFC and NFD as equal (`pdfcraft-collate`); the Vietnamese order applies when the interface
-  language is Vietnamese (the bookmark filter matches but does not sort), and every other language
-  and headless sessions get Root order with NFC = NFD, which puts letters such as Czech `č` beside
-  `c` instead of after `z`.
+  author filter, search), Summarize Comments, form "Sort items" and Combine sort in the order of
+  the interface language (CLDR `vi` for Vietnamese, Root otherwise) and treat NFC and NFD as equal
+  (`pdfcraft-collate`). The bookmark filter matches titles the same way (NFC = NFD, whole letters)
+  and does not sort them. The Vietnamese order applies when the interface language is Vietnamese,
+  and every other language and headless sessions get Root order with NFC = NFD, which puts letters
+  such as Czech `č` beside `c` instead of after `z`. NFC = NFD covers the precomposed Latin letters
+  of U+00C0..=U+024F and U+1E00..=U+1EFF only: a precomposed letter of another script stays
+  different from its NFD spelling (Cyrillic `й` against `и` + U+0306, Greek `ά` against `α` +
+  U+0301).
   Still missing: Find, Search & Redact and the command palette keep the plain case-fold (no NFC
-  match; Find and Search & Redact map hits back to glyph positions), scripts other than Latin are not unified, and the comment summary
-  report's font does not draw every Vietnamese letter.
+  match; Find and Search & Redact map hits back to glyph positions), scripts other than Latin are
+  not unified, and the comment summary report's font does not draw every Vietnamese letter.
 
 ### 15. Forms: JavaScript object model, actions, submit, XFA depth
 
@@ -408,7 +411,7 @@ update the numbers.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-19 | minor | Gap 14: user-visible lists sort in Vietnamese order (CLDR `vi`) and treat NFC and NFD as equal: Comments (sort, author filter, search), Summarize Comments, form "Sort items", Combine, the bookmark filter. The Vietnamese order applies when the interface language is Vietnamese; other languages and headless sessions get Root order with NFC = NFD; only Find, Search & Redact, the command palette and scripts other than Latin keep the old behaviour. Estimates unchanged. |
+| 2026-10-19 | minor | Gap 14: user-visible lists sort in Vietnamese order (CLDR `vi`) and treat NFC and NFD as equal (precomposed Latin letters of U+00C0..=U+024F and U+1E00..=U+1EFF only): Comments (sort, author filter, search), Summarize Comments, form "Sort items", Combine; the bookmark filter matches titles that way (NFC = NFD, whole letters) and does not sort them. The Vietnamese order applies when the interface language is Vietnamese; other languages and headless sessions get Root order with NFC = NFD; only Find, Search & Redact, the command palette and scripts other than Latin keep the old behaviour. Estimates unchanged. |
 | 2026-10-19 | minor | Gap 2: a Type 0 font whose `/ToUnicode` is the name `/Identity-H` or `/Identity-V` (WSCAD) reads its codes as Unicode, so such pages have text to select, find and edit (hayro-interpret patch 44, `view.render-cid-fonts`). Estimates unchanged. |
 | 2026-10-15 | minor | Gap 21: the side-by-side view had already shipped; the Compare panel filters text changes and visual differences. Estimate 10–20 h → 8–16 h |
 | 2026-10-20 | minor | Gap 6 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections, or a predefined non-Identity CMap; negative and indirect-reference regressions and a read-only automation test passed after failing before the fix. Per-glyph validation and embedded-font extraction remain separate. Scores and estimates unchanged. |

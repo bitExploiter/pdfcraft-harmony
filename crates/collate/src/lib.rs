@@ -5,12 +5,15 @@
 //!   (`e` U+0302 U+0301) is the same text, and so are marks of different combining classes typed
 //!   in either order. [`canonical`] gives the one form the key builder reads; [`fold_key`] adds
 //!   case; [`text_eq`] and [`compare`] agree with it: two strings are equal exactly when their
-//!   [`fold_key`]s are.
+//!   [`fold_key`]s are. This holds for the Latin letters the tables cover (below): a precomposed
+//!   letter of another script is not decomposed, so Cyrillic `й` and `и` + U+0306, or Greek `ά`
+//!   and `α` + U+0301, stay different.
 //! - **Order.** [`Collation::Root`] sorts accented letters with their base letter; [`Collation::Vi`]
 //!   is the CLDR `vi` standard order (`a ă â b c d đ e ê …`, tones as a secondary difference).
 //!   [`natural`] sorts digit runs by value on top of either.
 //! - **Search.** [`search_contains`] ignores case and encoding and matches whole letters, with the
-//!   Turkish `i` and Greek sigma folds of the craft apps' search ([`search_fold`]).
+//!   Turkish `i` (`İ` in NFC or NFD) and Greek sigma folds of the craft apps' search
+//!   ([`search_fold`]).
 //!
 //! Nothing here changes the user's text: it builds keys and answers comparisons only. The data
 //! behind the key is in `ucd.rs`: the canonical decomposition of the Latin letters
@@ -549,24 +552,45 @@ pub fn natural(a: &str, b: &str, c: Collation) -> Ordering {
 // Searching: whole letters, ignoring case and encoding.
 // ---------------------------------------------------------------------------------------------
 
-/// `s` prepared for searching: the craft apps' case mapping first, then [`fold_key`].
+/// `s` prepared for searching: [`fold_key`], then the craft apps' search folds.
 ///
-/// The mapping is the case fold the craft apps' search uses: the Latin `I` and `i`, the dotted
-/// `İ` (U+0130) and the dotless `ı` (U+0131) all become `i` (Turkish and Azerbaijani text can be
-/// found by typing `istanbul` or `ırmak`; search cannot know the language, so the four are one
-/// letter), and Greek `Σ`, `σ` and the word-final `ς` become `σ`.
-/// [`fold_key`] then lowercases one character to one character, decomposes and puts marks in
-/// canonical order, so NFC and NFD text give the same result.
+/// [`fold_key`] lowercases one character to one character, decomposes and puts marks in canonical
+/// order, so NFC and NFD text give the same result. The folds are the ones the craft apps' search
+/// uses: the Latin `I` and `i`, the dotted `İ` (U+0130) and the dotless `ı` (U+0131) all become
+/// `i` (Turkish and Azerbaijani text can be found by typing `istanbul` or `ırmak`; search cannot
+/// know the language, so the four are one letter), and Greek `Σ`, `σ` and the word-final `ς`
+/// become `σ`.
+///
+/// `İ` decomposes to `I` + U+0307 (and a full lowercase of it gives `i` + U+0307), so the dot of
+/// `İ` is dropped in every spelling: after `I`, `i` or `ı`, a U+0307 that is the first mark above
+/// (combining class 230) of the letter's marks in canonical order is removed. `İSTANBUL`,
+/// `I` + U+0307 + `STANBUL` and `i` + U+0307 + `stanbul` all give `istanbul`. Only that one dot
+/// goes: a second U+0307, or one after another mark above (`Í` + U+0307), stays, and other marks
+/// keep their letter apart as before (`Í`, `Ï` and `Ì` are not `i`).
 pub fn search_fold(s: &str) -> String {
-    let mapped: String = s
-        .chars()
-        .map(|c| match c {
-            'I' | 'i' | '\u{130}' | '\u{131}' => 'i',
-            'Σ' | 'σ' | 'ς' => 'σ',
-            other => other,
-        })
-        .collect();
-    fold_key(&mapped)
+    let mut out = String::with_capacity(s.len());
+    // After an `i`, until its first mark above: a U+0307 there is the dot of `İ`.
+    let mut dot_pending = false;
+    for c in fold_key(s).chars() {
+        let class = ccc(c);
+        if class == 0 {
+            dot_pending = matches!(c, 'i' | '\u{131}');
+            out.push(match c {
+                '\u{131}' => 'i',
+                'ς' => 'σ',
+                other => other,
+            });
+            continue;
+        }
+        if dot_pending && class == 230 {
+            dot_pending = false;
+            if c == '\u{307}' {
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// Whether the char at byte offset `at` of `s` is a combining mark.
@@ -1028,12 +1052,70 @@ mod tests {
         assert!(!contains_folded(&big, "van"));
         assert!(!contains_folded(&marks, "\u{323}\u{302}a"));
         // NFC and NFD haystacks and needles give the same answers.
-        for (h, n) in [("Nguyễn", "ễ"), ("Nguyễn", "e"), ("Ánh", "á"), ("Đà Nẵng", "nẵng"), ("Đà Nẵng", "nang")] {
+        let cases = [
+            ("Nguyễn", "ễ"),
+            ("Nguyễn", "e"),
+            ("Ánh", "á"),
+            ("Đà Nẵng", "nẵng"),
+            ("Đà Nẵng", "nang"),
+            ("İSTANBUL", "istanbul"),
+            ("istanbul", "İSTANBUL"),
+            ("Íslenska", "islenska"),
+        ];
+        for (h, n) in cases {
             let (hd, nd) = (canonical(h), canonical(n));
             for (a, b) in [(h, n), (hd.as_str(), n), (h, nd.as_str()), (hd.as_str(), nd.as_str())] {
                 assert_eq!(contains_folded(a, b), contains_folded(h, n), "{a:?} {b:?}");
                 assert_eq!(search_contains(a, b), search_contains(h, n), "{a:?} {b:?}");
             }
+        }
+    }
+
+    #[test]
+    fn canonical_equivalence_covers_the_latin_tables_only() {
+        // What the crate and app docs promise: precomposed Latin letters equal their NFD spelling,
+        // precomposed letters of other scripts do not (they are not in the tables).
+        assert!(text_eq("Ánh", "A\u{301}nh"));
+        for (nfc, nfd) in [("й", "и\u{306}"), ("ά", "α\u{301}"), ("Й", "И\u{306}")] {
+            assert!(!text_eq(nfc, nfd), "{nfc:?}");
+            assert_ne!(fold_key(nfc), fold_key(nfd), "{nfc:?}");
+            assert!(!search_contains(nfc, nfd), "{nfc:?}");
+        }
+    }
+
+    #[test]
+    fn search_fold_takes_the_dot_of_i_in_nfc_and_nfd_alike() {
+        // `İ` (U+0130) is `I` + U+0307 in NFD, and a full lowercase of it is `i` + U+0307.
+        for s in ["İSTANBUL", "I\u{307}STANBUL", "i\u{307}stanbul", "ı\u{307}stanbul", "istanbul", "ISTANBUL", "ıstanbul"] {
+            assert_eq!(search_fold(s), "istanbul", "{s:?}");
+            assert!(search_contains(s, "istanbul"), "{s:?}");
+            assert!(search_contains("Đi İstanbul", &s.to_lowercase()), "{s:?}");
+            assert!(search_contains("Đi I\u{307}stanbul", s), "{s:?}");
+        }
+        // One dot belongs to the `i`; a second one is a mark like any other, in either encoding.
+        assert_eq!(search_fold("İ\u{307}"), "i\u{307}");
+        assert_eq!(search_fold("I\u{307}\u{307}"), "i\u{307}");
+        // The dot is the `i`'s only as its first mark above (class 230): after an acute it is not.
+        assert_eq!(search_fold("I\u{301}\u{307}"), "i\u{301}\u{307}");
+        assert_eq!(search_fold("İ\u{301}"), "i\u{301}");
+        // Marks of other classes may come first in any order: these four are canonically equivalent.
+        for s in ["İ\u{323}", "Ị\u{307}", "I\u{323}\u{307}", "I\u{307}\u{323}"] {
+            assert_eq!(search_fold(s), "i\u{323}", "{s:?}");
+        }
+        // Other marks on I stay letters of their own, as before: `í` and `ï` are not `i`.
+        for (s, folded) in [("Í", "i\u{301}"), ("I\u{301}", "i\u{301}"), ("Ï", "i\u{308}"), ("ï", "i\u{308}"), ("Ì", "i\u{300}")] {
+            assert_eq!(search_fold(s), folded, "{s:?}");
+            assert!(!search_contains(s, "i"), "{s:?}");
+        }
+        assert!(!search_contains("Íslenska", "islenska"));
+        assert!(search_contains("ÍSLENSKA", "i\u{301}slenska"));
+        // Sigma folds as before.
+        assert_eq!(search_fold("ΣΟΦΟΣ"), "σοφοσ");
+        assert_eq!(search_fold("σοφος"), "σοφοσ");
+        // Total on hostile input: dots and marks without a base, long runs.
+        let dots = "I".to_string() + &"\u{307}".repeat(10_000);
+        for s in ["\u{307}", "\u{307}I", "ı", "İ", &dots, "\u{10FFFF}\u{307}"] {
+            let _ = (search_fold(s), search_contains(s, s), search_contains(s, "i"));
         }
     }
 

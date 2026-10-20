@@ -3291,6 +3291,103 @@ fn set_field_props_gets_session_language() {
     assert_eq!(root, ["Đà Nẵng", "Đắk Lắk", "Dung Quất", "Hà Nội", "Huế"]);
 }
 
+/// The session language that `SetFieldProps` fills in (the path of the Field Properties dialog and
+/// `form_set_props`) is only a hint for "Sort items": a caption-only or lock-only edit with it is
+/// still that edit, as it was before the session language existed.
+mod set_field_props_sort_hint {
+    use pdfcraft_cos::{Dict, ObjRef, Object, Stream};
+
+    use super::*;
+
+    fn cos(s: &Session, id: DocId) -> &pdfcraft_cos::Document {
+        &s.get(id).unwrap().editor.as_ref().unwrap().cos
+    }
+
+    fn widgets(s: &Session, id: DocId, name: &str) -> Vec<ObjRef> {
+        pdfcraft_forms::fields(cos(s, id)).into_iter().find(|f| f.name == name).unwrap().widgets.iter().map(|w| w.obj).collect()
+    }
+
+    /// Give `widget` a hand-made normal appearance that a redraw would replace.
+    fn custom_appearance(s: &mut Session, id: DocId, widget: ObjRef) -> ObjRef {
+        let cos = &mut s.doc_mut(id).unwrap().editor.as_mut().unwrap().cos;
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::name("XObject"));
+        d.set(b"Subtype".to_vec(), Object::name("Form"));
+        d.set(b"BBox".to_vec(), Object::Array(vec![Object::Int(0), Object::Int(0), Object::Int(100), Object::Int(30)]));
+        let n = cos.add(Object::Stream(Stream::from_raw(d, b"% custom\n0 0 100 30 re f\n".to_vec())));
+        let mut ap = Dict::new();
+        ap.set(b"N".to_vec(), Object::Ref(n));
+        cos.update_dict(widget, |w| w.set(b"AP".to_vec(), Object::Dict(ap))).unwrap();
+        n
+    }
+
+    fn normal_ap(s: &Session, id: DocId, widget: ObjRef) -> Option<ObjRef> {
+        cos(s, id).get(widget).as_dict()?.get(b"AP")?.as_dict()?.reference(b"N")
+    }
+
+    fn set(s: &mut Session, id: DocId, name: &str, props: FieldProps) -> Result<(), EditError> {
+        s.apply(id, Edit::SetFieldProps { name: name.into(), props: Box::new(props) })
+    }
+
+    #[test]
+    fn caption_only_edit_keeps_other_widgets_appearances() {
+        for lang in ["root", "vi"] {
+            let (mut s, id) = session_with(2);
+            s.set_sort_language(lang);
+            let kind = NewField::Button { caption: "Go".into() };
+            s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 50.0], kind, name: Some("go".into()) }).unwrap();
+            s.apply(id, Edit::DuplicateField { name: "go".into(), pages: vec![1] }).unwrap();
+            let w = widgets(&s, id, "go");
+            assert_eq!(w.len(), 2);
+            let custom = custom_appearance(&mut s, id, w[0]);
+            let untouched = cos(&s, id).get(w[0]).clone();
+            set(&mut s, id, "go", FieldProps { caption: Some((1, "Stop".into())), ..FieldProps::default() }).unwrap();
+            assert_eq!(cos(&s, id).get(w[0]), untouched, "{lang}: the other widget is untouched");
+            assert_eq!(normal_ap(&s, id, w[0]), Some(custom), "{lang}: its custom appearance is kept");
+            let f = pdfcraft_forms::fields(cos(&s, id)).into_iter().find(|f| f.name == "go").unwrap();
+            assert_eq!(f.widgets.iter().map(|w| w.caption.as_deref()).collect::<Vec<_>>(), [Some("Go"), Some("Stop")]);
+        }
+    }
+
+    #[test]
+    fn lock_only_edit_sets_the_lock_bit_and_nothing_else() {
+        let (mut s, id) = session_with(1);
+        s.set_sort_language("vi");
+        let kind = NewField::Text { multiline: false };
+        s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 42.0], kind, name: Some("who".into()) }).unwrap();
+        let w = widgets(&s, id, "who");
+        assert_eq!(w.len(), 1);
+        let custom = custom_appearance(&mut s, id, w[0]);
+        let before = cos(&s, id).get(w[0]).as_dict().unwrap().clone();
+        let flags = before.get(b"F").and_then(|v| v.as_int()).unwrap_or(0);
+        set(&mut s, id, "who", FieldProps { locked: Some(true), ..FieldProps::default() }).unwrap();
+        // As before the session language: only the widget's /F gains Locked (128); /Ff and the
+        // appearance are not rewritten.
+        let mut expected = before;
+        expected.set(b"F".to_vec(), Object::Int(flags | 128));
+        assert_eq!(*cos(&s, id).get(w[0]), Object::Dict(expected));
+        assert_eq!(normal_ap(&s, id, w[0]), Some(custom));
+        assert!(pdfcraft_forms::fields(cos(&s, id)).iter().find(|f| f.name == "who").unwrap().locked());
+    }
+
+    #[test]
+    fn locking_a_locked_field_succeeds() {
+        let (mut s, id) = session_with(1);
+        s.set_sort_language("vi");
+        let kind = NewField::Text { multiline: false };
+        s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 42.0], kind, name: Some("who".into()) }).unwrap();
+        let lock = || FieldProps { locked: Some(true), ..FieldProps::default() };
+        set(&mut s, id, "who", lock()).unwrap();
+        set(&mut s, id, "who", lock()).expect("locking a locked field is a no-op, not an error");
+        assert!(pdfcraft_forms::fields(cos(&s, id)).iter().find(|f| f.name == "who").unwrap().locked());
+        // Locked still means locked: other properties wait for unlocking, with or without a language.
+        assert!(set(&mut s, id, "who", FieldProps { required: Some(true), ..FieldProps::default() }).is_err());
+        let explicit = FieldProps { required: Some(true), sort_language: Some("vi".into()), ..FieldProps::default() };
+        assert!(set(&mut s, id, "who", explicit).is_err());
+        set(&mut s, id, "who", FieldProps { locked: Some(false), required: Some(true), ..FieldProps::default() }).unwrap();
+    }
+}
+
 #[test]
 fn sort_language_tags_never_panic() {
     let mut s = Session::new();

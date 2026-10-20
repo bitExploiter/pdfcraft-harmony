@@ -4041,7 +4041,7 @@ status = "partial"
 commands = ["comment.list"]
 tools = ["comment_list"]
 evidence = ["crates/ui-egui/tests/it/comments.rs::the_panel_posts_comments_and_replies"]
-notes = "search by author, text and type in the panel; not yet in the Find bar. The panel and the bookmark filter match whole letters, so e does not match inside Nguyễn, and a query typed as NFD finds an NFC title and the other way round; Turkish i and Greek sigma still fold as before. Find and Search & Redact keep the case-fold only (no NFC yet: they map matches back to glyph positions)."
+notes = "search by author, text and type in the panel; not yet in the Find bar. The panel and the bookmark filter match whole letters, so e does not match inside Nguyễn, and a query typed as NFD finds an NFC title and the other way round (precomposed Latin letters; other scripts are not unified); Turkish i (dotted capital I in NFC or NFD) and Greek sigma still fold as before. Find and Search & Redact keep the case-fold only (no NFC yet: they map matches back to glyph positions)."
 
 [[feature]]
 id = "comment.show-hide-comments"
@@ -4221,7 +4221,7 @@ status = "partial"
 commands = ["comment.summarize"]
 tools = ["comments_summarize"]
 evidence = ["crates/engine/src/tests.rs::comments_lock_take_checkmarks_hide_and_summarize", "crates/ui-egui/tests/it/comments.rs::comments_take_checkmarks_lock_hide_and_summarize", "crates/automation/tests/it/automation.rs::comment_checkmarks_locks_hiding_and_summaries_through_tools"]
-notes = "Comments only layout, sorted by page, author, date or type; the layouts with the document and connector lines not yet. Authors sort in the session language (the interface language in the app, Root in headless runs and automation), with NFC and NFD spellings equal. The report font does not draw every Vietnamese letter yet."
+notes = "Comments only layout, sorted by page, author, date or type; the layouts with the document and connector lines not yet. Authors sort in the session language (the interface language in the app, Root in headless runs and automation), with NFC and NFD spellings equal (Latin letters; other scripts are not unified). The report font does not draw every Vietnamese letter yet."
 
 [[feature]]
 id = "comment.flatten"

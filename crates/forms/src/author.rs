@@ -918,8 +918,11 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
             rotated_rect = Some(Some(rect));
         }
     }
+    // `sort_language` only steers "Sort items" (the engine fills it into every edit), so it never
+    // makes an edit more than a lock or a caption change.
+    let only = |template: FieldProps| *props == FieldProps { sort_language: props.sort_language.clone(), ..template };
     // A locked field only takes unlocking (Acrobat greys its properties out).
-    if f.locked() && props.locked != Some(false) && *props != (FieldProps { locked: props.locked, ..FieldProps::default() }) {
+    if f.locked() && props.locked != Some(false) && !only(FieldProps { locked: props.locked, ..FieldProps::default() }) {
         return invalid(format!("{name} is locked: unlock it first"));
     }
     if let Some(lock) = props.locked {
@@ -928,7 +931,7 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
             let v = if lock { flags | 128 } else { flags & !128 };
             doc.update_dict(w.obj, |d| d.set(b"F".to_vec(), Object::Int(v)))?;
         }
-        if *props == (FieldProps { locked: props.locked, ..FieldProps::default() }) {
+        if only(FieldProps { locked: props.locked, ..FieldProps::default() }) {
             return Ok(name.to_string());
         }
     }
@@ -1217,8 +1220,8 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
         doc.update_dict(w.obj, |d| d.set(b"MK".to_vec(), Object::Dict(mk)))?;
     }
     // A label-only edit must not replace another widget's custom appearances.
-    let only = props.caption.as_ref().filter(|_| *props == (FieldProps { caption: props.caption.clone(), ..Default::default() })).map(|(wi, _)| *wi);
-    redraw_widgets(doc, &new_name, only)?;
+    let one_widget = props.caption.as_ref().filter(|_| only(FieldProps { caption: props.caption.clone(), ..Default::default() })).map(|(wi, _)| *wi);
+    redraw_widgets(doc, &new_name, one_widget)?;
     if props.calculate.is_some() {
         crate::recalculate(doc)?;
     }
