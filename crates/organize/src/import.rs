@@ -219,6 +219,30 @@ pub enum FieldConflicts {
     Merge,
 }
 
+/// How Combine Files builds its result. A [`FieldConflicts`] converts into the defaults with that
+/// resolution, so the `_with` functions take either.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CombineOptions {
+    /// How colliding field names are resolved as each file is added.
+    pub field_conflicts: FieldConflicts,
+    /// Give each file a top-level bookmark (its title, at its first page) holding the file's own
+    /// bookmarks, like Acrobat's Combine Files (the default). Off, no bookmark is added: the
+    /// files' own bookmarks are the top level of the result, in file order (#3679).
+    pub file_bookmarks: bool,
+}
+
+impl Default for CombineOptions {
+    fn default() -> Self {
+        Self { field_conflicts: FieldConflicts::Rename, file_bookmarks: true }
+    }
+}
+
+impl From<FieldConflicts> for CombineOptions {
+    fn from(field_conflicts: FieldConflicts) -> Self {
+        Self { field_conflicts, ..Self::default() }
+    }
+}
+
 /// What [`import_pages_with`] did beyond placing the pages.
 pub struct ImportOutcome {
     /// The new pages, in order.
@@ -915,10 +939,10 @@ pub fn combine(sources: &[(&str, &Document)]) -> Result<Document, OrganizeError>
     combine_with(sources, FieldConflicts::Rename).map(|o| o.doc)
 }
 
-/// [`combine`] reporting what the conflict resolution renamed.
-pub fn combine_with(sources: &[(&str, &Document)], conflicts: FieldConflicts) -> Result<CombineOutcome, OrganizeError> {
+/// [`combine`] with `options`, reporting what the conflict resolution renamed.
+pub fn combine_with(sources: &[(&str, &Document)], options: impl Into<CombineOptions>) -> Result<CombineOutcome, OrganizeError> {
     let all: Vec<(&str, &Document, Option<&[usize]>)> = sources.iter().map(|(t, d)| (*t, *d, None)).collect();
-    combine_selected_with(&all, conflicts)
+    combine_selected_with(&all, options)
 }
 
 /// Combine Files with chosen pages: each source contributes `pages` (0-based, in that order;
@@ -927,9 +951,12 @@ pub fn combine_selected(sources: &[(&str, &Document, Option<&[usize]>)]) -> Resu
     combine_selected_with(sources, FieldConflicts::Rename).map(|o| o.doc)
 }
 
-/// [`combine_selected`] reporting what the conflict resolution renamed.
-pub fn combine_selected_with(sources: &[(&str, &Document, Option<&[usize]>)], conflicts: FieldConflicts) -> Result<CombineOutcome, OrganizeError> {
-    let mut combiner = Combiner::with_field_conflicts(conflicts);
+/// [`combine_selected`] with `options`, reporting what the conflict resolution renamed.
+pub fn combine_selected_with(
+    sources: &[(&str, &Document, Option<&[usize]>)],
+    options: impl Into<CombineOptions>,
+) -> Result<CombineOutcome, OrganizeError> {
+    let mut combiner = Combiner::with_options(options.into());
     for (title, src, chosen) in sources {
         combiner.add(title, src, *chosen)?;
     }
@@ -951,6 +978,8 @@ pub struct Combiner {
     agreed: bool,
     /// How colliding field names are resolved as each source is added.
     field_conflicts: FieldConflicts,
+    /// Whether each source gets a top-level bookmark (see [`CombineOptions::file_bookmarks`]).
+    file_bookmarks: bool,
     /// What adding sources renamed (old → new fully-qualified field name), in order.
     renamed_fields: Vec<(String, String)>,
 }
@@ -978,13 +1007,19 @@ impl Combiner {
 
     /// [`Combiner::new`] resolving colliding field names as `conflicts` says.
     pub fn with_field_conflicts(field_conflicts: FieldConflicts) -> Self {
+        Self::with_options(field_conflicts.into())
+    }
+
+    /// A combine with no sources yet, built as `options` says.
+    pub fn with_options(options: CombineOptions) -> Self {
         Self {
             out: Document::new_empty(),
             marks: Vec::new(),
             attachments: Vec::new(),
             standard: None,
             agreed: true,
-            field_conflicts,
+            field_conflicts: options.field_conflicts,
+            file_bookmarks: options.file_bookmarks,
             renamed_fields: Vec::new(),
         }
     }
@@ -1034,14 +1069,14 @@ impl Combiner {
 
     /// [`Combiner::finish`] reporting what the combine renamed.
     pub fn finish_with_renames(self) -> Result<CombineOutcome, OrganizeError> {
-        let Combiner { mut out, marks, attachments, standard, agreed, renamed_fields, .. } = self;
+        let Combiner { mut out, marks, attachments, standard, agreed, file_bookmarks, renamed_fields, .. } = self;
         if let Some(first) = standard.filter(|_| agreed) {
             crate::pdfx::carry(&mut out, first.source.as_ref(), &first.declared, first.objects)?;
         }
         // Sources often share fonts, images and profiles (or are the same file): store them once.
         let all: Vec<ObjRef> = out.object_numbers().into_iter().map(|n| ObjRef::new(n, out.generation(n))).collect();
         crate::dedupe::dedupe_resources(&mut out, &all, false);
-        add_outline(&mut out, &marks)?;
+        add_outline(&mut out, marks, file_bookmarks)?;
         set_attachments(&mut out, attachments)?;
         Ok(CombineOutcome { doc: out, renamed_fields })
     }
@@ -1061,8 +1096,9 @@ pub fn combine_grouped(runs: &[Run<'_>]) -> Result<Document, OrganizeError> {
     combine_grouped_with(runs, FieldConflicts::Rename).map(|o| o.doc)
 }
 
-/// [`combine_grouped`] reporting what the conflict resolution renamed.
-pub fn combine_grouped_with(runs: &[Run<'_>], conflicts: FieldConflicts) -> Result<CombineOutcome, OrganizeError> {
+/// [`combine_grouped`] with `options`, reporting what the conflict resolution renamed.
+pub fn combine_grouped_with(runs: &[Run<'_>], options: impl Into<CombineOptions>) -> Result<CombineOutcome, OrganizeError> {
+    let CombineOptions { field_conflicts: conflicts, file_bookmarks } = options.into();
     // Each file's pages, in the order its runs list them, and each run's place in that list.
     struct File<'a> {
         title: &'a str,
@@ -1128,7 +1164,7 @@ pub fn combine_grouped_with(runs: &[Run<'_>], conflicts: FieldConflicts) -> Resu
     }
     let all: Vec<ObjRef> = out.object_numbers().into_iter().map(|n| ObjRef::new(n, out.generation(n))).collect();
     crate::dedupe::dedupe_resources(&mut out, &all, false);
-    add_outline(&mut out, &marks)?;
+    add_outline(&mut out, marks, file_bookmarks)?;
     set_attachments(&mut out, attachments)?;
     Ok(CombineOutcome { doc: out, renamed_fields })
 }
@@ -1294,8 +1330,14 @@ fn write_outline_level(dst: &mut Document, parent: ObjRef, nodes: &[OutlineNode]
 }
 
 /// Replace the outline with one bookmark per source (title → its first page), each holding a collapsed
-/// copy of that source's own bookmarks with destinations mapped to the copied pages.
-fn add_outline(doc: &mut Document, marks: &[Mark]) -> Result<(), OrganizeError> {
+/// copy of that source's own bookmarks with destinations mapped to the copied pages. Without
+/// `file_bookmarks`, the sources' own bookmarks are the top level instead, in source order, and a
+/// combine of files without bookmarks gets no outline.
+fn add_outline(doc: &mut Document, marks: Vec<Mark>, file_bookmarks: bool) -> Result<(), OrganizeError> {
+    if !file_bookmarks {
+        let nodes: Vec<OutlineNode> = marks.into_iter().flat_map(|m| m.outline).collect();
+        return add_flat_outline(doc, &nodes);
+    }
     if marks.is_empty() {
         return Ok(());
     }
@@ -1332,6 +1374,38 @@ fn add_outline(doc: &mut Document, marks: &[Mark]) -> Result<(), OrganizeError> 
         c.set(b"PageMode".to_vec(), Object::name("UseOutlines"));
     })?;
     Ok(())
+}
+
+/// Replace the outline with `nodes` as its top level, each keeping its open or closed state.
+/// Nothing is written when there are no nodes.
+fn add_flat_outline(doc: &mut Document, nodes: &[OutlineNode]) -> Result<(), OrganizeError> {
+    if nodes.is_empty() {
+        return Ok(());
+    }
+    let outlines = doc.add(Object::Null);
+    let Some((first, last, _)) = write_outline_level(doc, outlines, nodes)? else { return Ok(()) };
+    let mut o = Dict::new();
+    o.set(b"Type".to_vec(), Object::name("Outlines"));
+    o.set(b"First".to_vec(), Object::Ref(first));
+    o.set(b"Last".to_vec(), Object::Ref(last));
+    // The root counts every item shown: the top level and what open items show below them.
+    o.set(b"Count".to_vec(), Object::Int(i64::try_from(visible_items(nodes)).unwrap_or(i64::MAX)));
+    doc.set(outlines, Object::Dict(o));
+    let root = doc.root().ok_or(OrganizeError::NoPageTree)?;
+    doc.update_dict(root, |c| {
+        c.set(b"Outlines".to_vec(), Object::Ref(outlines));
+        c.set(b"PageMode".to_vec(), Object::name("UseOutlines"));
+    })?;
+    Ok(())
+}
+
+/// How many of `nodes` and their descendants are shown: each node, and below an open one its own
+/// shown items. Bounded like the tree, which [`outline_level`] reads at most 32 levels deep.
+fn visible_items(nodes: &[OutlineNode]) -> usize {
+    nodes.iter().fold(0usize, |n, node| {
+        let below = if node.open { visible_items(&node.children) } else { 0 };
+        n.saturating_add(1).saturating_add(below)
+    })
 }
 
 /// Page `page` of `src` as a form XObject in `dst` (its content and resources, no annotations),

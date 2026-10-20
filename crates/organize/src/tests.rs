@@ -1392,6 +1392,33 @@ fn combine_nests_source_bookmarks_and_keeps_attachments() {
     assert_eq!(keys, ["notes.txt", "notes.txt (2)"]);
 }
 
+/// Combine Files without a bookmark per file (#3679): the files' own bookmarks are the top level,
+/// in file order, open or closed as in the file, pointing into their own copies. A file without
+/// bookmarks adds none, so combining only such files gives no outline at all.
+#[test]
+fn combine_without_file_bookmarks_keeps_only_the_files_own() {
+    let options = crate::CombineOptions { file_bookmarks: false, ..Default::default() };
+    let (b, c) = (doc_b(), doc_c());
+    let out = full_roundtrip(&combine_with(&[("C", &c), ("B", &b), ("C again", &c)], options).unwrap().doc);
+    let marks = bookmarks(&out);
+    assert_eq!(titles(&marks), ["Chapter one[Section]", "Chapter one[Section]"]);
+    let pages: Vec<Option<usize>> = marks.iter().map(|m| m.page).collect();
+    assert_eq!(pages, [Some(0), Some(1), Some(4), Some(5)], "each copy's bookmarks point into that copy");
+    assert!(marks.iter().filter(|m| m.path.len() == 1).all(|m| m.open), "Chapter one stays open, as in the file");
+    let root = catalog(&out).reference(b"Outlines").unwrap();
+    assert_eq!(count_of(&out, root), Some(4), "the root counts every shown item");
+    // The grouped combine (the Combine tab's) honours it too; the default still adds one per file.
+    let runs: Vec<Run<'_>> = vec![(0, "C", &c, Some(&[1])), (1, "B", &b, None), (0, "C", &c, Some(&[0]))];
+    let grouped = full_roundtrip(&combine_grouped_with(&runs, options).unwrap().doc);
+    assert_eq!(titles(&bookmarks(&grouped)), ["Chapter one[Section]"]);
+    let default = full_roundtrip(&combine_grouped_with(&runs, FieldConflicts::Rename).unwrap().doc);
+    assert_eq!(titles(&bookmarks(&default)), ["C[Chapter one[Section]]", "B"]);
+    // Files without bookmarks: no outline, and the file opens on its pages.
+    let plain = full_roundtrip(&combine_with(&[("B", &b), ("B again", &b)], options).unwrap().doc);
+    assert!(bookmarks(&plain).is_empty());
+    assert!(!catalog(&plain).contains(b"Outlines") && !catalog(&plain).contains(b"PageMode"));
+}
+
 /// Insert Pages from File brings the inserted file's bookmarks along (they used to be dropped),
 /// collapsed under one bookmark named after the file at its first inserted page, placed among the
 /// host's bookmarks where the pages went. Destinations follow the copies; named ones are resolved.
