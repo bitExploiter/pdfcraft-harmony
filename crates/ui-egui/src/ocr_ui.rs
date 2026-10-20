@@ -73,9 +73,8 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
     let pages = app.active_ids().and_then(|(_, id)| app.session.get(id)).map_or(1, |d| d.info.pages.len().max(1));
     let available = pdfcraft_engine::ocr::available();
     let d = &mut app.ocr_draft;
-    if !d.lang_picked && crate::i18n::current().code() == "he" {
-        d.language = "he".into();
-        d.lang_picked = true;
+    if !d.lang_picked {
+        d.language = if crate::i18n::current().code() == "he" { "he".into() } else { "en".into() };
     }
     d.to = d.to.clamp(1, pages);
     d.from = d.from.clamp(1, d.to);

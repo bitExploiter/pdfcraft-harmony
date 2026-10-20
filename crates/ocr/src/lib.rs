@@ -170,19 +170,9 @@ impl Ocr {
         }
         let code = lang.trim().to_ascii_lowercase();
         if code == "he" || code.starts_with("he-") || code.starts_with("he_") || code == "iw" || code == "heb" {
-            match recognize_tesseract(pixels, width, height, "heb+eng") {
-                Ok(lines) => return Ok(lines),
-                Err(e) => {
-                    // If Tesseract is unavailable, fall back to the built-in Latin recognizer only if it finds text;
-                    // otherwise return the Hebrew OCR error so the user knows what is missing.
-                    if let Ok(latin) = self.recognize(pixels, width, height)
-                        && !latin.is_empty()
-                    {
-                        return Ok(latin);
-                    }
-                    return Err(e);
-                }
-            }
+            // The bundled model reads only the Latin alphabet: on a Hebrew page it would invent
+            // Latin text, so report what is missing instead.
+            return recognize_tesseract(pixels, width, height, "heb+eng");
         }
         self.recognize(pixels, width, height)
     }
@@ -195,7 +185,12 @@ fn find_tesseract() -> Option<(PathBuf, Option<PathBuf>)> {
     if let Some(p) = std::env::var_os("PDFCRAFT_TESSERACT") {
         candidates.push(PathBuf::from(p));
     }
-    for dir in Models::search_dirs() {
+    let mut exe_dirs: Vec<PathBuf> = std::env::current_exe().ok().and_then(|e| e.parent().map(Models::dirs_beside_exe)).unwrap_or_default();
+    if cfg!(debug_assertions) {
+        exe_dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../models"));
+        exe_dirs.push(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/models"));
+    }
+    for dir in exe_dirs {
         candidates.push(dir.join("tesseract").join(exe_name));
         candidates.push(dir.join(exe_name));
     }

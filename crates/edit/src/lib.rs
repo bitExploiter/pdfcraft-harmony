@@ -312,8 +312,28 @@ fn add_resources(doc: &mut Document, page: &pdfcraft_model::Page, opacity: Optio
         fonts.set(name.to_vec(), Object::Dict(font));
     }
     if content.is_some_and(|c| c.windows(6).any(|w| w == b"/PCOCR")) && fonts.get(b"PCOCR").is_none() {
-        let cmap_bytes = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PCOCRUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0001> <FFFE> <0001>\nendbfrange\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
-        let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap_bytes)));
+        let mut cmap_bytes = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PCOCRUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n".to_vec();
+        let highs: Vec<u32> = (0..=0xFFu32).filter(|h| !(0xD8..=0xDF).contains(h)).collect();
+        for chunk in highs.chunks(100) {
+            cmap_bytes.extend(format!("{} beginbfrange\n", chunk.len()).bytes());
+            for h in chunk {
+                cmap_bytes.extend(format!("<{h:02X}00> <{h:02X}FF> <{h:02X}00>\n").bytes());
+            }
+            cmap_bytes.extend(b"endbfrange\n");
+        }
+        cmap_bytes.extend(b"endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
+        let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), &cmap_bytes)));
+        let mut desc = Dict::new();
+        desc.set(b"Type".to_vec(), Object::name("FontDescriptor"));
+        desc.set(b"FontName".to_vec(), Object::name("PCOCR"));
+        desc.set(b"Flags".to_vec(), Object::Int(32));
+        desc.set(b"FontBBox".to_vec(), Object::Array(vec![Object::Int(0), Object::Int(-200), Object::Int(1000), Object::Int(800)]));
+        desc.set(b"ItalicAngle".to_vec(), Object::Int(0));
+        desc.set(b"Ascent".to_vec(), Object::Int(800));
+        desc.set(b"Descent".to_vec(), Object::Int(-200));
+        desc.set(b"CapHeight".to_vec(), Object::Int(700));
+        desc.set(b"StemV".to_vec(), Object::Int(80));
+        let desc_ref = doc.add(Object::Dict(desc));
         let mut sys = Dict::new();
         sys.set(b"Registry".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"Adobe".to_vec())));
         sys.set(b"Ordering".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"Identity".to_vec())));
@@ -323,6 +343,7 @@ fn add_resources(doc: &mut Document, page: &pdfcraft_model::Page, opacity: Optio
         cid.set(b"Subtype".to_vec(), Object::name("CIDFontType2"));
         cid.set(b"BaseFont".to_vec(), Object::name("PCOCR"));
         cid.set(b"CIDSystemInfo".to_vec(), Object::Dict(sys));
+        cid.set(b"FontDescriptor".to_vec(), Object::Ref(desc_ref));
         cid.set(b"DW".to_vec(), Object::Int(500));
         cid.set(b"CIDToGIDMap".to_vec(), Object::name("Identity"));
         let cid_ref = doc.add(Object::Dict(cid));

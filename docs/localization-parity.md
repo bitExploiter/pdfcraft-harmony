@@ -70,7 +70,7 @@ none has translated help. Vietnamese's **To `full`** hours are therefore residua
 | Greek | `el` | 2,341 entries | partial | no |
 | Turkish | `tr` | 2,313 entries | partial | yes |
 | Lithuanian | `lt` | 2,585 entries | partial; community native-speaker review ([#1401](https://github.com/storytold/pdfcraft/pull/1401)) | no |
-| Hebrew | `he` | 2,673 entries (100% of current bundled catalog union) | partial (RTL reordering at load via `bidi::display_rtl`, desktop system Hebrew font fallback when craft-fonts lacks `Hebr`) | yes (Middle East edition) |
+| Hebrew | `he` | 2,675 entries (100% of current bundled catalog union) | partial (RTL reordering at load via `bidi::display_rtl`, desktop system Hebrew font fallback when craft-fonts lacks `Hebr`) | yes (Middle East edition) |
 
 **15 other languages** ship (23 catalogs plus English = **24** interface languages in Preferences).
 The entry counts without percentages were measured on 2026-10-12–20; they are not percentages of the older 2,143-key snapshot above. Their presence does not imply a detailed linguistic or runtime review.

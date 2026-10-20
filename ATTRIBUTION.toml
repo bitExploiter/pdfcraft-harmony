@@ -9,7 +9,7 @@ kind = "translation"
 usage = "Greek UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
 sha256 = "6eee0b34db6529f26235bfc07fa1fdb9030b8e7b0b10ede271ca9242cb491919"
 
-# ATTRIBUTION.toml: one entry per asset (AGENTS.md ֲ§1). The source of truth for provenance and licences.
+# ATTRIBUTION.toml: one entry per asset (AGENTS.md §1). The source of truth for provenance and licences.
 # ATTRIBUTION.md is generated from this file: `cargo xtask assets --write`. Checked by `cargo xtask assets` (part of `xtask ci`).
 #
 # [[asset]]    a file in this repository (committed or vendored); `sha256` must match the file.
@@ -18,8 +18,8 @@ sha256 = "6eee0b34db6529f26235bfc07fa1fdb9030b8e7b0b10ede271ca9242cb491919"
 # [[build_input]] an optional build input outside this repository (e.g. craft-fonts via CRAFT_FONTS_DIR);
 #              never committed or downloaded here, its own repository attributes each file.
 #
-# licence: SPDX expression from the allowlist in AGENTS.md ֲ§1.2. adobe_data = true marks the closed list of
-# Adobe-authored non-visual technical data allowed by AGENTS.md ֲ§1.1.
+# licence: SPDX expression from the allowlist in AGENTS.md §1.2. adobe_data = true marks the closed list of
+# Adobe-authored non-visual technical data allowed by AGENTS.md §1.1.
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/zh-hans.tsv"
@@ -57,7 +57,7 @@ sha256 = "5de19834f293efaea68cb6b7f51a71d320391f53345f56cfebcd73dab828b665"
 [[asset]]
 path = "crates/ui-egui/src/i18n/pt-br.tsv"
 title = "Brazilian Portuguese interface translation catalog"
-author = "Andrֳ© Cardoso (andrecards), PdfCraft contributors"
+author = "André Cardoso (andrecards), PdfCraft contributors"
 source = "Clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources: the ~1,826-entry gist posted in issue #288 (https://gist.github.com/andrecards/ac388c25fba17312ce83207f8b7b467e), completed and reviewed by PdfCraft contributors"
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
@@ -2446,7 +2446,7 @@ source = "https://github.com/adobe-type-tools/cmap-resources (via hayro-cmap)"
 licence = "BSD-3-Clause"
 kind = "data"
 adobe_data = true
-usage = "Character-code mapping tables required to read CJK PDFs. Non-visual data, allowed by AGENTS.md ֲ§1.1"
+usage = "Character-code mapping tables required to read CJK PDFs. Non-visual data, allowed by AGENTS.md §1.1"
 sha256 = "ddf37af521d904d5646c2fc37b2b7e912dc1b56f0d210190b61f598154758e46"
 
 [[bundled]]
@@ -2459,14 +2459,14 @@ source = "ISO 32000-2 Annex D; Adobe Core14 AFM files (via vendored hayro-interp
 licence = "MIT OR Apache-2.0"
 kind = "data"
 adobe_data = true
-usage = "Glyph widths and encodings for non-embedded standard fonts. Non-visual data, allowed by AGENTS.md ֲ§1.1"
+usage = "Glyph widths and encodings for non-embedded standard fonts. Non-visual data, allowed by AGENTS.md §1.1"
 sha256 = "2ec9e608573eda459de1e1d9bda3bb494315e36bee885acc88912a11fe0caa41"
 
 [[fetched]]
 file = "PlayfairDisplay[wght].ttf"
 url = "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay/PlayfairDisplay%5Bwght%5D.ttf"
 title = "Playfair Display"
-author = "The Playfair Display Project Authors (Claus Eggers Sֳ¸rensen)"
+author = "The Playfair Display Project Authors (Claus Eggers Sørensen)"
 source = "https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay"
 licence = "OFL-1.1"
 licence_url = "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay/OFL.txt"
@@ -2479,7 +2479,7 @@ sha256 = "c40f2293766a503bc70cce9e512ef844a4ccb7cbcde792fe2ea31d191917d8d6"
 file = "PlayfairDisplay-Italic[wght].ttf"
 url = "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay/PlayfairDisplay-Italic%5Bwght%5D.ttf"
 title = "Playfair Display Italic"
-author = "The Playfair Display Project Authors (Claus Eggers Sֳ¸rensen)"
+author = "The Playfair Display Project Authors (Claus Eggers Sørensen)"
 source = "https://github.com/google/fonts/tree/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay"
 licence = "OFL-1.1"
 licence_url = "https://raw.githubusercontent.com/google/fonts/9710da1eacb3be272583c3224dcb70f9da6eadbb/ofl/playfairdisplay/OFL.txt"
@@ -3330,7 +3330,7 @@ source = "https://github.com/storytold/craft-fonts (pinned by commit in .github/
 licence = "OFL-1.1"
 attribution = "https://github.com/storytold/craft-fonts/blob/main/ATTRIBUTION.md"
 kind = "font"
-usage = "Japanese fallback in the interface (BIZ UDPGothic first) and Japanese glyphs in edited PDF text (Shippori Mincho); Arabic interface text, file names and document titles (Noto Sans Arabic); the web build embeds only BIZ UDPGothic Regular and Noto Sans Arabic. The checkout also holds Noto Sans CJK SC, which crates/fonts/build.rs never embeds (AGENTS.md ֲ§1.1)"
+usage = "Japanese fallback in the interface (BIZ UDPGothic first) and Japanese glyphs in edited PDF text (Shippori Mincho); Arabic interface text, file names and document titles (Noto Sans Arabic); the web build embeds only BIZ UDPGothic Regular and Noto Sans Arabic. The checkout also holds Noto Sans CJK SC, which crates/fonts/build.rs never embeds (AGENTS.md §1.1)"
 
 [[asset]]
 path = "crates/sign/tests/data/x509-rsa-sha1.pdf"
