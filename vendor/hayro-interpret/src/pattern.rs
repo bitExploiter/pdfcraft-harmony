@@ -63,6 +63,40 @@ impl<'a> Pattern<'a> {
         }
     }
 
+    /// PdfCraft patch (ps-export): a copy of the pattern re-rooted onto another
+    /// device space — `pre` pre-concatenated onto the pattern's matrix — the
+    /// `SoftMask::re_rooted` counterpart. The renderer's pattern algebra
+    /// (`path_transform⁻¹ × pattern.matrix`, and a tiling cell's pixel density
+    /// taken from `pattern.matrix` alone) assumes the matrix lives in the
+    /// *device* space of the draws it paints beside; a replay log that renders
+    /// in a different space than the interpreter captured (PdfCraft's 300-dpi
+    /// flatten replay over a page-points drive) must re-root the pattern the
+    /// same way it pre-composes every recorded draw transform.
+    ///
+    /// The shading arm's stored clip is **rebased through `pre` alone**: by the
+    /// time a device records the paint, `get_paint` has already mapped the clip
+    /// once (through `root ∘ matrix`), so re-deriving it from the new full
+    /// matrix — what `pre_concat_transform` does for its raw-pattern caller —
+    /// would apply the captured matrix twice. The tiling arm folds `pre` into
+    /// the instance's cache key (the `SoftMask::re_rooted` rule):
+    /// `TilingPattern`'s key is the construction-time stream key, and an
+    /// original and its re-rooted copy must never alias in a future cache.
+    pub fn re_rooted(&self, pre: Affine) -> Self {
+        let mut re_rooted = self.clone();
+        match &mut re_rooted {
+            Self::Shading(p) => {
+                p.matrix = pre * p.matrix;
+                let clip = p.shading.clip_path.clone().map(|path| pre * path);
+                Arc::make_mut(&mut p.shading).clip_path = clip;
+            }
+            Self::Tiling(p) => {
+                p.matrix = pre * p.matrix;
+                p.cache_key = hash128(&(p.cache_key, pre.cache_key()));
+            }
+        }
+        re_rooted
+    }
+
     pub(crate) fn set_transfer_function(&mut self, tf: ActiveTransferFunction) {
         if let Self::Shading(p) = self {
             p.transfer_function = Some(tf);
@@ -221,6 +255,15 @@ impl<'a> TilingPattern<'a> {
         })
     }
 
+    /// PdfCraft patch (ps-export): whether this is a coloured tiling pattern
+    /// (`/PaintType 1`), whose content stream sets its own colours, as opposed to an
+    /// uncoloured one (`/PaintType 2`), which must be painted in the colour operand of
+    /// the `scn`/`SCN` that selected the pattern. Mirrors the public `bbox`/`x_step`/
+    /// `y_step`/`matrix` fields and [`Self::interpret`].
+    pub fn is_color(&self) -> bool {
+        self.is_color
+    }
+
     /// Interpret the contents of the pattern into the given device.
     pub fn interpret(
         &self,
@@ -338,6 +381,15 @@ impl<'a, T: Device<'a>> Device<'a> for StencilPatternDevice<'a, '_, T> {
         if let Image::Stencil(mut s) = image {
             s.paint = self.paint.clone();
             self.inner.draw_image(Image::Stencil(s), transform);
+        }
+    }
+
+    // PdfCraft patch (ps-export): forward the retained-image entry like `draw_image`
+    // (only stencil masks are allowed here; the paint is substituted).
+    fn draw_retained_image(&mut self, image: Image<'a, 'a>, transform: Affine) {
+        if let Image::Stencil(mut s) = image {
+            s.paint = self.paint.clone();
+            self.inner.draw_retained_image(Image::Stencil(s), transform);
         }
     }
 

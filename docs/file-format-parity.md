@@ -1,6 +1,9 @@
 # File format parity
 
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (PostScript/EPS export: Layer B fonts as text — Type 42, CFF/CID Type 0 composites, Type 42/Type 1 subsetting — added to the row and its gates) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (PostScript/EPS export partial: Layer A with a Ghostscript-measured fidelity oracle) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (XDP data row corrected; BigTIFF in Create PDF) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (encrypted output opens in Acrobat, #774; XFDF fixes #807, #809, #819) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 Every format Acrobat Pro reads or writes, and PdfCraft's support for it. Acrobat's list comes from
 its bundle's `Info.plist` `CFBundleDocumentTypes` (what it opens) and its public documentation
@@ -93,7 +96,7 @@ features total).
 | All embedded images | yes | yes | good | `create.export-all-images` |
 | XML 1.0 | yes | no | none | `create.export-xml` planned |
 | SVG | no (dropped by Adobe) | no | none | `create.export-svg` planned |
-| PostScript, EPS | yes | no | none | `create.export-ps`, `create.export-eps` planned |
+| PostScript, EPS | yes | yes (DSC-structured program; geometry, images, shadings, Type 1 text, embedded fonts as text, true CMYK/Separation and tiling paints, flattened transparency, annotations) | good for Layers A+B, the W1 colour/pattern wave and Layer C flattened transparency (Ghostscript oracle: mean per-channel delta ≤ 2/255 vs PdfCraft's own raster (CMYK/Separation arms ≤ 1.5, the two CMYK→RGB pipelines differ), geometry observed ≈0.7; a manual gs-vs-gs comparison of the exported program against the source PDF measured 0.000 — a hand-run observation, not test-backed; fonts as text — TrueType as Type 42 with a synthesized cmap, CFF/CID as Type 0 composites, Type 42/Type 1 subsetting — ink- and raster-gated, txtwrite-extractable only for the Type 42 arms; the CID CJK gate reads a craft-fonts checkout at runtime and skips when absent; W1: true CMYK via setcmykcolor, /Separation colorspace resources with procedure tint transforms, PatternType 1 tiling via makepattern/setpattern, /uniXXXX AGL names; Layer C: opacity groups, soft masks, blend modes and nested groups flatten to one opaque 300-dpi raster region — tiling/image/glyph/shading interactions re-rooted — under the flattening-specific 1.5 tolerance, measured 0.000–0.024, with declines past the caps (100-megapixel region, 128 flattens a page, unrecordable inline images, replay panic) keeping the unflattened vector); runtime-warned: the flattening disclosure (one per page), decline and outside-group transparency notes, unconvertible tints, DeviceN, declining/transparent pattern cells; CFF whole (Layer D revisit), flat gray for pattern-painted text and the inline-image decline inside flattened regions — documented limits, not runtime warnings | `create.export-ps`, `create.export-eps` partial (#1561) |
 
 ## OCR (scans to searchable PDF)
 

@@ -4129,6 +4129,7 @@ dependencies = [
  "pdfcraft-organize",
  "pdfcraft-preflight",
  "pdfcraft-print",
+ "pdfcraft-ps-export",
  "pdfcraft-redact",
  "pdfcraft-render",
  "pdfcraft-sign",
@@ -4282,6 +4283,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pdfcraft-ps-export"
+version = "0.9.0"
+dependencies = [
+ "hayro",
+ "image",
+ "kurbo 0.13.1",
+ "pdfcraft-filters",
+ "pdfcraft-fonts",
+ "pdfcraft-render",
+ "png 0.18.1",
+ "sha2 0.11.0",
+ "skrifa 0.47.0",
+]
+
+[[package]]
 name = "pdfcraft-redact"
 version = "0.9.0"
 dependencies = [
@@ -4390,6 +4406,7 @@ dependencies = [
  "serde_json",
  "skrifa 0.44.0",
  "sys-locale",
+ "tempfile",
  "toml",
  "unicode-bidi",
  "wasm-bindgen",
