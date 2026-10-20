@@ -3985,7 +3985,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 app.views[index].area_pick = None;
                 app.open_print_area(page, area);
             }
-            crate::zoom_snap::AreaChoice::Save => app.save_snapshot_image(),
+            crate::zoom_snap::AreaChoice::Save => app.save_snapshot_image(index, page, area),
         }
     }
     // A signature rectangle was drawn, or an empty signature field clicked.

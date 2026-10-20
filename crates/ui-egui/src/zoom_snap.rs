@@ -166,10 +166,16 @@ impl PdfCraftApp {
         }
     }
 
-    /// Save the last snapshot as a PNG file (asked where; `save_override` in tests).
-    pub(crate) fn save_snapshot_image(&mut self) {
-        let Some((w, h, pixels)) = self.last_snapshot.as_ref() else { return };
-        let png = match pdfcraft_engine::export::encode_png(*w, *h, pixels) {
+    /// Save the area `view_rect` of `page` that view `index` copied as a PNG file (asked where;
+    /// `save_override` in tests). The last snapshot is used when it was taken of that area;
+    /// otherwise (another tab snapshotted since) the area is rendered again.
+    pub(crate) fn save_snapshot_image(&mut self, index: usize, page: usize, view_rect: [f32; 4]) {
+        let this_area = self.views.get(index).is_some_and(|v| self.last_snapshot_of == Some((v.id, page, view_rect)));
+        let png = match self.last_snapshot.as_ref() {
+            Some((w, h, pixels)) if this_area => pdfcraft_engine::export::encode_png(*w, *h, pixels),
+            _ => self.render_area(index, page, view_rect).and_then(|(w, h, pixels)| pdfcraft_engine::export::encode_png(w, h, &pixels)),
+        };
+        let png = match png {
             Ok(png) => png,
             Err(e) => {
                 self.notify_fmt("Couldn't save the image: {e}", &[("e", &e)]);
@@ -205,7 +211,21 @@ impl PdfCraftApp {
     /// Render `view_rect` (page view points) of `page` at the current zoom and copy it to the
     /// clipboard (and keep it in `last_snapshot`).
     pub fn snapshot(&mut self, index: usize, page: usize, view_rect: [f32; 4]) -> Result<(u32, u32), String> {
-        let view = &self.views[index];
+        let (w, h, rgba) = self.render_area(index, page, view_rect)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.system_clipboard {
+            let img = arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(&rgba) };
+            arboard::Clipboard::new().and_then(|mut c| c.set_image(img)).map_err(|e| e.to_string())?;
+        }
+        self.last_snapshot = Some((w, h, rgba));
+        self.last_snapshot_of = Some((self.views[index].id, page, view_rect));
+        Ok((w, h))
+    }
+
+    /// Render `view_rect` (page view points) of `page` in view `index` at its current zoom:
+    /// (width, height, premultiplied RGBA).
+    fn render_area(&self, index: usize, page: usize, view_rect: [f32; 4]) -> Result<(u32, u32, pdfcraft_render::Pixels), String> {
+        let view = self.views.get(index).ok_or("no document")?;
         let doc = self.session.get(view.id).ok_or("no document")?;
         let ppp = self.ctx.as_ref().map_or(2.0, |c| c.pixels_per_point());
         let scale = (view.zoom * ppp).clamp(0.5, 8.0);
@@ -224,14 +244,7 @@ impl PdfCraftApp {
         if let Some(e) = out.error {
             return Err(e);
         }
-        let (w, h) = (out.width, out.height);
-        #[cfg(not(target_arch = "wasm32"))]
-        if self.system_clipboard {
-            let img = arboard::ImageData { width: w as usize, height: h as usize, bytes: std::borrow::Cow::Borrowed(&out.rgba) };
-            arboard::Clipboard::new().and_then(|mut c| c.set_image(img)).map_err(|e| e.to_string())?;
-        }
-        self.last_snapshot = Some((w, h, out.rgba));
-        Ok((w, h))
+        Ok((out.width, out.height, out.rgba))
     }
 }
 
