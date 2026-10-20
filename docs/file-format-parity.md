@@ -1,6 +1,9 @@
 # File format parity
 
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (PostScript/EPS export: Layer B fonts as text — Type 42, CFF/CID Type 0 composites, Type 42/Type 1 subsetting — added to the row and its gates) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (PostScript/EPS export partial: Layer A with a Ghostscript-measured fidelity oracle) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (XDP data row corrected; BigTIFF in Create PDF) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (encrypted output opens in Acrobat, #774; XFDF fixes #807, #809, #819) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 Every format Acrobat Pro reads or writes, and PdfCraft's support for it. Acrobat's list comes from
 its bundle's `Info.plist` `CFBundleDocumentTypes` (what it opens) and its public documentation
@@ -93,7 +96,7 @@ features total).
 | All embedded images | yes | yes | good | `create.export-all-images` |
 | XML 1.0 | yes | no | none | `create.export-xml` planned |
 | SVG | no (dropped by Adobe) | no | none | `create.export-svg` planned |
-| PostScript, EPS | yes | no | none | `create.export-ps`, `create.export-eps` planned |
+| PostScript, EPS | yes | yes (DSC-structured program; geometry, images, shadings, Type 1 text, embedded fonts as text, annotations) | good for Layers A+B (Ghostscript oracle: mean per-channel delta ≤ 2/255 vs PdfCraft's own raster, geometry observed ≈0.7; a manual gs-vs-gs comparison of the exported program against the source PDF measured 0.000 — a hand-run observation, not test-backed; fonts as text — TrueType as Type 42 with a synthesized cmap, CFF/CID as Type 0 composites, Type 42/Type 1 subsetting — ink- and raster-gated, txtwrite-extractable only for the Type 42 arms; the CID CJK gate reads a craft-fonts checkout at runtime and skips when absent); transparency unflattened and tiling flat gray (runtime-warned), CFF whole and true CMYK/Separation pending (documented limits, not runtime warnings) | `create.export-ps`, `create.export-eps` partial (#1561) |
 
 ## OCR (scans to searchable PDF)
 

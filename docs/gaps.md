@@ -4,6 +4,9 @@
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (gap 14: Vietnamese catalog shipped; Hindi/Indonesian/Korean and Arabic RTL remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (gap 6: #1910 Organize Pages opens on the current page; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** patch (gap 8: PS/EPS export Layer B — embedded fonts as text: Type 42, CFF/CID Type 0 composites, Type 42/Type 1 subsetting; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** patch (gap 8: PS/EPS export moved from missing to partial — Layer A with the Ghostscript oracle) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** patch (gap 2: hayro patch counts after the native-gradient backport) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (gap 6: #1398 stamps read upright on rotated pages; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-12 · **Change:** minor (gap 6: #1317, #1327, #1302, #1315 and #1340; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-12 · **Change:** minor (#1316: replacing a line keeps a neighbouring line whose glyph box overlaps; gap 3 remains) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -163,12 +166,23 @@ update the numbers.
 ### 8. Office export weak, Office import absent
 
 - **Missing:** Word export that keeps layout; Excel and PowerPoint export; creating PDFs from Office,
-  HTML, web pages and PostScript; SVG/XML/EPS/PS/JPEG 2000 export.
+  HTML, web pages and PostScript; SVG/XML/JPEG 2000 export. PostScript/EPS *export* is partially
+  done (Layer A + Layer B, #1561): geometry, images, shadings, Type 1 text, embedded fonts as text
+  (TrueType as Type 42 with a synthesized cmap, embedded CFF promoted to CIDFontType0 and Type0/CID
+  fonts as PS Type 0 composites, Type 42/Type 1 subsetting with seac programs and whole CFF passing
+  through) and annotations redraw as a DSC-structured program whose Ghostscript-rasterized output
+  matches PdfCraft's own render within a mean per-channel delta of 2/255, with txtwrite extraction
+  where the emitted font carries glyph names (the Type 42 base-font arms; the composite arms prove
+  ink and raster parity, not extraction) — transparency is unflattened (Layer C) and tiling
+  patterns fall back to flat gray, both runtime-warned (as are the text-vectorized fallbacks when
+  a font arm declines); CFF subsetting is a Layer D revisit and true CMYK/Separation emission a
+  follow-up PR, documented limitations of the current layer rather than runtime warnings.
 - **Evidence:** `create.export-docx` partial; the synthetic invoice regression for
   [#773](https://github.com/storytold/pdfcraft/issues/773) now covers absent inferred borders,
   floating watermark text and per-page section sizes. Exact font matching, vector rules and
   broader layout fidelity remain incomplete;
-  `create.export-xlsx`, `create.export-pptx`, `create.from-office`, `create.from-html` planned.
+  `create.export-xlsx`, `create.export-pptx`, `create.from-office`, `create.from-html` planned;
+  `create.export-ps`/`create.export-eps` partial (the `crates/ps-export/tests/oracle.rs` corpus).
 - **Impact:** "Export PDF" and "Create PDF" are two of Acrobat's most used tools.
 - **Gate:** lossy or missing sub-cases of the convert-and-share workflow (partial, not blocking).
   First beta items: Create PDF from Office (LibreOffice sidecar, 10–20 h) and a Word export that
