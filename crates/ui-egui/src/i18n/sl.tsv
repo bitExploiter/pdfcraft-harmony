@@ -2535,3 +2535,5 @@ animation effects	Off	Izklopljeni
 	The copied comments are larger than this page; they were placed as they are	Kopirani komentarji so večji od te strani; postavljeni so bili taki, kot so
 	The clipboard holds no comments	Odložišče ne vsebuje komentarjev
 	Comments: {n}	Komentarji: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Spremembe tukaj veljajo za vse izbrane komentarje ({n})

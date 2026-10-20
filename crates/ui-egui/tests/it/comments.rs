@@ -2480,3 +2480,76 @@ fn connected_lines_are_completed_from_the_context_menu() {
     assert!(h.state().views[0].comments.gesture.is_none());
     assert_eq!(comments(&h).len(), 1, "nothing else was drawn");
 }
+
+/// Properties on one of several selected comments changes all of them, each where it applies: the
+/// colour goes to every one, the line width to the shapes, the font size to the text box alone;
+/// a locked one stays as it is. One undo step. Colouring the selection works the same way.
+#[test]
+fn properties_change_every_selected_comment_where_it_applies() {
+    use pdfcraft_engine::{Edit, NewAnnotation, Shape, Style};
+    let mut h = harness(|_| {});
+    let shapes = [
+        Shape::Rectangle { rect: [20.0, 20.0, 60.0, 60.0] },
+        Shape::Oval { rect: [80.0, 20.0, 120.0, 60.0] },
+        Shape::TextBox { rect: [140.0, 20.0, 200.0, 40.0], font_size: 12.0 },
+        Shape::Rectangle { rect: [220.0, 20.0, 260.0, 60.0] },
+    ];
+    for shape in shapes {
+        let style = Style::default_for(&shape);
+        assert!(h.state_mut().apply_edit(Edit::AddAnnotation(NewAnnotation {
+            page: 0,
+            shape,
+            style,
+            contents: "x".into(),
+            author: "Tester".into()
+        })));
+    }
+    assert!(h.state_mut().apply_edit(Edit::LockAnnotation { page: 0, index: 3, locked: true }));
+    {
+        let c = &mut h.state_mut().views[0].comments;
+        c.selected = Some((0, 0));
+        c.also = vec![(0, 1), (0, 2), (0, 3)];
+    }
+    h.run_steps(2);
+    h.state_mut().open_comment_props(0, 0);
+    h.run_steps(2);
+    h.get_by_label("Changes here apply to all 4 selected comments");
+    {
+        let d = h.state_mut().comment_props.as_mut().expect("open");
+        assert_eq!(d.others.len(), 3);
+        d.edited.color = Some([0.0, 0.0, 1.0]);
+        d.edited.width = Some(4.0);
+    }
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let props = |h: &Harness<'static, PdfCraftApp>, index: usize| {
+        let s = h.state();
+        s.session.get(s.views[0].id).unwrap().comment_props(0, index).unwrap()
+    };
+    for index in [0, 1] {
+        let p = props(&h, index);
+        assert_eq!((p.color, p.width), (Some([0.0, 0.0, 1.0]), Some(4.0)), "shape {index}");
+    }
+    assert_eq!(props(&h, 2).color, Some([0.0, 0.0, 1.0]), "the text box's text colour");
+    let locked = props(&h, 3);
+    assert_ne!(locked.color, Some([0.0, 0.0, 1.0]), "the locked rectangle stays as it was");
+    let s = h.state();
+    assert_eq!(s.session.get(s.views[0].id).unwrap().can_undo(), Some("Change comment properties"), "one undo step");
+    // From the text box: its font size changes, and the shapes, which have none, keep their look.
+    h.state_mut().views[0].comments.selected = Some((0, 2));
+    h.state_mut().views[0].comments.also = vec![(0, 0), (0, 1)];
+    h.state_mut().open_comment_props(0, 2);
+    h.run_steps(2);
+    h.state_mut().comment_props.as_mut().expect("open").edited.font_size = Some(20.0);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    assert_eq!(props(&h, 2).font_size, Some(20.0));
+    assert_eq!((props(&h, 0).font_size, props(&h, 0).width), (None, Some(4.0)));
+    // Colouring the selection (the context menu's Colour with several selected).
+    h.state_mut().colour_selected_comments([1.0, 0.0, 0.0]);
+    h.run_steps(2);
+    for index in [0, 1, 2] {
+        assert_eq!(props(&h, index).color, Some([1.0, 0.0, 0.0]), "comment {index}");
+    }
+    assert_ne!(props(&h, 3).color, Some([1.0, 0.0, 0.0]));
+}

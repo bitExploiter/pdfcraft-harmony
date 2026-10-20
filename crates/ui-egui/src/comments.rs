@@ -2116,14 +2116,19 @@ pub(crate) fn context_menu(
                 });
                 ui.menu_button(tl!("Colour"), |ui| {
                     if let Some(c) = swatch_grid(ui, a.color.map(|c| c.map(f64::from))) {
-                        action = Some(CanvasAction::Edit(Box::new(Edit::StyleAnnotation {
-                            page,
-                            index,
-                            color: Some(c),
-                            opacity: None,
-                            width: None,
-                            endings: None,
-                        })));
+                        // Several selected: the app gives each of them the colour.
+                        action = Some(if several > 0 {
+                            CanvasAction::Colour(c)
+                        } else {
+                            CanvasAction::Edit(Box::new(Edit::StyleAnnotation {
+                                page,
+                                index,
+                                color: Some(c),
+                                opacity: None,
+                                width: None,
+                                endings: None,
+                            }))
+                        });
                         ui.close();
                     }
                 });
@@ -2197,6 +2202,8 @@ pub enum CanvasAction {
     OpenComments,
     /// Comment Properties for (page, index).
     Properties(usize, usize),
+    /// Give every selected comment this colour.
+    Colour(Rgb),
     /// Copy Image: image (page, index in `page_images`) to the clipboard.
     CopyImage(usize, usize),
     /// Copy Image in Original Format: the same image as a file (JPEG as stored, else PNG).

@@ -2791,3 +2791,5 @@ theme	Appearance	Išvaizda
 	The copied comments are larger than this page; they were placed as they are	Nukopijuoti komentarai didesni už šį puslapį; jie įdėti tokie, kokie yra
 	The clipboard holds no comments	Iškarpinėje komentarų nėra
 	Comments: {n}	Komentarai: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Čia atlikti pakeitimai taikomi visiems pasirinktiems komentarams ({n})

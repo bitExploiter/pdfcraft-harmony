@@ -2762,3 +2762,5 @@ certificate	SHA-256 digest	Impronta SHA-256
 	The copied comments are larger than this page; they were placed as they are	I commenti copiati sono più grandi di questa pagina; sono stati collocati così come sono
 	The clipboard holds no comments	Gli appunti non contengono commenti
 	Comments: {n}	Commenti: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Le modifiche qui valgono per tutti i {n} commenti selezionati

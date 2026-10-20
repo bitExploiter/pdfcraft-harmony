@@ -2536,3 +2536,5 @@ animation effects	Off	Ανενεργά
 	The copied comments are larger than this page; they were placed as they are	Τα αντιγραμμένα σχόλια είναι μεγαλύτερα από αυτή τη σελίδα· τοποθετήθηκαν ως έχουν
 	The clipboard holds no comments	Το πρόχειρο δεν περιέχει σχόλια
 	Comments: {n}	Σχόλια: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Οι αλλαγές εδώ ισχύουν για όλα τα {n} επιλεγμένα σχόλια

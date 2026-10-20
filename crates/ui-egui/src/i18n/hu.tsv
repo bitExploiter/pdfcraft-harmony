@@ -2529,3 +2529,5 @@ animation effects	Off	Ki
 	The copied comments are larger than this page; they were placed as they are	A másolt megjegyzések nagyobbak ennél az oldalnál; változatlanul kerültek elhelyezésre
 	The clipboard holds no comments	A vágólap nem tartalmaz megjegyzéseket
 	Comments: {n}	Megjegyzések: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Az itt végzett módosítások mind a(z) {n} kijelölt megjegyzésre vonatkoznak

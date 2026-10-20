@@ -2528,3 +2528,5 @@ animation effects	Off	Өшірулі
 	The copied comments are larger than this page; they were placed as they are	Көшірілген пікірлер бұл беттен үлкен; олар сол күйінде орналастырылды
 	The clipboard holds no comments	Алмасу буферінде пікірлер жоқ
 	Comments: {n}	Пікірлер: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Мұндағы өзгерістер таңдалған барлық {n} пікірге қолданылады

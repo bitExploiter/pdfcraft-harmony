@@ -2493,3 +2493,5 @@ animation effects	Off	Изключени
 	The copied comments are larger than this page; they were placed as they are	Копираните коментари са по-големи от тази страница; поставени са както са
 	The clipboard holds no comments	Клипбордът не съдържа коментари
 	Comments: {n}	Коментари: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Промените тук се прилагат към всички {n} избрани коментара

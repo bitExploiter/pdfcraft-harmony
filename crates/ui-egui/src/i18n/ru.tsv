@@ -2443,3 +2443,5 @@ animation effects	Off	Выкл
 	The copied comments are larger than this page; they were placed as they are	Скопированные комментарии больше этой страницы; они размещены как есть
 	The clipboard holds no comments	В буфере обмена нет комментариев
 	Comments: {n}	Комментарии: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Изменения здесь применяются ко всем выбранным комментариям ({n})

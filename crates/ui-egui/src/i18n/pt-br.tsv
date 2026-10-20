@@ -2815,3 +2815,5 @@ theme	Appearance	Aparência
 	The copied comments are larger than this page; they were placed as they are	Os comentários copiados são maiores que esta página; foram colocados como estão
 	The clipboard holds no comments	A área de transferência não contém comentários
 	Comments: {n}	Comentários: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	As alterações aqui se aplicam a todos os {n} comentários selecionados

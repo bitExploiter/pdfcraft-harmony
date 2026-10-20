@@ -2526,3 +2526,5 @@ animation effects	Off	Kapalı
 	The copied comments are larger than this page; they were placed as they are	Kopyalanan yorumlar bu sayfadan büyük; oldukları gibi yerleştirildi
 	The clipboard holds no comments	Panoda yorum yok
 	Comments: {n}	Yorumlar: {n}
+# Comment Properties and the Colour menu act on every selected comment (M5).
+	Changes here apply to all {n} selected comments	Buradaki değişiklikler seçili {n} yorumun tümüne uygulanır

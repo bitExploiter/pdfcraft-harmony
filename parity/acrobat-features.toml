@@ -4208,8 +4208,8 @@ milestone = "M5"
 status = "shipped"
 commands = []
 tools = []
-evidence = ["crates/ui-egui/tests/it/comments.rs::ctrl_click_selects_several_comments_and_delete_removes_them_all"]
-notes = "On the page and in the Comments panel, ⌘-click (Ctrl on Windows and Linux) or ⇧-click adds a comment to the selection or takes it out again; the one clicked last has the handles and is what Properties, Reply and the quick bar act on. Delete (key or menu) removes every selected comment as one undo step, dragging one of them moves them all (text markup stays with its text), and the context menu copies them all. Escape and a plain click select one alone again. Not yet: a rubber-band (marquee) selection, ⇧-click as a range in the panel."
+evidence = ["crates/ui-egui/tests/it/comments.rs::ctrl_click_selects_several_comments_and_delete_removes_them_all", "crates/ui-egui/tests/it/comments.rs::properties_change_every_selected_comment_where_it_applies"]
+notes = "On the page and in the Comments panel, ⌘-click (Ctrl on Windows and Linux) or ⇧-click adds a comment to the selection or takes it out again; the one clicked last has the handles and is what Reply acts on. Delete (key or menu) removes every selected comment as one undo step, dragging one of them moves them all (text markup stays with its text), and the context menu copies them all. Properties (opened on one of them), the context menu's Colour and the quick bar's colour change every selected comment as one undo step, each where the property applies (a font size to text, a fill to shapes, a width to lines and shapes); one that stays locked keeps its look. Escape and a plain click select one alone again. Not yet: a rubber-band (marquee) selection, ⇧-click as a range in the panel."
 
 [[feature]]
 id = "comment.copy-paste"
