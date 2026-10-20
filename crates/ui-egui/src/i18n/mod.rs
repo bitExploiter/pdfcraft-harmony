@@ -521,7 +521,7 @@ pub fn current() -> Lang {
     CURRENT.get()
 }
 
-/// The order text sorts in for the interface language: Vietnamese for `vi`, root for the rest.
+/// The order text sorts in for the interface language: Vietnamese for `vi`, Root (ours, not CLDR root) for the rest.
 ///
 /// The interface language is the single source of the sort order in the app: the panels read it
 /// here, and `lib.rs` mirrors the same language into `Session::set_sort_language` every frame

@@ -2983,7 +2983,8 @@ fn page_walk_skips_repeated_and_cyclic_kids_without_queueing_them() {
 }
 
 /// "Sort items" orders choices by the document's `/Lang`, then `FieldProps::sort_language`,
-/// then Root; only the order changes, never an item's bytes or its export value.
+/// then Root; only the order changes, never an item's text (nothing is normalised) or its export
+/// value. The list is re-encoded as before, so the bytes of an entry may differ.
 mod sort_items {
     use super::*;
 
@@ -3087,7 +3088,7 @@ mod sort_items {
     }
 
     #[test]
-    fn sort_items_keep_export_values_and_bytes() {
+    fn sort_items_keep_export_values_and_unnormalised_text() {
         let nfd = "Ha\u{300}";
         let (ánh_nfc, ánh_nfd) = ("\u{c1}nh", "A\u{301}nh");
         let opt = format!("[{} {}] {} {} {} {}", hex16("HN"), hex16("Hà Nội"), hex16(nfd), hex16(ánh_nfc), hex16(ánh_nfd), hex16("Dung Quất"));
@@ -3108,7 +3109,7 @@ mod sort_items {
                 o => text(o),
             })
             .collect();
-        // "Ánh" NFC and NFD are equal: they keep their entry order. NFD bytes stay NFD.
+        // "Ánh" NFC and NFD are equal: they keep their entry order. NFD text stays NFD (not normalised).
         assert_eq!(shown, vec![ánh_nfc, ánh_nfd, "Dung Quất", nfd, "Hà Nội"]);
         assert!(shown.iter().any(|s| s == nfd) && shown.iter().any(|s| s == ánh_nfd) && shown.iter().any(|s| s == ánh_nfc));
         // The pair keeps its export value with its item.

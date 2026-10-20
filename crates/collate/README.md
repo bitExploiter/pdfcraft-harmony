@@ -1,7 +1,7 @@
 # pdfcraft-collate
 
-Text collation for the lists PdfCraft sorts and filters: comment authors, bookmarks, form
-choices and file names.
+Text collation for the lists the craft apps sort and filter (canonical equivalence, Vietnamese
+order, natural order, whole-letter search).
 
 - **Layer:** L0, standalone, no dependencies. `#![forbid(unsafe_code)]` (workspace lint) and the
   crate denies `unwrap`/`expect`/`panic!`/`todo!`. std only, no dependencies; the wasm gate runs in CI.
@@ -11,8 +11,10 @@ choices and file names.
   the CLDR `vi` order (`a ă â b c d đ e ê …`, tones as a secondary difference). `natural` sorts
   digit runs by value on top of either.
 - **Search.** `search_contains` ignores case and encoding, matches whole letters (`e` is not in
-  `Nguyễn`) and keeps the viewer's Turkish `i` and Greek sigma folds (`search_fold`).
-- **Never changes text.** It builds keys and answers comparisons; callers reorder, never rewrite.
+  `Nguyễn`) and keeps the Turkish `i` and Greek sigma folds of the craft apps' search
+  (`search_fold`).
+- **Never changes text.** The crate builds keys and answers comparisons; it never changes the
+  text it is given.
 - **Data.** `src/ucd.rs` holds the Unicode 17.0 decomposition and combining-class tables
   (Unicode License v3, header of the file, listed in `NOTICE`). They are checked against ICU4X
   `icu_normalizer`, and the `vi` order against ICU4X `icu_collator`, both dev-dependencies only.

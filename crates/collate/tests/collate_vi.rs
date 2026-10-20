@@ -181,7 +181,8 @@ fn language_tag_variants() {
         assert_eq!(sorted(V1_INPUT, c), V1_EXPECTED, "{tag}");
         assert_eq!(compare("Đào", "Dương", c), Ordering::Greater, "{tag}");
     }
-    // The root order treats Đ as D with a secondary difference.
+    // The Root order (ours, the language-neutral one, not CLDR root) treats Đ as D with a secondary
+    // difference.
     for tag in ["", "-", "zz", "v", "vie", "en-VN", "_vi"] {
         let c = Collation::from_tag(tag);
         assert_eq!(c, Collation::Root, "{tag:?}");

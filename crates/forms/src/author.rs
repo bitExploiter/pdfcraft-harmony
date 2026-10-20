@@ -106,7 +106,7 @@ pub struct FieldProps {
     /// center, unless [`Self::rect`] is also set.
     pub rotation: Option<(usize, i64)>,
     /// Language for Sort items when the document has no /Lang (a language tag such as `vi`;
-    /// an unknown tag sorts in the root order).
+    /// an unknown tag sorts in the Root order, ours and not CLDR root).
     pub sort_language: Option<String>,
 }
 

@@ -1,5 +1,5 @@
-//! Text collation for the lists PdfCraft sorts and filters (comment authors, bookmarks, form
-//! choices, file names).
+//! Text collation for the lists the craft apps sort and filter (canonical equivalence, Vietnamese
+//! order, natural order, whole-letter search).
 //!
 //! - **Canonical equivalence.** A letter typed precomposed (`ế`, U+1EBF) and typed as base + marks
 //!   (`e` U+0302 U+0301) is the same text, and so are marks of different combining classes typed
@@ -10,7 +10,7 @@
 //!   is the CLDR `vi` standard order (`a ă â b c d đ e ê …`, tones as a secondary difference).
 //!   [`natural`] sorts digit runs by value on top of either.
 //! - **Search.** [`search_contains`] ignores case and encoding and matches whole letters, with the
-//!   viewer's Turkish `i` and Greek sigma folds ([`search_fold`]).
+//!   Turkish `i` and Greek sigma folds of the craft apps' search ([`search_fold`]).
 //!
 //! Nothing here changes the user's text: it builds keys and answers comparisons only. The data
 //! behind the key is in `ucd.rs`: the canonical decomposition of the Latin letters
@@ -18,10 +18,10 @@
 //! U+0300..=U+036F with a nonzero combining class. Anything outside them is left alone (a
 //! starter without a decomposition): this is not a general NFD, it is the part of NFD that
 //! Vietnamese and the Latin scripts need. The tables are generated from the Unicode Character
-//! Database 17.0 (via ICU4X `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 / ICU 78.1)
-//! and verified against it by the test `tables_match_icu_normalizer`. Canonical decompositions
-//! are frozen by Unicode's normalization stability policy, so later Unicode versions do not
-//! change them.
+//! Database 17.0 (via ICU4X `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 / ICU 78.1rc,
+//! the `icuexport` tag in `icu_normalizer_data` 2.3.0) and verified against it by the test
+//! `tables_match_icu_normalizer`. Canonical decompositions are frozen by Unicode's normalization
+//! stability policy, so later Unicode versions do not change them.
 //!
 //! Nothing here panics: lookups use `get` and binary search, and the work is linear in the input
 //! except for the sort of a mark run, which is capped at 32 marks.
@@ -549,12 +549,12 @@ pub fn natural(a: &str, b: &str, c: Collation) -> Ordering {
 // Searching: whole letters, ignoring case and encoding.
 // ---------------------------------------------------------------------------------------------
 
-/// `s` prepared for searching: the viewer's case mapping first, then [`fold_key`].
+/// `s` prepared for searching: the craft apps' case mapping first, then [`fold_key`].
 ///
-/// The mapping is the one `pdfcraft_render::text::fold_case` applies to page text: the Latin `I`
-/// and `i`, the dotted `İ` (U+0130) and the dotless `ı` (U+0131) all become `i` (Turkish and
-/// Azerbaijani text can be found by typing `istanbul` or `ırmak`; search cannot know the
-/// language, so the four are one letter), and Greek `Σ`, `σ` and the word-final `ς` become `σ`.
+/// The mapping is the case fold the craft apps' search uses: the Latin `I` and `i`, the dotted
+/// `İ` (U+0130) and the dotless `ı` (U+0131) all become `i` (Turkish and Azerbaijani text can be
+/// found by typing `istanbul` or `ırmak`; search cannot know the language, so the four are one
+/// letter), and Greek `Σ`, `σ` and the word-final `ς` become `σ`.
 /// [`fold_key`] then lowercases one character to one character, decomposes and puts marks in
 /// canonical order, so NFC and NFD text give the same result.
 pub fn search_fold(s: &str) -> String {

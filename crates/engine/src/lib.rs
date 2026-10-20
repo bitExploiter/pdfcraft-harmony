@@ -5028,7 +5028,7 @@ impl Session {
     }
 
     /// Set the order text is sorted in from a language tag (`vi`, `vi-VN`, `VI_vn` are Vietnamese;
-    /// anything else, including an empty or unknown tag, is the root order). It is a session
+    /// anything else, including an empty or unknown tag, is the Root order, ours and not CLDR root). It is a session
     /// setting: not an undo step and not written to any file.
     pub fn set_sort_language(&mut self, tag: &str) {
         self.sort_language = Collation::from_tag(tag);
