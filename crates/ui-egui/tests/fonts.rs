@@ -337,3 +337,52 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         }
     }
 }
+
+/// PdfCraft patch (vendored epaint bidi, UAX #9): right-to-left text lays out in visual order
+/// while the galley keeps one glyph per character in *logical* order, which is what egui's cursor
+/// and selection code relies on. This is the layout half of editing Arabic/Hebrew in place.
+#[test]
+fn arabic_text_lays_out_right_to_left_in_logical_order() {
+    if pdfcraft_fonts::ui_arabic_fonts().is_empty() {
+        eprintln!("skipping arabic_text_lays_out_right_to_left_in_logical_order: no Arabic face bundled (set CRAFT_FONTS_DIR)");
+        return;
+    }
+    let mut fonts = Fonts::new(TextOptions::default(), theme::font_definitions());
+    let mut view = fonts.with_pixels_per_point(2.0);
+    let galley = view.layout_no_wrap(ARABIC.to_owned(), FontId::proportional(13.0), Color32::BLACK);
+    let row = &galley.rows[0].row;
+
+    // Base glyphs advance the pen; combining marks (the i'jam dots on ث ن ي) are zero-advance and
+    // sit on their base. The base glyphs, in order, are the characters in logical order — which is
+    // what egui's cursor model maps against.
+    let bases: Vec<(char, f32)> = row.glyphs.iter().filter(|g| g.advance_width > 0.0).map(|g| (g.chr, g.pos.x)).collect();
+    let base_chars: String = bases.iter().map(|(c, _)| *c).collect();
+    assert_eq!(base_chars, ARABIC, "base glyphs must stay in logical order");
+
+    // Right-to-left: the first logical character sits to the right of the last.
+    let first = bases.first().unwrap().1;
+    let last = bases.last().unwrap().1;
+    assert!(first > last, "RTL text must run right-to-left: first.x {first} <= last.x {last}");
+
+    // The base glyphs step strictly leftwards in logical order (true right-to-left layout).
+    assert!(bases.windows(2).all(|w| w[1].1 < w[0].1), "RTL base glyphs must descend in x");
+
+    // Combining marks carry their base character and sit on it (no horizontal advance of their own).
+    for (i, g) in row.glyphs.iter().enumerate().filter(|(_, g)| g.advance_width == 0.0) {
+        let base = &row.glyphs[i - 1];
+        assert_eq!(g.chr, base.chr, "a mark repeats its base character");
+        assert!((g.pos.x - base.pos.x).abs() < 0.5, "a mark sits on its base");
+    }
+}
+
+/// PdfCraft patch: left-to-right text is untouched by the bidi path (it only engages when a row
+/// contains right-to-left script), so Latin glyphs still ascend in x exactly as upstream.
+#[test]
+fn latin_text_layout_is_unchanged_by_bidi() {
+    let mut fonts = Fonts::new(TextOptions::default(), theme::font_definitions());
+    let mut view = fonts.with_pixels_per_point(2.0);
+    let galley = view.layout_no_wrap("Hello world".to_owned(), FontId::proportional(13.0), Color32::BLACK);
+    let row = &galley.rows[0].row;
+    let xs: Vec<f32> = row.glyphs.iter().map(|g| g.pos.x).collect();
+    assert!(xs.windows(2).all(|w| w[0] <= w[1]), "LTR glyphs must ascend in x: {xs:?}");
+}
