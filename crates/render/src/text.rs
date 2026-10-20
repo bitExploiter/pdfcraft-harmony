@@ -350,7 +350,7 @@ const WORD_GAP: f32 = 0.15;
 /// a unit vector.
 type Drawn = (usize, [f64; 2], TextGlyph);
 
-struct TextDevice {
+struct TextDevice<'a> {
     /// Every glyph in content order.
     glyphs: Vec<Drawn>,
     /// How many marked content sequences are open.
@@ -364,8 +364,9 @@ struct TextDevice {
     excluded_depth: Option<usize>,
     actual_filtered: bool,
     partial_replacement: bool,
-    /// The structure elements' `/ActualText` over the page's MCIDs (#3660).
-    structure: replacements::Replacements,
+    /// The structure elements' `/ActualText` over the MCIDs of the page's structured content
+    /// (#3660, #3732).
+    structure: replacements::Replacements<'a>,
     /// The glyphs of each structure element with a replacement, held until the page ends, when
     /// all its sequences are known (`place_held`); `held_index` finds an element's entry.
     held: Vec<Held>,
@@ -454,7 +455,7 @@ fn merge(drawn: &[Drawn], text: String) -> Option<Drawn> {
     Some((quarter, u, TextGlyph { text, rect, quad, direction: first.2.direction }))
 }
 
-impl TextDevice {
+impl TextDevice<'_> {
     /// A device collecting no text yet, with no filter and no structure replacements.
     fn new() -> Self {
         TextDevice {
@@ -702,7 +703,7 @@ impl TextDevice {
     }
 }
 
-impl<'a> Device<'a> for TextDevice {
+impl<'a> Device<'a> for TextDevice<'a> {
     fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
     fn draw_path(&mut self, _: &BezPath, _: Affine, _: &Paint<'a>, _: &PathDrawMode) {}
@@ -799,14 +800,15 @@ impl<'a> Device<'a> for TextDevice {
             self.excluded_depth = Some(self.depth);
         }
     }
-    /// Opens the replacement of the structure element over the page's sequence `mcid`, if any.
+    /// Opens the replacement of the structure element over the sequence `mcid` of the structured
+    /// content with parent tree key `key` (the page's own, or a form XObject's), if any.
     /// The element encloses the sequence, so its replacement is the outer one: it comes first,
     /// and the sequence's own /ActualText then nests inside it. The sequence's glyphs are held
     /// with the element's others until the page ends (`place_held`). An excluded sequence is
     /// held too, so that the element's text never stands for excluded content.
-    fn page_marked_content(&mut self, mcid: i32) {
+    fn structure_marked_content(&mut self, key: i32, mcid: i32) {
         if self.actual.is_none()
-            && let Some((element, text)) = self.structure.get(mcid)
+            && let Some((element, text)) = self.structure.get(key, mcid)
         {
             let k = match self.held_index.get(&element) {
                 Some(&k) => k,
@@ -857,7 +859,7 @@ pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &Interpret
     let mut ctx = Context::new(initial, Rect::new(0.0, 0.0, w as f64, h as f64), &cache, p.xref(), settings);
     let mut dev = TextDevice::new();
     dev.filter = filter;
-    dev.structure = replacements::replacements(p);
+    dev.structure = replacements::Replacements::new(p);
     interpret_page(p, &mut ctx, &mut dev);
     // A replacement the content never closed ends with the page.
     dev.finish();
@@ -2123,7 +2125,7 @@ mod tests {
     }
 
     /// #3660: only the page's own MCIDs index its parent tree entry. A form XObject's marked content
-    /// has MCIDs of its own (its `/StructParents`), so the same number there is another sequence.
+    /// has MCIDs of its own, and without a `/StructParents` of its own they index nothing.
     #[test]
     fn structure_replacement_text_stays_out_of_form_xobjects() {
         let page = "BT /F1 20 Tf 1 0 0 1 100 150 Tm (a) Tj ET /Fm0 Do";
@@ -2289,7 +2291,8 @@ mod tests {
         assert_eq!(dev.glyphs.iter().map(|g| g.2.text.as_str()).collect::<Vec<_>>(), ["OK"]);
     }
 
-    /// #3660: an annotation's appearance has MCIDs of its own too.
+    /// #3660: an annotation's appearance has MCIDs of its own too, indexing nothing without a
+    /// `/StructParents` of its own.
     #[test]
     fn structure_replacement_text_stays_out_of_annotation_appearances() {
         let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /StructParents 0 /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> >> /Annots [11 0 R] >>";
@@ -2310,6 +2313,124 @@ mod tests {
             ],
         );
         assert_eq!(marked_text(&pdf, 0).plain_text(), "a\nzz");
+    }
+
+    /// A form XObject drawn with `/Fm0 Do`, as object 7: `content`, then `dict` entries.
+    fn form(content: &str, dict: &str) -> String {
+        format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 300 300] /Resources << /Font << /F1 6 0 R >> /XObject << /Fm1 8 0 R >> >> {dict} /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        )
+    }
+
+    /// #3732: a form XObject with its own `/StructParents` is structured content (ISO 32000-2
+    /// §14.7.5.4): its MCIDs index the parent tree under that key, so the elements over them
+    /// replace its text as they do the page's. Tagged generators put whole paragraphs in forms.
+    #[test]
+    fn structure_replacement_text_reaches_forms_with_struct_parents() {
+        let element = |n: u32, mcid: i32, text: &str| (n, format!("<< /Type /StructElem /S /Span /P 5 0 R /K {mcid} /ActualText ({text}) >>"));
+        let span = |mcid: i32, y: i32, glyphs: &str| format!("/Span <</MCID {mcid}>> BDC BT /F1 20 Tf 1 0 0 1 50 {y} Tm ({glyphs}) Tj ET EMC");
+        let run = |page: &str, tree: &str, objects: Vec<(u32, String)>| {
+            let objects: Vec<(u32, &str)> = objects.iter().map(|(n, o)| (*n, o.as_str())).collect();
+            marked_text(&tagged(page, "", tree, &objects), 0).plain_text()
+        };
+
+        // The issue's page: the element reaches the form's sequence through an MCR, and the page
+        // itself has no entries.
+        let fm0 = form(&span(0, 200, "f0rm"), "/StructParents 1");
+        assert_eq!(run("/Fm0 Do", "<< /Nums [0 [] 1 [10 0 R]] >>", vec![element(10, 0, "form"), (7, fm0)]), "form");
+
+        // Page and form MCIDs are separate: the page's MCID 0 and the form's MCID 0 are two
+        // sequences of two elements, and the page's content after the form uses the page's key.
+        let fm0 = form(&span(0, 200, "f0rm"), "/StructParents 1");
+        let page = format!("{} /Fm0 Do {}", span(0, 250, "paqe"), span(1, 150, "a1so"));
+        let tree = "<< /Nums [0 [11 0 R 12 0 R] 1 [10 0 R]] >>";
+        let objects = vec![element(10, 0, "form"), element(11, 0, "page"), element(12, 1, "also"), (7, fm0)];
+        assert_eq!(
+            run(&page, tree, objects),
+            "page
+form
+also"
+        );
+
+        // A form drawn twice gives its element's text once.
+        let fm0 = form(&span(0, 200, "f0rm"), "/StructParents 1");
+        let objects = vec![element(10, 0, "form"), (7, fm0)];
+        assert_eq!(run("/Fm0 Do q 1 0 0 1 120 0 cm /Fm0 Do Q", "<< /Nums [1 [10 0 R]] >>", objects), "form");
+
+        // A nested form with its own key uses it; one without a key keeps its own text, even
+        // inside a form that has one.
+        let nested = |dict: &str| form(&span(0, 150, "inner"), dict);
+        let fm0 = form(&format!("{} /Fm1 Do", span(0, 200, "outer")), "/StructParents 1");
+        let tree = "<< /Nums [1 [10 0 R] 2 [11 0 R]] >>";
+        let objects = |fm1: String| vec![element(10, 0, "OUTER"), element(11, 0, "INNER"), (7, fm0.clone()), (8, fm1)];
+        assert_eq!(
+            run("/Fm0 Do", tree, objects(nested("/StructParents 2"))),
+            "OUTER
+INNER"
+        );
+        assert_eq!(
+            run("/Fm0 Do", tree, objects(nested(""))),
+            "OUTER
+inner"
+        );
+
+        // A form with a key drawn through a form without one still uses its key.
+        let fm0 = form("/Fm1 Do", "");
+        let objects = vec![element(10, 0, "INNER"), (7, fm0), (8, nested("/StructParents 1"))];
+        assert_eq!(run("/Fm0 Do", "<< /Nums [1 [10 0 R]] >>", objects), "INNER");
+
+        // A page whose own content has no marked content needs no /StructParents (§14.7.5.4);
+        // the forms it draws are structured all the same.
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /Fm0 7 0 R >> >> >>";
+        let fm0 = form(&span(0, 200, "f0rm"), "/StructParents 1");
+        let objects = vec![(3, page.to_string()), element(10, 0, "form"), (7, fm0)];
+        assert_eq!(run("/Fm0 Do", "<< /Nums [1 [10 0 R]] >>", objects), "form");
+
+        // One element over a sequence of the page and one of a form gives its text once, for
+        // both, when they adjoin on one line ("ab" ends at x = 72.24); over two lines each keeps
+        // its own.
+        let whole = "<< /Type /StructElem /S /P /P 5 0 R /K [0 << /Type /MCR /Stm 7 0 R /MCID 0 >>] /ActualText (WHOLE) >>";
+        let page = format!("{} /Fm0 Do", span(0, 200, "ab"));
+        for (cd, want) in [("1 0 0 1 73 200 Tm", "WHOLE"), ("1 0 0 1 50 150 Tm", "ab\ncd")] {
+            let fm0 = form(&format!("/Span <</MCID 0>> BDC BT /F1 20 Tf {cd} (cd) Tj ET EMC"), "/StructParents 1");
+            let objects = vec![(10, whole.to_string()), (7, fm0)];
+            assert_eq!(run(&page, "<< /Nums [0 [10 0 R] 1 [10 0 R]] >>", objects), want, "{cd}");
+        }
+
+        // An annotation's appearance with its own key is structured content too.
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /StructParents 0 /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> >> /Annots [11 0 R] >>";
+        let ap = form(&span(0, 5, "zz"), "/StructParents 1");
+        let objects = vec![
+            (3, page.to_string()),
+            element(10, 0, "note"),
+            (11, "<< /Type /Annot /Subtype /FreeText /Rect [100 50 200 80] /StructParent 2 /AP << /N 7 0 R >> >>".to_string()),
+            (7, ap),
+        ];
+        assert_eq!(run("BT /F1 20 Tf 1 0 0 1 100 150 Tm (a) Tj ET", "<< /Nums [1 [10 0 R]] >>", objects), "a\nnote");
+    }
+
+    /// #3732 review: every key reads its part of the parent tree, so the entries read are budgeted
+    /// for the whole page. A key looked up past the budget gets no replacements (its content keeps
+    /// its own text), while the ones looked up before it keep theirs.
+    #[test]
+    fn structure_lookups_share_one_budget_per_page() {
+        // 600 000 pairs before the two keys used: each lookup reads them all, and two lookups
+        // read more than the page may.
+        let mut nums = String::with_capacity(12 << 20);
+        for k in 2..600_002 {
+            nums.push_str(&format!("{k} [] "));
+        }
+        nums.push_str("0 [10 0 R] 1 [11 0 R]");
+        let tree = format!("<< /Nums [{nums}] >>");
+        let fm0 = form("/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (f0rm) Tj ET EMC", "/StructParents 1");
+        let page = "/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 200 Tm (paqe) Tj ET EMC /Fm0 Do";
+        let objects = [
+            (10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (page) >>"),
+            (11, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (form) >>"),
+            (7, fm0.as_str()),
+        ];
+        assert_eq!(marked_text(&tagged(page, "", &tree, &objects), 0).plain_text(), "page\nf0rm");
     }
 
     /// An element under more ancestors than the walk follows gets no replacement.

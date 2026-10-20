@@ -18,7 +18,7 @@ use crate::x_object::{
 use hayro_syntax::content::TypedIter;
 use hayro_syntax::content::ops::TypedInstruction;
 use hayro_syntax::object::dict::keys::{
-    ACTUAL_TEXT, ANNOTS, AP, AS, C, CA, F, MCID, N, OC, QUADPOINTS, RECT, SUBTYPE,
+    ACTUAL_TEXT, ANNOTS, AP, AS, C, CA, F, MCID, N, OC, QUADPOINTS, RECT, STRUCT_PARENTS, SUBTYPE,
 };
 use hayro_syntax::object::{Array, Dict, Object, Rect, Stream, dict_or_stream};
 use hayro_syntax::page::{ContentReader, Page, Resources};
@@ -170,6 +170,9 @@ pub fn interpret_page<'a>(
     // PdfCraft patch: the page's own contents count against its content budget too, where they
     // are decoded whole. Streamed content is only ever held a window at a time.
     crate::context::charge_content(content.materialized_len());
+    // PdfCraft patch (44): the page's own MCIDs index the parent tree under its /StructParents;
+    // its annotations' appearances take their own keys in `draw_form_xobject`.
+    let outer = context.enter_page_structure(page.raw().get::<i32>(STRUCT_PARENTS));
     interpret_content(&mut content, resources, context, device);
 
     if context.settings.render_annotations
@@ -280,6 +283,7 @@ pub fn interpret_page<'a>(
         }
         device.end_annotations();
     }
+    context.leave_structure(outer);
 }
 
 /// PdfCraft patch: the normal appearance of a Highlight annotation that has none (ISO 32000-2
@@ -620,12 +624,12 @@ fn interpret_window<'a>(
 
                 device.begin_marked_content(bdc.0, mcid);
 
-                // PdfCraft patch (44): every nested content stream (forms, annotation appearances,
-                // soft masks, patterns, Type 3 glyphs) runs at a nesting depth above 0.
+                // PdfCraft patch (44): MCIDs index the parent tree only in content with a key (the
+                // page's own, or that of a form XObject with its own /StructParents).
                 if let Some(mcid) = mcid
-                    && context.nesting_depth() == 0
+                    && let Some(key) = context.structure_key()
                 {
-                    device.page_marked_content(mcid);
+                    device.structure_marked_content(key, mcid);
                 }
 
                 // PdfCraft patch (25): hand the device the sequence's `/ActualText`, from an inline
