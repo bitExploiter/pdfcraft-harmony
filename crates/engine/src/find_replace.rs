@@ -322,6 +322,6 @@ fn at(
 }
 
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod rewrite_order_tests;
+#[cfg(test)]
+mod tests;
