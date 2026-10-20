@@ -892,6 +892,16 @@ impl PdfCraftApp {
         self.close_request.as_ref().and_then(|r| self.dirty_target(r))
     }
 
+    /// Whether `req`'s anchor is still an open tab. `Others` and `RightOf` are scoped to their
+    /// anchor, and one whose anchor is gone is void, like a `close_others` whose `keep` names no
+    /// open tab. `Tab` is answered per tab by its callers, and `Quit` and `All` have no anchor.
+    fn anchor_still_open(&self, req: &CloseRequest) -> bool {
+        match req {
+            CloseRequest::Others(anchor) | CloseRequest::RightOf(anchor) => self.views.iter().any(|v| v.id == *anchor),
+            _ => true,
+        }
+    }
+
     /// Answer the save prompt: `Some(true)` save, `Some(false)` discard, `None` cancel.
     pub fn resolve_close(&mut self, ctx: &egui::Context, choice: Option<bool>) {
         let Some(req) = self.close_request.take() else { return };
@@ -940,7 +950,12 @@ impl PdfCraftApp {
     }
 
     /// Close tab `index` for a close request, then ask about the next dirty document, or quit.
+    /// A batch whose anchor closed meanwhile — a save can wait on a picker or an overwrite
+    /// prompt for frames — closes nothing, not even the tab the request was asking about.
     fn close_and_continue(&mut self, ctx: &egui::Context, index: usize, req: CloseRequest) {
+        if !self.anchor_still_open(&req) {
+            return;
+        }
         self.close_tab(index);
         // A newer prompt wins: the user may have started another close while a save was pending.
         let batch = matches!(req, CloseRequest::Quit | CloseRequest::All | CloseRequest::Others(_) | CloseRequest::RightOf(_));
@@ -1625,6 +1640,38 @@ mod tests {
             assert_eq!(app.views[0].id, first);
             assert_eq!(app.views[1].id, last);
             assert_eq!(app.close_request, None);
+        }
+    }
+
+    #[test]
+    fn a_batch_save_leaves_the_tab_open_when_its_anchor_closes_while_the_picker_waits() {
+        let ctx = egui::Context::default();
+        for right_of in [false, true] {
+            // The anchor second: 0 and 2 dirty, and neither has a file, so the save waits on
+            // a picker that answers on a later frame.
+            let mut app = app_with_docs(&["a.pdf", "anchor.pdf", "c.pdf"], &[0, 2]);
+            let first = app.views[0].id;
+            let anchor = app.views[1].id;
+            let last = app.views[2].id;
+            let dir = staging_dir(&format!("anchor-gone-{right_of}"));
+            let dest = dir.join("saved.pdf");
+            app.pick_override = Some(vec![dest.to_string_lossy().into_owned()]);
+            if right_of {
+                app.close_tabs_right_of(anchor);
+            } else {
+                app.close_others(anchor);
+            }
+            app.resolve_close(&ctx, Some(true));
+            assert!(!dest.exists(), "the save is still waiting on the picker");
+            app.close_tab(1); // the anchor's own tab, by hand, while the pick is pending
+            app.process_picked();
+            assert!(std::fs::read(&dest).is_ok_and(|b| b.starts_with(b"%PDF")), "the save itself completed");
+            let _ = std::fs::remove_dir_all(&dir);
+            assert_eq!(app.views.len(), 2, "the saved tab stays open once the anchor is gone");
+            assert_eq!(app.views[0].id, first);
+            assert_eq!(app.views[1].id, last);
+            assert!(!app.has_unsaved_work(usize::from(right_of)), "the saved tab is clean now");
+            assert_eq!(app.close_request, None, "the void batch asks about nothing more");
         }
     }
 }
