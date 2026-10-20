@@ -164,6 +164,10 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
     let mut current = page_marker(0);
     let mut first_page = 0usize;
     let mut pages_in_chapter = 1usize;
+    // The chapter each page's marker ended up in, and the one each heading is in: a marker can
+    // stay behind in the chapter before a heading that starts mid-page.
+    let mut marker_chapter: Vec<usize> = vec![0];
+    let mut heading_chapter: Vec<usize> = Vec::new();
     let has_top = |p: &[Page]| -> bool {
         if tagged { tags.headings.iter().any(|h| h.1 == 1) } else { p.iter().flat_map(|pg| &pg.blocks).any(|b| level(b, body) == 1) }
     };
@@ -179,6 +183,7 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
                     pages_in_chapter = 1;
                 }
                 current.push_str(&page_marker(page));
+                marker_chapter.push(chapters.len());
             }
             Item::Para(b, guessed) => {
                 let lvl = if tagged {
@@ -198,6 +203,9 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
                     first_page = page;
                     if had_marker {
                         current.push_str(&marker);
+                        if let Some(c) = marker_chapter.get_mut(page) {
+                            *c = chapters.len();
+                        }
                     }
                 }
                 let mut text = esc(b.text.trim());
@@ -212,6 +220,7 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
                 } else {
                     let id = format!("h-{}", headings.len() + 1);
                     current.push_str(&format!("<h{lvl} id=\"{id}\">{text}</h{lvl}>\n"));
+                    heading_chapter.push(chapters.len());
                     headings.push(TocEntry { title: b.text.trim().to_string(), level: lvl, page });
                 }
             }
@@ -231,6 +240,7 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
     }
     chapters.push((first_page, current));
     let chapter_of = |p: usize| chapters.iter().rposition(|(start, _)| *start <= p).unwrap_or(0);
+    let heading_entries = toc.is_empty() && !headings.is_empty();
     let entries: Vec<TocEntry> = if !toc.is_empty() {
         toc.to_vec()
     } else if !headings.is_empty() {
@@ -238,7 +248,12 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
     } else {
         chapters.iter().map(|(p, _)| TocEntry { title: format!("{} {}", meta.title, p + 1), level: 1, page: *p }).collect()
     };
-    let target = |p: usize| format!("chapter-{}.xhtml#page-{}", chapter_of(p) + 1, p + 1);
+    let target = |p: usize| format!("chapter-{}.xhtml#page-{}", marker_chapter.get(p).copied().unwrap_or_else(|| chapter_of(p)) + 1, p + 1);
+    // A heading entry goes to the heading itself, any other to its page's marker.
+    let entry_target = |i: usize, e: &TocEntry| match heading_chapter.get(i) {
+        Some(c) if heading_entries => format!("chapter-{}.xhtml#h-{}", c + 1, i + 1),
+        _ => target(e.page),
+    };
 
     let mut zip = Zip::default();
     zip.add("mimetype", b"application/epub+zip", false);
@@ -252,8 +267,8 @@ pub fn epub(pages: &[Page], meta: &Meta, toc: &[TocEntry], tags: &Tags) -> Vec<u
         zip.add(&format!("OEBPS/{name}"), &im.bytes, false);
     }
     let page_list: Vec<(String, String)> = (0..pages.len()).map(|p| ((p + 1).to_string(), target(p))).collect();
-    zip.add("OEBPS/nav.xhtml", nav(meta, &entries, &page_list, &target).as_bytes(), true);
-    zip.add("OEBPS/toc.ncx", ncx(meta, &entries, &target).as_bytes(), true);
+    zip.add("OEBPS/nav.xhtml", nav(meta, &entries, &page_list, &entry_target).as_bytes(), true);
+    zip.add("OEBPS/toc.ncx", ncx(meta, &entries, &entry_target).as_bytes(), true);
     let mut manifest = vec![
         ("nav".to_string(), "nav.xhtml".to_string(), "application/xhtml+xml", Some("nav")),
         ("ncx".to_string(), "toc.ncx".to_string(), "application/x-dtbncx+xml", None),
@@ -325,14 +340,14 @@ pub fn epub_fixed(pages: &[FixedPage], meta: &Meta, toc: &[TocEntry]) -> Vec<u8>
         toc.to_vec()
     };
     let page_list: Vec<(String, String)> = (0..pages.len()).map(|p| ((p + 1).to_string(), target(p))).collect();
-    zip.add("OEBPS/nav.xhtml", nav(meta, &entries, &page_list, &target).as_bytes(), true);
-    zip.add("OEBPS/toc.ncx", ncx(meta, &entries, &target).as_bytes(), true);
+    zip.add("OEBPS/nav.xhtml", nav(meta, &entries, &page_list, &|_, e| target(e.page)).as_bytes(), true);
+    zip.add("OEBPS/toc.ncx", ncx(meta, &entries, &|_, e| target(e.page)).as_bytes(), true);
     zip.add("OEBPS/content.opf", opf(meta, &manifest, &spine, true).as_bytes(), true);
     zip.finish()
 }
 
 /// The navigation document: the table of contents (nested by level) and the PDF's page list.
-fn nav(meta: &Meta, entries: &[TocEntry], page_list: &[(String, String)], target: &dyn Fn(usize) -> String) -> String {
+fn nav(meta: &Meta, entries: &[TocEntry], page_list: &[(String, String)], target: &dyn Fn(usize, &TocEntry) -> String) -> String {
     let mut toc = String::from("<nav epub:type=\"toc\" id=\"toc\">\n<h1>");
     toc.push_str(&esc(meta.title));
     toc.push_str("</h1>\n<ol>\n");
@@ -352,7 +367,7 @@ fn nav(meta: &Meta, entries: &[TocEntry], page_list: &[(String, String)], target
             }
         }
         depth = lvl;
-        toc.push_str(&format!("<li><a href=\"{}\">{}</a>", esc(&target(e.page)), esc(&e.title)));
+        toc.push_str(&format!("<li><a href=\"{}\">{}</a>", esc(&target(i, e)), esc(&e.title)));
     }
     if !entries.is_empty() {
         toc.push_str("</li>\n");
@@ -370,13 +385,13 @@ fn nav(meta: &Meta, entries: &[TocEntry], page_list: &[(String, String)], target
 }
 
 /// `toc.ncx` for EPUB 2 reading systems: the same entries, flat.
-fn ncx(meta: &Meta, entries: &[TocEntry], target: &dyn Fn(usize) -> String) -> String {
+fn ncx(meta: &Meta, entries: &[TocEntry], target: &dyn Fn(usize, &TocEntry) -> String) -> String {
     let mut points = String::new();
     for (i, e) in entries.iter().enumerate() {
         points.push_str(&format!(
             "<navPoint id=\"np-{n}\" playOrder=\"{n}\"><navLabel><text>{}</text></navLabel><content src=\"{}\"/></navPoint>\n",
             esc(&e.title),
-            esc(&target(e.page)),
+            esc(&target(i, e)),
             n = i + 1
         ));
     }
@@ -416,12 +431,12 @@ mod tests {
     use std::io::Read;
 
     /// XHTML content documents carry `<!DOCTYPE html>`.
-    fn parse(text: &str) -> Result<roxmltree::Document<'_>, roxmltree::Error> {
+    pub(super) fn parse(text: &str) -> Result<roxmltree::Document<'_>, roxmltree::Error> {
         roxmltree::Document::parse_with_options(text, roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() })
     }
 
     /// The archive's entries in order: (name, stored?, data). A reader for the tests only.
-    fn entries(zip: &[u8]) -> Vec<(String, bool, Vec<u8>)> {
+    pub(super) fn entries(zip: &[u8]) -> Vec<(String, bool, Vec<u8>)> {
         let eocd = zip.len() - 22;
         assert_eq!(&zip[eocd..eocd + 4], b"PK\x05\x06");
         let count = u16::from_le_bytes([zip[eocd + 10], zip[eocd + 11]]) as usize;
@@ -505,7 +520,7 @@ mod tests {
         files
     }
 
-    fn meta() -> Meta<'static> {
+    pub(super) fn meta() -> Meta<'static> {
         Meta {
             title: "Report & notes",
             author: Some("Ada"),
@@ -515,11 +530,11 @@ mod tests {
         }
     }
 
-    fn block(text: &str, size: f64, top: f64) -> Block {
+    pub(super) fn block(text: &str, size: f64, top: f64) -> Block {
         Block { text: text.into(), rect: [72.0, top - size, 400.0, top], size, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
     }
 
-    fn page(blocks: Vec<Block>) -> Page {
+    pub(super) fn page(blocks: Vec<Block>) -> Page {
         Page { width: 612.0, height: 792.0, blocks, images: Vec::new() }
     }
 
@@ -541,7 +556,7 @@ mod tests {
         let ch2 = String::from_utf8(files["OEBPS/chapter-2.xhtml"].clone()).unwrap();
         assert!(ch2.contains("id=\"page-3\"") && ch2.contains("Second chapter"));
         let nav = String::from_utf8(files["OEBPS/nav.xhtml"].clone()).unwrap();
-        assert!(nav.contains("chapter-2.xhtml#page-3\">Second chapter</a>"));
+        assert!(nav.contains("chapter-2.xhtml#h-2\">Second chapter</a>"));
         assert!(nav.contains("page-list"));
         let opf = String::from_utf8(files["OEBPS/content.opf"].clone()).unwrap();
         assert!(opf.contains("<dc:creator>Ada</dc:creator>") && opf.contains("<dc:title>Report &amp; notes</dc:title>"));
@@ -608,3 +623,6 @@ mod tests {
         assert_eq!(u, "urn:uuid:abababab-abab-5bab-abab-abababababab");
     }
 }
+
+#[cfg(test)]
+mod nav_targets;

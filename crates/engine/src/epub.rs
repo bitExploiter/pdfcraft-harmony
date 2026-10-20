@@ -80,6 +80,16 @@ fn outline_entries(items: &[OutlineItem], level: u8, out: &mut Vec<TocEntry>) {
     }
 }
 
+/// Whether `tag` looks like a BCP 47 language tag the package document can carry: a first subtag
+/// of 2 to 8 letters, then subtags of 2 to 8 letters or digits, none empty.
+fn language_tag(tag: &str) -> bool {
+    let mut subtags = tag.split('-');
+    let first = subtags.next().unwrap_or_default();
+    (2..=8).contains(&first.len())
+        && first.chars().all(|c| c.is_ascii_alphabetic())
+        && subtags.all(|t| (2..=8).contains(&t.len()) && t.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
 impl crate::Document {
     /// What an EPUB of this document is made of (Export â–¸ EPUB): every page's paragraphs, tables
     /// and images, its title, author and language, the bookmarks, and a tagged document's heading
@@ -103,7 +113,7 @@ impl crate::Document {
                 .and_then(|r| cos.get(r).as_dict().cloned())
                 .and_then(|cat| cat.get(b"Lang").map(|o| cos.resolve(o)).and_then(|o| o.as_string().map(|s| s.to_text())))
                 .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+                .filter(|s| language_tag(s));
             if self.info.tagged {
                 tags.headings = pdfcraft_a11y::headings(cos)
                     .into_iter()
@@ -187,3 +197,6 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod language_tests;

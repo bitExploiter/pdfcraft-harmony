@@ -137,7 +137,8 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens, kind: E
     ui.add_space(12.0);
     let (mut apply, mut cancel) = (false, false);
     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        let ok = !d.range.pages(count).is_empty();
+        // A book is the whole document; its page range is not shown, so it cannot disable Export.
+        let ok = if kind == ExportKind::Epub { count > 0 } else { !d.range.pages(count).is_empty() };
         if ui.add_enabled_ui(ok, |ui| widgets::pill_button(ui, tl!("Export"), true)).inner.clicked() {
             apply = true;
         }
@@ -267,8 +268,9 @@ impl PdfCraftApp {
         let Some(doc) = self.session.get(id) else { return };
         let src = doc.export_source();
         let stem = doc.name.trim_end_matches(".pdf").trim_end_matches(".PDF").to_string();
-        // EPUB is the whole document; what it is made of is read here, its pages drawn on the worker.
-        let epub = (kind == ExportKind::Epub).then(|| (doc.epub_book(), self.export_draft.epub_layout, self.session.now_secs()));
+        // EPUB is the whole document; what it is made of is read once a place is chosen (below),
+        // its pages drawn on the worker.
+        let epub_layout = self.export_draft.epub_layout;
         let pages = if kind == ExportKind::Epub { (0..src.pages).collect() } else { self.export_draft.range.pages(src.pages) };
         let dpi = self.export_draft.dpi;
         let format = self.export_draft.format;
@@ -277,6 +279,13 @@ impl PdfCraftApp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let start = move |app: &mut Self, dir: std::path::PathBuf, stem: String, inline: bool| {
+                let epub = match kind {
+                    ExportKind::Epub => match app.session.get(id) {
+                        Some(doc) => Some((doc.epub_book(), epub_layout, app.session.now_secs())),
+                        None => return,
+                    },
+                    _ => None,
+                };
                 let st = status.clone();
                 let shown = dir.display().to_string();
                 let lang = crate::i18n::current();
@@ -320,6 +329,10 @@ impl PdfCraftApp {
         }
         #[cfg(target_arch = "wasm32")]
         {
+            let epub = match kind {
+                ExportKind::Epub => self.session.get(id).map(|doc| (doc.epub_book(), epub_layout, self.session.now_secs())),
+                _ => None,
+            };
             let msg = run(
                 src,
                 kind,
