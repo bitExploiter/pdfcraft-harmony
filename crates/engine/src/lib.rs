@@ -75,6 +75,9 @@ pub enum ImageEdit {
     Move([f64; 4]),
     /// Quarter turns clockwise about its centre.
     Rotate(i32),
+    /// Turn it this many degrees counter-clockwise (as displayed) about its centre: Recognize
+    /// text's deskew of a scan. The pixels stay as they are; only where they are drawn changes.
+    Straighten(f64),
     Flip {
         horizontal: bool,
     },
@@ -2032,7 +2035,7 @@ impl Edit {
             Edit::MoveObjects { objects, .. } => plural("Move object", "Move objects", objects.len()),
             Edit::EditPageImage { change, .. } => Label::of(match change {
                 ImageEdit::Move(_) => "Move image",
-                ImageEdit::Rotate(_) => "Rotate image",
+                ImageEdit::Rotate(_) | ImageEdit::Straighten(_) => "Rotate image",
                 ImageEdit::Crop(_) => "Crop image",
                 ImageEdit::Flip { .. } => "Flip image",
                 ImageEdit::Replace { .. } => "Replace image",
@@ -2539,6 +2542,17 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
                 ImageEdit::Move(to) => pdfcraft_edit::ImageChange::Transform(pdfcraft_edit::rect_to_rect(img.rect, *to)),
                 ImageEdit::Rotate(q) => {
                     pdfcraft_edit::ImageChange::Transform(pdfcraft_edit::turn_about_centre(img.visible_rect.unwrap_or(img.rect), *q, false, false))
+                }
+                ImageEdit::Straighten(degrees) => {
+                    let [x0, y0, x1, y1] = img.visible_rect.unwrap_or(img.rect);
+                    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+                    // User space has y up, so counter-clockwise as displayed is a positive angle
+                    // whatever the page's /Rotate (a turn, never a mirror).
+                    let (s, c) = degrees.to_radians().sin_cos();
+                    if !(s.is_finite() && c.is_finite()) {
+                        return Err(EditError::Invalid("the turn is not a number".into()));
+                    }
+                    pdfcraft_edit::ImageChange::Transform([c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy])
                 }
                 ImageEdit::Flip { horizontal } => pdfcraft_edit::ImageChange::Transform(pdfcraft_edit::turn_about_centre(
                     img.visible_rect.unwrap_or(img.rect),

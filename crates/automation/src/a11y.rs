@@ -589,6 +589,12 @@ impl Automation {
         if let Some(s) = a.opt_bool("skip_text_pages")? {
             settings.skip_text_pages = s;
         }
+        if let Some(r) = a.opt_bool("auto_rotate")? {
+            settings.auto_rotate = r;
+        }
+        if let Some(d) = a.opt_bool("deskew")? {
+            settings.deskew = d;
+        }
         Ok(settings)
     }
 
@@ -632,7 +638,14 @@ impl Automation {
             .iter()
             .map(|p| match &p.skipped {
                 Some(why) => json!({ "page": p.page + 1, "skipped": why }),
-                None => json!({ "page": p.page + 1, "words": p.words.len(), "already_on_page": p.already_on_page, "text": p.text() }),
+                None => json!({
+                    "page": p.page + 1,
+                    "words": p.words.len(),
+                    "already_on_page": p.already_on_page,
+                    "rotated": u32::from(p.turn % 4) * 90,
+                    "deskewed": p.straighten.map_or(0.0, |(_, d)| f64::from(d)),
+                    "text": p.text(),
+                }),
             })
             .collect();
         Ok(json!({ "words": found.iter().map(|p| p.words.len()).sum::<usize>(), "pages": list }))
