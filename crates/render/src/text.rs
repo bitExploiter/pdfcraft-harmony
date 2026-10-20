@@ -367,8 +367,9 @@ struct TextDevice {
     /// The structure elements' `/ActualText` over the page's MCIDs (#3660).
     structure: replacements::Replacements,
     /// Per element: `true` once its replacement has been given (its later sequences stand for no
-    /// text), `false` once it couldn't be (its sequences keep their own text). Undecided while
-    /// its sequences so far drew nothing.
+    /// text), `false` once it couldn't be (its glyphs span lines or writing directions, or a filter
+    /// excluded some of them): its sequences keep their own text. Undecided while its sequences so
+    /// far drew no glyphs, included or excluded (an excluded figure with no text doesn't count).
     structure_given: HashMap<ObjectIdentifier, bool>,
     /// Whether the open replacement comes from a structure element, and the element when it
     /// carries that element's text (not when it is a later sequence of one already given).
@@ -466,21 +467,28 @@ impl TextDevice {
         let filtered = std::mem::take(&mut self.actual_filtered);
         if let Some(element) = structure {
             match element {
-                // A later sequence of an element already given stands for no text, even where its
-                // glyphs can't be boxed as one (they are covered by the text given).
-                None if filtered || merge(&drawn, String::new()).is_none() => return,
+                // A later sequence of an element already given, with glyphs a filter excludes: the
+                // text given covers them too, so the span mixes included and excluded content.
+                None if filtered => {
+                    self.partial_replacement = true;
+                    return;
+                }
+                // Otherwise it stands for no text, even where its glyphs can't be boxed as one
+                // (they are covered by the text given).
+                None if merge(&drawn, String::new()).is_none() => return,
                 None => {}
                 // The text can't be placed on the glyphs it replaces (they span lines or writing
-                // directions, or a filter excludes some of them): the element is abandoned and its
-                // sequences keep their own text, as without a replacement.
+                // directions, or a filter excludes some of them, even all): the element is
+                // abandoned and its sequences keep their own text, as without a replacement, so
+                // its text never stands for excluded content.
                 // (This first sequence's own nested /ActualText, suppressed while the element's
                 // replacement was open, isn't recovered; later sequences have theirs.)
-                Some(element) if !drawn.is_empty() && (filtered || merge(&drawn, text.clone()).is_none()) => {
+                Some(element) if filtered || (!drawn.is_empty() && merge(&drawn, text.clone()).is_none()) => {
                     self.structure_given.insert(element, false);
                     self.glyphs.extend(drawn.into_iter().filter(|d| !d.2.text.chars().all(|c| c.is_control())));
                     return;
                 }
-                // Nothing drawn yet (or all of it filtered out): the next sequence gives the text.
+                // Nothing drawn yet: the next sequence gives the text.
                 Some(_) if drawn.is_empty() => return,
                 Some(element) => {
                     self.structure_given.insert(element, true);
@@ -688,9 +696,9 @@ impl<'a> Device<'a> for TextDevice {
     fn page_marked_content(&mut self, mcid: i32) {
         // The element encloses the sequence, so its replacement is the outer one: it comes first,
         // and the sequence's own /ActualText then nests inside it. An element over several
-        // sequences gives its text at the first; the others stand for no text.
+        // sequences gives its text at the first; the others stand for no text. An excluded sequence
+        // opens it too, so that `end_actual_text` sees its excluded glyphs.
         if self.actual.is_none()
-            && self.excluded_depth.is_none()
             && let Some((element, text)) = self.structure.get(mcid)
         {
             let (text, carrier) = match self.structure_given.get(&element) {
@@ -2036,6 +2044,31 @@ mod tests {
         for (content, want) in cases {
             assert_eq!(marked_text(&tagged(content, "", parents, &element), 0).plain_text(), want, "{content}");
         }
+    }
+
+    /// #3660 review: a filter never counts an element's text for content it excludes. An element
+    /// whose first sequence is excluded (invisible OCR, or a Figure) is abandoned, so its visible
+    /// sequences keep their own text; one given before an excluded sequence mixes included and
+    /// excluded content, which is refused as for marked-content replacements.
+    #[test]
+    fn structure_replacement_text_never_stands_for_filtered_content() {
+        let parents = "<< /Nums [0 [10 0 R 10 0 R]] >>";
+        let element = [(10, "<< /Type /StructElem /S /P /P 5 0 R /K [0 1] /ActualText (one two three) >>")];
+        let visible = "/P <</MCID 1>> BDC BT 0 Tr /F1 20 Tf 1 0 0 1 50 150 Tm (Seen) Tj ET EMC";
+        let filter = || TextFilter { images: true, ..TextFilter::default() };
+        let count = |content: &str| extract_page_filtered(&tagged(content, "", parents, &element), 0, &InterpreterSettings::default(), filter());
+        for excluded in [
+            "/P <</MCID 0>> BDC BT 3 Tr /F1 20 Tf 1 0 0 1 50 250 Tm (ocr) Tj ET EMC",
+            "/Figure <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 250 Tm (fig) Tj ET EMC",
+        ] {
+            let content = format!("{excluded} {visible}");
+            assert_eq!(count(&content).unwrap().plain_text(), "Seen", "{content}");
+            // Unfiltered, the element's text is given at its first sequence.
+            assert_eq!(marked_text(&tagged(&content, "", parents, &element), 0).plain_text(), "one two three", "{content}");
+        }
+        let given_first = "/P <</MCID 0>> BDC BT 0 Tr /F1 20 Tf 1 0 0 1 50 150 Tm (Seen) Tj ET EMC \
+                           /P <</MCID 1>> BDC BT 3 Tr /F1 20 Tf 1 0 0 1 50 250 Tm (ocr) Tj ET EMC";
+        assert!(count(given_first).is_err_and(|e| e.contains("mixes included and excluded content")));
     }
 
     /// #3660: an annotation's appearance has MCIDs of its own too.
