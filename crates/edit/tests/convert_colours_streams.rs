@@ -59,8 +59,7 @@ fn page_with(streams: &[&str]) -> Document {
         "<< /Type /Page /Parent 2 0 R /Resources << /ColorSpace << /CS0 [/Indexed /DeviceRGB 1 <FF000000FF00>] >> >> /Contents [{}] >>",
         refs.join(" ")
     );
-    let mut objs: Vec<&str> =
-        vec!["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>", &page];
+    let mut objs: Vec<&str> = vec!["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>", &page];
     objs.extend_from_slice(streams);
     pdf(&objs)
 }

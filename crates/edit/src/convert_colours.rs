@@ -243,7 +243,11 @@ fn drawn_elsewhere(doc: &Document, pages: &[usize]) -> HashSet<ObjRef> {
     let mut seen: HashSet<ObjRef> = HashSet::new();
     let mut todo: Vec<Object> = Vec::new();
     let xobjects_of = |res: Option<&Object>, todo: &mut Vec<Object>| {
-        if let Some(xo) = res.map(|r| doc.resolve(r)).and_then(|r| r.as_dict().and_then(|d| d.get(b"XObject")).map(|x| doc.resolve(x))).and_then(|x| x.as_dict().cloned()) {
+        if let Some(xo) = res
+            .map(|r| doc.resolve(r))
+            .and_then(|r| r.as_dict().and_then(|d| d.get(b"XObject")).map(|x| doc.resolve(x)))
+            .and_then(|x| x.as_dict().cloned())
+        {
             todo.extend(xo.iter().map(|(_, o)| o.clone()));
         }
     };
