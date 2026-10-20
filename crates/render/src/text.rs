@@ -301,9 +301,7 @@ impl PageText {
         // of these rows crosses: another column. Word gaps in a column, however wide a justified
         // line spreads them, are crossed by the other rows' text.
         let to_x = head_x.unwrap_or((h.rect[0] + h.rect[2]) / 2.0);
-        let lh = a.rect[3] - a.rect[1];
-        let reach = lh * GUTTER_ROWS;
-        let other_column = self.gutter_between((a.rect[0] + a.rect[2]) / 2.0, to_x, top - reach, bottom + reach, lh);
+        let other_column = self.gutter_between((a.rect[0] + a.rect[2]) / 2.0, to_x, top, bottom, a.rect[3] - a.rect[1]);
         if !strays && (one_row || !other_column) {
             return None;
         }
@@ -373,28 +371,50 @@ impl PageText {
         })
     }
 
-    /// Whether some vertical strip at least `width` wide between `x0` and `x1` (either order) is
-    /// crossed by no glyph whose centre lies between `top` and `bottom`.
+    /// Whether a column gutter lies between `x0` and `x1` (either order) in the rows whose
+    /// centres lie between `top` and `bottom`: a vertical strip at least `width` wide that no
+    /// glyph of those rows crosses, with at least two lines of text on each side of it between
+    /// `x0` and `x1`, or past `x1` when the strip reaches it (columns' baselines need not line
+    /// up). The gap a justified line leaves between two words has only that line beyond it.
     fn gutter_between(&self, x0: f32, x1: f32, top: f32, bottom: f32, width: f32) -> bool {
         let (lo, hi) = (x0.min(x1), x0.max(x1));
         if !(hi - lo >= width && width > 0.0) {
             return false;
         }
-        let mut spans: Vec<(f32, f32)> = self
-            .glyphs
-            .iter()
-            .filter(|g| (top..=bottom).contains(&((g.rect[1] + g.rect[3]) / 2.0)) && g.rect[2] > lo && g.rect[0] < hi)
-            .map(|g| (g.rect[0], g.rect[2]))
-            .collect();
+        let centre = |g: &TextGlyph| (g.rect[1] + g.rect[3]) / 2.0;
+        // The rows' glyphs as (centre, left, right), top to bottom.
+        let mut rows: Vec<(f32, f32, f32)> =
+            self.glyphs.iter().filter(|g| (top..=bottom).contains(&centre(g))).map(|g| (centre(g), g.rect[0], g.rect[2])).collect();
+        rows.sort_by(|a, b| a.0.total_cmp(&b.0));
+        // Two lines of text on each side of the strip g0..g1: glyphs whose centres lie within half
+        // a width of the previous one's (rows is sorted by centre) are on its line.
+        let lines_beside = |side: &dyn Fn(f32, f32) -> bool| {
+            let (mut lines, mut last) = (0usize, f32::NEG_INFINITY);
+            for &(cy, _, _) in rows.iter().filter(|&&(_, a, b)| side(a, b)) {
+                if cy - last > width * 0.5 {
+                    lines += 1;
+                }
+                last = cy;
+            }
+            lines
+        };
+        // Text within lo..hi counts, so a column beyond the span parts nothing inside it; but a
+        // strip running on to `hi`, where the point is out in a gap, is a gutter if a column
+        // follows it.
+        let parted = |g0: f32, g1: f32| {
+            let right = if g1 >= hi { f32::INFINITY } else { hi };
+            lines_beside(&|_, b| (lo..=g0).contains(&b)) >= 2 && lines_beside(&|a, _| (g1..=right).contains(&a)) >= 2
+        };
+        let mut spans: Vec<(f32, f32)> = rows.iter().filter(|&&(_, a, b)| b > lo && a < hi).map(|&(_, a, b)| (a, b)).collect();
         spans.sort_by(|a, b| a.0.total_cmp(&b.0));
         let mut covered = lo;
         for (s0, s1) in spans {
-            if s0 - covered >= width {
+            if s0 - covered >= width && parted(covered, s0) {
                 return true;
             }
             covered = covered.max(s1);
         }
-        hi - covered >= width
+        hi - covered >= width && parted(covered, hi)
     }
 
     /// The left and right edges of the line glyph `i` is on.
@@ -1137,9 +1157,7 @@ impl Seg {
     }
 }
 
-/// A gutter between columns runs down past the rows a drag covers: it is looked for over this many
-/// line heights above and below them too, where the column's other lines cross the wide gaps a
-/// justified line can leave between two words.
+/// Line heights above and below a point that [`PageText::nearest`] looks over for a gutter.
 const GUTTER_ROWS: f32 = 4.0;
 /// Lines a selection compares pairwise to tell a table from running text.
 const SIDE_BY_SIDE_LINES: usize = 256;
@@ -2976,8 +2994,8 @@ mod tests {
         assert!(selected.iter().all(|&i| t.glyphs[i].rect[0] >= 200.0), "{:?}", t.column_text(&selected));
     }
 
-    /// A justified line leaves a gap between two words wider than a column gutter. Over the rows of
-    /// a drag it may be crossed by nothing, but the column's other lines cross it.
+    /// A justified line leaves a gap between two words wider than a column gutter, which no other
+    /// row of a short drag may cross; but it parts only that line, where a gutter parts the rows.
     #[test]
     fn a_justified_gap_is_not_a_gutter() {
         let mut v = Vec::new();
@@ -2989,8 +3007,29 @@ mod tests {
         word(&mut v, "gap", 94.0, 106.0, 6.0);
         let t = layout(v);
         assert!(!t.gutter_between(20.0, 100.0, 106.0 - 40.0, 116.0 + 40.0, 10.0), "the rows above cross it");
-        assert!(t.gutter_between(20.0, 100.0, 106.0, 116.0, 10.0), "on its own row nothing does");
-        assert!(t.gutter_between(20.0, 200.0, 0.0, 200.0, 10.0), "past the text's right edge");
+        assert!(!t.gutter_between(20.0, 100.0, 106.0, 116.0, 10.0), "on its own row it parts one line only");
+        assert!(!t.gutter_between(20.0, 200.0, 0.0, 200.0, 10.0), "past the text's right edge nothing is parted");
+        // A table's columns part every row.
+        assert!(table().gutter_between(20.0, 100.0, 0.0, 60.0, 10.0));
+    }
+
+    /// A heading across the page just above a table crosses the table's gutter, but a drag over
+    /// the table from its first cell to its last still takes the rows.
+    #[test]
+    fn a_heading_above_a_table_does_not_hide_its_gutter() {
+        let mut v = Vec::new();
+        word(&mut v, "A heading wider than the whole table", 10.0, -6.0, 6.0);
+        for (row, (name, qty)) in [("Name", "Qty"), ("Apple", "12"), ("Pear", "7")].into_iter().enumerate() {
+            let y = 10.0 + row as f32 * 14.0;
+            word(&mut v, name, 10.0, y, 6.0);
+            word(&mut v, qty, 100.0, y, 6.0);
+        }
+        let t = layout(v);
+        let first = (0..t.glyphs.len()).find(|&i| t.glyphs[i].text == "N").expect("\"Name\"");
+        let last = (0..t.glyphs.len()).find(|&i| t.glyphs[i].text == "7").expect("\"7\"");
+        let x = (t.glyphs[last].rect[0] + t.glyphs[last].rect[2]) / 2.0;
+        let rows = t.visual_between(first, last, Some(x)).expect("rows");
+        assert_eq!(t.column_text(&rows), "Name\tQty\nApple\t12\nPear\t7");
     }
 
     /// Reading order stays the answer on one line, down one column, and where it doesn't leave
