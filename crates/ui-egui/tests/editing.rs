@@ -5194,3 +5194,38 @@ fn corner_transforms_scale_and_translate_rotated_text_and_images() {
         assert_eq!(saved.text, moved.text);
     }
 }
+
+#[test]
+fn corner_rotation_is_cancelled_when_organize_hides_the_page() {
+    use pdfcraft_engine::{AddedText, Edit};
+    let mut h = harness(1, |app| {
+        assert!(app.apply_edit(Edit::AddText {
+            page: 0,
+            text: AddedText { text: "Keep my orientation".into(), rect: [30.0, 70.0, 150.0, 95.0], ..Default::default() }
+        }));
+        app.execute("edit.edit_text");
+        app.views[0].content.selected = Some((0, 0));
+        app.views[0].fit = pdfcraft_ui_egui::canvas::Fit::Page;
+    });
+    let id = h.state().views[0].id;
+    let before = h.state().session.get(id).unwrap().edit_generation();
+    let from = h.get_by_label("Rotate corner 1").rect().center();
+    let opposite = h.get_by_label("Rotate corner 3").rect().center();
+    let pivot = from + (opposite - from) * 0.5;
+    let d = from - pivot;
+    let to = pivot + egui::vec2(-d.y, d.x);
+    h.hover_at(from);
+    h.run_steps(1);
+    h.drag_at(from);
+    h.run_steps(1);
+    h.hover_at(to);
+    h.run_steps(2);
+    h.state_mut().views[0].open_organize();
+    h.run_steps(2);
+    h.drop_at(to);
+    h.run_steps(2);
+    h.state_mut().views[0].organize = false;
+    h.run_steps(3);
+    assert_eq!(h.state().session.get(id).unwrap().edit_generation(), before);
+    assert_eq!(h.state().session.get(id).unwrap().added()[0].rotation, 0.0);
+}
