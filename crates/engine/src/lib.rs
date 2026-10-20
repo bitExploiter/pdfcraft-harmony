@@ -361,8 +361,9 @@ pub struct Document {
     pub path: Option<String>,
     /// The working file: what Save writes.
     pub bytes: Arc<Vec<u8>>,
-    /// What is displayed (the page view, `page_render`, page images): `bytes`, plus appearances
-    /// drawn for display only for comments that have none ([`display_bytes`]). Never saved.
+    /// What is displayed (the page view, `page_render`, page images): `bytes`, plus what is drawn
+    /// for display only ([`display_bytes`]): appearances for comments that have none, and the
+    /// states of named-layer signatures. Never saved.
     pub display: Arc<Vec<u8>>,
     pub info: DocInfo,
     pub renderer: RenderPool,
@@ -912,8 +913,8 @@ fn display_bytes(editor: Option<&mut Editor>, bytes: &Arc<Vec<u8>>, signatures: 
 }
 
 /// Write the display copy, or keep the working file when it cannot be written. The page then
-/// shows the file's own artwork, so the marks are cleared and the badges come back. Losing the
-/// copy is a repair, so it is logged.
+/// shows the file's own artwork, so the marks are cleared. Losing the copy is a repair, so it is
+/// logged, once however many refreshes lose it again.
 fn write_display_copy(e: &mut Editor, bytes: &Arc<Vec<u8>>, display: &pdfcraft_cos::Document, signatures: &mut [SignatureInfo]) -> Arc<Vec<u8>> {
     match write_incremental(display, &SaveOptions::default()) {
         Ok(written) => Arc::new(written),
@@ -921,7 +922,10 @@ fn write_display_copy(e: &mut Editor, bytes: &Arc<Vec<u8>>, display: &pdfcraft_c
             for sig in signatures.iter_mut() {
                 sig.verdict_shown = false;
             }
-            e.cos.note_repair(format!("missing comment appearances and signature states could not be drawn ({err})"));
+            let line = format!("the display copy could not be written, so pages show the file as stored ({err})");
+            if !e.cos.repair_log().contains(&line) {
+                e.cos.note_repair(line);
+            }
             bytes.clone()
         }
     }
@@ -947,17 +951,26 @@ fn same_pages(a: &[pdfcraft_render::PageInfo], b: &[pdfcraft_render::PageInfo]) 
         && a.iter().zip(b).all(|(x, y)| (x.width - y.width).abs() < 0.01 && (x.height - y.height).abs() < 0.01 && x.rotation == y.rotation)
 }
 
-/// The copy PDFCraft displays when opening `bytes`: with appearances drawn, in memory only, for
-/// comments that have none. Render paths outside the app, such as the CLI, use this so their page
-/// images agree with the app and independent viewers. It never changes the source document, and an
-/// unparseable file, a write failure or a parser panic falls back to the original bytes.
+/// The copy PDFCraft displays when opening `bytes` with no trusted certificates and English
+/// captions ([`display_bytes`]): appearances drawn, in memory only, for comments that have none,
+/// and the state of each named-layer signature. Render paths outside the app, such as the CLI, use
+/// this so their page images agree with the app and independent viewers. It never changes the
+/// source document, and an unparseable file, a write failure or a parser panic falls back to the
+/// original bytes.
 pub fn display_bytes_for(bytes: Arc<Vec<u8>>, password: Option<&str>) -> Arc<Vec<u8>> {
     guard(|| {
-        pdfcraft_cos::Document::open_with_password(bytes.clone(), password)
-            .ok()
-            .and_then(|cos| pdfcraft_annot::with_missing_appearances(&cos))
-            .and_then(|display| write_incremental(&display, &SaveOptions::default()).ok())
-            .map(Arc::new)
+        let cos = pdfcraft_cos::Document::open_with_password(bytes.clone(), password).ok()?;
+        let mut signatures = signatures_of(&cos, &bytes, &TrustStore::default(), &pdfcraft_sign::DigestCache::default());
+        let layered = pdfcraft_sign::has_status_layers(&cos, &signatures);
+        let mut display = match pdfcraft_annot::with_missing_appearances(&cos) {
+            Some(display) => display,
+            None if layered => cos,
+            None => return None,
+        };
+        if layered {
+            pdfcraft_sign::show_status_layers(&mut display, &mut signatures, &StatusCaptions::default());
+        }
+        write_incremental(&display, &SaveOptions::default()).ok().map(Arc::new)
     })
     .ok()
     .flatten()
@@ -4094,8 +4107,8 @@ impl Session {
         doc.renderer = RenderPool::new_inline(Arc::new(Vec::new()), doc.config.clone());
         doc.display = original.clone();
         doc.bytes = original;
-        // The page shows the original's own artwork again, so its badges have to come back, even
-        // if the refresh that follows fails.
+        // The page shows the original's own artwork again, so nothing counts as drawn, even if
+        // the refresh that follows fails.
         if doc.signatures.iter().any(|s| s.verdict_shown) {
             let mut cleared = doc.signatures.to_vec();
             for sig in &mut cleared {
@@ -4469,7 +4482,7 @@ impl Session {
         // Signature states as the screen shows them, so not when its display copy could not be
         // written. This copy is only printed, never saved.
         if doc.signatures.iter().any(|s| s.verdict_shown) {
-            pdfcraft_sign::show_status_layers(&mut cos, &mut doc.signatures.to_vec(), &doc.captions);
+            let _ = pdfcraft_sign::show_status_layers(&mut cos, &mut doc.signatures.to_vec(), &doc.captions);
         }
         pdfcraft_print::impose(&cos, settings).map_err(|e| EditError::Print(e.to_string()))
     }
@@ -4937,14 +4950,16 @@ impl Session {
     /// The words the caption of a named-layer signature appearance is drawn with
     /// ([`pdfcraft_sign::show_status_layers`]), in the interface language. When they change, every
     /// open document's display copy and renderer are rebuilt; like trust, this is not an edit.
-    pub fn set_signature_captions(&mut self, captions: StatusCaptions) {
+    /// Returns whether they changed.
+    pub fn set_signature_captions(&mut self, captions: StatusCaptions) -> bool {
         if *self.captions == captions {
-            return;
+            return false;
         }
         self.captions = Arc::new(captions);
         for doc in &mut self.docs {
             Self::draw_captions(doc, self.captions.clone());
         }
+        true
     }
 
     /// Draw `doc`'s signature status layers with `captions`: the display copy and renderer are

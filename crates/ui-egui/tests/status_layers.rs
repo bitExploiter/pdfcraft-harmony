@@ -1,6 +1,6 @@
 //! A named-layer signature appearance (layers n0–n4) in the real shell: the state drawn into it
 //! follows trust and the interface language, the page redraws without a zoom change, and the page
-//! badge stays for a signature that is not valid.
+//! badge stays whatever the state.
 
 use std::sync::Arc;
 
@@ -14,14 +14,20 @@ use pdfcraft_ui_egui::PdfCraftApp;
 /// geometry of a real layered appearance scaled by 4; every word and drawing is synthetic. n1, a
 /// yellow question mark, is drawn into the square (146, 106)–(254, 214) of the page.
 fn fixture() -> Vec<u8> {
+    fixture_with(1)
+}
+
+/// [`fixture`], followed by blank pages up to `pages`.
+fn fixture_with(pages: usize) -> Vec<u8> {
     fn form(bbox: &str, resources: &str, ops: &str) -> String {
         format!("<< /Type /XObject /Subtype /Form /BBox {bbox} /Resources {resources} /Length {} >>\nstream\n{ops}\nendstream", ops.len())
     }
     let helv = "<< /Font << /F1 13 0 R >> >>";
     let glyph = "1.08 0 0 1.08 46 6 cm";
-    let objs = [
+    let blank: Vec<String> = (1..pages).map(|i| format!("{} 0 R", 14 + i)).collect();
+    let mut objs = vec![
         "<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        format!("<< /Type /Pages /Kids [3 0 R {}] /Count {pages} >>", blank.join(" ")),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] /Contents 14 0 R /Resources << /Font << /F1 13 0 R >> >> /Annots [4 0 R] >>"
             .to_string(),
         "<< /FT /Sig /T (Signature1) /Type /Annot /Subtype /Widget /F 132 /Rect [100 100 300 220] /P 3 0 R /AP << /N 6 0 R >> >>".to_string(),
@@ -44,6 +50,7 @@ fn fixture() -> Vec<u8> {
         "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_string(),
         "<< /Length 44 >>\nstream\nBT /F1 14 Tf 20 270 Td (Contract text) Tj ET\nendstream".to_string(),
     ];
+    objs.extend((1..pages).map(|_| "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 300] >>".to_string()));
     let mut out = b"%PDF-1.7\n".to_vec();
     let mut offs = Vec::new();
     for (k, o) in objs.iter().enumerate() {
@@ -62,16 +69,22 @@ fn fixture() -> Vec<u8> {
 /// Sign the fixture's field without touching its appearance: reserve `/ByteRange` and
 /// `/Contents`, hash the ranges and embed a detached CMS.
 fn signed(id: &pdfcraft_engine::sign::pkcs12::DigitalId) -> Vec<u8> {
+    sign(id, fixture(), |_| {})
+}
+
+/// [`signed`] for `file`, with `more` entries in the signature dictionary.
+fn sign(id: &pdfcraft_engine::sign::pkcs12::DigitalId, file: Vec<u8>, more: impl FnOnce(&mut pdfcraft_cos::Dict)) -> Vec<u8> {
     use pdfcraft_cos::{Dict, ObjRef, Object, PdfString};
     const MARK: &str = "0 1111111111 2222222222 3333333333";
     const RESERVE: usize = 8192;
-    let mut doc = pdfcraft_cos::Document::open(Arc::new(fixture())).unwrap();
+    let mut doc = pdfcraft_cos::Document::open(Arc::new(file)).unwrap();
     let mut v = Dict::new();
     v.set(b"Type".to_vec(), Object::name("Sig"));
     v.set(b"SubFilter".to_vec(), Object::name("ETSI.CAdES.detached"));
     v.set(b"ByteRange".to_vec(), Object::Array([0, 1_111_111_111, 2_222_222_222, 3_333_333_333].map(Object::Int).to_vec()));
     v.set(b"Contents".to_vec(), Object::String(PdfString { bytes: vec![0; RESERVE], hex: true }));
     v.set(b"M".to_vec(), PdfString::literal(b"D:20261002120000+01'00'".to_vec()));
+    more(&mut v);
     let sig = doc.add(Object::Dict(v));
     doc.update_dict(ObjRef::new(4, 0), |d| d.set(b"V".to_vec(), Object::Ref(sig))).unwrap();
     let save = pdfcraft_cos::SaveOptions { object_streams: false, ..Default::default() };
@@ -142,33 +155,6 @@ fn redraw_captions(h: &mut Harness<'static, PdfCraftApp>, captions: pdfcraft_eng
     caption_strip(h)
 }
 
-/// Whether the display-copy PDF that feeds exports contains `words` as a marked-content
-/// `/ActualText` value. Outline captions have no text-showing operator for the text exporter to
-/// decode, so the accessible string lives here instead.
-fn exported_pdf_has_actual_text(doc: &pdfcraft_engine::Document, words: &str) -> bool {
-    let exported = pdfcraft_cos::Document::open(doc.export_source().bytes).unwrap();
-    exported.object_numbers().into_iter().any(|n| {
-        let object = exported.get(pdfcraft_cos::ObjRef::new(n, 0));
-        let pdfcraft_cos::Object::Stream(stream) = &*object else {
-            return false;
-        };
-        let Ok(bytes) = stream.decoded() else { return false };
-        if !bytes.windows(b"/ActualText".len()).any(|w| w == b"/ActualText") {
-            return false;
-        }
-        pdfcraft_content::parse(&bytes).ops.iter().any(|op| {
-            op.is("BDC")
-                && op
-                    .operands
-                    .get(1)
-                    .and_then(pdfcraft_cos::Object::as_dict)
-                    .and_then(|dict| dict.get(b"ActualText"))
-                    .and_then(pdfcraft_cos::Object::as_string)
-                    .is_some_and(|text| text.to_text() == words)
-        })
-    })
-}
-
 /// How many nodes read `label` while the pointer rests on the signature: the badge's tooltip adds
 /// one, a widget without a badge none.
 fn hovered(h: &mut Harness<'static, PdfCraftApp>, label: &str) -> usize {
@@ -181,7 +167,7 @@ fn hovered(h: &mut Harness<'static, PdfCraftApp>, label: &str) -> usize {
 }
 
 #[test]
-fn named_layers_follow_trust_and_language_and_keep_the_badge_until_valid() {
+fn named_layers_follow_trust_and_language_and_keep_the_badge() {
     let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
     let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
     let anchor = id.chain.first().cloned().unwrap_or_else(|| id.certificate.clone());
@@ -203,18 +189,21 @@ fn named_layers_follow_trust_and_language_and_keep_the_badge_until_valid() {
         hovered(&mut h, "Signature validity is unknown") > h.query_all_by_label("Signature validity is unknown").count(),
         "an unknown signature keeps its badge"
     );
-    // Trusted: the same page, at the same zoom, redraws in the valid state, and the badge goes.
+    // Trusted: the same page, at the same zoom, redraws in the valid state. The badge stays:
+    // whether the layers are visible is the document's to decide.
     let zoom = h.state().views[0].zoom;
     h.state_mut().apply_trusted_certificates(vec![anchor]);
     settle(&mut h);
     assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Valid);
     assert_eq!(h.state().views[0].zoom, zoom);
     assert!(in_n1_square(&mut h, green) > 100 && in_n1_square(&mut h, amber) < 10, "n1 redraws in the valid state");
-    assert_eq!(
-        hovered(&mut h, "Signature is valid"),
-        h.query_all_by_label("Signature is valid").count(),
-        "the appearance shows the verdict: no badge"
-    );
+    assert!(hovered(&mut h, "Signature is valid") > h.query_all_by_label("Signature is valid").count(), "a valid signature keeps its badge");
+    // Not while a dialog covers the page: tips are drawn above windows.
+    h.state_mut().dialog = Some(pdfcraft_ui_egui::Dialog::About);
+    h.run_steps(2);
+    assert_eq!(hovered(&mut h, "Signature is valid"), h.query_all_by_label("Signature is valid").count(), "no badge tip over a dialog");
+    h.state_mut().dialog = None;
+    h.run_steps(2);
     // The interface language changes the caption, on the page as well as in the document.
     let english = caption_strip(&mut h);
     h.state_mut().set_option("language", "de").unwrap();
@@ -225,7 +214,7 @@ fn named_layers_follow_trust_and_language_and_keep_the_badge_until_valid() {
 }
 
 #[test]
-fn arabic_caption_keeps_logical_word_order_on_page_and_in_exported_pdf() {
+fn arabic_caption_keeps_logical_word_order_on_page_and_in_extracted_text() {
     if pdfcraft_fonts::document_arabic_font().is_none() {
         eprintln!("skipping Arabic status-caption rendering: build without a craft-fonts Arab face");
         return;
@@ -261,11 +250,67 @@ fn arabic_caption_keeps_logical_word_order_on_page_and_in_exported_pdf() {
     assert_ne!(logical.valid, display_order.valid, "the regression needs a multiword caption whose display order differs");
     let doc_id = h.state().views[0].id;
     let doc = h.state().session.get(doc_id).unwrap();
-    assert!(exported_pdf_has_actual_text(doc, &logical.valid), "the exported display-copy PDF keeps logical /ActualText");
-    assert!(!exported_pdf_has_actual_text(doc, &display_order.valid), "display-order words must not leak into exported /ActualText");
+    // The caption is drawn as outlines; text extraction reads it from its /ActualText.
+    let text = pdfcraft_engine::export::Exporter::new(doc).text_of(&[0]).unwrap();
+    assert!(text.contains(&logical.valid), "text extraction reads the caption in logical order: {text:?}");
+    assert!(!text.contains(&display_order.valid), "{text:?}");
 
     let logical_render = redraw_captions(&mut h, logical);
     let double_reordered_render = redraw_captions(&mut h, display_order);
     assert_eq!(from_interface, logical_render, "the interface path renders the logical-order caption");
     assert_ne!(from_interface, double_reordered_render, "display-order input reverses the rendered word order a second time");
+}
+
+#[test]
+fn an_edit_on_another_page_that_changes_the_verdict_redraws_the_signature() {
+    // A certification that allows no changes, on page 1. A comment on page 2 invalidates it, so
+    // page 1 has to redraw although the edit was elsewhere.
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
+    let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
+    let anchor = id.chain.first().cloned().unwrap_or_else(|| id.certificate.clone());
+    let bytes = sign(&id, fixture_with(2), |v| {
+        let reference = b"[<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>]";
+        v.set(b"Reference".to_vec(), pdfcraft_cos::Lexer::new(reference, 0).object().unwrap());
+    });
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("certified.pdf", None, bytes).expect("opens");
+        app.set_option("left", "closed").unwrap();
+        app
+    });
+    settle(&mut h);
+    h.state_mut().apply_trusted_certificates(vec![anchor]);
+    settle(&mut h);
+    let (green, red) = ([0x2D, 0x9D, 0x78], [0xD7, 0x37, 0x3F]);
+    let doc_id = h.state().views[0].id;
+    assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Valid);
+    assert!(in_n1_square(&mut h, green) > 100, "page 1 draws the valid state");
+
+    let shape = pdfcraft_engine::Shape::Rectangle { rect: [10.0, 10.0, 50.0, 50.0] };
+    let note = pdfcraft_engine::NewAnnotation {
+        page: 1,
+        style: pdfcraft_engine::Style::default_for(&shape),
+        shape,
+        contents: String::new(),
+        author: "Tester".into(),
+    };
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::AddAnnotation(note)));
+    settle(&mut h);
+    assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Invalid);
+    assert!(in_n1_square(&mut h, red) > 100 && in_n1_square(&mut h, green) < 10, "page 1 redraws in the invalid state");
+}
+
+#[test]
+fn a_file_opened_before_the_first_frame_is_drawn_in_the_interface_language() {
+    // Files named at startup open before any frame, which is when the interface language used to
+    // reach the captions: drawn in English, then again.
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
+    let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
+    let mut app = PdfCraftApp::new();
+    app.set_option("language", "de").unwrap();
+    app.open_bytes("named.pdf", None, signed(&id)).expect("opens");
+    let doc = app.session.get(app.views[0].id).unwrap();
+    let text = pdfcraft_engine::export::Exporter::new(doc).text_of(&[0]).unwrap();
+    assert!(text.contains("Gültigkeit unbekannt"), "{text:?}");
 }

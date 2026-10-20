@@ -1,8 +1,8 @@
 //! Export a PDF ▸ Image and Text (execution plan M10.3, the first formats).
 //!
 //! [`Exporter`] renders pages to PNG, JPEG or TIFF at a resolution and extracts reading-order
-//! text, from a
-//! document's working file (so unsaved edits and hidden layers are respected, as on screen).
+//! text, from the copy a document displays ([`Document::export_source`]): its working file, so
+//! unsaved edits and hidden layers are respected, with what is drawn for display only.
 
 use pdfcraft_render::{PageRenderer, RenderRequest, RequestKind};
 

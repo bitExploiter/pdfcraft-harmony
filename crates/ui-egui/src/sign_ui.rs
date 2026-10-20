@@ -556,8 +556,18 @@ impl PdfCraftApp {
             return;
         }
         self.status_captions_lang = Some(lang);
-        self.session.set_signature_captions(status_captions(lang));
-        for view in &mut self.views {
+        // Only a document that draws a signature state shows the words: the others keep their
+        // pages, selection and search results.
+        let drawing: Vec<pdfcraft_engine::DocId> = self
+            .views
+            .iter()
+            .map(|v| v.id)
+            .filter(|id| self.session.get(*id).is_some_and(|d| d.signatures.iter().any(|s| s.verdict_shown)))
+            .collect();
+        if !self.session.set_signature_captions(status_captions(lang)) {
+            return;
+        }
+        for view in self.views.iter_mut().filter(|v| drawing.contains(&v.id)) {
             view.invalidate_content();
         }
     }
@@ -1553,6 +1563,16 @@ mod tests {
         assert_eq!(signature_status_style(SignatureStatus::Valid).0, "circle-check");
         assert_eq!(signature_status_style(SignatureStatus::Unknown).0, "triangle-alert");
         assert_eq!(signature_status_style(SignatureStatus::Invalid).0, "circle-x");
+    }
+
+    #[test]
+    fn a_language_change_leaves_documents_without_a_drawn_state_alone() {
+        let mut app = PdfCraftApp::new();
+        let plain = app.session.create_from_text("t", "No signatures here.").unwrap();
+        app.open_bytes("plain.pdf", None, plain.as_ref().clone()).unwrap();
+        app.views[0].texts.insert(0, std::sync::Arc::new(pdfcraft_render::PageText::default()));
+        app.apply_status_captions(crate::i18n::Lang::from_code("de").unwrap());
+        assert!(!app.views[0].texts.is_empty(), "its text, selection and search results stay");
     }
 
     #[test]

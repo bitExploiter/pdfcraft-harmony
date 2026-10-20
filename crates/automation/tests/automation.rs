@@ -4695,7 +4695,7 @@ fn digital_ids_signing_and_validation_through_tools() {
     assert_eq!(t["trusted"].as_array().unwrap().len(), 1);
     let list = ok(&mut a, "sign_list", json!({ "doc": doc }));
     assert_eq!((list["all_valid"].as_bool(), list["signatures"][0]["status"].as_str()), (Some(true), Some("valid")));
-    // PdfCraft's own appearance has no status layers to draw into, so the page badge shows it.
+    // PdfCraft's own appearance has no status layers to draw into: only the page badge shows it.
     assert_eq!(list["signatures"][0]["verdict_shown"], false);
     ok(&mut a, "comment_add", json!({ "doc": doc, "page": 1, "type": "note", "at": [20, 20], "contents": "ok" }));
     let s = &ok(&mut a, "sign_list", json!({ "doc": doc }))["signatures"][0];

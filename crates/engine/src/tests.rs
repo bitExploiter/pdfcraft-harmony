@@ -3569,7 +3569,7 @@ fn a_metadata_edit_keeps_the_regenerated_state() {
     let (mut s, id) = trusted_named_layer_session();
     s.apply(id, Edit::SetInfo { key: "Title".into(), value: "Contract".into() }).unwrap();
     let doc = s.get(id).unwrap();
-    assert!(doc.signatures[0].verdict_shown, "the page still draws the state, so no badge goes over it");
+    assert!(doc.signatures[0].verdict_shown, "the page still draws the state");
     assert!(exported_text(&s, id).contains("Signature valid"));
 }
 
@@ -3639,6 +3639,25 @@ fn background_open_uses_the_current_trust_at_commit() {
 }
 
 #[test]
+fn background_open_uses_the_current_trust_and_language_at_commit() {
+    // Both changed while the document was prepared: the state and its words are both the new ones.
+    let (signer, anchor) = test_identity();
+    let mut cos = pdfcraft_cos::Document::open(Arc::new(named_layer_signable_fixture())).unwrap();
+    let signed = Arc::new(sign_prepared(&mut cos, &signer, "D:20261002120000+01'00'"));
+    let mut s = Session::new().with_clock(|| 1_800_000_000);
+    let prepared = s.open_context().prepare_open("background.pdf", None, signed, None).unwrap();
+    s.set_trusted_certificates(vec![anchor]);
+    s.set_signature_captions(StatusCaptions {
+        valid: "Signatur gültig".into(),
+        unknown: "Gültigkeit unbekannt".into(),
+        invalid: "Signatur ungültig".into(),
+    });
+    let id = s.commit_open(prepared);
+    assert_eq!(s.get(id).unwrap().signatures[0].status, SignatureStatus::Valid);
+    assert!(exported_text(&s, id).contains("Signatur gültig"));
+}
+
+#[test]
 fn printing_draws_signature_states_only_where_the_screen_does() {
     let (mut s, id) = trusted_named_layer_session();
     let settings = print::Settings { pages: vec![0], paper: (400.0, 300.0), ..Default::default() };
@@ -3663,8 +3682,11 @@ fn a_failed_display_write_drops_the_marks() {
     let editor = doc.editor.as_mut().unwrap();
     let shown = write_display_copy(editor, &doc.bytes, &unwritable, &mut signatures);
     assert!(Arc::ptr_eq(&shown, &doc.bytes), "the page falls back to the file's own artwork");
-    assert!(!signatures[0].verdict_shown, "so the badge has to come back");
-    assert!(editor.cos.repair_log().iter().any(|l| l.contains("signature states could not be drawn")));
+    assert!(!signatures[0].verdict_shown, "so nothing counts as drawn");
+    // Logged once, however many refreshes lose the copy again.
+    write_display_copy(editor, &doc.bytes, &unwritable, &mut signatures);
+    let logged = editor.cos.repair_log().iter().filter(|l| l.contains("the display copy could not be written")).count();
+    assert_eq!(logged, 1);
 }
 
 #[test]
@@ -5444,6 +5466,23 @@ fn free_text_without_appearance() -> Arc<Vec<u8>> {
     }
     bytes.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
     Arc::new(bytes)
+}
+
+/// The CLI renders what the app shows with no trusted certificates: a named-layer signature in
+/// the state it has then (validity unknown), not the "not verified" its file stores. The source
+/// is not changed.
+#[test]
+fn cli_display_draws_signature_states_as_the_app_does_without_trust() {
+    let (id, _) = test_identity();
+    let mut doc = pdfcraft_cos::Document::open(Arc::new(named_layer_signable_fixture())).unwrap();
+    let signed = Arc::new(sign_prepared(&mut doc, &id, "D:20261002120000+01'00'"));
+    let before = signed.as_ref().clone();
+    let display = display_bytes_for(signed.clone(), None);
+    assert_eq!(signed.as_slice(), before.as_slice());
+    let mut renderer = pdfcraft_render::PageRenderer::new(display, pdfcraft_render::RenderConfig::default());
+    let page = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
+    assert!(pixels_near(&page.rgba, UNKNOWN_AMBER) > 500, "the unknown state is drawn");
+    assert!(pixels_near(&page.rgba, [255, 214, 51]) < 50, "the stored question mark is not");
 }
 
 /// #2371: a comment without an appearance stream is displayed by the app, so the CLI's page image
