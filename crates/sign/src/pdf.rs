@@ -26,6 +26,9 @@ use crate::x509::{Certificate, build_chain, build_chain_noted};
 #[cfg(test)]
 #[path = "pdf_discovery_tests.rs"]
 mod discovery_tests;
+#[cfg(test)]
+#[path = "pdf_fields_tests.rs"]
+mod fields_tests;
 
 /// Digests of signed byte ranges (and parsed signed revisions), kept across revalidations of
 /// one document: incremental edits only append to the file, so the signed bytes and their
