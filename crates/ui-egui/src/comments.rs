@@ -495,6 +495,16 @@ impl DraftTarget {
             None => a.name.is_none() && a.subtype == self.subtype && a.rect == self.rect,
         }
     }
+
+    /// The comment on `page` this was taken from, wherever it now is in `/Annots` (deleting or
+    /// undoing an earlier comment shifts the later ones). Found only when exactly one comment on
+    /// the page matches: none means it is gone, and several can't be told apart, so `None`
+    /// rather than a guess. Never by index: another comment can take the one it had.
+    pub(crate) fn find<'a>(&self, info: &'a DocInfo, page: usize) -> Option<&'a Annotation> {
+        let mut found = info.annotations.iter().filter(|a| a.page == page && self.is(a));
+        let only = found.next()?;
+        found.next().is_none().then_some(only)
+    }
 }
 
 /// Per-document commenting state.

@@ -1903,3 +1903,49 @@ fn revert_to_saved_closes_the_open_note_and_restores_the_saved_text() {
     assert_eq!(contents(&saved_comments(&out)[0]), "Saved note");
     let _ = std::fs::remove_dir_all(out.parent().unwrap());
 }
+
+/// Highlight A (index 0), then B over an area (index 1), whose note opens; type into B's note and
+/// delete A, so B moves to index 0 while its note was opened at index 1.
+fn note_on_a_comment_that_moved() -> Harness<'static, PdfCraftApp> {
+    let mut h = highlight_with_open_note();
+    drag_pt(&mut h, (40.0, 100.0), (140.0, 40.0));
+    assert_eq!(comments(&h).len(), 2);
+    assert_eq!(draft(&h), Some((0, 1, String::new())), "B's note is open");
+    set_note(&mut h, "For B");
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::DeleteAnnotation { page: 0, index: 0 }));
+    h.run_steps(2);
+    let left = comments(&h);
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].index, 0, "B now has A's index");
+    h
+}
+
+#[test]
+fn a_note_follows_its_comment_when_an_earlier_one_is_deleted() {
+    let mut h = note_on_a_comment_that_moved();
+    // B's card still shows the note, and the card's own Save (Ctrl+Enter) writes it onto B.
+    h.query_all_by(|n| n.role() == egui::accesskit::Role::MultilineTextInput && n.placeholder() != Some("Add a reply"))
+        .next()
+        .expect("B's card still shows its note")
+        .click();
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::CTRL, egui::Key::Enter);
+    h.run_steps(3);
+    assert_eq!(draft(&h), None, "the card's Save took the note");
+    let left = comments(&h);
+    assert_eq!(left.len(), 1);
+    assert_eq!(contents(&left[0]), "For B", "onto B, at its new index");
+}
+
+#[test]
+fn saving_writes_a_note_onto_its_comment_after_an_earlier_one_is_deleted() {
+    let out = saved_path("moved");
+    let mut h = note_on_a_comment_that_moved();
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    assert!(save(&mut h));
+    let saved = saved_comments(&out);
+    assert_eq!(saved.len(), 1);
+    assert_eq!(contents(&saved[0]), "For B", "File ▸ Save wrote the note onto B");
+    assert_eq!(draft(&h), None);
+    let _ = std::fs::remove_dir_all(out.parent().unwrap());
+}

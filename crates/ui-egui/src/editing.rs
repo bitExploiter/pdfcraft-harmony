@@ -1053,20 +1053,19 @@ enum CommentDraft {
 }
 
 /// `view`'s comment-card note, unless there is none or it is already the comment's text. The note
-/// goes only to the comment it was typed for (`CommentView::editing_target`), never to another
-/// that has since taken its index.
+/// goes only to the comment it was typed for (`CommentView::editing_target`), at the index that
+/// comment has now, and never to another that has since taken its old index (`DraftTarget::find`).
 fn comment_draft(view: &crate::canvas::DocView, info: &pdfcraft_render::DocInfo) -> Option<CommentDraft> {
-    let (page, index, text) = view.comments.editing.as_ref()?;
-    let target = view.comments.editing_target.as_ref();
-    match info.annotations.iter().find(|a| a.page == *page && a.index == *index) {
-        Some(a) if target.is_some_and(|t| t.is(a)) => {
+    let (page, _, text) = view.comments.editing.as_ref()?;
+    match view.comments.editing_target.as_ref().and_then(|t| t.find(info, *page)) {
+        Some(a) => {
             if a.contents.as_deref().unwrap_or_default() == text.as_str() {
                 return None;
             }
-            Some(CommentDraft::Changes(Box::new(Edit::SetAnnotationContents { page: *page, index: *index, text: text.clone() })))
+            Some(CommentDraft::Changes(Box::new(Edit::SetAnnotationContents { page: a.page, index: a.index, text: text.clone() })))
         }
-        _ if text.is_empty() => Some(CommentDraft::Discard),
-        _ => Some(CommentDraft::Orphaned),
+        None if text.is_empty() => Some(CommentDraft::Discard),
+        None => Some(CommentDraft::Orphaned),
     }
 }
 
@@ -1681,6 +1680,45 @@ mod revert_draft_tests {
         let source = note_left_by_an_undone_highlight(&mut app, "Typed before the undo");
         app.toast = None;
         assert!(app.commit_typing_in(source));
+        assert_eq!(app.views[0].comments.editing, None, "the note is dropped");
+        let reported = app.toast.as_ref().map(|(m, _)| m.as_str());
+        assert_eq!(reported, Some(tl!("The comment being edited no longer exists, so its text was not saved.")));
+    }
+
+    /// A square, then two highlights that can't be told apart: no `/NM`, same rectangle.
+    const TWIN_HIGHLIGHTS: &[u8] = b"%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 7 0 R /Annots [4 0 R 5 0 R 6 0 R] >> endobj
+4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 50 50] /C [1 0 0] >> endobj
+5 0 obj << /Type /Annot /Subtype /Highlight /Rect [20 100 120 120] /QuadPoints [20 120 120 120 20 100 120 100] /C [1 1 0] >> endobj
+6 0 obj << /Type /Annot /Subtype /Highlight /Rect [20 100 120 120] /QuadPoints [20 120 120 120 20 100 120 100] /C [1 1 0] >> endobj
+7 0 obj << /Length 0 >> stream
+
+endstream endobj
+trailer << /Root 1 0 R >>
+%%EOF";
+
+    #[test]
+    fn a_note_whose_moved_comment_cannot_be_told_apart_is_dropped_not_guessed() {
+        let mut app = PdfCraftApp::new();
+        app.open_bytes("twins.pdf", None, TWIN_HIGHLIGHTS.to_vec()).unwrap();
+        let source = app.views[0].id;
+        let first = {
+            let info = &app.session.get(source).unwrap().info;
+            let mut kinds: Vec<(usize, &str)> = info.annotations.iter().map(|a| (a.index, a.subtype.as_str())).collect();
+            kinds.sort_unstable();
+            assert_eq!(kinds, [(0, "Square"), (1, "Highlight"), (2, "Highlight")]);
+            info.annotations.iter().find(|a| a.index == 1).expect("the first highlight").clone()
+        };
+        app.views[0].comments.editing = Some((0, 1, "For the first highlight".into()));
+        app.views[0].comments.editing_target = Some(crate::comments::DraftTarget::of(&first));
+        // Deleting the square moves both highlights up: the second now has the first one's index.
+        assert!(app.apply_edit(Edit::DeleteAnnotation { page: 0, index: 0 }));
+        app.toast = None;
+        assert!(app.commit_typing_in(source));
+        let info = &app.session.get(source).unwrap().info;
+        assert!(info.annotations.iter().all(|a| a.contents.as_deref().unwrap_or_default().is_empty()), "the note went onto neither highlight");
         assert_eq!(app.views[0].comments.editing, None, "the note is dropped");
         let reported = app.toast.as_ref().map(|(m, _)| m.as_str());
         assert_eq!(reported, Some(tl!("The comment being edited no longer exists, so its text was not saved.")));
