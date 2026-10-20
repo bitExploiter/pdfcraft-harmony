@@ -215,6 +215,9 @@ pub(crate) fn show(
     {
         view.comments.collapsed_pages.retain(|&c| c != p);
     }
+    // The cards in the order shown, for a ⇧-click range (folded pages' cards aren't shown).
+    let order: Vec<(usize, usize)> =
+        roots.iter().filter(|a| !(sort == SortBy::Page && view.comments.collapsed_pages.contains(&a.page))).map(|a| (a.page, a.index)).collect();
     let mut page = usize::MAX;
     let mut group: Option<String> = None;
     for a in roots {
@@ -264,7 +267,7 @@ pub(crate) fn show(
             continue;
         }
         let thread = replies_of(a);
-        if let Some(e) = card(ui, t, a, thread, info, view, prefs, allowed, nav) {
+        if let Some(e) = card(ui, t, a, thread, &order, info, view, prefs, allowed, nav) {
             edit = Some(e);
         }
     }
@@ -277,6 +280,7 @@ fn card(
     t: &Tokens,
     a: &Annotation,
     thread: &[&Annotation],
+    order: &[(usize, usize)],
     info: &DocInfo,
     view: &mut DocView,
     prefs: &CommentPrefs,
@@ -443,8 +447,12 @@ fn card(
         .on_hover_cursor(egui::CursorIcon::PointingHand)
         .on_hover_text(crate::i18n::fmt(tl!("{kind} — click to show it on the page"), &[("kind", tl!(kind_label(a)))]));
     if click.clicked() {
-        // ⌘/Ctrl-click (or ⇧-click) adds the comment to the selection, as on the page.
-        if ui.input(|i| i.modifiers.command || i.modifiers.shift) {
+        // ⌘/Ctrl-click adds the comment to the selection, as on the page; ⇧-click selects the
+        // cards from the one with the handles to this one, as lists do.
+        let modifiers = ui.input(|i| i.modifiers);
+        if modifiers.shift && !modifiers.command {
+            view.comments.select_range(order, key);
+        } else if modifiers.command {
             view.comments.toggle(key);
         } else {
             view.comments.select_only(key);

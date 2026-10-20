@@ -490,8 +490,8 @@ pub struct CommentView {
     /// The selected comment: (page, index in `/Annots`). With several selected (`also`), the one
     /// the handles, the properties and the context menu act on.
     pub selected: Option<(usize, usize)>,
-    /// The other selected comments (⌘/Ctrl-click or ⇧-click adds one): Delete, Copy and a drag
-    /// act on them with `selected`.
+    /// The other selected comments (⌘/Ctrl-click or ⇧-click on the page adds one, ⇧-click in the
+    /// Comments panel a range): Delete, Copy, Properties and a drag act on them with `selected`.
     pub also: Vec<(usize, usize)>,
     /// Copy the selected comments (set by the menus; the app has the clipboard).
     pub copy_request: bool,
@@ -578,6 +578,17 @@ impl CommentView {
     pub fn select_only(&mut self, key: (usize, usize)) {
         self.selected = Some(key);
         self.also.clear();
+    }
+
+    /// ⇧-click in a list (`order`, as shown): every comment from the one with the handles to
+    /// `key` is selected, and only those, so another ⇧-click from the same comment changes the
+    /// range. Without a comment with the handles, or with either end not in the list, `key` is
+    /// added as by ⌘/Ctrl-click.
+    pub fn select_range(&mut self, order: &[(usize, usize)], key: (usize, usize)) {
+        let ends = self.selected.and_then(|anchor| Some((order.iter().position(|k| *k == anchor)?, order.iter().position(|k| *k == key)?)));
+        let Some((a, b)) = ends else { return self.toggle(key) };
+        let anchor = self.selected;
+        self.also = order.get(a.min(b)..=a.max(b)).unwrap_or_default().iter().copied().filter(|k| Some(*k) != anchor).collect();
     }
 
     /// ⌘/Ctrl-click: add `key` to the selection, or take it out again. The handles go to the
@@ -1290,11 +1301,17 @@ fn select_input(
         {
             // Dragging one of several selected comments moves them all; any other drag starts
             // a selection of its own.
-            if !cv.is_selected((cx.page, a.index)) {
-                cv.select_only((cx.page, a.index));
+            let grabbed = (cx.page, a.index);
+            if !cv.is_selected(grabbed) {
+                cv.select_only(grabbed);
             } else {
-                cv.selected = Some((cx.page, a.index));
-                cv.also.retain(|k| *k != (cx.page, a.index));
+                // The grabbed one takes the handles; the one that had them stays selected.
+                if let Some(previous) = cv.selected.replace(grabbed)
+                    && previous != grabbed
+                {
+                    cv.also.push(previous);
+                }
+                cv.also.retain(|k| *k != grabbed);
             }
             cv.reveal = true;
             if cx.allowed {
@@ -2664,6 +2681,24 @@ mod tests {
             drawn_shape(CommentTool::Arrow, &[[0.0, 0.0], [5.0, 0.0]]),
             Some(Shape::Line { start: LineEnding::None, end: LineEnding::OpenArrow, .. })
         ));
+    }
+
+    #[test]
+    fn shift_click_selects_the_range_from_the_comment_with_the_handles() {
+        let order = [(0, 3), (0, 1), (0, 0), (1, 2), (1, 0)];
+        let mut cv = CommentView::default();
+        cv.select_only((0, 1));
+        cv.select_range(&order, (1, 2));
+        assert_eq!(cv.selection(), vec![(0, 1), (0, 0), (1, 2)], "from the anchor down, the anchor keeps the handles");
+        // Another ⇧-click from the same anchor changes the range, upwards too.
+        cv.select_range(&order, (0, 3));
+        assert_eq!(cv.selection(), vec![(0, 1), (0, 3)]);
+        // Nothing to start from, or a card not in the list: added as by ⌘/Ctrl-click.
+        let mut none = CommentView::default();
+        none.select_range(&order, (0, 0));
+        assert_eq!(none.selection(), vec![(0, 0)]);
+        cv.select_range(&order, (9, 9));
+        assert_eq!(cv.selected, Some((9, 9)));
     }
 
     #[test]

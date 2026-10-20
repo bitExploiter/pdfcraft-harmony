@@ -3093,12 +3093,14 @@ impl PdfCraftApp {
         }
         if let Some(text) = pasted {
             // The organize grid takes ⌘V for pages; a text that is no XFDF with comments is not
-            // ours either (the in-app clipboard is only used for ⌘V when the system's holds
-            // what we last copied, or nothing legible).
+            // ours either: copied comments come from the system clipboard when it holds them,
+            // from the app's own only when it holds nothing legible (a word copied in another
+            // app since is that word, not the comments copied before it).
             if self.views.get(i).is_some_and(|v| !v.organize) {
-                let from_system = pdfcraft_engine::is_xfdf_comments(&text).then_some(text);
-                if from_system.is_some() || self.comment_clipboard.is_some() {
-                    self.paste_comments(i, from_system, None);
+                if pdfcraft_engine::is_xfdf_comments(&text) {
+                    self.paste_comments(i, Some(text), None);
+                } else if text.trim().is_empty() && self.comment_clipboard.is_some() {
+                    self.paste_comments(i, None, None);
                 }
             }
         }

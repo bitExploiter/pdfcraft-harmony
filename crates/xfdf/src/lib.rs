@@ -281,9 +281,6 @@ fn arr(v: &[f64]) -> Object {
 
 // ── export ──────────────────────────────────────────────────────────────────────────────────
 
-/// Every comment as an XFDF element (one line per comment, replies included).
-/// The annotations of `which` (0-based page, position in the page's `/Annots`) as references,
-/// with every reply to them (and to those replies), so a thread travels whole.
 /// The annotations of `which` (0-based page, position in the page's `/Annots`) as positions,
 /// with every reply to them (and to those replies), so a thread travels whole. Positions, not
 /// references: other tools write comments straight into the page's array, without an object of
@@ -326,6 +323,8 @@ fn annots_with_replies(doc: &Document, which: &[(usize, usize)]) -> HashSet<(usi
     set
 }
 
+/// Every comment as an XFDF element (one line per comment, replies included), or only those at
+/// the positions in `only`.
 fn xfdf_annots(doc: &Document, out: &mut String, only: Option<&HashSet<(usize, usize)>>) {
     let pages = pdfcraft_model::pages(doc);
     // NM of every annotation, for inreplyto. A selected annotation without one (other tools

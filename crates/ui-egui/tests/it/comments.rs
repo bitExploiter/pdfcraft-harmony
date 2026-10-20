@@ -2354,6 +2354,35 @@ fn ctrl_click_selects_several_comments_and_delete_removes_them_all() {
     assert_eq!(h.state().views[0].comments.selection(), vec![(0, 1)]);
 }
 
+/// Dragging one of several selected comments moves them all, whichever of them is grabbed: the
+/// grabbed one takes the handles and the one that had them stays selected.
+#[test]
+fn dragging_any_selected_comment_moves_the_whole_selection() {
+    let mut h = harness(|app| app.set_option("quick", "square").unwrap());
+    for (a, b) in [((20.0, 20.0), (60.0, 60.0)), ((100.0, 20.0), (140.0, 60.0)), ((180.0, 20.0), (220.0, 60.0))] {
+        drag_pt(&mut h, a, b);
+    }
+    h.state_mut().set_option("quick", "select").unwrap();
+    h.run_steps(2);
+    click_pt(&mut h, (40.0, 40.0));
+    click_pt_with(&mut h, (120.0, 40.0), egui::Modifiers::COMMAND);
+    click_pt_with(&mut h, (200.0, 40.0), egui::Modifiers::COMMAND);
+    assert_eq!(h.state().views[0].comments.selected, Some((0, 2)), "the last one clicked has the handles");
+    // Drag the first one (not the one with the handles) 30 points up.
+    let before = comments(&h);
+    drag_pt(&mut h, (40.0, 40.0), (40.0, 70.0));
+    let after = comments(&h);
+    assert_eq!(after.len(), 3);
+    for (a, b) in before.iter().zip(&after) {
+        assert!((b.rect[1] - a.rect[1] - 30.0).abs() < 1.5, "every selected rectangle moved up 30 pt: {:?} from {:?}", b.rect, a.rect);
+    }
+    let selection = h.state().views[0].comments.selection();
+    assert_eq!(selection.len(), 3, "all three stay selected: {selection:?}");
+    assert_eq!(selection[0], (0, 0), "the grabbed one has the handles");
+    let id = h.state().views[0].id;
+    assert_eq!(h.state().session.get(id).unwrap().can_undo(), Some("Move comments"));
+}
+
 /// Copied comments paste into another document on its current page, each with its replies, as
 /// new comments (a second paste gives a second set); the copies are selected afterwards.
 #[test]
@@ -2428,13 +2457,22 @@ fn copied_comments_paste_into_another_document() {
     let xfdf = h.state().comment_clipboard.clone().unwrap().xfdf;
     h.state_mut().comment_clipboard = None;
     assert!(!h.state_mut().execute("comment.paste"), "nothing copied: disabled");
-    h.event(egui::Event::Paste(xfdf));
+    h.event(egui::Event::Paste(xfdf.clone()));
     h.run_steps(3);
     click_pt(&mut h, (200.0, 120.0));
     assert_eq!(count(&h), 6);
     h.event(egui::Event::Paste("just text".into()));
     h.run_steps(3);
     assert!(h.state().views[1].comments.gesture.is_none(), "plain text is not a paste of comments");
+    // Nor when comments were copied earlier: a word copied in another app since is that word.
+    h.state_mut().comment_clipboard = Some(pdfcraft_ui_egui::CommentClip { xfdf, count: 2 });
+    h.event(egui::Event::Paste("a word from elsewhere".into()));
+    h.run_steps(3);
+    assert!(h.state().views[1].comments.gesture.is_none(), "the old comments don't hang on the pointer");
+    // Nothing legible on the system clipboard: the app's own copied comments.
+    h.event(egui::Event::Paste(String::new()));
+    h.run_steps(3);
+    assert!(h.state().views[1].comments.gesture.is_some());
 }
 
 /// Connected lines (and polygons) finish from the right-click menu too, as other editors do;
