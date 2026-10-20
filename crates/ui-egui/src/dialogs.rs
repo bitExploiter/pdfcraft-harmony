@@ -39,7 +39,14 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
         && app.props_draft.as_ref().is_none_or(|(d, _)| *d != id)
         && let Some(doc) = app.session.get(id)
     {
-        app.props_draft = Some((id, INFO_KEYS.map(|k| doc.info_value(k).unwrap_or_default())));
+        app.props_draft = Some((id, INFO_KEYS.map(|k| {
+            let val = doc.info_value(k).unwrap_or_default();
+            if k == "CreationDate" || k == "ModDate" {
+                pdfcraft_engine::format_pdf_date(&val)
+            } else {
+                val
+            }
+        })));
         app.view_draft = Some((id, doc.initial_view()));
     }
     let mut apply = false;
@@ -152,8 +159,8 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                     row(ui, "Author", i.author.clone().unwrap_or_default());
                                     row(ui, "Subject", i.subject.clone().unwrap_or_default());
                                     row(ui, "Keywords", i.keywords.clone().unwrap_or_default());
-                                    row(ui, "Created", i.creation_date.as_deref().map(pdfcraft_render::pretty_date).unwrap_or_default());
-                                    row(ui, "Modified", i.mod_date.as_deref().map(pdfcraft_render::pretty_date).unwrap_or_default());
+                                    row(ui, "Created", i.creation_date.as_deref().map(pdfcraft_engine::format_pdf_date).unwrap_or_default());
+                                    row(ui, "Modified", i.mod_date.as_deref().map(pdfcraft_engine::format_pdf_date).unwrap_or_default());
                                 }
                             }
                             row(ui, "Application", i.creator.clone().unwrap_or_default());
@@ -1435,7 +1442,24 @@ fn draft_changes(app: &PdfCraftApp) -> Option<Vec<Edit>> {
     let mut edits: Vec<Edit> = INFO_KEYS
         .iter()
         .zip(draft.iter())
-        .filter(|(k, v)| doc.info_value(k).unwrap_or_default().trim() != v.trim())
+        .filter(|(k, v)| {
+            let existing = doc.info_value(k).unwrap_or_default();
+            if **k == "CreationDate" || **k == "ModDate" {
+                let v_trimmed = v.trim();
+                if v_trimmed.is_empty() {
+                    !existing.is_empty()
+                } else {
+                    let formatted_existing = pdfcraft_engine::format_pdf_date(&existing);
+                    if formatted_existing == v_trimmed {
+                        false
+                    } else {
+                        pdfcraft_engine::normalize_pdf_date(v_trimmed) != existing
+                    }
+                }
+            } else {
+                existing.trim() != v.trim()
+            }
+        })
         .map(|(k, v)| Edit::SetInfo { key: (*k).to_string(), value: v.clone() })
         .collect();
     if let Some((vid, v)) = &app.view_draft

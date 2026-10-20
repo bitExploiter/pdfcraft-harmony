@@ -544,6 +544,35 @@ fn creation_and_mod_date_edits_round_trip_and_update_xmp() {
 }
 
 #[test]
+fn format_pdf_date_formats_and_normalizes_correctly() {
+    use crate::{format_pdf_date, normalize_pdf_date};
+
+    // User's exact case:
+    assert_eq!(format_pdf_date("D:20261020161649+03'00'"), "10/20/26, 4:16:49 PM");
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49 PM"), "D:20261020161649Z");
+    assert_eq!(normalize_pdf_date("10/20/26, 4:16:49\u{202f}PM"), "D:20261020161649Z");
+
+    // Morning and midnight/noon cases
+    assert_eq!(format_pdf_date("D:20240508090503Z"), "5/8/24, 9:05:03 AM");
+    assert_eq!(normalize_pdf_date("5/8/24, 9:05:03 AM"), "D:20240508090503Z");
+    assert_eq!(format_pdf_date("D:20240101000000Z"), "1/1/24, 12:00:00 AM");
+    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 AM"), "D:20240101000000Z");
+    assert_eq!(format_pdf_date("D:20240101120000Z"), "1/1/24, 12:00:00 PM");
+    assert_eq!(normalize_pdf_date("1/1/24, 12:00:00 PM"), "D:20240101120000Z");
+
+    // 4-digit year format
+    assert_eq!(normalize_pdf_date("10/20/2026, 4:16:49 PM"), "D:20261020161649Z");
+
+    // ISO format
+    assert_eq!(format_pdf_date("2026-10-20T16:16:49Z"), "10/20/26, 4:16:49 PM");
+    assert_eq!(format_pdf_date("2026-10-20 16:16:49"), "10/20/26, 4:16:49 PM");
+
+    // Non-dates are returned unchanged
+    assert_eq!(format_pdf_date(""), "");
+    assert_eq!(format_pdf_date("yesterday"), "yesterday");
+}
+
+#[test]
 fn document_info_edits_leave_files_without_usable_xmp_alone() {
     // No packet: none is added.
     let mut doc = open(fixture());

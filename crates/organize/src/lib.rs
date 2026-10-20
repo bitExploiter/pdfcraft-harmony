@@ -578,9 +578,52 @@ pub fn canonical_info_key(key: &str) -> &str {
     key
 }
 
-/// Normalize a human date or ISO date into a PDF date string `D:YYYYMMDDHHmmSS...`.
+/// Format a PDF date (e.g. `D:20261020161649+03'00'`) into a human-friendly date string:
+/// `10/20/26, 4:16:49 PM`.
+/// Non-date or unparseable strings are returned unchanged.
+pub fn format_pdf_date(s: &str) -> String {
+    let raw = s.trim();
+    if raw.is_empty() {
+        return String::new();
+    }
+    let d = raw.strip_prefix("D:").or_else(|| raw.strip_prefix("d:")).unwrap_or(raw);
+
+    // If it starts with at least 8 digits (YYYYMMDD)
+    let digits: String = d.chars().take_while(|c| c.is_ascii_digit()).collect();
+    if digits.len() >= 8 {
+        let y: u32 = digits.get(0..4).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let m: u32 = digits.get(4..6).and_then(|v| v.parse().ok()).unwrap_or(1);
+        let day: u32 = digits.get(6..8).and_then(|v| v.parse().ok()).unwrap_or(1);
+        let h: u32 = digits.get(8..10).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let mi: u32 = digits.get(10..12).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let sec: u32 = digits.get(12..14).and_then(|v| v.parse().ok()).unwrap_or(0);
+
+        let yy = y % 100;
+        let (hour_12, ampm) = if h == 0 {
+            (12, "AM")
+        } else if h < 12 {
+            (h, "AM")
+        } else if h == 12 {
+            (12, "PM")
+        } else {
+            (h - 12, "PM")
+        };
+
+        return format!("{m}/{day}/{yy:02}, {hour_12}:{mi:02}:{sec:02} {ampm}");
+    }
+
+    let norm = normalize_pdf_date(raw);
+    if norm.starts_with("D:") && norm != raw {
+        return format_pdf_date(&norm);
+    }
+
+    raw.to_string()
+}
+
+/// Normalize a human date, ISO date, or PDF date string into standard PDF date format `D:YYYYMMDDHHmmSS...`.
 ///
 /// Accepts:
+/// - Human-friendly 12-hour format (`10/20/26, 4:16:49 PM`, `10/20/2026, 4:16:49 PM`)
 /// - Already-formatted PDF date strings (`D:...` or `d:...`)
 /// - ISO 8601 strings (`2024-01-05T09:30:00Z`, `2024-01-05T09:30:00+01:00`)
 /// - Common human formats (`2024-01-05 09:30:00`, `2024-01-05`, `2024/01/05`)
@@ -591,8 +634,72 @@ pub fn normalize_pdf_date(s: &str) -> String {
         return String::new();
     }
     if s.starts_with("D:") || s.starts_with("d:") {
-        return format!("D:{}", &s[2..].trim());
+        return format!("D:{}", s[2..].trim());
     }
+
+    let upper = s.to_ascii_uppercase();
+    let is_pm = upper.contains("PM");
+    let is_am = upper.contains("AM");
+
+    // Handle M/D/Y formats (e.g. 10/20/26, 4:16:49 PM or 10/20/2026, 4:16:49 PM)
+    if s.contains('/') {
+        let mut parts = s.split(|c: char| c == ',' || c.is_whitespace()).filter(|p| !p.is_empty());
+        if let Some(date_part) = parts.next() {
+            let slash_parts: Vec<&str> = date_part.split('/').collect();
+            if slash_parts.len() == 3 {
+                let n1: u32 = slash_parts[0].parse().unwrap_or(0);
+                let n2: u32 = slash_parts[1].parse().unwrap_or(0);
+                let n3: u32 = slash_parts[2].parse().unwrap_or(0);
+
+                let (y, m, d) = if slash_parts[0].len() == 4 {
+                    (n1, n2.clamp(1, 12), n3.clamp(1, 31))
+                } else {
+                    let full_year = if n3 < 70 {
+                        2000 + n3
+                    } else if n3 < 100 {
+                        1900 + n3
+                    } else {
+                        n3
+                    };
+                    (full_year, n1.clamp(1, 12), n2.clamp(1, 31))
+                };
+
+                let mut h = 0u32;
+                let mut mi = 0u32;
+                let mut sec = 0u32;
+
+                for part in parts {
+                    let cleaned = part.trim_end_matches(|c: char| c.is_ascii_alphabetic());
+                    if cleaned.contains(':') {
+                        let time_chunks: Vec<&str> = cleaned.split(':').collect();
+                        if let Some(h_str) = time_chunks.first() {
+                            h = h_str.parse().unwrap_or(0);
+                        }
+                        if let Some(m_str) = time_chunks.get(1) {
+                            mi = m_str.parse().unwrap_or(0);
+                        }
+                        if let Some(s_str) = time_chunks.get(2) {
+                            sec = s_str.parse().unwrap_or(0);
+                        }
+                    }
+                }
+
+                if is_pm {
+                    if h < 12 {
+                        h += 12;
+                    }
+                } else if is_am && h == 12 {
+                    h = 0;
+                }
+                let h = h.clamp(0, 23);
+                let mi = mi.clamp(0, 59);
+                let sec = sec.clamp(0, 59);
+
+                return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}Z");
+            }
+        }
+    }
+
     let mut chunks = Vec::new();
     let mut current = String::new();
     let mut tz_part = "";
@@ -622,9 +729,16 @@ pub fn normalize_pdf_date(s: &str) -> String {
         let y: u32 = year_str.parse().unwrap_or(0);
         let m: u32 = chunks.get(1).and_then(|c| c.parse().ok()).unwrap_or(1).clamp(1, 12);
         let d: u32 = chunks.get(2).and_then(|c| c.parse().ok()).unwrap_or(1).clamp(1, 31);
-        let h: u32 = chunks.get(3).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 23);
+        let mut h: u32 = chunks.get(3).and_then(|c| c.parse().ok()).unwrap_or(0);
         let mi: u32 = chunks.get(4).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 59);
         let sec: u32 = chunks.get(5).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 59);
+
+        if is_pm && h < 12 {
+            h += 12;
+        } else if is_am && h == 12 {
+            h = 0;
+        }
+        let h = h.clamp(0, 23);
 
         let tz = if tz_part.eq_ignore_ascii_case("Z") || tz_part.is_empty() {
             "Z".to_string()
