@@ -544,3 +544,72 @@ fn coalesced_primary_clicks_select_line_then_spaced_click_clears() {
         assert_eq!(doc.saved_bytes(), saved);
     }
 }
+
+/// Normal mouse selection must follow a complete column even when the gutter is smaller
+/// than the old same-baseline merge tolerance. No modifier or Column select tool is involved.
+#[test]
+fn a_plain_drag_copies_only_its_narrow_magazine_column_both_ways() {
+    let left = ["Left first line", "Left next line!", "Left last line!"];
+    let right = ["Right first one", "Right next one!", "Right last one!"];
+    let mut ops = String::new();
+    // Monospace font: 15 * 6 pt + an 8 pt gutter, with text drawn row by row.
+    for row in 0..3 {
+        for (x, text) in [(20, left[row]), (118, right[row])] {
+            ops.push_str(&format!("BT /F1 10 Tf 1 0 0 1 {x} {} Tm ({text}) Tj ET\n", 150 - row * 12));
+        }
+    }
+    let pdf = String::from_utf8(text_pdf(&ops)).unwrap().replace("/BaseFont /Helvetica", "/BaseFont /Courier").into_bytes();
+    let (mut h, _) = harness_with(pdf, |_| {});
+    for reverse in [false, true] {
+        let view = &h.state().views[0];
+        let from = view.glyph_screen_pos(0, 0).unwrap();
+        let to = view.glyph_screen_pos(0, 44).unwrap();
+        let (from, to) = if reverse { (to, from) } else { (from, to) };
+        press_and_move(&mut h, from, to);
+        h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+        assert_eq!(h.state().views[0].selected_text().as_deref(), Some(left.join("\n").as_str()));
+        assert!(h.state_mut().execute("edit.copy"));
+        h.step();
+        assert!(copied(&h, &left.join("\n")));
+        h.run_steps(60);
+    }
+}
+
+/// The supplied real-world case through actual mouse events and the clipboard command.
+/// Keep the private PDF outside the repository; no screenshot or document asset is published.
+#[test]
+#[ignore = "private corpus: set PDFCRAFT_COLUMN_PDF to the supplied magazine, then run --ignored"]
+fn magazine_page_twelve_plain_mouse_selection_and_copy() {
+    use pdfcraft_render::{PageRenderer, RenderConfig, text::TextFilter};
+    use std::sync::Arc;
+
+    let bytes = std::fs::read(std::env::var_os("PDFCRAFT_COLUMN_PDF").expect("PDFCRAFT_COLUMN_PDF")).unwrap();
+    let t = PageRenderer::new(Arc::new(bytes.clone()), RenderConfig::default()).filtered_text(11, TextFilter::default()).unwrap();
+    let from = t.find("At sunset")[0].start;
+    let end = t.find("grip, he explains.")[0].end;
+    let expected = t.text_of(from..end);
+    assert!(t.line_rects(from..end).iter().all(|r| r[2] < 225.0));
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).with_step_dt(1.0 / 60.0).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("magazine.pdf", None, bytes).unwrap();
+        app.set_option("left", "closed").unwrap();
+        app.set_option("layout", "single").unwrap();
+        app.set_option("zoom", "100").unwrap();
+        app.set_option("page", "12").unwrap();
+        app
+    });
+    crate::support::wait_until(&mut h, "the magazine's page 12 text layer", |app| {
+        app.views[0].glyph_screen_pos(11, from).is_some() && app.views[0].glyph_screen_pos(11, end - 1).is_some() && !app.render_pending()
+    });
+    let a = h.state().views[0].glyph_screen_pos(11, from).unwrap();
+    let b = h.state().views[0].glyph_screen_pos(11, end - 1).unwrap();
+    press_and_move(&mut h, a, b);
+    h.event(Event::PointerButton { pos: b, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    assert_eq!(h.state().views[0].selected_text().as_deref(), Some(expected.as_str()));
+    assert!(h.state_mut().execute("edit.copy"));
+    h.step();
+    assert!(copied(&h, &expected));
+}
