@@ -7,7 +7,9 @@
 //! last KiB is read first, so a file still being written costs one small read. The new bytes go
 //! to the UI thread, which is woken for them: a clean document is reloaded in place, keeping its
 //! tab, page, zoom and scroll; one with unsaved changes gets a notice instead. PdfCraft's own
-//! saves are recognised by the file's stamp after writing, so they never reload.
+//! saves are recognised by the file's stamp after writing, so they never reload. A new stamp on
+//! the very bytes the document came from (a sync client such as Nextcloud or Dropbox
+//! sets a file's times again after uploading it) is not a new version either.
 
 use std::collections::HashMap;
 use std::fs::{File, Metadata};
@@ -379,6 +381,13 @@ impl PdfCraftApp {
             return;
         }
         self.watch.known.insert(c.doc, c.stamp);
+        // The bytes the document was opened from or last saved as, only stamped anew (a sync
+        // client set the file's times after uploading it): the same version. Reloading it would
+        // drop the undo history, and unsaved changes would get a notice about nothing.
+        if self.session.get(c.doc).is_some_and(|d| d.saved_bytes().as_slice() == c.bytes.as_slice()) {
+            self.watch.basis.insert(c.doc, c.stamp);
+            return;
+        }
         if self.has_unsaved_work(i) {
             if let Some(view) = self.views.get_mut(i) {
                 view.disk_changed = true;
@@ -386,6 +395,31 @@ impl PdfCraftApp {
             return;
         }
         self.reload_view(i, c.bytes);
+    }
+
+    /// Whether the file at `path` is another version than the one `doc` came from (see
+    /// [`FileWatch::disk_differs`]), its bytes compared too when only its stamp differs: a file a
+    /// sync client stamped anew after uploading it is still the document's version, and from
+    /// now on under its new stamp.
+    pub(crate) fn disk_is_another_version(&mut self, doc: DocId, path: &str) -> bool {
+        if !self.watch.disk_differs(doc, path) {
+            return false;
+        }
+        let Some(saved) = self.session.get(doc).map(|d| d.saved_bytes()) else { return true };
+        let Some(stamp) = Stamp::at(path) else { return true };
+        // Another length is another version; read only a file that could be the same.
+        if stamp.len != saved.len() as u64 {
+            return true;
+        }
+        // Still that stamp after reading: nothing wrote the file meanwhile.
+        match std::fs::read(path) {
+            Ok(bytes) if bytes == *saved && Stamp::at(path) == Some(stamp) => {
+                self.watch.known.insert(doc, stamp);
+                self.watch.basis.insert(doc, stamp);
+                false
+            }
+            _ => true,
+        }
     }
 
     /// The notice bar's Reload: read the file now and replace the document, unsaved changes and
