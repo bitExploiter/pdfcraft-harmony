@@ -20,6 +20,7 @@ use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, p
 
 const TAG: &str = "Added";
 mod font;
+mod resources;
 
 /// Font selection and shaping use the same rows, while markers retain the original text.
 fn normalized_text(text: &str) -> std::borrow::Cow<'_, str> {
@@ -1136,12 +1137,9 @@ fn write_item(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>)
     let p = &all[page];
     let view = p.view_matrix(doc);
     let user_unit = p.user_unit(doc);
-    // The page gets its own copy of its resources with the item's fonts and images added, and
-    // without the Arabic fonts of the version it replaces.
+    // Keep old resources available during drawing so unchanged mappings/programs can be reused.
+    // Afterwards reclaim only mappings no remaining consumer needs, in the page's own copy.
     let mut pres = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
-    if let Some(r) = obj {
-        drop_fonts(doc, &mut pres, &own_fonts(doc, r));
-    }
     let taken = pres.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()).unwrap_or_default();
     let (content, res) = draw(doc, c, view, &taken, obj.is_some())?;
     for (k, v) in res.iter() {
@@ -1150,6 +1148,9 @@ fn write_item(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>)
             sub.set(n2.clone(), o.clone());
         }
         pres.set(k.clone(), Object::Dict(sub));
+    }
+    if let Some(old) = obj {
+        resources::prune_page(doc, &mut pres, p, old, Some(&content));
     }
     doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(pres)))?;
     let mut sd = Dict::new();
@@ -1221,14 +1222,10 @@ pub fn delete_content(doc: &mut Document, page: usize, index: usize) -> Result<(
     let a = find(doc, page, index)?;
     let p = page_list(doc).swap_remove(page);
     let list: Vec<Object> = contents(doc, &p)?.into_iter().filter(|o| o.as_ref() != Some(a.obj)).collect();
-    let fonts = own_fonts(doc, a.obj);
     // Only the page's own resources carry an item's fonts (`write` gives the page a copy).
-    let res = match p.dict.get(b"Resources") {
-        Some(Object::Dict(d)) if !fonts.is_empty() => Some(d.clone()),
-        _ => None,
-    };
+    let res = p.dict.get(b"Resources").and_then(|r| doc.dict(r));
     let res = res.map(|mut r| {
-        drop_fonts(doc, &mut r, &fonts);
+        resources::prune_page(doc, &mut r, &p, a.obj, None);
         r
     });
     doc.update_dict(p.obj, |d| {
@@ -1238,25 +1235,6 @@ pub fn delete_content(doc: &mut Document, page: usize, index: usize) -> Result<(
         }
     })?;
     Ok(())
-}
-
-/// The Type 3 fonts an Arabic item's stream shows text with. Each item has its own (`draw_shaped`
-/// names them so), so they go when the item is replaced or deleted.
-fn own_fonts(doc: &Document, obj: ObjRef) -> Vec<Vec<u8>> {
-    let Object::Stream(s) = &*doc.get(obj) else { return Vec::new() };
-    let Ok(data) = s.decoded() else { return Vec::new() };
-    data.split(u8::is_ascii_whitespace).filter_map(|w| w.strip_prefix(b"/")).filter(|w| w.starts_with(b"PCAr")).map(<[u8]>::to_vec).collect()
-}
-
-fn drop_fonts(doc: &Document, res: &mut Dict, names: &[Vec<u8>]) {
-    if names.is_empty() {
-        return;
-    }
-    let Some(mut fonts) = res.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()) else { return };
-    for name in names {
-        fonts.remove(name);
-    }
-    res.set(b"Font".to_vec(), Object::Dict(fonts));
 }
 
 #[cfg(test)]

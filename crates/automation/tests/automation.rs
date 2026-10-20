@@ -6221,6 +6221,18 @@ fn added_automatic_fallback_crlf_through_tools() {
         assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
         ok(&mut a, "edit_redo", json!({"doc":reopened}));
         assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], "Latin");
+        let latin_path = format!("automatic-latin-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":reopened,"path":latin_path}));
+        let saved = pdfcraft_cos::Document::open(Arc::new(std::fs::read(dir.join(latin_path)).unwrap())).unwrap();
+        let page = &pdfcraft_model::pages(&saved)[0];
+        let resources = saved.dict(page.dict.get(b"Resources").unwrap()).unwrap();
+        let fonts = saved.dict(resources.get(b"Font").unwrap()).unwrap();
+        assert!(!fonts.iter().any(|(name, _)| name.starts_with(b"PCFull")), "the automatic Unicode mapping is no longer used");
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        assert_eq!(ok(&mut a, "text_find", json!({"doc":reopened,"query":"мир"}))["count"], 1);
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], "Latin");
         ok(&mut a, "doc_close", json!({"doc":reopened,"discard_changes":true}));
         ok(&mut a, "content_delete", json!({"doc":doc,"page":1,"index":1}));
     }

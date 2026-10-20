@@ -158,6 +158,12 @@ pub fn register_text_font(doc: &mut Document, page: usize, bytes: &[u8]) -> Resu
     let mut resources = p.dict.get(b"Resources").and_then(|o| doc.dict(o)).unwrap_or_default();
     let mut fonts = resources.get(b"Font").and_then(|o| doc.dict(o)).unwrap_or_default();
     let name = pdfcraft_fonts::embedding::embed(doc, &mut fonts, bytes, &postscript).map_err(EditError::Invalid)?;
+    // An explicit import remains available even when no current content draws with it.
+    if let Some(Object::Ref(font)) = fonts.get(name.as_bytes()) {
+        doc.update_dict(*font, |d| d.set(b"PCRegisteredFont".to_vec(), Object::Bool(true)))?;
+    } else if let Some(Object::Dict(font)) = fonts.get_mut(name.as_bytes()) {
+        font.set(b"PCRegisteredFont".to_vec(), Object::Bool(true));
+    }
     resources.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(resources)))?;
     Ok(name)

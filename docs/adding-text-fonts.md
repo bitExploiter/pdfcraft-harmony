@@ -41,6 +41,17 @@ receives them unchanged. Explicit-font and automatic Inter layout accept CRLF an
 lone CR as row separators. Line endings are normalized before fallback coverage
 and layout, retaining the original typed text in the editable marker.
 
+Wrapped rows exclude the separating space from alignment and justification;
+intentional final spaces and the original editable text remain intact. Replacing
+or deleting an item reclaims its obsolete PCFull/PCAr mappings only after checking
+other page streams, annotation appearances/default styles, soft masks and other
+consumers of inherited resources. Unchanged mappings and
+font programs remain reusable, and explicitly imported faces remain registered.
+The bounded check conservatively retains resources when content is unreadable,
+malformed or exceeds its budget. Full rewrites can collect unreachable obsolete
+mappings; incremental saves retain previous revisions. Ordinary text editing is
+not secure redaction.
+
 The font catalogue is cached for the current page and COS document revision;
 decoded native Unicode programs are shared through `Arc` across items and refreshes
 in a bounded 32 MiB/128-program cache. Legacy preview cmaps synthesized from PDF
@@ -67,9 +78,9 @@ Headless use follows the existing font workflow:
 Regression tests use the already bundled Inter. Additional real-font checks
 accept external inputs, never committed font fixtures:
 
-```text
-PDFCRAFT_TEST_THAI_FONT=/path/to/THSarabunNew.ttf
-PDFCRAFT_TEST_OTF_FONT=/path/to/LibertinusSerif-Regular.otf
+```sh
+export PDFCRAFT_TEST_THAI_FONT=/path/to/THSarabunNew.ttf
+export PDFCRAFT_TEST_OTF_FONT=/path/to/LibertinusSerif-Regular.otf
 cargo test -p pdfcraft-fonts -p pdfcraft-edit -j 2 --lib
 cargo test -p pdfcraft-automation -j 2 --test automation added_unicode_document_fonts_through_tools
 cargo test -p pdfcraft-ui-egui -j 2 --lib content_ui::tests

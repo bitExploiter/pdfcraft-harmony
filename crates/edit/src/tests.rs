@@ -180,6 +180,104 @@ fn added_document_font_errors_do_not_mutate_or_substitute() {
     assert!(update_content(&mut doc, 0, 0, &Content::Text(missing)).is_err());
 }
 
+/// The old mappings must become unreachable, including in a garbage-collected full save.
+#[test]
+fn added_font_replacement_and_deletion_reclaim_obsolete_mappings() {
+    for font in [None, Some(pdfcraft_fonts::inter_regular_shared())] {
+        let mut doc = fixture();
+        let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], font, ..Default::default() };
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        let old = added_full_fonts(&doc).pop().unwrap().1;
+        let replacement = AddedText { text: "Б".into(), ..t };
+        update_content(&mut doc, 0, 0, &Content::Text(replacement.clone())).unwrap();
+        let fonts = added_full_fonts(&doc);
+        assert_eq!(fonts.len(), 1, "only the replacement's mapping remains");
+        assert_ne!(fonts[0].1, old);
+        let mut doc = Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        assert!(
+            !doc.scan_objects().any(|(_, object)| matches!(object.as_ref(), Object::Stream(s)
+            if s.dict.name(b"Type") == Some(b"CMap") && s.decoded().unwrap().windows(6).any(|w| w == b"<0416>"))),
+            "the replaced character's ToUnicode entry must not survive a full rewrite"
+        );
+        let Content::Text(saved) = list_added(&doc).remove(0).content else { panic!() };
+        assert_eq!(saved.text, replacement.text);
+        assert_eq!(saved.font_bytes(), replacement.font_bytes());
+        update_content(&mut doc, 0, 0, &Content::Text(AddedText { text: "Latin".into(), font: None, ..replacement })).unwrap();
+        assert!(added_full_fonts(&doc).is_empty());
+        add_content(&mut doc, 0, &Content::Text(AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() })).unwrap();
+        delete_content(&mut doc, 0, 1).unwrap();
+        assert!(added_full_fonts(&doc).is_empty());
+        let full = Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        assert!(
+            !full.scan_objects().any(|(_, object)| matches!(object.as_ref(), Object::Stream(s)
+            if s.dict.name(b"Type") == Some(b"CMap") && s.decoded().unwrap().windows(6).any(|w| w == b"<0416>"))),
+            "deleting the last user releases its mapping in a full rewrite too"
+        );
+    }
+}
+
+fn added_full_fonts(doc: &Document) -> Vec<(Vec<u8>, Object)> {
+    let p = &pdfcraft_model::pages(doc)[0];
+    let resources = doc.dict(p.dict.get(b"Resources").unwrap()).unwrap();
+    doc.dict(resources.get(b"Font").unwrap())
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name.starts_with(b"PCFull"))
+        .map(|(name, object)| (name.clone(), object.clone()))
+        .collect()
+}
+
+#[test]
+fn added_font_cleanup_keeps_shared_mappings_until_the_last_user() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { rect: [20.0, 100.0, 400.0, 300.0], ..t.clone() })).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 1);
+    let shared = added_full_fonts(&doc)[0].1.clone();
+    update_content(&mut doc, 0, 0, &Content::Text(AddedText { text: "Б".into(), ..t })).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 2);
+    assert!(added_full_fonts(&doc).iter().any(|(_, object)| object == &shared));
+    assert!(text::text_lines(&doc, 0).unwrap().iter().any(|line| line.text == "Ж"));
+    delete_content(&mut doc, 0, 1).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 1);
+    delete_content(&mut doc, 0, 0).unwrap();
+    assert!(added_full_fonts(&doc).is_empty());
+}
+
+#[test]
+fn wrapped_added_font_text_preserves_original_spaces_on_reopen() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Раз  два три четыре  ".into(), rect: [20.0, 100.0, 100.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let rows = super::added::lines(&t);
+    assert!(rows.len() > 1);
+    assert!(rows[..rows.len() - 1].iter().all(|row| !row.ends_with(' ')));
+    for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+        assert_eq!(saved.text, t.text);
+        assert!(saved.font.is_none());
+    }
+}
+
+#[test]
+fn added_font_move_reuses_its_mapping_and_registered_faces_remain_available() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let before = added_full_fonts(&doc);
+    let objects = doc.scan_objects().count();
+    update_content(&mut doc, 0, 0, &Content::Text(AddedText { rect: [30.0, 100.0, 410.0, 300.0], ..t })).unwrap();
+    assert_eq!(added_full_fonts(&doc), before);
+    assert_eq!(doc.scan_objects().count(), objects, "moving reuses the font dictionary and embedded program");
+    let resource = text::register_text_font(&mut doc, 0, pdfcraft_fonts::INTER_REGULAR).unwrap();
+    let registered = added_full_fonts(&doc).into_iter().find(|(name, _)| name == resource.as_bytes()).unwrap().1;
+    assert_eq!(doc.dict(&registered).unwrap().get(b"PCRegisteredFont"), Some(&Object::Bool(true)));
+    delete_content(&mut doc, 0, 0).unwrap();
+    assert_eq!(added_full_fonts(&doc), [(resource.into_bytes(), registered)]);
+}
+
 #[test]
 fn added_custom_thai_font_shapes_marks_and_keeps_logical_clusters() {
     // Font programs remain optional external inputs, never committed fixtures (AGENTS §1.4).

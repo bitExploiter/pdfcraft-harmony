@@ -2,6 +2,8 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M7: #3528 wrapped font alignment and reference-aware mapping cleanup; exported optional test inputs; estimates unchanged)
+
 > **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M7: #3528 automatic Unicode fallback normalizes CRLF/CR before font selection; unconditional synthetic CFF metadata coverage; estimates unchanged)
 
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M7: PR #3528 review, cached shared fonts/layouts, persistent automatic fallback, one-step undo; licence-policy decision separate; estimates unchanged)
@@ -175,6 +177,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-21 (M7, CodeRabbit #3528):** Exclude wrapping separators from selected/automatic-font alignment and justification while retaining original typing. Reclaim replaced/deleted PCFull and PCAr mappings with bounded reference checks, preserving shared mappings, embedded programs and deliberate font imports. Correct optional test environment exports; recheck earlier preview/subset, shaping-control and retained-face style findings. Estimates and licence policy unchanged.
 
 - **2026-10-21 (M7, PR #3528):** Normalize CRLF/CR before automatic Inter coverage and reuse the same normalization for selected-font layout, preserving editable source text. Add edit/tool regressions for fallback, drawing, save/reopen and retyping, plus unconditional synthetic CFF CMap metadata assertions. Document the PDFium mixed Arabic/ASCII extraction limit separately from successful rendering and internal exact search. Licence policy and estimates unchanged.
 

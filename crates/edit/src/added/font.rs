@@ -95,8 +95,12 @@ fn prepare(t: &AddedText, bytes: &[u8], width: f64) -> Result<Layout, EditError>
             }
         }
         spans.push(start..para.len());
-        for span in spans {
-            let text = para.get(span).unwrap_or_default().to_string();
+        let last = spans.len().saturating_sub(1);
+        for (index, span) in spans.into_iter().enumerate() {
+            let text = para.get(span).unwrap_or_default();
+            // A wrapping separator has no visible width or justification slot. Keep
+            // intentional spaces on the paragraph's final row and in the editable marker.
+            let text = if index < last { text.trim_end_matches(' ') } else { text }.to_string();
             let shaped = shaper.shape(&text, rtl).map_err(EditError::Invalid)?;
             rows.push(Row { text, rtl, shaped });
         }
@@ -194,6 +198,71 @@ pub(super) fn draw(doc: &mut Document, t: &AddedText, bytes: &[u8], taken: &Dict
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapped_font_rows_align_without_the_break_space() {
+        let bytes = pdfcraft_fonts::INTER_REGULAR;
+        let first = "Раз два";
+        let clean = pdfcraft_fonts::source_shaping::shape(bytes, first).unwrap();
+        let width = pdfcraft_fonts::source_shaping::shape(bytes, "Раз два ").unwrap().advance * 20.0 + 0.1;
+        for font in [None, Some(pdfcraft_fonts::inter_regular_shared())] {
+            for align in [Align::Right, Align::Center, Align::Justify] {
+                let t = AddedText {
+                    text: "Раз два три четыре пять  ".into(),
+                    rect: [10.0, 100.0, 10.0 + width, 300.0],
+                    size: 20.0,
+                    font: font.clone(),
+                    align,
+                    ..Default::default()
+                };
+                let prepared = layout(&t, bytes).unwrap();
+                assert_eq!(prepared.rows[0].text, first);
+                assert!(prepared.rows.last().unwrap().text.ends_with("  "), "keep intentional final spaces");
+                let mut doc = Document::new_empty();
+                let mut output = Vec::new();
+                let fonts = draw(&mut doc, &t, bytes, &Dict::new(), &mut output).unwrap();
+                let face = doc.dict(fonts.iter().next().unwrap().1).unwrap();
+                let metrics = pdfcraft_fonts::pdf::Metrics::from_dict(&doc, &face);
+                let w = clean.advance * t.size;
+                let x = match align {
+                    Align::Right => t.rect[2] - w,
+                    Align::Center => t.rect[0] + (width - w) / 2.0,
+                    _ => t.rect[0],
+                };
+                let extra = if align == Align::Justify { width - w } else { 0.0 };
+                let mut position = 0.0;
+                let mut actual = Vec::new();
+                for op in pdfcraft_content::parse(&output).ops {
+                    if op.is("EMC") {
+                        break;
+                    }
+                    if op.is("Tm") {
+                        position = op.num(4).unwrap();
+                    }
+                    if op.is("TJ") {
+                        for entry in op.operands[0].as_array().unwrap() {
+                            if let Some(value) = entry.as_f64() {
+                                position -= value / 1000.0 * t.size;
+                            }
+                            if let Some(string) = entry.as_string() {
+                                for (code, _) in metrics.codes(&string.bytes) {
+                                    actual.push(position);
+                                    position += metrics.width(code) * t.size;
+                                }
+                            }
+                        }
+                    }
+                }
+                assert_eq!(actual.len(), clean.glyphs.len());
+                let mut spacing = 0.0;
+                for (position, glyph) in actual.iter().zip(&clean.glyphs) {
+                    let expected = x + glyph.position[0] * t.size + spacing;
+                    assert!((position - expected).abs() < 0.002, "{align:?}: {position} != {expected}");
+                    spacing += glyph.text.matches(' ').count() as f64 * extra;
+                }
+            }
+        }
+    }
 
     #[test]
     fn added_batches_preserve_every_shaped_glyph_position() {
