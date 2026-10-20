@@ -10,15 +10,16 @@ pub(crate) fn outside_strip(strip: egui::Rect, viewport: egui::Rect, pointer: eg
 impl PdfCraftApp {
     /// Native hosts opt in only when they can keep the detached document alive.
     pub fn can_detach_tab(&self, id: DocId) -> bool {
+        self.transfer_ready() && self.detach_request.is_none() && self.session.get(id).is_some() && self.views.iter().any(|v| v.id == id)
+    }
+
+    fn transfer_ready(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         if self.pickers.pending() || self.pending_overwrite.is_some() {
             return false;
         }
         self.managed_windows
             && !self.window_close_ready
-            && self.detach_request.is_none()
-            && self.session.get(id).is_some()
-            && self.views.iter().any(|v| v.id == id)
             && !self.modal_open()
             && self.compare.is_none()
             && self.ocr_run.is_none()
@@ -37,6 +38,77 @@ impl PdfCraftApp {
         self.detach_request = Some((id, position.filter(|p| p.x.is_finite() && p.y.is_finite() && p.x.abs() <= 100_000.0 && p.y.abs() <= 100_000.0)));
         if let Some(ctx) = &self.ctx {
             ctx.request_repaint();
+        }
+        true
+    }
+
+    /// Move a tab into an existing window without reparsing its PDF or losing its editor.
+    pub fn transfer_tab_to(&mut self, id: DocId, target: &mut Self, at: usize) -> bool {
+        if !self.can_detach_tab(id) || !target.transfer_ready() || at > target.views.len() {
+            return false;
+        }
+        let Some(index) = self.views.iter().position(|v| v.id == id) else { return false };
+        let Some(new_id) = self.session.transfer_document(id, &mut target.session) else { return false };
+        let mut view = self.views.remove(index);
+        view.id = new_id;
+        target.views.insert(at, view);
+        target.active = Some(at);
+        target.combine_tab.focused = false;
+        target.startup_superseded = true;
+        if let Some(key) = self.recovery_keys.remove(&id) {
+            target.recovery_keys.insert(new_id, key);
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.watch.transfer_as(id, &mut target.watch, new_id);
+        self.active = match self.active {
+            _ if self.views.is_empty() => None,
+            Some(active) if active > index => Some(active - 1),
+            Some(active) if active >= self.views.len() => Some(self.views.len() - 1),
+            other => other,
+        };
+        self.deferred_commands.retain(|(_, doc)| *doc != Some(id));
+        true
+    }
+
+    /// Copy the current PDF pages into another window as one undoable insertion.
+    /// Extract uses the unlocked engine document and enforces its page-copy permissions.
+    pub fn insert_tab_pages_into(&mut self, id: DocId, target: &mut Self, into: DocId, at: usize) -> bool {
+        if !self.can_detach_tab(id) || !target.transfer_ready() || target.active_ids().map(|(_, id)| id) != Some(into) {
+            return false;
+        }
+        if !target.session.get(into).is_some_and(|d| d.allows_assembly() && at <= d.info.pages.len()) {
+            return false;
+        }
+        let Some(index) = self.views.iter().position(|v| v.id == id) else { return false };
+        let previous = self.active;
+        self.active = Some(index);
+        let committed = self.commit_form_typing();
+        self.active = previous;
+        if !committed || !target.commit_form_typing() {
+            return false;
+        }
+        let Some(doc) = self.session.get(id) else { return false };
+        let name = doc.name.clone();
+        let count = doc.info.pages.len();
+        let bytes = match self.session.extract(id, &(0..count).collect::<Vec<_>>()) {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                self.notify_error(error);
+                return false;
+            }
+        };
+        if !target.apply_edit(pdfcraft_engine::Edit::InsertPagesFrom {
+            name,
+            bytes,
+            pages: None,
+            at,
+            field_conflicts: pdfcraft_engine::FieldConflicts::Rename,
+        }) {
+            return false;
+        }
+        if let Some(view) = target.active.and_then(|i| target.views.get_mut(i)) {
+            view.select_pages(&(at..at.saturating_add(count)).collect::<Vec<_>>());
+            view.go_to_page(at);
         }
         true
     }
@@ -136,14 +208,65 @@ impl NativeWindows {
         Self { root, windows: Vec::new(), next: 0, root_hidden: false }
     }
 
-    fn collect(&mut self) {
-        let mut arriving = Vec::new();
-        if let Some(tab) = self.root.take_detached_tab() {
-            arriving.push(tab);
+    fn pair_mut(&mut self, source: egui::ViewportId, target: egui::ViewportId) -> Option<(&mut PdfCraftApp, &mut PdfCraftApp)> {
+        if source == target {
+            return None;
+        }
+        if source == egui::ViewportId::ROOT {
+            return Some((&mut self.root, &mut self.windows.iter_mut().find(|w| w.id == target)?.app));
+        }
+        if target == egui::ViewportId::ROOT {
+            return Some((&mut self.windows.iter_mut().find(|w| w.id == source)?.app, &mut self.root));
+        }
+        let a = self.windows.iter().position(|w| w.id == source)?;
+        let b = self.windows.iter().position(|w| w.id == target)?;
+        if a < b {
+            let (left, right) = self.windows.split_at_mut(b);
+            Some((&mut left.get_mut(a)?.app, &mut right.first_mut()?.app))
+        } else {
+            let (left, right) = self.windows.split_at_mut(a);
+            Some((&mut right.first_mut()?.app, &mut left.get_mut(b)?.app))
+        }
+    }
+
+    fn collect(&mut self, ctx: &egui::Context) {
+        let mut requests = Vec::new();
+        if let Some(request) = self.root.detach_request.take() {
+            requests.push((egui::ViewportId::ROOT, request));
         }
         for window in &mut self.windows {
-            if let Some(tab) = window.app.take_detached_tab() {
-                arriving.push(tab);
+            if let Some(request) = window.app.detach_request.take() {
+                requests.push((window.id, request));
+            }
+        }
+        let mut arriving = Vec::new();
+        for (source, (id, position)) in requests {
+            if let Some((target, drop)) = position.and_then(|p| crate::window_drop::destination(ctx, source, p)) {
+                if let Some((from, to)) = self.pair_mut(source, target) {
+                    let accepted = match drop {
+                        crate::window_drop::Target::Tabs(at) => from.transfer_tab_to(id, to, at),
+                        crate::window_drop::Target::Pages { doc, at } => from.insert_tab_pages_into(id, to, doc, at),
+                        crate::window_drop::Target::Reject => false,
+                    };
+                    if accepted {
+                        ctx.send_viewport_cmd_to(target, egui::ViewportCommand::Focus);
+                        ctx.request_repaint_of(source);
+                        ctx.request_repaint_of(target);
+                    }
+                }
+                // A rejected drop onto an existing window leaves the source untouched.
+                continue;
+            }
+            let app = if source == egui::ViewportId::ROOT {
+                Some(&mut self.root)
+            } else {
+                self.windows.iter_mut().find(|w| w.id == source).map(|w| &mut w.app)
+            };
+            if let Some(app) = app {
+                app.detach_request = Some((id, position));
+                if let Some(tab) = app.take_detached_tab() {
+                    arriving.push(tab);
+                }
             }
         }
         for (app, position) in arriving {
@@ -185,7 +308,6 @@ impl eframe::App for NativeWindows {
         if !self.root_hidden {
             self.root.ui(ui, frame);
         }
-        self.collect();
         for window in &mut self.windows {
             window.app.motion.reduced = self.root.motion.reduced;
             let title = window
@@ -203,7 +325,13 @@ impl eframe::App for NativeWindows {
                 ui.push_id(window.id, |ui| window.app.ui(ui, frame));
             });
         }
+        self.collect(&ctx);
         self.windows.retain(|w| !w.app.window_close_ready);
+        let mut live: Vec<_> = self.windows.iter().map(|w| w.id).collect();
+        if !self.root_hidden && !self.root.window_close_ready {
+            live.push(egui::ViewportId::ROOT);
+        }
+        crate::window_drop::retain(&ctx, &live);
         if self.windows.is_empty() && (self.root.window_close_ready || self.root_hidden) {
             // eframe handles Close on the next pass. Do not cancel that final root close:
             // every document has already passed its own Save/Discard/Cancel guard.
@@ -411,5 +539,141 @@ mod tests {
         drop(child);
         drop(root);
         std::fs::remove_dir(&dir).unwrap();
+    }
+
+    #[test]
+    fn window_drop_tab_move_keeps_view_recovery_and_target_order_despite_id_collision() {
+        let mut source = app();
+        let mut target = app();
+        source.active = Some(1);
+        let id = source.views[1].id;
+        source.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        source.views[1].zoom = 2.25;
+        source.recovery_keys.insert(id, "moving-recovery".into());
+        let original: Vec<_> = target.views.iter().map(|v| v.id).collect();
+        let bytes = source.session.get(id).unwrap().bytes.clone();
+        assert!(source.transfer_tab_to(id, &mut target, 1));
+        let moved = target.views[1].id;
+        assert!(!original.contains(&moved));
+        assert_eq!(target.views[0].id, original[0]);
+        assert_eq!(target.views[2].id, original[1]);
+        assert_eq!(target.active, Some(1));
+        assert_eq!(target.views[1].zoom, 2.25);
+        assert_eq!(target.recovery_keys.get(&moved).map(String::as_str), Some("moving-recovery"));
+        assert!(std::sync::Arc::ptr_eq(&bytes, &target.session.get(moved).unwrap().bytes));
+        assert!(!source.recovery_keys.contains_key(&id));
+        target.session.undo(moved).unwrap();
+        assert_eq!(target.session.get(moved).unwrap().info.pages[0].rotation, 0);
+        target.session.redo(moved).unwrap();
+        assert!(target.transfer_tab_to(moved, &mut source, 0));
+        assert_eq!(source.views[0].zoom, 2.25);
+        assert_eq!(source.session.get(source.views[0].id).unwrap().bytes, bytes);
+    }
+
+    #[test]
+    fn window_drop_organize_copies_current_pages_at_gap_and_undo_keeps_source() {
+        let mut source = app();
+        let mut target = app();
+        let id = source.active_ids().unwrap().1;
+        let into = target.active_ids().unwrap().1;
+        source.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![1], degrees: 90 });
+        let source_bytes = source.session.get(id).unwrap().bytes.clone();
+        let target_bytes = target.session.get(into).unwrap().bytes.clone();
+        target.views[2].open_organize();
+        assert!(source.insert_tab_pages_into(id, &mut target, into, 1));
+        assert_eq!(target.session.get(into).unwrap().info.pages.len(), 6);
+        assert_eq!(target.session.get(into).unwrap().info.pages[2].rotation, 90);
+        assert_eq!(target.views[2].target_pages(), vec![1, 2, 3]);
+        assert_eq!(source.views.len(), 3);
+        assert!(std::sync::Arc::ptr_eq(&source.session.get(id).unwrap().bytes, &source_bytes));
+        target.session.undo(into).unwrap();
+        assert_eq!(target.session.get(into).unwrap().bytes, target_bytes);
+        target.session.redo(into).unwrap();
+        assert_eq!(target.session.get(into).unwrap().info.pages.len(), 6);
+        assert_eq!(source.session.get(id).unwrap().bytes, source_bytes);
+    }
+
+    #[test]
+    fn window_drop_rejection_keeps_both_documents_unchanged() {
+        let mut source = app();
+        let mut target = app();
+        let id = source.active_ids().unwrap().1;
+        let into = target.active_ids().unwrap().1;
+        let before = target.session.get(into).unwrap().bytes.clone();
+        assert!(!source.transfer_tab_to(id, &mut target, 99));
+        assert!(!source.insert_tab_pages_into(id, &mut target, into, 99));
+        target.close_request = Some(crate::CloseRequest::Quit);
+        assert!(!source.transfer_tab_to(id, &mut target, 0));
+        assert!(!source.insert_tab_pages_into(id, &mut target, into, 0));
+        assert_eq!(source.views.len(), 3);
+        assert_eq!(target.views.len(), 3);
+        assert_eq!(target.session.get(into).unwrap().bytes, before);
+        target.close_request = None;
+        target.active = Some(0);
+        assert!(!source.insert_tab_pages_into(id, &mut target, into, 0));
+    }
+
+    #[test]
+    fn window_drop_child_to_child_and_back_to_root_use_correct_sessions() {
+        let mut host = NativeWindows::new(app());
+        let a = egui::ViewportId::from_hash_of("a");
+        let b = egui::ViewportId::from_hash_of("b");
+        host.windows.push(Window { id: a, app: app(), position: None });
+        host.windows.push(Window { id: b, app: app(), position: None });
+        let (source, target) = host.pair_mut(a, b).unwrap();
+        let id = source.views[0].id;
+        assert!(source.transfer_tab_to(id, target, 0));
+        let moved = target.views[0].id;
+        let (source, target) = host.pair_mut(b, egui::ViewportId::ROOT).unwrap();
+        assert!(source.transfer_tab_to(moved, target, 3));
+        assert_eq!(host.root.views.len(), 4);
+        assert_eq!(host.windows[0].app.views.len(), 2);
+        assert_eq!(host.windows[1].app.views.len(), 3);
+        assert!(host.pair_mut(a, a).is_none());
+    }
+
+    #[test]
+    fn window_drop_organize_honors_encryption_permissions_and_accepts_unlocked_source() {
+        for permitted in [false, true] {
+            let mut source = app();
+            let mut target = app();
+            let raw = source.session.create_blank(200.0, 300.0, 2).unwrap();
+            let mut pdf = pdfcraft_cos::Document::open(raw).unwrap();
+            pdf.set_encryption(&pdfcraft_cos::NewEncryption {
+                algorithm: pdfcraft_cos::Algorithm::Aes256,
+                user_password: "",
+                owner_password: "owner",
+                permissions: if permitted { -1 } else { 4 },
+                encrypt_metadata: true,
+                seed: [3; 32],
+            })
+            .unwrap();
+            let encrypted = pdfcraft_cos::write_full(&pdf, &Default::default()).unwrap();
+            source.open_bytes("protected.pdf", None, encrypted).unwrap();
+            let id = source.active_ids().unwrap().1;
+            let into = target.active_ids().unwrap().1;
+            let before = target.session.get(into).unwrap().bytes.clone();
+            assert_eq!(source.insert_tab_pages_into(id, &mut target, into, 0), permitted);
+            assert!(source.session.get(id).unwrap().info.encrypted);
+            if permitted {
+                assert_eq!(target.session.get(into).unwrap().info.pages.len(), 5);
+            } else {
+                assert_eq!(target.session.get(into).unwrap().bytes, before);
+            }
+        }
+    }
+
+    #[test]
+    fn window_drop_remapped_file_watch_still_detects_external_changes() {
+        let mut source = app();
+        let mut target = app();
+        let id = source.views[0].id;
+        let path = std::env::temp_dir().join(format!("pdfcraft-window-drop-watch-{}.pdf", std::process::id()));
+        std::fs::write(&path, b"before").unwrap();
+        source.watch.known_now(id, path.to_str().unwrap());
+        std::fs::write(&path, b"external rewrite").unwrap();
+        assert!(source.transfer_tab_to(id, &mut target, 0));
+        assert!(target.watch.disk_differs(target.views[0].id, path.to_str().unwrap()));
+        std::fs::remove_file(&path).unwrap();
     }
 }

@@ -174,7 +174,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
-- **2026-10-20 (M3, candidate):** Windows tab tear-off moves the live document and view into another native window, retaining unsaved edits, Undo/Redo and recovery ownership. Horizontal reordering remains available. Native window, save-guard and Undo/Redo checks passed; other platforms and dragging into an existing window are not included. Estimates unchanged.
+- **2026-10-20 (M3, candidate):** Windows tab tear-off moves the live document and view into another native window, retaining unsaved edits, Undo/Redo and recovery ownership. Horizontal reordering remains available. Native window, save-guard and Undo/Redo checks passed; cross-window tab moves and Organize page insertion are included; other platforms and separate processes are not included. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
@@ -556,7 +556,7 @@ Newest first: the date, what moved, and the new overall estimate.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-20 | minor | M3: Windows tab tear-off retains live document edits, Undo/Redo, recovery ownership and horizontal reordering; independent native close guards and opt-in control viewport isolation. Other hosts and merging into existing windows remain out of scope. Estimates unchanged. |
+| 2026-10-20 | minor | M3: Windows tab tear-off retains live document edits, Undo/Redo, recovery ownership and horizontal reordering; independent native close guards and opt-in control viewport isolation. Tabs can also move into existing managed windows; Organize drops copy current PDF pages as an undoable insertion. Other hosts and separate processes remain out of scope. Estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |

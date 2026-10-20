@@ -2689,3 +2689,4 @@ key	Space	Space
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 
 	Move Tab to New Window	Chuyển thẻ sang cửa sổ mới
+	Move Tab to This Window	Chuyển thẻ sang cửa sổ này

@@ -262,17 +262,22 @@ pub struct FileWatch {
 impl FileWatch {
     /// Move the original file stamps too: detaching must not acknowledge an external rewrite.
     pub(crate) fn transfer(&mut self, id: DocId, target: &mut Self) {
+        self.transfer_as(id, target, id);
+    }
+
+    pub(crate) fn transfer_as(&mut self, id: DocId, target: &mut Self, new_id: DocId) {
         if let Some(value) = self.known.remove(&id) {
-            target.known.insert(id, value);
+            target.known.insert(new_id, value);
         }
         if let Some(value) = self.basis.remove(&id) {
-            target.basis.insert(id, value);
+            target.basis.insert(new_id, value);
         }
         if let Some(value) = self.epoch.remove(&id) {
-            target.epoch.insert(id, value);
+            target.epoch.insert(new_id, value);
         }
         if self.reload_request == Some(id) {
-            target.reload_request = self.reload_request.take();
+            self.reload_request = None;
+            target.reload_request = Some(new_id);
         }
     }
 

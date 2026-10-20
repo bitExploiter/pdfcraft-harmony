@@ -2648,3 +2648,4 @@ certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
 
 	Move Tab to New Window	Sposta scheda in una nuova finestra
+	Move Tab to This Window	Sposta scheda in questa finestra

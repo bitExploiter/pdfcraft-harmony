@@ -6128,3 +6128,31 @@ fn detach_document_moves_live_history_without_reopening_or_saving() {
     let next = target.open("second.pdf", None, Arc::new(fixture(1)), None).unwrap();
     assert_ne!(next, id);
 }
+
+#[test]
+fn transfer_document_remaps_colliding_ids_preserving_both_histories() {
+    let mut a = Session::default();
+    let mut b = Session::default();
+    let x = a.open("source.pdf", Some("source.pdf".into()), Arc::new(fixture(2)), None).unwrap();
+    let y = b.open("target.pdf", None, Arc::new(fixture(1)), None).unwrap();
+    assert_eq!(x, y);
+    a.apply(x, Edit::RotatePages { pages: vec![0], degrees: 90 }).unwrap();
+    let before = a.get(x).unwrap().bytes.clone();
+    let target_before = b.get(y).unwrap().bytes.clone();
+    let moved = a.transfer_document(x, &mut b).unwrap();
+    assert_ne!(moved, y);
+    assert!(Arc::ptr_eq(&b.get(moved).unwrap().bytes, &before));
+    assert_eq!(b.get(y).unwrap().bytes, target_before);
+    assert_eq!(b.get(moved).unwrap().path.as_deref(), Some("source.pdf"));
+    b.undo(moved).unwrap();
+    assert_eq!(b.get(moved).unwrap().info.pages[0].rotation, 0);
+    b.redo(moved).unwrap();
+    assert_eq!(b.get(moved).unwrap().info.pages[0].rotation, 90);
+    let back = b.transfer_document(moved, &mut a).unwrap();
+    assert_eq!(a.get(back).unwrap().bytes, before);
+    assert_eq!(b.docs().len(), 1);
+    assert!(a.transfer_document(DocId(u64::MAX), &mut b).is_none());
+    b.next_id = u64::MAX;
+    assert!(a.transfer_document(back, &mut b).is_none());
+    assert_eq!(a.get(back).unwrap().bytes, before);
+}

@@ -185,6 +185,7 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                     close = Some(i);
                                 }
                             }
+                            crate::window_drop::tabs(ui, full, &slots);
                             // Dragging a tab moves it (#1537): a line marks the gap it will land
                             // in, and releasing the button drops it there.
                             if let Some((from, released)) = dragged
@@ -193,8 +194,10 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 let cancelled = app.tab_drag_cancelled;
                                 let x = pointer.x;
                                 let id = app.views.get(from).map(|v| v.id);
+                                let foreign = crate::window_drop::foreign_target(ui.ctx(), pointer);
                                 let tear_off = id.is_some_and(|id| app.can_detach_tab(id))
-                                    && crate::tab_windows::outside_strip(full, ui.ctx().input(|i| i.viewport_rect()), pointer);
+                                    && (foreign.is_some() || crate::tab_windows::outside_strip(full, ui.ctx().input(|i| i.viewport_rect()), pointer));
+                                crate::window_drop::drag(ui.ctx(), (!released && !cancelled && tear_off).then_some(pointer));
                                 let to = drop_index(&slots, from, x);
                                 if released {
                                     if !cancelled && close.is_none() && action.is_none() {
@@ -217,7 +220,12 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                         .interactable(false)
                                         .show(ui.ctx(), |ui| {
                                             egui::Frame::popup(ui.style()).show(ui, |ui| {
-                                                ui.label(tl!("Move Tab to New Window"));
+                                                ui.label(match foreign.map(|(_, target)| target) {
+                                                    Some(crate::window_drop::Target::Tabs(_)) => tl!("Move Tab to This Window"),
+                                                    Some(crate::window_drop::Target::Pages { .. }) => tl!("Insert pages"),
+                                                    Some(crate::window_drop::Target::Reject) => tl!("Cancel"),
+                                                    None => tl!("Move Tab to New Window"),
+                                                });
                                             });
                                         });
                                 } else {

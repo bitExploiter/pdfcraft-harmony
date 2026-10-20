@@ -5228,6 +5228,7 @@ fn organize_grid(view: &mut DocView, info: &DocInfo, editable: bool, dirty: bool
             view.org_drag = None;
         }
     });
+    crate::window_drop::grid(ui, view.id, viewport, &cells, editable && unobstructed);
     // Files dragged in from outside go to the gap under the pointer. Some platforms don't say
     // where the pointer is until the files are dropped; then the whole grid is the target.
     let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| viewport.contains(*p));

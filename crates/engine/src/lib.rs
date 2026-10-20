@@ -4943,6 +4943,22 @@ impl Session {
         })
     }
 
+    /// Move a live document to another session, allocating a fresh target-local identity.
+    /// Missing documents or exhausted identities leave both sessions unchanged.
+    pub fn transfer_document(&mut self, id: DocId, target: &mut Self) -> Option<DocId> {
+        let index = self.docs.iter().position(|d| d.id == id)?;
+        let next = target.next_id.checked_add(1)?;
+        let new_id = DocId(next);
+        if target.get(new_id).is_some() {
+            return None;
+        }
+        let mut document = self.docs.remove(index);
+        document.id = new_id;
+        target.docs.push(document);
+        target.next_id = next;
+        Some(new_id)
+    }
+
     pub fn close(&mut self, id: DocId) {
         self.docs.retain(|d| d.id != id);
     }

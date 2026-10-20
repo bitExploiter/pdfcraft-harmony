@@ -21,6 +21,11 @@ keeps detached windows alive. A later external file-open request can show the
 original window again. Moving a tab while a modal, comparison, or mutating background
 operation is active is disabled until that interaction finishes.
 
-This adds tear-off into a **new** window. Dragging tabs into an existing window,
-restoring the arrangement of several windows after restart, and native tear-off
-on macOS/Linux or the web are not included.
+Drag onto another window's tab strip to insert the live tab at the blue marker.
+Drop onto its **Organize pages** grid to copy all of the dragged document's current
+pages at the marked gap. The source stays open and unchanged; the destination gets
+one undoable insertion. PDF editing and page-copy permissions still apply.
+
+These transfers work between windows created by this running PdfCraft instance.
+Separate processes, restoring the arrangement of several windows after restart,
+and native tear-off on macOS/Linux or the web are not included.

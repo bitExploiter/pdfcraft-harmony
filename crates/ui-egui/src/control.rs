@@ -14,6 +14,7 @@
 //! Methods (JSON in, JSON out):
 //! - `ui.state`: open documents, active document, page, zoom, page errors, mode, panels, dialog,
 //!   notice and observed window dimensions in logical points.
+//!   `managed_windows` gives native drop regions and desktop-pixel origins for cross-window drags.
 //! - `ui.inspect {query?, role?, focused?, limit?}`: widgets in tree order with `id` (a string), `role`, `label`,
 //!   `value`, `rect` (points), `enabled`, `toggled`, `selected`, `clickable`, `focusable`, `focused`, `depth`.
 //! - `ui.click {id}` | `{label}` | `{x, y, button?}`: click a widget (by its AccessKit action) or a
@@ -287,6 +288,7 @@ impl Control {
                 let mut state = host.state();
                 let size = ctx.input(|i| i.viewport_rect().size());
                 state["window"] = json!({ "width": size.x, "height": size.y, "pixels_per_point": ctx.pixels_per_point() });
+                state["managed_windows"] = crate::window_drop::inspect(ctx);
                 Ok(Handled::Now(Ok(state)))
             }
             "ui.commands" => Ok(Handled::Now(Ok(host.commands()))),

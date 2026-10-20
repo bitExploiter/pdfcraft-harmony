@@ -144,6 +144,7 @@ mod wheel_boost;
 mod wheel_pager;
 mod widgets;
 pub mod window_controls;
+mod window_drop;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod window_state;
 
@@ -2973,6 +2974,7 @@ impl eframe::App for PdfCraftApp {
         self.window_state.repair(ctx);
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.tab_drag_cancelled = true;
+            crate::window_drop::drag(ctx, None);
         }
         self.dialog_epoch();
         // Notices raised outside `ui` (opened files, OS events, the control channel) translate too.
@@ -3134,6 +3136,7 @@ impl eframe::App for PdfCraftApp {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        crate::window_drop::begin(&ctx, self.managed_windows && !self.window_close_ready);
         i18n::set_current(i18n::Lang::from_pref(&self.language));
         // Fonts registered via set_fonts only take effect next frame; named families would panic now.
         if !self.fonts_ready {
