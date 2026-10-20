@@ -217,6 +217,7 @@ impl ShapingContext {
             uv_rect,
             section_index: self.section_index,
             first_vertex: 0,
+            render_only: false,
         }
     }
 }
@@ -418,12 +419,16 @@ fn layout_shaped_run(
     }
 }
 
-/// Emit zero-width continuation glyphs when a cluster has more characters than
-/// shaped glyphs.
+/// Reconcile a cluster's shaped-glyph count with its character count so that the number of
+/// **cursor columns** equals the character count — the invariant all cursor and text-selection code
+/// depends on.
 ///
-/// This preserves the invariant `glyphs.len() == char_count` that all cursor
-/// and text-selection code depends on. Continuation glyphs have
-/// [`UvRect::default()`] so [`tessellate_glyphs`] skips them entirely.
+/// - Fewer glyphs than characters (ligatures, flag emojis): emit zero-width continuation glyphs with
+///   [`UvRect::default()`] so [`tessellate_glyphs`] skips them.
+/// - More glyphs than characters (PdfCraft patch — GSUB decomposition such as Noto Sans Arabic
+///   splitting a dotted letter into a base plus i'jam dot glyphs via `ccmp`): mark the surplus
+///   glyphs [`Glyph::render_only`], preferring the zero-advance mark glyphs, so the drawn dots are
+///   not counted as cursor columns and the caret no longer drifts over dotted Arabic text.
 fn emit_continuation_glyphs(
     ctx: &ShapingContext,
     paragraph: &mut Paragraph,
@@ -437,7 +442,34 @@ fn emit_continuation_glyphs(
         return;
     };
     let char_count = cluster_text.chars().count();
-    if char_count <= cluster_glyph_count {
+    if cluster_glyph_count > char_count {
+        // Surplus decomposition glyphs: keep `char_count` cursor columns and mark the rest
+        // render-only. The cluster's glyphs are the last `cluster_glyph_count` pushed. Prefer the
+        // zero-advance glyphs (the combining marks / dots) so an advancing base glyph stays the
+        // cursor column; if there are not enough, mark from the end.
+        let total = paragraph.glyphs.len();
+        let start = total.saturating_sub(cluster_glyph_count);
+        let mut remaining = cluster_glyph_count - char_count;
+        for i in start..total {
+            if remaining == 0 {
+                break;
+            }
+            if paragraph.glyphs[i].advance_width == 0.0 && !paragraph.glyphs[i].render_only {
+                paragraph.glyphs[i].render_only = true;
+                remaining -= 1;
+            }
+        }
+        let mut i = total;
+        while remaining > 0 && i > start {
+            i -= 1;
+            if !paragraph.glyphs[i].render_only {
+                paragraph.glyphs[i].render_only = true;
+                remaining -= 1;
+            }
+        }
+        return;
+    }
+    if char_count == cluster_glyph_count {
         return;
     }
 
@@ -959,6 +991,7 @@ fn replace_last_glyph_with_overflow_character(
                 uv_rect: replacement_glyph_alloc.uv_rect,
                 section_index,
                 first_vertex: 0, // filled in later
+                render_only: false,
             });
             return;
         }

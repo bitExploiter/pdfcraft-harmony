@@ -924,6 +924,15 @@ pub struct Glyph {
 
     /// Which is our first vertex in [`RowVisuals::mesh`].
     pub first_vertex: u32,
+
+    /// PdfCraft patch: this glyph is drawn but is **not** a cursor column. It is a surplus glyph of
+    /// a cluster that decomposed into more glyphs than characters (e.g. Noto Sans Arabic maps a
+    /// dotted letter such as ب/ت/ث/ن/ي to a base plus separate i'jam dot glyphs via `ccmp`). The
+    /// tessellator still draws it, but every cursor, selection and `Row::text` path skips it, so
+    /// the number of cursor columns on a row equals its character count — the invariant egui's
+    /// caret model relies on. `false` for all ordinary glyphs, so non-decomposed text (the whole
+    /// LTR/CJK UI) is unaffected.
+    pub(crate) render_only: bool,
 }
 
 impl Glyph {
@@ -949,34 +958,45 @@ impl Glyph {
 impl Row {
     /// The text on this row, excluding the implicit `\n` if any.
     pub fn text(&self) -> String {
-        self.glyphs.iter().map(|g| g.chr).collect()
+        // PdfCraft patch: skip render-only decomposition glyphs so the text matches the cursor
+        // columns one-to-one.
+        self.glyphs.iter().filter(|g| !g.render_only).map(|g| g.chr).collect()
     }
 
     /// Excludes the implicit `\n` after the [`Row`], if any.
     #[inline]
     pub fn char_count_excluding_newline(&self) -> CharIndex {
-        CharIndex(self.glyphs.len())
+        // PdfCraft patch: one cursor column per character — render-only decomposition glyphs (e.g.
+        // Arabic i'jam dots) are drawn but are not columns.
+        CharIndex(self.glyphs.iter().filter(|g| !g.render_only).count())
     }
 
-    /// PdfCraft patch: whether this row mixes writing directions (right-to-left is present).
-    /// After [`bidi_reorder_row`](crate::text::text_layout) a pure left-to-right row keeps glyphs
-    /// in non-decreasing `pos.x`; any right-to-left content makes some logical neighbour step left.
+    /// PdfCraft patch: the glyphs that are cursor columns — every glyph except render-only
+    /// decomposition marks. For text with no decomposition this is every glyph, so left-to-right and
+    /// CJK layout and cursoring are byte-identical to upstream.
+    fn cursor_glyphs(&self) -> Vec<&Glyph> {
+        self.glyphs.iter().filter(|g| !g.render_only).collect()
+    }
+
+    /// PdfCraft patch: whether a row's cursor glyphs mix writing directions (right-to-left present).
+    /// After [`bidi_reorder_row`](crate::text::text_layout) a pure left-to-right row keeps them in
+    /// non-decreasing `pos.x`; any right-to-left content makes some logical neighbour step left.
     /// Pure left-to-right rows take the exact upstream cursor paths, so they are unaffected.
-    fn is_bidi(&self) -> bool {
-        self.glyphs.windows(2).any(|w| w[1].pos.x < w[0].pos.x)
+    fn cols_are_bidi(cols: &[&Glyph]) -> bool {
+        cols.windows(2).any(|w| w[1].pos.x < w[0].pos.x)
     }
 
-    /// PdfCraft patch: whether the glyph at logical index `i` is laid out right-to-left, inferred
+    /// PdfCraft patch: whether the cursor glyph at column `i` is laid out right-to-left, inferred
     /// from where its logical neighbour sits (its visual direction). Only meaningful on a bidi row.
-    fn glyph_is_rtl(&self, i: usize) -> bool {
-        let x = self.glyphs[i].pos.x;
-        if let Some(next) = self.glyphs.get(i + 1)
+    fn col_is_rtl(cols: &[&Glyph], i: usize) -> bool {
+        let x = cols[i].pos.x;
+        if let Some(next) = cols.get(i + 1)
             && next.pos.x != x
         {
             return next.pos.x < x;
         }
         if i > 0 {
-            let prev = self.glyphs[i - 1].pos.x;
+            let prev = cols[i - 1].pos.x;
             if prev != x {
                 return prev > x;
             }
@@ -987,43 +1007,45 @@ impl Row {
     /// Closest char at the desired x coordinate in row-relative coordinates.
     /// Returns something in the range `[0, char_count_excluding_newline()]`.
     pub fn char_at(&self, desired_x: f32) -> CharIndex {
-        if !self.is_bidi() {
-            for (i, glyph) in self.glyphs.iter().enumerate() {
+        let cols = self.cursor_glyphs();
+        if !Self::cols_are_bidi(&cols) {
+            for (i, glyph) in cols.iter().enumerate() {
                 if desired_x < glyph.logical_rect().center().x {
                     return CharIndex(i);
                 }
             }
-            return self.char_count_excluding_newline();
+            return CharIndex(cols.len());
         }
-        // PdfCraft patch: bidi hit-testing. Glyphs are in logical order with visual positions, so
-        // the nearest glyph by visual centre gives the logical char; which side of it the caret
+        // PdfCraft patch: bidi hit-testing. Cursor glyphs are in logical order with visual positions,
+        // so the nearest one by visual centre gives the logical char; which side of it the caret
         // lands on (before = leading, after = trailing) depends on that glyph's direction.
         let mut best_col = 0;
         let mut best_dist = f32::INFINITY;
-        for (i, g) in self.glyphs.iter().enumerate() {
+        for (i, g) in cols.iter().enumerate() {
             let centre = g.pos.x + g.advance_width * 0.5;
             let dist = (desired_x - centre).abs();
             if dist < best_dist {
                 best_dist = dist;
-                let leading = if self.glyph_is_rtl(i) { desired_x >= centre } else { desired_x < centre };
+                let leading = if Self::col_is_rtl(&cols, i) { desired_x >= centre } else { desired_x < centre };
                 best_col = if leading { i } else { i + 1 };
             }
         }
-        CharIndex(best_col.min(self.glyphs.len()))
+        CharIndex(best_col.min(cols.len()))
     }
 
     pub fn x_offset(&self, column: CharIndex) -> f32 {
-        if !self.is_bidi() {
-            return if let Some(glyph) = self.glyphs.get(column.0) { glyph.pos.x } else { self.size.x };
+        let cols = self.cursor_glyphs();
+        if !Self::cols_are_bidi(&cols) {
+            return if let Some(glyph) = cols.get(column.0) { glyph.pos.x } else { self.size.x };
         }
         // PdfCraft patch: the caret's visual x at logical boundary `column`. The caret sits on the
         // leading edge of the character it precedes — the left edge for a left-to-right glyph, the
         // right edge for a right-to-left one — so a logical caret tracks the correct visual side.
-        if let Some(glyph) = self.glyphs.get(column.0) {
-            if self.glyph_is_rtl(column.0) { glyph.pos.x + glyph.advance_width } else { glyph.pos.x }
-        } else if let Some(last) = self.glyphs.last() {
-            let last_i = self.glyphs.len() - 1;
-            if self.glyph_is_rtl(last_i) { last.pos.x } else { last.pos.x + last.advance_width }
+        if let Some(glyph) = cols.get(column.0) {
+            if Self::col_is_rtl(&cols, column.0) { glyph.pos.x + glyph.advance_width } else { glyph.pos.x }
+        } else if let Some(last) = cols.last() {
+            let last_i = cols.len() - 1;
+            if Self::col_is_rtl(&cols, last_i) { last.pos.x } else { last.pos.x + last.advance_width }
         } else {
             self.size.x
         }
@@ -1049,7 +1071,8 @@ impl PlacedRow {
     /// Includes the implicit `\n` after the [`PlacedRow`], if any.
     #[inline]
     pub fn char_count_including_newline(&self) -> CharIndex {
-        CharIndex(self.row.glyphs.len() + (self.ends_with_newline as usize))
+        // PdfCraft patch: count cursor columns, not glyphs (render-only decomposition glyphs aren't columns).
+        CharIndex(self.row.char_count_excluding_newline().0 + (self.ends_with_newline as usize))
     }
 }
 

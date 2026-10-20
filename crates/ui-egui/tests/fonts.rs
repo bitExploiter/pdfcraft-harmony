@@ -352,20 +352,24 @@ fn arabic_text_lays_out_right_to_left_in_logical_order() {
     let galley = view.layout_no_wrap(ARABIC.to_owned(), FontId::proportional(13.0), Color32::BLACK);
     let row = &galley.rows[0].row;
 
-    // Base glyphs advance the pen; combining marks (the i'jam dots on ث ن ي) are zero-advance and
-    // sit on their base. The base glyphs, in order, are the characters in logical order — which is
-    // what egui's cursor model maps against.
-    let bases: Vec<(char, f32)> = row.glyphs.iter().filter(|g| g.advance_width > 0.0).map(|g| (g.chr, g.pos.x)).collect();
-    let base_chars: String = bases.iter().map(|(c, _)| *c).collect();
-    assert_eq!(base_chars, ARABIC, "base glyphs must stay in logical order");
+    // Noto Sans Arabic decomposes dotted letters (ث ن ي) into a base plus separate i'jam dot glyphs
+    // via `ccmp`, so a row has more glyphs than characters. Confirm this test actually exercises
+    // that case — otherwise the invariant below is trivially true.
+    let n = ARABIC.chars().count();
+    assert!(row.glyphs.len() > n, "expected decomposition (more glyphs than chars): {} glyphs, {n} chars", row.glyphs.len());
 
-    // Right-to-left: the first logical character sits to the right of the last.
-    let first = bases.first().unwrap().1;
-    let last = bases.last().unwrap().1;
-    assert!(first > last, "RTL text must run right-to-left: first.x {first} <= last.x {last}");
+    // The invariant egui's caret and selection rely on: one cursor column per character. The drawn
+    // i'jam dots are render-only glyphs, excluded from the cursor/text model, so the row reports
+    // exactly `n` columns and its text is the input in logical order with no duplicated mark chars.
+    // (Before this fix, the surplus dot glyphs each became a column, drifting the caret.)
+    assert_eq!(row.char_count_excluding_newline().0, n, "one caret column per character, not per glyph");
+    assert_eq!(row.text(), ARABIC, "cursor text is the input in logical order");
 
-    // The base glyphs step strictly leftwards in logical order (true right-to-left layout).
-    assert!(bases.windows(2).all(|w| w[1].1 < w[0].1), "RTL base glyphs must descend in x");
+    // Right-to-left: the advancing base glyphs step strictly leftwards in logical order.
+    // (`render_only` is crate-private to epaint, so bases are identified here by their advance.)
+    let bases: Vec<f32> = row.glyphs.iter().filter(|g| g.advance_width > 0.0).map(|g| g.pos.x).collect();
+    assert!(bases.first().unwrap() > bases.last().unwrap(), "RTL text must run right-to-left");
+    assert!(bases.windows(2).all(|w| w[1] < w[0]), "RTL base glyphs must descend in x: {bases:?}");
 
     // Combining marks carry their base character and sit on it (no horizontal advance of their own).
     for (i, g) in row.glyphs.iter().enumerate().filter(|(_, g)| g.advance_width == 0.0) {
