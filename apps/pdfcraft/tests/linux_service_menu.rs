@@ -36,22 +36,12 @@ fn combine_is_offered_for_pdfs_and_pictures() {
     assert_eq!(value(&entry, "Type"), Some("Service"));
     assert!(value(&entry, "X-KDE-Priority").is_some(), "a priority places the entry");
 
-    let types: Vec<&str> =
-        value(&entry, "MimeType").unwrap_or_default().split(';').filter(|t| !t.is_empty()).collect();
-    for wanted in [
-        "application/pdf",
-        "image/png",
-        "image/jpeg",
-        "image/tiff",
-        "image/gif",
-        "image/bmp",
-        "image/jp2",
-    ] {
+    let types: Vec<&str> = value(&entry, "MimeType").unwrap_or_default().split(';').filter(|t| !t.is_empty()).collect();
+    for wanted in ["application/pdf", "image/png", "image/jpeg", "image/tiff", "image/gif", "image/bmp", "image/jp2"] {
         assert!(types.contains(&wanted), "{wanted} missing from {types:?}");
     }
 
-    let actions: Vec<&str> =
-        value(&entry, "Actions").unwrap_or_default().split(';').filter(|a| !a.is_empty()).collect();
+    let actions: Vec<&str> = value(&entry, "Actions").unwrap_or_default().split(';').filter(|a| !a.is_empty()).collect();
     assert_eq!(actions, ["combine"]);
     let action = group(&text, "Desktop Action combine").expect("a [Desktop Action combine] group");
     assert_eq!(value(&action, "Name"), Some("Combine files in PdfCraft"));
@@ -63,8 +53,5 @@ fn combine_is_offered_for_pdfs_and_pictures() {
 #[test]
 fn the_service_menu_is_installed_with_the_linux_packages() {
     let script = read("packaging/linux/package.sh");
-    assert!(
-        script.contains("kio-servicemenus/$APP_ID-combine.desktop"),
-        "package.sh must stage the service menu under usr/share/kio/servicemenus"
-    );
+    assert!(script.contains("kio-servicemenus/$APP_ID-combine.desktop"), "package.sh must stage the service menu under usr/share/kio/servicemenus");
 }
