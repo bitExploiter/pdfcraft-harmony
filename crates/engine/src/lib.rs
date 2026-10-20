@@ -254,6 +254,17 @@ fn plain_copy(cos: &pdfcraft_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
     write_full(&plain, &SaveOptions::default()).map(Arc::new).map_err(|e| EditError::Write(e.to_string()))
 }
 
+/// The working file: the file as opened or last saved, plus one appended update with the unsaved
+/// edits. A certificate-protected document's working file stays encrypted; its
+/// [`Document::bytes`] are a decrypted copy that must not leave memory.
+fn working_file(cos: &pdfcraft_cos::Document) -> Result<Arc<Vec<u8>>, EditError> {
+    if cos.is_modified() {
+        write_incremental(cos, &SaveOptions::default()).map(Arc::new).map_err(|e| EditError::Write(e.to_string()))
+    } else {
+        Ok(cos.bytes().clone())
+    }
+}
+
 /// What one of `identities` makes of the envelopes: the seed and permissions of the first
 /// envelope addressed to it.
 fn unlock_with_identities(identities: &[Arc<pdfcraft_sign::DigitalId>], envelopes: &[Vec<u8>]) -> Option<CertificateKey> {
@@ -411,7 +422,9 @@ pub struct Document {
     pub id: DocId,
     pub name: String,
     pub path: Option<String>,
-    /// The working file: what Save writes.
+    /// What the renderer and inspector read: the working file, or for a certificate-protected
+    /// document (which they cannot open) a decrypted copy of it, never to be written anywhere.
+    /// Save writes from the editor, never from these.
     pub bytes: Arc<Vec<u8>>,
     /// What is displayed (the page view, `page_render`, page images): `bytes`, plus appearances
     /// drawn for display only for comments that have none ([`display_bytes`]). Never saved.
@@ -939,10 +952,18 @@ fn is_placeholder_title(title: &str) -> bool {
 /// which image/text exports and Print as Image also consume.
 fn display_bytes(editor: Option<&mut Editor>, bytes: &Arc<Vec<u8>>) -> Arc<Vec<u8>> {
     let Some(e) = editor else { return bytes.clone() };
-    let Some(display) = pdfcraft_annot::with_missing_appearances_cached(&e.cos, &mut e.appearances) else {
+    let Some(mut display) = pdfcraft_annot::with_missing_appearances_cached(&e.cos, &mut e.appearances) else {
         return bytes.clone();
     };
-    match write_incremental(&display, &SaveOptions::default()) {
+    // A certificate-protected file is shown from a decrypted copy (`bytes`): so is its display
+    // copy, or the renderer could not open it. It stays in memory, like `bytes`.
+    let written = if certificate_secured(&display) {
+        display.remove_encryption();
+        write_full(&display, &SaveOptions::default())
+    } else {
+        write_incremental(&display, &SaveOptions::default())
+    };
+    match written {
         Ok(written) => Arc::new(written),
         Err(err) => {
             e.cos.note_repair(format!("missing comment appearances could not be drawn ({err})"));
@@ -1008,7 +1029,15 @@ fn shown_under_redactions(
             list.into_iter().filter(|o| shown.resolve(o).as_dict().and_then(|d| d.name(b"PCMark")) != Some(b"Redaction")).collect();
         shown.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Array(kept))).map_err(|e| EditError::Write(e.to_string()))?;
     }
-    let bytes = write_incremental(&shown, &SaveOptions::default()).map_err(|e| EditError::Write(e.to_string()))?;
+    // The renderer cannot open certificate security: it reads a decrypted copy, in memory only,
+    // as the page view does.
+    let bytes = if certificate_secured(&shown) {
+        shown.remove_encryption();
+        write_full(&shown, &SaveOptions::default())
+    } else {
+        write_incremental(&shown, &SaveOptions::default())
+    }
+    .map_err(|e| EditError::Write(e.to_string()))?;
     let config = RenderConfig { password: password.map(Arc::from), ..Default::default() };
     let mut renderer = pdfcraft_render::PageRenderer::new(Arc::new(bytes), config);
     let mut residue = 0;
@@ -3442,7 +3471,10 @@ impl Session {
         let ends = doc.revision_ends();
         let end = *n.checked_sub(1).and_then(|i| ends.get(i)).ok_or_else(|| format!("the document has {} revision(s)", ends.len()))?;
         let name = format!("{} (revision {n}).pdf", doc.name.trim_end_matches(".pdf"));
-        let (bytes, password) = (Arc::new(doc.bytes[..end.min(doc.bytes.len())].to_vec()), doc.password.clone());
+        // Revision ends are offsets in the file itself: a certificate-protected document's
+        // `bytes` are a decrypted rewrite of it.
+        let file = doc.editor.as_ref().map_or_else(|| doc.bytes.clone(), |e| e.cos.bytes().clone());
+        let (bytes, password) = (Arc::new(file[..end.min(file.len())].to_vec()), doc.password.clone());
         self.open(name, None, bytes, password.as_deref()).map_err(|e| e.to_string())
     }
 
@@ -3649,7 +3681,7 @@ impl Session {
         let (bytes, info, cos) = match cos {
             Ok(Ok(cos)) if !info.pages.is_empty() && pdfcraft_organize::page_count(&cos).unwrap_or(0) == 0 => {
                 let mut work = cos.clone();
-                let signed = || pdfcraft_sign::pdf::list(&cos, &bytes, &context.trust).iter().any(|s| s.signed);
+                let signed = || pdfcraft_sign::pdf::list(&cos, cos.bytes(), &context.trust).iter().any(|s| s.signed);
                 let rebuilt = match pdfcraft_organize::recover_page_tree(&mut work) {
                     Ok(n) if n > 0 && !signed() => rebase(&work).ok().filter(|(_, i, _)| same_pages(&i.pages, &info.pages)),
                     _ => None,
@@ -3719,7 +3751,8 @@ impl Session {
             Err(_) => (None, Some("the document structure could not be read for editing".into())),
         };
         let sig_cache = Arc::new(pdfcraft_sign::DigestCache::default());
-        let signatures = editor.as_ref().map(|e| signatures_of(&e.cos, &bytes, trust, &sig_cache)).unwrap_or_default();
+        // Signatures cover the file itself (`bytes` may be a decrypted copy of it).
+        let signatures = editor.as_ref().map(|e| signatures_of(&e.cos, e.cos.bytes(), trust, &sig_cache)).unwrap_or_default();
         let display = display_bytes(editor.as_mut(), &bytes);
         let renderer = RenderPool::new(display.clone(), render_threads(), config.clone());
         let (form, adopted) = editor
@@ -4038,11 +4071,7 @@ impl Session {
         if matches!(scope, Scope::Comments | Scope::Form) {
             editor.appearances.clear();
         }
-        let file_bytes = if editor.cos.is_modified() {
-            Arc::new(write_incremental(&editor.cos, &SaveOptions::default()).map_err(|e| EditError::Write(e.to_string()))?)
-        } else {
-            editor.cos.bytes().clone()
-        };
+        let file_bytes = working_file(&editor.cos)?;
         // A certificate-protected file is read through a decrypted copy; signatures are checked
         // over the file's own bytes.
         let bytes = if certificate_secured(&editor.cos) { plain_copy(&editor.cos)? } else { file_bytes.clone() };
@@ -4136,11 +4165,7 @@ impl Session {
         Self::release_working(doc);
         sync_xfa_state(doc);
         let Some(editor) = doc.editor.as_mut() else { return Ok(()) };
-        let file_bytes = if editor.cos.is_modified() {
-            Arc::new(write_incremental(&editor.cos, &SaveOptions::default()).map_err(|e| EditError::Write(e.to_string()))?)
-        } else {
-            editor.cos.bytes().clone()
-        };
+        let file_bytes = working_file(&editor.cos)?;
         // A certificate-protected file is read through a decrypted copy; signatures are checked
         // over the file's own bytes.
         let bytes = if certificate_secured(&editor.cos) { plain_copy(&editor.cos)? } else { file_bytes.clone() };
@@ -4201,11 +4226,7 @@ impl Session {
         Self::release_working(doc);
         sync_xfa_state(doc);
         let Some(editor) = doc.editor.as_mut() else { return Ok(()) };
-        let file_bytes = if editor.cos.is_modified() {
-            Arc::new(write_incremental(&editor.cos, &SaveOptions::default()).map_err(|e| EditError::Write(e.to_string()))?)
-        } else {
-            editor.cos.bytes().clone()
-        };
+        let file_bytes = working_file(&editor.cos)?;
         // A certificate-protected file is read through a decrypted copy; signatures are checked
         // over the file's own bytes.
         let bytes = if certificate_secured(&editor.cos) { plain_copy(&editor.cos)? } else { file_bytes.clone() };
@@ -4890,12 +4911,21 @@ impl Session {
         let mut out = Vec::new();
         for d in &mut self.docs {
             if d.dirty && d.generation != d.snapshot_generation {
+                // A certificate-protected document's `bytes` are a decrypted copy: its snapshot is
+                // the encrypted working file, or none this time (never the plaintext).
+                let bytes = match d.editor.as_ref().filter(|e| certificate_secured(&e.cos)) {
+                    Some(e) => match working_file(&e.cos) {
+                        Ok(file) => file,
+                        Err(_) => continue,
+                    },
+                    None => d.bytes.clone(),
+                };
                 d.snapshot_generation = d.generation;
                 out.push(RecoverySnapshot {
                     doc: d.id,
                     name: d.name.clone(),
                     path: d.path.clone(),
-                    bytes: d.bytes.clone(),
+                    bytes,
                     encrypted: d.info.encrypted || d.editor.as_ref().is_some_and(|e| e.cos.security().is_some()),
                 });
             }
@@ -5024,7 +5054,18 @@ impl Session {
             let Some(editor) = doc.editor.as_mut() else { continue };
             // Keep verdict refresh and renderer refresh together. Viewer caches are
             // invalidated by the UI trust path; trust alone changes no document artwork.
-            let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache) };
+            let signatures = if doc.signatures.is_empty() {
+                Vec::new()
+            } else if certificate_secured(&editor.cos) {
+                // `doc.bytes` are a decrypted copy; signatures cover the file itself. Where it
+                // cannot be written, the verdicts stay as they were.
+                match working_file(&editor.cos) {
+                    Ok(file) => signatures_of(&editor.cos, &file, &doc.trust, &doc.sig_cache),
+                    Err(_) => doc.signatures.as_ref().clone(),
+                }
+            } else {
+                signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache)
+            };
             doc.display = display_bytes(Some(editor), &doc.bytes);
             doc.signatures = Arc::new(signatures);
             doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
