@@ -1677,3 +1677,36 @@ fn a_note_whose_highlight_was_undone_does_not_block_saving_or_land_elsewhere() {
     assert_eq!(draft(&h), None, "the note is dropped rather than kept for whatever comment takes its place");
     let _ = std::fs::remove_dir_all(out.parent().unwrap());
 }
+
+#[test]
+fn revert_to_saved_closes_the_open_note_and_restores_the_saved_text() {
+    use pdfcraft_ui_egui::Dialog;
+    let out = saved_path("revert");
+    let mut h = highlight_with_open_note();
+    set_note(&mut h, "Saved note");
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    assert!(save(&mut h));
+    assert_eq!(contents(&comments(&h)[0]), "Saved note");
+    // Since the save: the comment's text changed, and a note is being typed into its card again.
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::SetAnnotationContents { page: 0, index: 0, text: "Unsaved change".into() }));
+    let target = pdfcraft_ui_egui::comments::DraftTarget::of(&comments(&h)[0]);
+    let card = &mut h.state_mut().views[0].comments;
+    card.editing = Some((0, 0, "Still typing".into()));
+    card.editing_target = Some(target);
+    h.run_steps(2);
+    assert_eq!(h.state().first_dirty(), Some(0));
+    // File ▸ Revert, confirmed in its dialog.
+    assert!(h.state_mut().execute("file.revert"));
+    h.run_steps(2);
+    assert_eq!(h.state().dialog, Some(Dialog::Revert));
+    h.get_all_by_label("Revert").last().expect("the button").click();
+    h.run_steps(3);
+    assert_eq!(h.state().dialog, None);
+    assert_eq!(draft(&h), None, "Revert closed the open note");
+    assert_eq!(contents(&comments(&h)[0]), "Saved note", "the comment's text is the saved one again");
+    assert_eq!(h.state().first_dirty(), None, "nothing is left unsaved");
+    // Saving now writes the saved text, not the discarded note.
+    assert!(save(&mut h));
+    assert_eq!(contents(&saved_comments(&out)[0]), "Saved note");
+    let _ = std::fs::remove_dir_all(out.parent().unwrap());
+}
