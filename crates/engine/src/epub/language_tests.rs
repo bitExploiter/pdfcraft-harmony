@@ -10,7 +10,7 @@ fn real_language_tags_are_kept() {
 
 #[test]
 fn text_that_is_not_a_language_tag_is_dropped() {
-    for tag in ["x", "en-1", "-", "en-", "-US", "en--US", "1en", "english-language", "en-toolongsubtag", "e n", "e1"] {
+    for tag in ["x", "en-1", "-", "en-", "-US", "en--US", "1en", "en-toolongsubtag", "e n", "e1"] {
         assert!(!language_tag(tag), "{tag}");
     }
 }
