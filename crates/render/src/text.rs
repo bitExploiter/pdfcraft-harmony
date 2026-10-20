@@ -398,8 +398,8 @@ impl PageText {
     /// Whether a column gutter lies between `x0` and `x1` (either order) in the rows whose
     /// centres lie between `top` and `bottom`: a vertical strip at least `width` wide that no
     /// glyph of those rows crosses, with at least two lines of text on each side of it between
-    /// `x0` and `x1`, or past `x1` when the strip reaches it (columns' baselines need not line
-    /// up). The gap a justified line leaves between two words has only that line beyond it.
+    /// `x0` and `x1`, or beyond either when the strip reaches it (columns' baselines need not
+    /// line up). The gap a justified line leaves between two words has only that line beyond it.
     fn gutter_between(&self, x0: f32, x1: f32, top: f32, bottom: f32, width: f32) -> bool {
         self.gutter_strip(x0, x1, top, bottom, width).is_some()
     }
@@ -428,11 +428,12 @@ impl PageText {
             lines
         };
         // Text within lo..hi counts, so a column beyond the span parts nothing inside it; but a
-        // strip running on to `hi`, where the point is out in a gap, is a gutter if a column
-        // follows it.
+        // strip running on to either end, where the point is out in a gap, is a gutter if a
+        // column lies beyond it.
         let parted = |g0: f32, g1: f32| {
+            let left = if g0 <= lo { f32::NEG_INFINITY } else { lo };
             let right = if g1 >= hi { f32::INFINITY } else { hi };
-            lines_beside(&|_, b| (lo..=g0).contains(&b)) >= 2 && lines_beside(&|a, _| (g1..=right).contains(&a)) >= 2
+            lines_beside(&|_, b| (left..=g0).contains(&b)) >= 2 && lines_beside(&|a, _| (g1..=right).contains(&a)) >= 2
         };
         let mut spans: Vec<(f32, f32)> = rows.iter().filter(|&&(_, a, b)| b > lo && a < hi).map(|&(_, a, b)| (a, b)).collect();
         spans.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -3221,6 +3222,23 @@ mod tests {
         // y 27: between the right lines (16..26 and 28..38), within the left line at 22..32.
         let i = t.nearest(205.0, 27.0).expect("a glyph");
         assert!(t.glyphs[i].rect[0] >= 200.0, "took {:?} at {:?}", t.glyphs[i].text, t.glyphs[i].rect);
+    }
+
+    /// The mirror image: a point in the gutter just right of the left column, between two of its
+    /// lines and level with a right-hand line, takes the left-hand line beside it.
+    #[test]
+    fn a_point_in_the_gutter_is_not_taken_by_the_far_column_level_with_it() {
+        let mut v = Vec::new();
+        for row in 0..3 {
+            word(&mut v, "Left text", 10.0, 10.0 + row as f32 * 12.0, 6.0);
+        }
+        for row in 0..2 {
+            word(&mut v, "Right text", 200.0, 16.0 + row as f32 * 12.0, 6.0);
+        }
+        let t = layout(v);
+        // y 21: between the left lines (10..20 and 22..32), within the right line at 16..26.
+        let i = t.nearest(70.0, 21.0).expect("a glyph");
+        assert!(t.glyphs[i].rect[2] <= 64.0, "took {:?} at {:?}", t.glyphs[i].text, t.glyphs[i].rect);
     }
 
     /// The same, with the left line level with the point the longest of its column (ragged right):
