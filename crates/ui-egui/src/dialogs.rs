@@ -7,7 +7,7 @@ use pdfcraft_engine::Edit;
 
 use crate::{CloseRequest, Dialog, PdfCraftApp, PropsTab, panels::human_size, widgets};
 
-const INFO_KEYS: [&str; 4] = ["Title", "Author", "Subject", "Keywords"];
+const INFO_KEYS: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "CreationDate", "ModDate"];
 
 pub fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     dialogs(app, ctx);
@@ -136,7 +136,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             match app.props_draft.as_mut() {
                                 Some((_, draft)) if doc.allows_modification() => {
                                     for (k, v) in INFO_KEYS.iter().zip(draft.iter_mut()) {
-                                        let l = ui.label(egui::RichText::new(tl!(k)).color(t.text_muted));
+                                        let label = match *k {
+                                            "CreationDate" => tl!("Created"),
+                                            "ModDate" => tl!("Modified"),
+                                            other => tl!(other),
+                                        };
+                                        let l = ui.label(egui::RichText::new(label).color(t.text_muted));
                                         ui.add(widgets::line(v).desired_width(420.0).background_color(t.field).id_salt(("info", *k)))
                                             .labelled_by(l.id);
                                         ui.end_row();
@@ -147,6 +152,8 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                     row(ui, "Author", i.author.clone().unwrap_or_default());
                                     row(ui, "Subject", i.subject.clone().unwrap_or_default());
                                     row(ui, "Keywords", i.keywords.clone().unwrap_or_default());
+                                    row(ui, "Created", i.creation_date.as_deref().map(pdfcraft_render::pretty_date).unwrap_or_default());
+                                    row(ui, "Modified", i.mod_date.as_deref().map(pdfcraft_render::pretty_date).unwrap_or_default());
                                 }
                             }
                             row(ui, "Application", i.creator.clone().unwrap_or_default());

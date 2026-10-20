@@ -562,11 +562,89 @@ pub fn insert_blank_page(doc: &mut Document, at: usize, width: f64, height: f64)
 }
 
 /// Document information keys editable in Document Properties ▸ Description.
-pub const INFO_KEYS: [&str; 4] = ["Title", "Author", "Subject", "Keywords"];
+pub const INFO_KEYS: [&str; 6] = ["Title", "Author", "Subject", "Keywords", "CreationDate", "ModDate"];
 
 /// The document-information entries the spec names (ISO 32000-2 table 349). Any other key in
 /// `/Info` is a custom property (Document Properties ▸ Custom).
 pub const STANDARD_INFO_KEYS: [&str; 9] = ["Title", "Author", "Subject", "Keywords", "Creator", "Producer", "CreationDate", "ModDate", "Trapped"];
+
+/// Canonicalize standard info key names (case-insensitive: "creationdate" -> "CreationDate", "moddate" -> "ModDate").
+pub fn canonical_info_key(key: &str) -> &str {
+    for standard in STANDARD_INFO_KEYS {
+        if standard.eq_ignore_ascii_case(key.trim()) {
+            return standard;
+        }
+    }
+    key
+}
+
+/// Normalize a human date or ISO date into a PDF date string `D:YYYYMMDDHHmmSS...`.
+///
+/// Accepts:
+/// - Already-formatted PDF date strings (`D:...` or `d:...`)
+/// - ISO 8601 strings (`2024-01-05T09:30:00Z`, `2024-01-05T09:30:00+01:00`)
+/// - Common human formats (`2024-01-05 09:30:00`, `2024-01-05`, `2024/01/05`)
+/// Empty strings return empty (removing the entry).
+pub fn normalize_pdf_date(s: &str) -> String {
+    let s = s.trim();
+    if s.is_empty() {
+        return String::new();
+    }
+    if s.starts_with("D:") || s.starts_with("d:") {
+        return format!("D:{}", &s[2..].trim());
+    }
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut tz_part = "";
+    for (i, c) in s.char_indices() {
+        if c.is_ascii_digit() {
+            current.push(c);
+        } else {
+            if !current.is_empty() {
+                chunks.push(std::mem::take(&mut current));
+            }
+            if c == 'Z' || c == 'z' {
+                tz_part = "Z";
+                break;
+            } else if (c == '+' || c == '-') && chunks.len() >= 3 && (s.contains(':') || s.contains('T') || s.contains(' ')) {
+                tz_part = &s[i..];
+                break;
+            }
+        }
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+
+    if let Some(year_str) = chunks.first()
+        && year_str.len() == 4
+    {
+        let y: u32 = year_str.parse().unwrap_or(0);
+        let m: u32 = chunks.get(1).and_then(|c| c.parse().ok()).unwrap_or(1).clamp(1, 12);
+        let d: u32 = chunks.get(2).and_then(|c| c.parse().ok()).unwrap_or(1).clamp(1, 31);
+        let h: u32 = chunks.get(3).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 23);
+        let mi: u32 = chunks.get(4).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 59);
+        let sec: u32 = chunks.get(5).and_then(|c| c.parse().ok()).unwrap_or(0).clamp(0, 59);
+
+        let tz = if tz_part.eq_ignore_ascii_case("Z") || tz_part.is_empty() {
+            "Z".to_string()
+        } else {
+            let sign = tz_part.chars().next().unwrap_or('+');
+            let tz_digits: String = tz_part.chars().filter(|c| c.is_ascii_digit()).collect();
+            let th = tz_digits.get(0..2).unwrap_or("00");
+            let tm = tz_digits.get(2..4).unwrap_or("00");
+            format!("{sign}{th}'{tm}'")
+        };
+
+        return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");
+    }
+
+    if s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 4 {
+        format!("D:{s}")
+    } else {
+        s.to_string()
+    }
+}
 
 /// Longest custom property name accepted, in bytes: the name length every reader is asked to
 /// accept (§7.3.5, Annex C).
@@ -614,6 +692,7 @@ pub fn check_custom_key(name: &str) -> Result<(), OrganizeError> {
 
 /// Read a document-information entry as text.
 pub fn info(doc: &Document, key: &str) -> Option<String> {
+    let key = canonical_info_key(key);
     let info = doc.trailer().get(b"Info").map(|o| doc.resolve(o))?;
     info.as_dict()?.get(key.as_bytes()).and_then(|v| doc.resolve(v).as_string().map(|s| s.to_text()))
 }
@@ -624,13 +703,19 @@ pub fn info(doc: &Document, key: &str) -> Option<String> {
 /// in the XMP packet, and viewers that read XMP first show its value: the packet's property is
 /// changed (or removed) to match (see `xmp`).
 pub fn set_info(doc: &mut Document, key: &str, value: &str) -> Result<(), OrganizeError> {
+    let key = canonical_info_key(key);
     if !STANDARD_INFO_KEYS.contains(&key) {
         check_custom_key(key)?;
     }
     let value = value.trim();
-    let entry = (!value.is_empty()).then(|| Object::String(PdfString::text(value)));
+    let value = if key == "CreationDate" || key == "ModDate" {
+        normalize_pdf_date(value)
+    } else {
+        value.to_string()
+    };
+    let entry = (!value.is_empty()).then(|| Object::String(PdfString::text(&value)));
     set_info_entry(doc, key.as_bytes(), entry)?;
-    xmp::sync_info(doc, key, value)
+    xmp::sync_info(doc, key, &value)
 }
 
 /// Set (or remove, with `None`) a document-information entry of any type.

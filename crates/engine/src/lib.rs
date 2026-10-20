@@ -245,6 +245,14 @@ fn uses_scripts(edit: &Edit) -> bool {
     }
 }
 
+fn sets_mod_date(edit: &Edit) -> bool {
+    match edit {
+        Edit::SetInfo { key, .. } => key.eq_ignore_ascii_case("ModDate"),
+        Edit::Batch { edits, .. } => edits.iter().any(sets_mod_date),
+        _ => false,
+    }
+}
+
 fn scope_of(edit: &Edit) -> Scope {
     match edit {
         Edit::SetInfo { .. } => Scope::Metadata,
@@ -293,8 +301,8 @@ fn scope_of(edit: &Edit) -> Scope {
     }
 }
 
-/// One undo/redo step: its label, the document state, its passwords, and what it changed.
-type Snapshot = (Label, pdfcraft_cos::Document, Keys, Scope);
+/// One undo/redo step: its label, the document state, its passwords, what it changed, and whether manual mod_date was set.
+type Snapshot = (Label, pdfcraft_cos::Document, Keys, Scope, bool);
 
 /// Editing state of a document (absent when the document cannot be edited yet, e.g. encrypted).
 #[derive(Clone)]
@@ -312,6 +320,7 @@ struct Editor {
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
     keys: Keys,
+    pub(crate) manual_mod_date: bool,
     /// Display appearances built for annotations without any, reused while no annotation edit
     /// runs (content edits leave every annotation dictionary alone). Cleared on any refresh
     /// that may change annotations; see [`AppearanceCache`].
@@ -1962,6 +1971,8 @@ impl Edit {
                 "Author" => Label::of("Change Author"),
                 "Subject" => Label::of("Change Subject"),
                 "Keywords" => Label::of("Change Keywords"),
+                "CreationDate" => Label::of("Change Creation Date"),
+                "ModDate" => Label::of("Change Modified Date"),
                 _ => Label::with("Change {key}", key.as_str()),
             },
             Edit::InsertPagesFrom { name, .. } => Label::with("Insert pages from {name}", name.as_str()),
@@ -3568,6 +3579,7 @@ impl Session {
                         undo: Vec::new(),
                         redo: Vec::new(),
                         keys,
+                        manual_mod_date: false,
                         appearances: AppearanceCache::default(),
                         text_blocks: TextBlocksCache::default(),
                     }),
@@ -3778,11 +3790,13 @@ impl Session {
         } else {
             Vec::new()
         };
+        let manual_mod_date = editor.manual_mod_date || sets_mod_date(&edit);
+        let prev_manual_mod_date = std::mem::replace(&mut editor.manual_mod_date, manual_mod_date);
         let previous = std::mem::replace(&mut editor.cos, next);
         let keys = keys_after(&edit).unwrap_or_else(|| editor.keys.clone());
         let previous_keys = std::mem::replace(&mut editor.keys, keys);
         let scope = scope_of(&edit);
-        editor.undo.push((label, previous, previous_keys, scope));
+        editor.undo.push((label, previous, previous_keys, scope, prev_manual_mod_date));
         if editor.undo.len() > MAX_UNDO {
             editor.undo.remove(0);
         }
@@ -3793,10 +3807,11 @@ impl Session {
         if let Err(e) = refreshed {
             // Roll back: the edit produced something we cannot display.
             if let Some(ed) = doc.editor.as_mut()
-                && let Some((_, prev, keys, _)) = ed.undo.pop()
+                && let Some((_, prev, keys, _, prev_manual)) = ed.undo.pop()
             {
                 ed.cos = prev;
                 ed.keys = keys;
+                ed.manual_mod_date = prev_manual;
             }
             Self::adopt_keys(doc);
             if !matches!(guard(|| Self::refresh(doc)), Ok(Ok(()))) {
@@ -3832,10 +3847,11 @@ impl Session {
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
         let editor = doc.editor.as_mut().ok_or(EditError::NothingToUndo)?;
-        let (label, prev, keys, scope) = editor.undo.pop().ok_or(EditError::NothingToUndo)?;
+        let (label, prev, keys, scope, prev_manual) = editor.undo.pop().ok_or(EditError::NothingToUndo)?;
         let current = std::mem::replace(&mut editor.cos, prev);
         let current_keys = std::mem::replace(&mut editor.keys, keys);
-        editor.redo.push((label.clone(), current, current_keys, scope));
+        let current_manual = std::mem::replace(&mut editor.manual_mod_date, prev_manual);
+        editor.redo.push((label.clone(), current, current_keys, scope, current_manual));
         Self::adopt_keys(doc);
         Self::refresh_scoped(doc, scope).inspect_err(|_| Self::show_released(doc))?;
         Self::sync_dirty(doc);
@@ -3847,10 +3863,11 @@ impl Session {
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
         let editor = doc.editor.as_mut().ok_or(EditError::NothingToRedo)?;
-        let (label, next, keys, scope) = editor.redo.pop().ok_or(EditError::NothingToRedo)?;
+        let (label, next, keys, scope, next_manual) = editor.redo.pop().ok_or(EditError::NothingToRedo)?;
         let current = std::mem::replace(&mut editor.cos, next);
         let current_keys = std::mem::replace(&mut editor.keys, keys);
-        editor.undo.push((label.clone(), current, current_keys, scope));
+        let current_manual = std::mem::replace(&mut editor.manual_mod_date, next_manual);
+        editor.undo.push((label.clone(), current, current_keys, scope, current_manual));
         Self::adopt_keys(doc);
         Self::refresh_scoped(doc, scope).inspect_err(|_| Self::show_released(doc))?;
         Self::sync_dirty(doc);
@@ -3912,6 +3929,8 @@ impl Session {
             doc.info.keywords = info("Keywords");
             doc.info.creator = info("Creator");
             doc.info.producer = info("Producer");
+            doc.info.creation_date = info("CreationDate");
+            doc.info.mod_date = info("ModDate");
             doc.info.custom = pdfcraft_organize::custom_info(&editor.cos);
             doc.info.file_size = bytes.len();
             if !doc.signatures.is_empty() {
@@ -4101,7 +4120,8 @@ impl Session {
         if !editor.cos.is_modified() && on_saved && (!editor.cos.reconstructed() || doc.is_signed()) {
             return Ok(editor.saved.clone());
         }
-        let opts = SaveOptions { mod_date: self.now().map(pdfcraft_cos::pdf_date), ..SaveOptions::default() };
+        let mod_date = if editor.manual_mod_date { None } else { self.now().map(pdfcraft_cos::pdf_date) };
+        let opts = SaveOptions { mod_date, ..SaveOptions::default() };
         // A restored snapshot can be based on an earlier revision. Append to the last saved
         // file so that revision stays in the chain. A full rewrite (redaction, new encryption,
         // a reconstructed file) still writes the current graph on its own.
@@ -4127,7 +4147,8 @@ impl Session {
             return Err(EditError::Signed);
         }
         let editor = doc.editor.as_ref().ok_or_else(|| EditError::ReadOnly(doc.read_only_reason.clone().unwrap_or_default()))?;
-        let opts = SaveOptions { mod_date: self.now().map(pdfcraft_cos::pdf_date), ..SaveOptions::default() };
+        let mod_date = if editor.manual_mod_date { None } else { self.now().map(pdfcraft_cos::pdf_date) };
+        let opts = SaveOptions { mod_date, ..SaveOptions::default() };
         guard(|| write_full(&editor.cos, &opts)).map_err(EditError::Write)?.map(Arc::new).map_err(|e| EditError::Write(e.to_string()))
     }
 
@@ -4146,6 +4167,7 @@ impl Session {
     pub fn mark_saved(&mut self, id: DocId, bytes: Arc<Vec<u8>>, path: Option<String>) -> Result<(), EditError> {
         let doc = self.doc_mut(id)?;
         if let Some(editor) = doc.editor.as_mut() {
+            editor.manual_mod_date = false;
             // An encrypted file needs the password it is protected with now (the owner
             // password when known, so saving never downgrades this session's rights).
             let keys = editor.keys.clone();
@@ -4189,7 +4211,7 @@ impl Session {
         reopen_as_owner(&editor.cos, &mut editor.keys);
         // Other states with the same restricted access are unlocked too; states opened with
         // other passwords (protection changed and saved since) stay as they are.
-        for (_, cos, keys, _) in editor.undo.iter_mut().chain(editor.redo.iter_mut()) {
+        for (_, cos, keys, _, _) in editor.undo.iter_mut().chain(editor.redo.iter_mut()) {
             if cos.permissions().is_some_and(|p| !p.owner) && cos.unlock(password).is_ok() {
                 reopen_as_owner(cos, keys);
             }
@@ -4214,6 +4236,7 @@ impl Session {
             .ok_or_else(|| EditError::Reopen("the saved file can't be opened".into()))?;
         editor.cos = cos;
         editor.keys = keys;
+        editor.manual_mod_date = false;
         editor.undo.clear();
         editor.redo.clear();
         Self::adopt_keys(doc);

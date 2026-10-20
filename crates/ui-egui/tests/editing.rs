@@ -913,6 +913,34 @@ fn document_properties_edit_is_one_undoable_step() {
 }
 
 #[test]
+fn document_properties_edit_dates_is_one_undoable_step() {
+    let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
+    let created = h.get_by_role_and_label(Role::TextInput, "Created");
+    created.focus();
+    created.type_text("2024-01-15 10:30:00");
+    h.run_steps(2);
+    let modified = h.get_by_role_and_label(Role::TextInput, "Modified");
+    modified.focus();
+    modified.type_text("2024-02-20 14:45:00");
+    h.run_steps(2);
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.info.creation_date.as_deref(), Some("D:20240115103000Z"));
+    assert_eq!(doc.info.mod_date.as_deref(), Some("D:20240220144500Z"));
+    assert_eq!(doc.can_undo(), Some("Change document properties"));
+    assert!(app.dialog.is_none());
+
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.info.creation_date, None);
+    assert_eq!(doc.info.mod_date, None);
+}
+
+#[test]
 fn cancelling_properties_discards_the_draft() {
     let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
     let title = h.get_by_role_and_label(Role::TextInput, "Title");
@@ -2060,7 +2088,7 @@ fn password_prompt_opens_and_security_tab_reports_the_details() {
     support::wait_until(&mut h, "unlocked document", |app| app.views.len() == 1);
     assert_eq!(h.state().views.len(), 1);
     h.state_mut().set_option("dialog", "properties").unwrap();
-    h.run_steps(2);
+    h.run_steps(4);
     h.get_by_label("Security").click();
     h.run_steps(3);
     h.get_by_label("AES, 256-bit");
@@ -2117,7 +2145,7 @@ fn the_security_notice_unlocks_with_the_permissions_password() {
     assert!(h.state().unlock_prompt.is_none());
     assert!(h.query_by_label_contains("This document is secured").is_none(), "the restrictions are lifted");
     h.state_mut().set_option("dialog", "properties").unwrap();
-    h.run_steps(2);
+    h.run_steps(4);
     h.get_by_label("Security").click();
     h.run_steps(3);
     h.get_by_label("Owner password (no restrictions apply)");

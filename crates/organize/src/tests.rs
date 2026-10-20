@@ -516,6 +516,34 @@ fn document_info_edits_update_the_xmp_packet() {
 }
 
 #[test]
+fn creation_and_mod_date_edits_round_trip_and_update_xmp() {
+    let mut doc = doc_with_xmp(LIBREOFFICE_XMP.as_bytes());
+    // Edit with human-readable and PDF date formats
+    set_info(&mut doc, "CreationDate", "2024-05-10 14:30:00").unwrap();
+    set_info(&mut doc, "ModDate", "D:20261020193210Z").unwrap();
+    let saved = save_and_reopen(&doc);
+    assert_eq!(info(&saved, "CreationDate").as_deref(), Some("D:20240510143000Z"));
+    assert_eq!(info(&saved, "ModDate").as_deref(), Some("D:20261020193210Z"));
+
+    // Case-insensitive key test
+    assert_eq!(info(&saved, "creationdate").as_deref(), Some("D:20240510143000Z"));
+    assert_eq!(info(&saved, "moddate").as_deref(), Some("D:20261020193210Z"));
+
+    // Check XMP synchronization
+    let xmp = xmp_text(&saved).unwrap();
+    assert_eq!(xmp_values(&xmp, "xmp:CreateDate"), ["2024-05-10T14:30:00Z"]);
+    assert_eq!(xmp_values(&xmp, "xmp:ModifyDate"), ["2026-10-20T19:32:10Z"]);
+
+    // Test clearing dates
+    let mut doc2 = saved;
+    set_info(&mut doc2, "CreationDate", "").unwrap();
+    let saved2 = save_and_reopen(&doc2);
+    assert_eq!(info(&saved2, "CreationDate"), None);
+    let xmp2 = xmp_text(&saved2).unwrap();
+    assert!(xmp_values(&xmp2, "xmp:CreateDate").is_empty());
+}
+
+#[test]
 fn document_info_edits_leave_files_without_usable_xmp_alone() {
     // No packet: none is added.
     let mut doc = open(fixture());
