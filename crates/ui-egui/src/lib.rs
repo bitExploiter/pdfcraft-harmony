@@ -37,6 +37,7 @@ pub mod canvas;
 mod chrome;
 mod combine_grid;
 mod image_pick;
+mod preferences;
 mod tags_ui;
 mod windows;
 pub use combine_grid::ThumbState as CombineThumb;

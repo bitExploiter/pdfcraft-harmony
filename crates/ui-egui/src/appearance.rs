@@ -114,9 +114,8 @@ fn card(ui: &mut egui::Ui, t: &Tokens, title: &str, active: bool, themes: &[(The
     inner.inner || whole.clicked()
 }
 
-/// The Appearance section of Preferences.
+/// Preferences ▸ Appearance & Theme: the mode, and a card for each theme.
 pub fn preferences_section(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
-    ui.label(RichText::new(tl_ctx!("theme", "Appearance")).font(theme::semibold(13.0)));
     ui.horizontal(|ui| {
         ui.label(tl!("Appearance mode"));
         egui::ComboBox::from_id_salt("appearance-mode").selected_text(tl!(mode_label(app.theme_preference))).show_ui(ui, |ui| {

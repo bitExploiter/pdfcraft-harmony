@@ -2442,3 +2442,23 @@ animation effects	Off	Өшірулі
 	Hide side panels after	Бүйірлік панельдер жасырылатын уақыт
 	Move to New Window	Жаңа терезеге жылжыту
 	Move to Main Window	Негізгі терезеге жылжыту
+	Appearance & Theme	Сыртқы түр және тақырып
+	Colours to read documents in, without changing the documents.	Құжаттарды өзгертпей оқуға арналған түстер.
+	Documents & Viewing	Құжаттар және көрініс
+	Files and units	Файлдар және бірліктер
+	Flattening, and the dates Fill & Sign writes.	Тегістеу және «Толтыру және қол қою» жазатын күндер.
+	Floating bars	Қалқымалы жолақтар
+	Follow the system, or always light or dark.	Жүйеге ілесу немесе әрқашан ашық не күңгірт.
+	General & Interface	Жалпы және интерфейс
+	How documents open: the workspace, the page display and the zoom.	Құжаттар қалай ашылады: жұмыс аймағы, беттерді көрсету және масштаб.
+	Identity & Comments	Тұлға және түсініктемелер
+	Interface	Интерфейс
+	Motion	Қозғалыс
+	Reading & Colours	Оқу және түстер
+	Scripting & Security	Сценарийлер және қауіпсіздік
+	Settings for the interface, documents, reading and scripts.	Интерфейс, құжаттар, оқу және сценарийлер параметрлері.
+	The bars beside the page and the tab strip above it.	Беттің жанындағы жолақтар және оның үстіндегі қойындылар жолағы.
+	The colours PdfCraft's windows are drawn in.	PdfCraft терезелері сызылатын түстер.
+	The interface's language and size, and the floating bars around the page.	Интерфейс тілі мен өлшемі және бет айналасындағы қалқымалы жолақтар.
+	What scripts in PDF files may do.	PDF файлдарындағы сценарийлер не істей алады.
+	Your name on comments, and how comments show.	Түсініктемелердегі атыңыз және түсініктемелердің көрсетілуі.

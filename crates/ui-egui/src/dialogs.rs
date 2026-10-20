@@ -83,6 +83,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.set_width(match dialog {
             Dialog::Properties(_) => 640.0,
             Dialog::Print => crate::print_ui::DIALOG_W,
+            Dialog::Preferences => crate::preferences::DIALOG_W,
             Dialog::FieldProps | Dialog::BulkFieldProps => 600.0,
             Dialog::About => 780.0,
             _ => 520.0,
@@ -964,9 +965,8 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 return;
             }
             Dialog::Preferences => {
-                // The settings outgrow a short window: scroll them rather than run off the screen.
-                let max = (ui.ctx().content_rect().height() - 120.0).max(200.0);
-                close = egui::ScrollArea::vertical().max_height(max).show(ui, |ui| crate::js_ui::preferences_body(ui, app, &t)).inner;
+                // Its page of settings scrolls on its own, within the window.
+                close = crate::js_ui::preferences_body(ui, app, &t);
                 return;
             }
             Dialog::RecognizeText => {

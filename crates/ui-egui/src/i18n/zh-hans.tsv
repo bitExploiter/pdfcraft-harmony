@@ -2408,3 +2408,23 @@ animation effects	Off	关
 	Hide side panels after	侧边面板隐藏时间
 	Move to New Window	移到新窗口
 	Move to Main Window	移到主窗口
+	Appearance & Theme	外观与主题
+	Colours to read documents in, without changing the documents.	用于阅读文档的颜色，不会更改文档本身。
+	Documents & Viewing	文档与查看
+	Files and units	文件与单位
+	Flattening, and the dates Fill & Sign writes.	拼合，以及“填写和签名”写入的日期。
+	Floating bars	浮动栏
+	Follow the system, or always light or dark.	跟随系统，或始终为浅色或深色。
+	General & Interface	常规与界面
+	How documents open: the workspace, the page display and the zoom.	文档如何打开：工作区、页面显示和缩放。
+	Identity & Comments	身份与注释
+	Interface	界面
+	Motion	动效
+	Reading & Colours	阅读与颜色
+	Scripting & Security	脚本与安全
+	Settings for the interface, documents, reading and scripts.	界面、文档、阅读和脚本的设置。
+	The bars beside the page and the tab strip above it.	页面旁的栏以及其上方的标签栏。
+	The colours PdfCraft's windows are drawn in.	绘制 PdfCraft 窗口所用的颜色。
+	The interface's language and size, and the floating bars around the page.	界面的语言和大小，以及页面周围的浮动栏。
+	What scripts in PDF files may do.	PDF 文件中的脚本可以做什么。
+	Your name on comments, and how comments show.	注释上的姓名，以及注释的显示方式。

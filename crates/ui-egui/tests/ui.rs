@@ -1403,3 +1403,26 @@ fn the_edit_tab_turns_on_edit_text_and_images() {
     h.run_steps(3);
     assert_eq!(h.state().quick_tool, QuickTool::Hand);
 }
+
+/// Preferences' sidebar takes the page of settings to a section and marks it as the one read:
+/// Scripting & Security, far down the page, comes into view, and the sidebar follows.
+#[test]
+fn the_preferences_sidebar_goes_to_a_section() {
+    use egui::accesskit::Role;
+    let mut h = harness(|app| app.set_option("dialog", "preferences").unwrap());
+    h.run_steps(2);
+    // A selected button is a pressed toggle to assistive technology.
+    let selected = |h: &Harness<'static, PdfCraftApp>, label: &str| {
+        h.get_by_role_and_label(Role::Button, label).accesskit_node().toggled().map(|t| t == egui::accesskit::Toggled::True)
+    };
+    assert_eq!(selected(&h, "General & Interface"), Some(true), "the first section is read first");
+    let ok = h.get_by_label("OK").rect();
+    let before = h.get_by_label("Enable Acrobat JavaScript").rect();
+    assert!(before.top() > ok.top(), "Scripting & Security starts below the fold: {before:?}");
+    h.get_by_role_and_label(Role::Button, "Scripting & Security").click();
+    h.run_steps(6);
+    let after = h.get_by_label("Enable Acrobat JavaScript").rect();
+    assert!(after.bottom() < ok.top(), "brought into view: {after:?}");
+    assert_eq!(selected(&h, "Scripting & Security"), Some(true));
+    assert_eq!(selected(&h, "General & Interface"), Some(false));
+}
