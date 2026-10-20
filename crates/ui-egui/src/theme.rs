@@ -363,8 +363,8 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
     // Shared with typed signatures' fallback glyphs, so the font is embedded once.
     add(&mut fonts, "Inter", pdfcraft_fonts::INTER_REGULAR);
     add(&mut fonts, "Inter-Medium", include_bytes!("../../../assets/fonts/Inter-Medium.ttf"));
-    add(&mut fonts, "Inter-SemiBold", include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"));
-    add(&mut fonts, "JetBrainsMono", include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"));
+    add(&mut fonts, "Inter-SemiBold", pdfcraft_fonts::INTER_SEMIBOLD);
+    add(&mut fonts, "JetBrainsMono", pdfcraft_fonts::JETBRAINS_MONO_REGULAR);
     fonts.families.entry(FontFamily::Proportional).or_default().insert(0, "Inter".to_owned());
     fonts.families.entry(FontFamily::Monospace).or_default().insert(0, "JetBrainsMono".to_owned());
     // Keep missing Latin/Cyrillic letters in the app's own faces (for example Bulgarian ѝ,

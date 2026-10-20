@@ -17,8 +17,8 @@ struct Face {
 static FACES: LazyLock<Vec<Face>> = LazyLock::new(|| {
     let mut inputs: Vec<(&'static [u8], bool, bool, bool)> = vec![
         (pdfcraft_fonts::INTER_REGULAR, false, false, false),
-        (include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf"), false, false, true),
-        (include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf"), false, true, false),
+        (pdfcraft_fonts::INTER_SEMIBOLD, false, false, true),
+        (pdfcraft_fonts::JETBRAINS_MONO_REGULAR, false, true, false),
     ];
     // Prefer a real serif where the optional, approved build input provides one.
     // Other CID/CJK substitution remains in the existing Japanese resolver.
@@ -64,8 +64,8 @@ mod tests {
         let (bold, _) = get(StandardFont::HelveticaBold, 'Ж').unwrap();
         let (mono, _) = get(StandardFont::Courier, 'Ж').unwrap();
         assert_eq!(regular.as_ref().as_ref(), pdfcraft_fonts::INTER_REGULAR);
-        assert_eq!(bold.as_ref().as_ref(), include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf").as_slice());
-        assert_eq!(mono.as_ref().as_ref(), include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").as_slice());
+        assert_eq!(bold.as_ref().as_ref(), pdfcraft_fonts::INTER_SEMIBOLD);
+        assert_eq!(mono.as_ref().as_ref(), pdfcraft_fonts::JETBRAINS_MONO_REGULAR);
         let (serif, _) = get(StandardFont::TimesRoman, 'Ж').unwrap();
         let mincho = pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| {
             f.covers("Jpan")

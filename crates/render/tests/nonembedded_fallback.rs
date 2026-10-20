@@ -454,7 +454,7 @@ fn latin_only_symbol_and_dingbat_outlines_ignore_the_fallback_resolver() {
         let bytes = glyph_pdf(simple_font(name, Object::Name(b"WinAnsiEncoding".to_vec())), codes);
         let (s, calls) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
         let a = probe(bytes.clone(), s);
-        let (s, _) = settings(Some(include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf")));
+        let (s, _) = settings(Some(pdfcraft_fonts::INTER_SEMIBOLD));
         let b = probe(bytes, s);
         assert_eq!(calls.load(Ordering::Relaxed), 0, "{name} unexpectedly asks for a fallback");
         assert!(a.iter().any(|g| !g.path.as_ref().unwrap().elements().is_empty()));
@@ -477,7 +477,7 @@ fn embedded_fonts_keep_their_programs_and_missing_glyphs_without_fallback_overri
             .unwrap()
             .set("FontFile2", Object::Stream(Stream::new(dictionary! {}, bytes.to_vec())));
         let bytes = glyph_pdf(font, &[65, 192]);
-        let (s, calls) = settings(Some(include_bytes!("../../../assets/fonts/Inter-SemiBold.ttf")));
+        let (s, calls) = settings(Some(pdfcraft_fonts::INTER_SEMIBOLD));
         let a = probe(bytes.clone(), s);
         let (s, _) = settings(None);
         let b = probe(bytes, s);
@@ -609,5 +609,99 @@ fn unicode_aliases_and_to_unicode_keep_a_supported_primary_outline() {
     assert_eq!(calls.load(Ordering::Relaxed), 0, "all four codes can draw with the primary face");
     for glyph in &glyphs {
         assert_eq!(glyph.path, glyphs[0].path);
+    }
+}
+
+#[test]
+fn unicode_aliases_without_pdf_widths_keep_primary_advances() {
+    for base in ["Helvetica", "ArialMT"] {
+        let mut font = encoded_font(base, &[(192, "uni0041"), (193, "unknownName"), (194, "A.alt")]);
+        font.as_dict_mut().unwrap().remove(b"Widths");
+        font.as_dict_mut().unwrap().set("ToUnicode", to_unicode("1 beginbfchar <C1> <0041> endbfchar"));
+        let (s, calls) = settings(Some(pdfcraft_fonts::INTER_REGULAR));
+        let glyphs = probe(glyph_pdf(font, &[65, 192, 193, 194, 66]), s);
+        assert_eq!(calls.load(Ordering::Relaxed), 0);
+        for (i, glyph) in glyphs.iter().take(4).enumerate() {
+            assert_eq!(glyph.advance, Some(667.0), "{base}, code index {i}");
+            assert!((glyphs[i + 1].matrix[4] - glyph.matrix[4] - 13.34).abs() < 0.0001, "{base}, code index {i}");
+        }
+    }
+}
+
+// Derive an in-memory malformed primary face from our approved Inter fixture. Its cmap and
+// PostScript glyph names still identify A, but the glyf record has no contours. No asset is saved.
+fn primary_face_without_a_outline() -> Vec<u8> {
+    use skrifa::{FontRef, MetadataProvider};
+    let mut bytes = pdfcraft_fonts::INTER_REGULAR.to_vec();
+    let glyph = FontRef::new(&bytes).unwrap().charmap().map('A').unwrap().to_u32() as usize;
+    let u16_at = |b: &[u8], at: usize| u16::from_be_bytes(b[at..at + 2].try_into().unwrap());
+    let u32_at = |b: &[u8], at: usize| u32::from_be_bytes(b[at..at + 4].try_into().unwrap()) as usize;
+    let table = |tag: &[u8]| {
+        (0..u16_at(&bytes, 4) as usize)
+            .find_map(|i| {
+                let record = 12 + 16 * i;
+                (&bytes[record..record + 4] == tag).then(|| u32_at(&bytes, record + 8))
+            })
+            .unwrap()
+    };
+    let (glyf, loca, head) = (table(b"glyf"), table(b"loca"), table(b"head"));
+    let offset =
+        |index| if u16_at(&bytes, head + 50) == 0 { u16_at(&bytes, loca + index * 2) as usize * 2 } else { u32_at(&bytes, loca + index * 4) };
+    let (start, end) = (glyf + offset(glyph), glyf + offset(glyph + 1));
+    assert!(end > start);
+    bytes[start..end].fill(0);
+    bytes
+}
+
+#[test]
+fn empty_primary_glyphs_use_alternate_outlines_or_missing_boxes() {
+    for alternate in [true, false] {
+        let primary: FontData = Arc::new(primary_face_without_a_outline());
+        let mut font = encoded_font("Helvetica", &[(192, "A"), (193, "uni0041"), (194, "unknownName")]);
+        font.as_dict_mut().unwrap().set("ToUnicode", to_unicode("1 beginbfchar <C2> <0041> endbfchar"));
+        let (mut s, calls) = settings(alternate.then_some(pdfcraft_fonts::INTER_REGULAR));
+        let resolver = s.font_resolver.clone();
+        s.font_resolver = Arc::new(move |query| match query {
+            FontQuery::Standard(_) => Some((primary.clone(), 0)),
+            _ => resolver(query),
+        });
+        let glyphs = probe(glyph_pdf(font, &[192, 193, 194, 192, 32, 66]), s);
+        for glyph in glyphs.iter().take(4) {
+            assert!(!glyph.path.as_ref().unwrap().elements().is_empty(), "alternate {alternate}: {glyph:?}");
+            assert_eq!(glyph.advance, Some(600.0));
+            assert!(!glyph.embedded);
+        }
+        assert!(glyphs[4].path.as_ref().unwrap().elements().is_empty(), "space must remain invisible");
+        assert!(!glyphs[5].path.as_ref().unwrap().elements().is_empty(), "supported B must retain its outline");
+        assert_eq!(calls.load(Ordering::Relaxed), 3, "each empty primary code is resolved once");
+    }
+}
+
+#[test]
+fn empty_primary_aliases_without_pdf_widths_keep_fallback_metrics_consistent() {
+    use skrifa::{
+        FontRef, MetadataProvider,
+        instance::{LocationRef, Size},
+    };
+    for alternate in [true, false] {
+        let primary: FontData = Arc::new(primary_face_without_a_outline());
+        let mut font = encoded_font("Helvetica", &[(192, "uni0041")]);
+        font.as_dict_mut().unwrap().remove(b"Widths");
+        let (mut s, _) = settings(alternate.then_some(pdfcraft_fonts::INTER_REGULAR));
+        let resolver = s.font_resolver.clone();
+        s.font_resolver = Arc::new(move |query| match query {
+            FontQuery::Standard(_) => Some((primary.clone(), 0)),
+            _ => resolver(query),
+        });
+        let glyphs = probe(glyph_pdf(font, &[192, 192]), s);
+        let face = FontRef::new(pdfcraft_fonts::INTER_REGULAR).unwrap();
+        let expected = if alternate {
+            face.glyph_metrics(Size::new(1000.0), LocationRef::default()).advance_width(face.charmap().map('A').unwrap()).unwrap()
+        } else {
+            600.0
+        };
+        assert_eq!(glyphs[0].advance, Some(expected));
+        assert!(!glyphs[0].path.as_ref().unwrap().elements().is_empty());
+        assert!((glyphs[1].matrix[4] - glyphs[0].matrix[4] - f64::from(expected) * 0.02).abs() < 0.0001);
     }
 }

@@ -108,7 +108,10 @@ driver's shader compilation, and explicit `PDFCRAFT_RENDERER=wgpu` still disable
 ## Missing non-embedded simple-font glyphs
 
 The renderer keeps each standard-14 substitute's supported glyphs and existing accent
-composites. For a missing glyph it decodes the Encoding/Differences glyph name (AGL, `afii`,
+composites. A primary name/cmap entry is accepted only when it has a non-empty outline;
+otherwise printable text reaches the alternate outline or missing-glyph box. Unicode aliases
+and single-scalar ToUnicode entries that select a primary glyph use its standard advance when
+PDF widths are absent. For a missing glyph it decodes the Encoding/Differences glyph name (AGL, `afii`,
 `uni`/`u`); a single-scalar ToUnicode mapping is the last resort. Hayro's PdfCraft patch (35)
 requests an outline through `FontQuery::MissingGlyph`. Original PDF widths, text operators,
 transforms and extraction remain authoritative; fallback programs never become embedded font
@@ -117,7 +120,8 @@ code (for example Cyrillic /Differences in Helvetica without /Widths), the alter
 supplies its natural advance, scaled to 1000 units per em. Missing-glyph boxes use 600 units.
 Explicit zero widths and /MissingWidth keep priority. CLI rendering, `page_render`, the desktop and WASM share this path.
 
-Approved existing Inter Regular/SemiBold and JetBrains Mono supply deterministic coverage,
+Approved existing Inter Regular/SemiBold and JetBrains Mono supply deterministic coverage.
+Their bytes are exported by `pdfcraft-fonts` and shared with interface font registration,
 independent of installed fonts and `PDFCRAFT_SYSTEM_FONTS`. Optional craft-fonts Mincho faces
 are preferred for serif text when they cover the character. Without those faces, Cyrillic serif
 text uses Inter; SemiBold approximates bold, and upright fallback faces are slanted for italic.

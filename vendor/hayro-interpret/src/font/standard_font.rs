@@ -433,14 +433,17 @@ impl StandardKind {
         let mut metric_name = None;
         let result = name
             .and_then(|n| self.base_font_blob.name_to_glyph(n))
-            .filter(|glyph| *glyph != GlyphId::NOTDEF)
+            .filter(|glyph| self.primary_has_outline(*glyph))
             .or_else(|| {
                 // Unicode names and ToUnicode also check the primary face first.
                 let Decoded::Character(c) = decode(code, name, to_unicode)? else {
                     return None;
                 };
-                metric_name = glyph_names::get_reverse(c);
-                self.primary_unicode_glyph(c)
+                self.primary_unicode_glyph(c).inspect(|_| {
+                    // Only primary glyphs use primary alias metrics. A rejected empty
+                    // glyph must keep the alternate outline's matching natural advance.
+                    metric_name = glyph_names::get_reverse(c);
+                })
             })
             // Keep patch (26)'s accent composites ahead of alternate faces.
             .or_else(|| name.and_then(|n| self.composite_glyph(code, n)))
@@ -456,15 +459,22 @@ impl StandardKind {
         result
     }
 
+    /// A named/cmap entry can exist but have no contours, even for printable text.
+    /// Reject it so the bounded per-code fallback can supply an outline or a box.
+    fn primary_has_outline(&self, glyph: GlyphId) -> bool {
+        glyph != GlyphId::NOTDEF
+            && !self.base_font_blob.outline_glyph(glyph).elements().is_empty()
+    }
+
     fn primary_unicode_glyph(&self, character: char) -> Option<GlyphId> {
         self.base_font_blob
             .unicode_to_glyph(character as u32)
-            .filter(|glyph| *glyph != GlyphId::NOTDEF)
+            .filter(|glyph| self.primary_has_outline(*glyph))
             .or_else(|| {
                 // CFF stand-ins have names, but no Unicode cmap.
                 self.base_font_blob
                     .name_to_glyph(glyph_names::get_reverse(character)?)
-                    .filter(|glyph| *glyph != GlyphId::NOTDEF)
+                    .filter(|glyph| self.primary_has_outline(*glyph))
             })
     }
 
@@ -588,8 +598,7 @@ impl StandardKind {
             Some(Width::Value(w)) => Some(w),
             Some(Width::Missing) => Some(self.missing_width.unwrap_or(0.0)),
             None => self
-                .code_to_ps_name(code)
-                .and_then(|c| self.base_font.get_width(c))
+                .primary_width(code)
                 .or(self.missing_width)
                 // Standard-14 fonts may omit /Widths. A Differences name outside
                 // their metrics still needs the alternate face's natural advance.
