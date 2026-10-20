@@ -183,7 +183,8 @@ impl Job {
         let mut file = private_file(&input)?;
         // Both engines have embedded [[speech commands]] even without SSML. Escape their
         // delimiters so document text cannot alter voice, rate, or insert long silences.
-        file.write_all(text.replace("[[", "[ [").replace("]]", "] ]").as_bytes()).map_err(|e| format!("could not prepare local speech text: {e}"))?;
+        let escaped = text.replace('[', "[ ").replace(']', " ]");
+        file.write_all(escaped.as_bytes()).map_err(|e| format!("could not prepare local speech text: {e}"))?;
         drop(file);
         let stdin = File::open(&input).map_err(|e| format!("could not read local speech text: {e}"))?;
         let mut command = engine.synthesis(program, &output, options)?;
@@ -432,6 +433,30 @@ mod tests {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.args(["--exact", "speech::unix::tests::process_fixture", "--nocapture"]).env("PDFCRAFT_TEST_SPEECH_PROCESS", action);
         command
+    }
+
+    #[test]
+    fn staged_speech_text_escapes_odd_and_even_bracket_runs() {
+        // Inspect the actual synthesis stdin file. The test executable stands in for the
+        // engine; it need not produce audio, and Drop reaps it and removes the private files.
+        let program = std::env::current_exe().unwrap();
+        for engine in [Engine::MacSay, Engine::EspeakNg] {
+            for run in [3, 4, 1, 2, 5, 6, 31, 32] {
+                let text = format!("Ciao, città. {}rate 50{} Hello.", "[".repeat(run), "]".repeat(run));
+                let job = Job::synthesize(engine, &program, &text, &Options::default()).unwrap();
+                let root = job.directory.path().to_owned();
+                let staged = std::fs::read_to_string(root.join("text.txt")).unwrap();
+                assert!(!staged.contains("[["), "opening delimiter survives a run of {run}: {staged:?}");
+                assert!(!staged.contains("]]"), "closing delimiter survives a run of {run}: {staged:?}");
+                assert_eq!(staged.chars().filter(|&ch| ch == '[').count(), run);
+                assert_eq!(staged.chars().filter(|&ch| ch == ']').count(), run);
+                assert!(staged.starts_with("Ciao, città. "));
+                assert!(staged.contains("rate 50"));
+                assert!(staged.ends_with(" Hello."));
+                drop(job);
+                assert!(!root.exists());
+            }
+        }
     }
 
     #[test]
