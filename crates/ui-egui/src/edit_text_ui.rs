@@ -1113,6 +1113,31 @@ pub(crate) fn page_input(
     true
 }
 
+/// The editor family that displays Arabic runs with the bundled shaping face. Named with the
+/// `pdf-source-` prefix so [`install_source_fonts`] clears it together with the document subsets.
+const ARABIC_SHAPER: &str = "pdf-source-arabic";
+
+/// Whether `text` holds Arabic-script characters, which need contextual joining (the same ranges
+/// `edit`'s `script_fallback_face` uses). The inline editor shows these with [`ARABIC_SHAPER`].
+fn has_arabic(text: &str) -> bool {
+    text.chars().any(|c| matches!(u32::from(c), 0x0600..=0x06FF | 0x0750..=0x077F | 0x0870..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFC))
+}
+
+/// The [`ARABIC_SHAPER`] family's stack: the bundled Arabic face first, then the proportional
+/// fallback so Latin inside a mixed run still draws. `None` when no Arabic face is registered
+/// (built without craft-fonts), so the editor keeps its usual faces.
+fn arabic_shaper_stack(defs: &egui::FontDefinitions) -> Option<Vec<String>> {
+    let face = pdfcraft_fonts::document_arabic_font()?.name();
+    if !defs.font_data.contains_key(&face) {
+        return None;
+    }
+    let mut stack = vec![face];
+    if let Some(fallback) = defs.families.get(&FontFamily::Proportional) {
+        stack.extend(fallback.iter().cloned());
+    }
+    Some(stack)
+}
+
 /// One TextEdit lays out all source runs; its caret and selection span the whole region.
 pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::Document, page: usize) -> BTreeMap<String, String> {
     let programs = doc.text_editor_fonts(page);
@@ -1146,6 +1171,13 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
         }
         definitions.families.insert(FontFamily::Name(name.clone().into()), stack);
     }
+    // A PDF Arabic subset usually ships no GSUB table, so the inline editor would show the
+    // letters in their isolated forms. Register the bundled Arabic face (already among the
+    // interface font data) as a named family so `editor_job` can display Arabic runs joined; the
+    // applied edit re-shapes through the same craft face (`text_regions::shape_source`).
+    if let Some(stack) = arabic_shaper_stack(&definitions) {
+        definitions.families.insert(FontFamily::Name(ARABIC_SHAPER.into()), stack);
+    }
     if !families.is_empty() {
         ctx.set_fonts(definitions);
     }
@@ -1154,6 +1186,11 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
 
 fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
+    // The Arabic shaping family, present once `install_source_fonts` has registered it.
+    let shaper = ui
+        .ctx()
+        .fonts(|f| f.definitions().families.contains_key(&FontFamily::Name(ARABIC_SHAPER.into())))
+        .then(|| FontFamily::Name(ARABIC_SHAPER.into()));
     // An unchanged PDF row already has an authoritative line break. Do not rewrap it
     // because font rounding or a fallback face measures a fraction of a pixel wider.
     job.wrap.max_width = if text == ed.original && ed.look == ed.look0 && ed.extras == ed.extras0 { f32::INFINITY } else { width };
@@ -1198,17 +1235,30 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
             if embedded && let Some(name) = ed.fonts.get(&line.font) {
                 font.family = FontFamily::Name(name.clone().into());
             }
-            let native_width = ui.fonts_mut(|f| f.layout_no_wrap(line.text.clone(), font.clone(), Color32::BLACK).size().x);
-            let target_width = ((line.rect[2] - line.rect[0]) * look.size / line.size.max(0.01)) as f32 * scale;
-            let spacing = if original_face { (target_width - native_width) / line.text.chars().count().saturating_sub(1).max(1) as f32 } else { 0.0 };
+            let span = text.get(range).unwrap_or_default();
+            // A PDF subset usually ships no GSUB, so its Arabic would show disconnected (and a
+            // newly typed letter is often absent from the subset). Display an Arabic run with the
+            // bundled shaping face so it joins; justification spacing is dropped, since inserting
+            // advance between joined glyphs would split them again.
+            let shaped = original_face && has_arabic(span) && shaper.is_some();
+            if let Some(family) = shaper.clone().filter(|_| shaped) {
+                font.family = family;
+            }
+            let spacing = if original_face && !shaped {
+                let native_width = ui.fonts_mut(|f| f.layout_no_wrap(line.text.clone(), font.clone(), Color32::BLACK).size().x);
+                let target_width = ((line.rect[2] - line.rect[0]) * look.size / line.size.max(0.01)) as f32 * scale;
+                (target_width - native_width) / line.text.chars().count().saturating_sub(1).max(1) as f32
+            } else {
+                0.0
+            };
             job.append(
-                text.get(range).unwrap_or_default(),
+                span,
                 0.0,
                 egui::TextFormat {
                     font_id: font,
                     extra_letter_spacing: spacing + ed.extras.char_spacing as f32 * scale,
                     color: color32(look.color),
-                    italics: look.italic && !embedded,
+                    italics: look.italic && !embedded && !shaped,
                     ..Default::default()
                 },
             );
@@ -1565,5 +1615,127 @@ mod tests {
         assert_eq!(caret_color_on(Color32::from_rgb(0xFF, 0xFF, 0xF4)), Color32::BLACK);
         assert_eq!(caret_color_on(Color32::BLACK), Color32::WHITE);
         assert_eq!(caret_color_on(DARK_EDITOR_FILL), Color32::WHITE);
+    }
+
+    #[test]
+    fn has_arabic_matches_arabic_script_only() {
+        assert!(has_arabic("مرحبا"), "Arabic letters");
+        assert!(has_arabic("abc مرحبا 123"), "a mixed run still has Arabic");
+        assert!(has_arabic("\u{FEFB}"), "an Arabic presentation form");
+        assert!(!has_arabic("Hello world"), "Latin");
+        assert!(!has_arabic("12.5 %"), "digits and punctuation");
+        assert!(!has_arabic("שלום"), "Hebrew is a different script");
+        assert!(!has_arabic("日本語"), "CJK");
+        assert!(!has_arabic(""), "the empty string");
+    }
+
+    #[test]
+    fn arabic_shaper_stack_leads_with_the_bundled_face() {
+        let defs = crate::theme::font_definitions();
+        match pdfcraft_fonts::document_arabic_font() {
+            Some(face) => {
+                let stack = arabic_shaper_stack(&defs).expect("registered when an Arabic face is bundled");
+                assert_eq!(stack.first().map(String::as_str), Some(face.name().as_str()), "the bundled Arabic face is primary");
+                // The proportional fallback follows, so Latin inside a mixed Arabic run still draws.
+                assert!(stack.iter().any(|n| n == "Inter"), "{stack:?}");
+            }
+            None => {
+                eprintln!("skipping the shaper-face check: no Arabic face bundled (set CRAFT_FONTS_DIR)");
+                assert!(arabic_shaper_stack(&defs).is_none(), "nothing to register without craft-fonts");
+            }
+        }
+    }
+
+    /// Stage 3b: a run displayed with [`ARABIC_SHAPER`] has its letters contextually joined (GSUB),
+    /// which a PDF's bare subset cannot do. Joining is visible as narrower text than the same
+    /// letters held apart by zero-width non-joiners, which force the isolated forms.
+    #[test]
+    fn the_shaper_family_joins_arabic() {
+        use egui::epaint::text::{Fonts, TextOptions};
+        if pdfcraft_fonts::document_arabic_font().is_none() {
+            eprintln!("skipping the_shaper_family_joins_arabic: no Arabic face bundled (set CRAFT_FONTS_DIR)");
+            return;
+        }
+        let mut defs = crate::theme::font_definitions();
+        let stack = arabic_shaper_stack(&defs).expect("an Arabic face is bundled");
+        defs.families.insert(FontFamily::Name(ARABIC_SHAPER.into()), stack);
+        let mut fonts = Fonts::new(TextOptions::default(), defs);
+        let mut view = fonts.with_pixels_per_point(2.0);
+        let id = FontId::new(13.0, FontFamily::Name(ARABIC_SHAPER.into()));
+        let joined = view.layout_no_wrap("مرحبا".to_owned(), id.clone(), Color32::BLACK).size().x;
+        let apart = view.layout_no_wrap("م\u{200c}ر\u{200c}ح\u{200c}ب\u{200c}ا".to_owned(), id, Color32::BLACK).size().x;
+        assert!(joined < apart, "the shaper must join Arabic: joined {joined} vs isolated {apart}");
+    }
+
+    /// Stage 3b, end to end: `editor_job` lays an unchanged Arabic paragraph out with the
+    /// [`ARABIC_SHAPER`] family, not the document's own subset, so the editor joins the letters.
+    #[test]
+    fn the_editor_lays_out_an_arabic_run_with_the_shaper_face() {
+        if pdfcraft_fonts::document_arabic_font().is_none() {
+            eprintln!("skipping the_editor_lays_out_an_arabic_run_with_the_shaper_face: no Arabic face bundled (set CRAFT_FONTS_DIR)");
+            return;
+        }
+        let mut app = crate::PdfCraftApp::new();
+        // Standard-font create only takes Western European text, so the Arabic run is added
+        // afterwards; AddText embeds the bundled Arabic face, as a real edit does.
+        let bytes = app.session.create_from_text("ar", "placeholder").unwrap();
+        app.open_bytes("ar.pdf", None, bytes.as_ref().clone()).unwrap();
+        let id = app.views[0].id;
+        let text = pdfcraft_engine::AddedText { rect: [72.0, 700.0, 320.0, 722.0], text: "مرحبا".into(), size: 16.0, ..Default::default() };
+        app.session.apply(id, Edit::AddText { page: 0, text }).unwrap();
+        let doc = app.session.get(id).unwrap();
+        let blocks = doc.text_blocks(0);
+        let block = blocks.iter().find(|b| has_arabic(&b.text)).cloned().expect("an Arabic block");
+        let lines = doc.text_lines(0);
+        let font = lines.iter().find(|l| has_arabic(&l.text)).expect("an Arabic source line").font.clone();
+
+        let ctx = egui::Context::default();
+        // The interface faces (the bundled Arabic one among them) must be in place, and a pass
+        // must have run, before `ctx.fonts()` is readable.
+        crate::theme::install_fonts(&ctx);
+        ctx.begin_pass(egui::RawInput::default());
+        ctx.end_pass().textures_delta.clear();
+        // Register ARABIC_SHAPER as `install_source_fonts` does, plus a stand-in for the PDF's own
+        // embedded subset, so the run has an embedded face whose isolated forms the shaper must
+        // override. The source line's font maps to that subset, which `editor_job` would otherwise
+        // display the run with.
+        let mut defs = ctx.fonts(|f| f.definitions().clone());
+        let subset = "pdf-source-0".to_owned();
+        defs.families.insert(FontFamily::Name(subset.clone().into()), vec!["Inter".to_owned()]);
+        defs.families.insert(FontFamily::Name(ARABIC_SHAPER.into()), arabic_shaper_stack(&defs).expect("an Arabic face is bundled"));
+        ctx.set_fonts(defs);
+        let ed = LineEditor {
+            selection: None,
+            font_resource: None,
+            page: 0,
+            block: 0,
+            text: block.text.clone(),
+            original: block.text.clone(),
+            rect: Rect::NOTHING,
+            source_rect: block.rect.map(|v| v as f32),
+            multiline: block.rows.len() > 1,
+            source: Some((block.clone(), lines)),
+            fonts: BTreeMap::from([(font, subset)]),
+            overflow: false,
+            max_width: 400.0,
+            size: block.size as f32,
+            focus: true,
+            look: look_of(&block),
+            look0: look_of(&block),
+            extras: Extras::default(),
+            extras0: Extras::default(),
+        };
+        // Font definitions set above become active at the start of a pass; the first pass applies
+        // them, the second lays the run out against the active set (as the overlay does, #frame).
+        let family = std::cell::RefCell::new(None);
+        for _ in 0..2 {
+            ctx.begin_pass(egui::RawInput::default());
+            egui::Area::new(egui::Id::new("editor-job-test")).show(&ctx, |ui| {
+                let job = editor_job(ui, &ed, &ed.text, 1.0, f32::INFINITY);
+                *family.borrow_mut() = job.sections.first().map(|s| s.format.font_id.family.clone());
+            });
+            ctx.end_pass().textures_delta.clear();
+        }
+        assert_eq!(family.into_inner(), Some(FontFamily::Name(ARABIC_SHAPER.into())), "the Arabic run must use the shaper face, not the subset");
     }
 }
