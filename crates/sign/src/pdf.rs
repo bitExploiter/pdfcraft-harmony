@@ -457,7 +457,7 @@ pub struct SignatureInfo {
     /// The display copy draws this verdict into the appearance of at least one of the
     /// signature's visible widgets (its named status layers, see [`crate::status_layers`]). The
     /// document can still clip those layers away or cover them, so this never stands in for the
-    /// page's own validation badge.
+    /// page's own validation badge. [`list`] leaves it false; [`crate::show_status_layers`] sets it.
     pub verdict_shown: bool,
     /// Acrobat-style sentences explaining the verdict, each one ready to read in English and ready to
     /// be said in another language (see [`Detail`]).
@@ -490,7 +490,10 @@ pub(crate) fn text(doc: &Document, d: &Dict, key: &[u8]) -> Option<String> {
     (!s.is_empty()).then_some(s)
 }
 
+/// A signature field [`walk_sig_fields`] found.
 pub(crate) struct Field {
+    /// Fully qualified: the `/T` parts down the tree joined with dots, at most
+    /// [`MAX_FIELD_NAME_BYTES`].
     pub(crate) name: String,
     /// The field dictionary (and its widget(s)).
     r: Option<ObjRef>,
@@ -513,20 +516,24 @@ impl Field {
     }
 }
 
-/// Most fields looked at for signature fields; real forms have far fewer. Past it the walk stops,
-/// and [`list_cached`] stands for the fields it did not read with one row ([`unread_fields`]).
+/// Most fields looked at for signature fields; real forms have far fewer. Past it no more are
+/// taken, and [`list_cached`] stands for the ones not read with one row ([`unread_fields`]).
 const MAX_FIELDS: usize = 20_000;
 /// Most entries read from `/Fields` and all the `/Kids` arrays together: room for a few widgets
 /// for each of [`MAX_FIELDS`]. A `/Kids` array several fields list is read under each of them, so
-/// this bounds the walk where the field count can't. Past it the walk stops, as with
-/// [`MAX_FIELDS`].
+/// this bounds the walk where the field count can't. Past it no more entries are read: fields
+/// already taken are still listed, without the widgets past it.
 const MAX_ENTRIES: usize = 100_000;
 /// Longest fully qualified field name read, in bytes. Real names are far shorter; a field named
 /// longer is passed over, and counts as unread as fields past [`MAX_FIELDS`] do.
 pub(crate) const MAX_FIELD_NAME_BYTES: usize = 4096;
+/// Most bytes of names the walk keeps, all the fields it lists together. A kid's name repeats its
+/// parent's, so under the caps above one long name over many kids would still come to 80 MB.
+const MAX_NAME_BYTES: usize = 4 << 20;
 
-/// Every signature field, depth first in `/Fields` order.
-pub(crate) fn sig_fields(doc: &Document) -> Vec<Field> {
+/// Every signature field the walk reads ([`walk_sig_fields`] has its caps), depth first in
+/// `/Fields` order.
+fn sig_fields(doc: &Document) -> Vec<Field> {
     walk_sig_fields(doc).0
 }
 
@@ -545,7 +552,7 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
         return (out, true);
     };
     let Some(top) = af.get(b"Fields") else { return (out, true) };
-    let (mut fields_left, mut entries_left, mut whole) = (MAX_FIELDS, MAX_ENTRIES, true);
+    let (mut fields_left, mut entries_left, mut names_left, mut whole) = (MAX_FIELDS, MAX_ENTRIES, MAX_NAME_BYTES, true);
     // Fields by reference, and by slot those written in place in an indirect array.
     let mut seen = HashSet::new();
     let mut copies: HashMap<(ObjRef, Option<usize>), Rc<Dict>> = HashMap::new();
@@ -557,8 +564,10 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
             whole = false;
             break;
         }
-        if slot(f, top.as_ref(), i).is_some_and(|s| !seen.insert(s)) {
-            continue;
+        // A field written in place here is marked, so one that also lists this array as its /Kids
+        // does not walk it again.
+        if let Some(s) = slot(f, top.as_ref(), i) {
+            seen.insert(s);
         }
         if !take(&mut fields_left) {
             whole = false;
@@ -642,6 +651,11 @@ pub(crate) fn walk_sig_fields(doc: &Document) -> (Vec<Field>, bool) {
             stack.push((k, name.clone(), sig));
         }
         if listed {
+            let Some(left) = names_left.checked_sub(name.len()) else {
+                whole = false;
+                break;
+            };
+            names_left = left;
             out.push(Field { name: name.to_string(), r: o.as_ref(), dict: d, widgets: ws });
         }
     }

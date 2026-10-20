@@ -65,7 +65,7 @@ fn a_widget_two_fields_list_is_listed_under_both() {
 /// The small form goes first: without the cap it fails on the names it lists, long before the
 /// large one could use up the machine's memory.
 #[test]
-fn a_long_name_over_many_kids_is_not_copied_into_each() {
+fn a_field_named_over_the_cap_is_skipped_with_its_kids() {
     for (len, kids) in [(64 << 10, 200), (1 << 20, 100_000)] {
         let doc = form(
             "3 0 R 5 0 R",
@@ -121,9 +121,11 @@ fn the_walk_stops_after_max_fields() {
     assert_eq!(listed.last().map(|f| f.name.clone()), Some(format!("f{}", MAX_FIELDS - 1)));
     // The first field's kids take the room that is left, so the second field's kid is not reached.
     let kids = (0..MAX_FIELDS).map(|i| format!("<< /T (k{i}) >>")).collect::<String>();
-    let listed =
-        sig_fields(&form("3 0 R 4 0 R", &[format!("<< /T (p) /FT /Sig /Kids [{kids}] >>"), "<< /T (q) /FT /Sig /Kids [<< /T (k) >>] >>".into()]));
-    assert_eq!(listed.len(), MAX_FIELDS);
+    let (listed, whole) = walk_sig_fields(&form(
+        "3 0 R 4 0 R",
+        &[format!("<< /T (p) /FT /Sig /Kids [{kids}] >>"), "<< /T (q) /FT /Sig /Kids [<< /T (k) >>] >>".into()],
+    ));
+    assert_eq!((listed.len(), whole), (MAX_FIELDS, false));
     assert_eq!(listed.last().map(|f| f.name.clone()), Some("q".to_string()));
 }
 
@@ -196,10 +198,39 @@ fn a_widget_many_fields_list_is_copied_once() {
         let doc = form(&listing, &[format!("<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] /Junk ({}) >>", "j".repeat(len))]);
         let listed = sig_fields(&doc);
         assert_eq!(listed.len(), fields);
-        let first: &Dict = &listed[0].widgets[0].1;
-        let shared = listed.iter().all(|f| f.widgets.len() == 1 && std::ptr::eq::<Dict>(&*f.widgets[0].1, first));
+        let first = &listed[0].widgets[0].1;
+        let shared = listed.iter().all(|f| f.widgets.len() == 1 && Rc::ptr_eq(&f.widgets[0].1, first));
         assert!(shared, "a {len}-byte widget under {fields} fields");
     }
+}
+
+/// So is a widget written in place in a `/Kids` array many fields list: its place in the array
+/// stands for it, as a reference would.
+#[test]
+fn a_widget_written_into_a_shared_kids_array_is_copied_once() {
+    let listing = (0..1_000).map(|i| format!("<< /T (f{i}) /FT /Sig /Kids 3 0 R >>")).collect::<String>();
+    let listed = sig_fields(&form(&listing, &["[<< /Type /Annot /Subtype /Widget /Rect [0 0 1 1] >>]".into()]));
+    assert_eq!(listed.len(), 1_000);
+    let first = &listed[0].widgets[0].1;
+    assert!(listed.iter().all(|f| f.widgets.len() == 1 && Rc::ptr_eq(&f.widgets[0].1, first)), "an in-place widget is copied once");
+}
+
+/// Every kid's name repeats its parent's, so the names the walk keeps are capped all together: a
+/// long name over a few thousand kids stops the walk before it adds up.
+#[test]
+fn the_names_kept_stop_at_max_name_bytes() {
+    let parent = "p".repeat(MAX_FIELD_NAME_BYTES - 8);
+    let form_of = |kids: usize| {
+        let kids = (0..kids).map(|i| format!("<< /T (k{i}) >>")).collect::<String>();
+        form("3 0 R", &[format!("<< /T ({parent}) /FT /Sig /Kids [{kids}] >>")])
+    };
+    // Each kid's name is the parent's and a few bytes more, just under the per-name cap.
+    let fits = MAX_NAME_BYTES / MAX_FIELD_NAME_BYTES - 1;
+    let (listed, whole) = walk_sig_fields(&form_of(fits));
+    assert_eq!((listed.len(), whole), (fits + 1, true));
+    let (listed, whole) = walk_sig_fields(&form_of(2 * fits));
+    let kept: usize = listed.iter().map(|f| f.name.len()).sum();
+    assert!(!whole && kept <= MAX_NAME_BYTES, "{} fields, {kept} bytes of names", listed.len());
 }
 
 /// A form whose only signature field, signed, is named one byte past the cap, and the file's

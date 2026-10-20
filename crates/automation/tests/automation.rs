@@ -4640,7 +4640,8 @@ fn named_layer_verdicts_are_reported_and_rendered_through_tools() {
     let rendered = a.call("page_render", &json!({"doc": doc, "page": 1, "dpi": 72})).unwrap();
     let Content::Png { data, .. } = &rendered[0] else { panic!("expected a PNG") };
     let pixels = image::load_from_memory_with_format(data, image::ImageFormat::Png).unwrap().to_rgba8();
-    assert!(pixels.pixels().filter(|p| p.0.iter().zip([0xD7, 0x37, 0x3F]).all(|(a, b)| a.abs_diff(b) < 30)).count() > 100);
+    let red = pixels.pixels().filter(|p| p.0.iter().zip([0xD7, 0x37, 0x3F]).all(|(a, b)| a.abs_diff(b) < 30)).count();
+    assert!(red > 100, "the invalid state is drawn: {red} red pixels");
     ok(&mut a, "doc_save", json!({"doc": doc, "path": "saved.pdf", "full": false}));
     assert_eq!(std::fs::read(dir.join("saved.pdf")).unwrap(), original, "the drawn state never enters saves");
 }
