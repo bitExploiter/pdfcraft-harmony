@@ -29,11 +29,13 @@ pub struct CustomPaper {
 
 impl CustomPaper {
     /// A custom paper from a name and two sides in points, portrait; None when the name is empty
-    /// or a side is outside [`MIN_SIDE`]..=[`MAX_SIDE`].
+    /// or a side is outside [`MIN_SIDE`]..=[`MAX_SIDE`], or a standard paper already has the name
+    /// (any case), which would otherwise be found first when the paper is looked up by name.
     pub fn new(name: &str, a: f64, b: f64) -> Option<Self> {
         let name: String = name.trim().chars().filter(|c| !c.is_control()).take(MAX_NAME).collect();
         let fits = |v: f64| v.is_finite() && (MIN_SIDE..=MAX_SIDE).contains(&v);
-        (!name.is_empty() && fits(a) && fits(b)).then(|| Self { name, width: a.min(b), height: a.max(b) })
+        let standard = PAPERS.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name));
+        (!name.is_empty() && !standard && fits(a) && fits(b)).then(|| Self { name, width: a.min(b), height: a.max(b) })
     }
 }
 
