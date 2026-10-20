@@ -7,7 +7,7 @@
 //! afterwards.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use pdfcraft_content::{Matrix, Op, Pieces, overlaps, serialize_ops};
 use pdfcraft_cos::{Dict, Document, Object};
@@ -333,28 +333,9 @@ struct Unit {
     core: Option<(usize, usize)>,
 }
 
-/// Where each image's `Do` is among the page's operators parsed joined (`None` for one split
-/// between streams). Each stream is parsed once, not once per image.
-fn image_keys(images: &[PageImage], streams: &[(Object, Vec<u8>)], ops: &[Op]) -> Vec<Option<usize>> {
-    let dos: HashMap<usize, usize> = ops.iter().enumerate().filter(|(_, op)| op.is("Do")).map(|(i, op)| (op.span.start, i)).collect();
-    let mut starts = Vec::with_capacity(streams.len());
-    let mut offset = 0_usize;
-    for (_, data) in streams {
-        starts.push(offset);
-        offset = offset.saturating_add(data.len()).saturating_add(1);
-    }
-    let mut parsed: Option<(usize, Vec<Op>)> = None;
-    images
-        .iter()
-        .map(|image| {
-            let (stream, op) = image.drawn_at();
-            if parsed.as_ref().is_none_or(|(s, _)| *s != stream) {
-                parsed = Some((stream, streams.get(stream).map(|(_, data)| pdfcraft_content::parse(data).ops).unwrap_or_default()));
-            }
-            let start = parsed.as_ref()?.1.get(op)?.span.start;
-            dos.get(&starts.get(stream)?.checked_add(start)?).copied()
-        })
-        .collect()
+/// Where each image's `Do` is among the page's operators parsed joined.
+fn image_keys(images: &[PageImage], ops: &[Op]) -> Vec<Option<usize>> {
+    images.iter().map(|image| image.drawn_at(ops)).collect()
 }
 
 /// An object's own operators: a path's construction operators and its painting one, or a `Do`.
@@ -518,7 +499,7 @@ fn arranged(doc: &Document, page: usize, target: ObjectTarget, order: ZOrder) ->
     };
     let paths = page_paths(doc, page)?;
     let images = page_images(doc, page)?;
-    let keys = image_keys(&images, &streams, &ops);
+    let keys = image_keys(&images, &ops);
     let core = match target.kind {
         ObjectKind::Path => paths.get(target.index).map(|p| (*p.ops.start(), *p.ops.end())).ok_or_else(gone)?,
         _ => keys.get(target.index).copied().flatten().map(|k| (k, k)).ok_or_else(|| invalid(IRREGULAR))?,

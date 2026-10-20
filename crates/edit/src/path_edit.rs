@@ -102,12 +102,10 @@ fn rewrite(doc: &mut Document, page: usize, edits: &[(usize, Edit)], images: &[u
         None
     } else {
         let all = crate::page_images(doc, page)?;
-        let doomed = images
-            .iter()
-            .map(|&i| all.get(i))
-            .collect::<Option<Vec<_>>>()
-            .ok_or_else(|| EditError::Invalid("a selected image no longer exists; select it again".into()))?;
-        removed.extend(crate::images::joined_dos(&streams, &ops, &doomed)?);
+        for &i in images {
+            let image = all.get(i).ok_or_else(|| EditError::Invalid("a selected image no longer exists; select it again".into()))?;
+            removed.insert(image.drawn_at(&ops).ok_or_else(|| EditError::Invalid("the image operation could not be located".into()))?);
+        }
         Some(all.len().saturating_sub(images.len()))
     };
     let mut seen = BTreeSet::new();

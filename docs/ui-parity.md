@@ -1,6 +1,6 @@
 # UI and interaction parity
 
-> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (vector paths in the Edit tool, align, distribute and arrange page objects from the selection's right-click menu, #1540; commands, tools and the View area recounted; earlier: column select #740, multi-object move #844, Shift-⌘-G #810 fixed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-20 · **Change:** minor (vector paths in the Edit tool, align, distribute and arrange page objects from the selection's right-click menu, #1540; commands, tools and the View area recounted 2026-10-20; earlier: column select #740, multi-object move #844, Shift-⌘-G #810 fixed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 How PdfCraft's tools, panels, shortcuts and feel compare with Acrobat Pro's current interface (the
 2023+ "new Acrobat": All tools pane on the left, quick-action toolbar, Home view). Behaviour is
@@ -11,13 +11,13 @@ interface is copied. Gaps ranked in [gaps.md](gaps.md).
 
 ## Measured
 
-- **192 registered commands** (`crates/engine/src/commands.rs`), every one in the menus, the
+- **201 registered commands** (`crates/engine/src/commands.rs`), every one in the menus, the
   command palette and the automation `command_run` tool; menus are generated from the registry
   (`view.menus-from-registry`).
-- **168 automation tools** (`crates/automation/src/tools.rs`), so every UI action can be checked
+- **176 automation tools** (`crates/automation/src/tools.rs`), so every UI action can be checked
   headlessly.
-- **View area of the checklist: 62.8% breadth** (53 shipped, 12 partial of 94). All three counted on
-  2026-10-13.
+- **View area of the checklist: 63.2% breadth** (54 shipped, 12 partial of 95). All three counted on
+  2026-10-20.
 
 No dump of Acrobat's menu tree has been diffed against the registry yet (gap 24).
 
@@ -82,6 +82,7 @@ No dump of Acrobat's menu tree has been diffed against the registry yet (gap 24)
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | After merging `upstream/main` at 22bedbf2: commands (201), automation tools (176) and the View area (63.2%, `cargo xtask parity`) recounted |
 | 2026-10-13 | minor | Vector paths join the Edit tool's selection with corner-handle resize (#1540); the selection's right-click menu aligns, distributes and arranges page objects (arrange: one vector path or image), so that row is shipped; object handles partial (vector path corners don't keep proportion). Commands (192), automation tools (168) and the View area (62.8%) recounted |
 | 2026-10-11 | minor | Column select shipped (#740, PR #765); several objects move together on one page (#844, PR #907); Shift-⌘-G goes back (#810, PR #835) |
 | 2026-10-10 | major | Created from the command registry, automation tools, the View area of the checklist and open UI issues |
