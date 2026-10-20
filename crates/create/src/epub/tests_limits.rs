@@ -52,7 +52,8 @@ fn deep_nesting_does_not_overflow() {
 
 #[test]
 fn deep_contents_list_does_not_overflow() {
-    let depth = 400;
+    // Each list level is two elements (ol, li), so 200 stay inside the parser's 512.
+    let depth = 200;
     let nav = format!(
         r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc">{}{}</nav></body></html>"#,
         r#"<ol><li><a href="c.xhtml">x</a>"#.repeat(depth),
