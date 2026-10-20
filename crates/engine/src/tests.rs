@@ -6208,6 +6208,73 @@ fn a_signed_document_rebuilt_from_object_headers_refuses_edits() {
     assert!(!s.get(id).unwrap().dirty);
 }
 
+/// A one-page document whose only signature field is signed but named far past the 4096 bytes the
+/// signature field walk reads, so the walk passes it over and lists no signature of it.
+fn signature_past_the_field_walk() -> Vec<u8> {
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [4 0 R] >> >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Annots [4 0 R] >>".into(),
+        format!("<< /Type /Annot /Subtype /Widget /FT /Sig /T ({}) /V 5 0 R /Rect [20 20 180 60] /P 3 0 R >>", "a".repeat(64 << 10)),
+        "<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 1 2 1] /Contents <00> >>".into(),
+    ];
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offsets {
+        out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    out
+}
+
+fn open_signature_past_the_field_walk() -> (Session, DocId) {
+    let mut s = Session::new();
+    let id = s.open("form.pdf", None, Arc::new(signature_past_the_field_walk()), None).expect("opens");
+    (s, id)
+}
+
+/// The walk stops short of a signed field, so a signature may go unlisted; the document still
+/// counts as signed, and each guard against rewriting a signed document holds.
+#[test]
+fn a_signature_the_field_walk_passes_over_still_counts_as_signed() {
+    let (s, id) = open_signature_past_the_field_walk();
+    let doc = s.get(id).unwrap();
+    assert!(doc.is_signed(), "{:?}", doc.signatures);
+}
+
+#[test]
+fn a_full_rewrite_is_refused_when_the_field_walk_passes_a_signature_over() {
+    let (s, id) = open_signature_past_the_field_walk();
+    assert_eq!(s.save_full_bytes(id).unwrap_err(), EditError::Signed);
+}
+
+#[test]
+fn optimizing_is_refused_when_the_field_walk_passes_a_signature_over() {
+    let (s, id) = open_signature_past_the_field_walk();
+    assert!(matches!(s.optimize_job(id, &optimize::Settings::default(), &[]), Err(EditError::Signed)));
+}
+
+#[test]
+fn a_rewriting_edit_is_refused_when_the_field_walk_passes_a_signature_over() {
+    let (mut s, id) = open_signature_past_the_field_walk();
+    assert!(matches!(s.apply(id, Edit::Sanitize), Err(EditError::SignedRewrite(_))));
+}
+
+#[test]
+fn an_action_appends_to_a_file_whose_field_walk_passes_a_signature_over() {
+    let bytes = Arc::new(signature_past_the_field_walk());
+    let steps = vec![actions::Step::from_id("set_title", "Checked").unwrap()];
+    let title = actions::Action { name: "Title".into(), description: String::new(), steps, builtin: false };
+    let r = actions::run_on(&title, "form.pdf", bytes.clone(), |_, _| {}).unwrap();
+    assert!(r.bytes.starts_with(&bytes[..]), "the action rewrote the file instead of appending to it");
+}
+
 /// #1324: marking a figure decorative rewrites that figure only. The header, added text and an
 /// unknown entry on the original stream stay attached to the page. This lives in the engine tests
 /// because edit and a11y are the same layer and cannot depend on each other.

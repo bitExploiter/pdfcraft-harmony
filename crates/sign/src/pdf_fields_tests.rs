@@ -201,3 +201,46 @@ fn a_widget_many_fields_list_is_copied_once() {
         assert!(shared, "a {len}-byte widget under {fields} fields");
     }
 }
+
+/// A form whose only signature field, signed, is named one byte past the cap, and the file's
+/// bytes. `list` needs both.
+fn signed_field_past_the_cap() -> (Document, Vec<u8>) {
+    let pdf = Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>")
+        .obj("<< /Type /Pages /Kids [] /Count 0 >>")
+        .obj(format!("<< /T ({}) /FT /Sig /V 4 0 R >>", "a".repeat(MAX_FIELD_NAME_BYTES + 1)))
+        .obj("<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /ByteRange [0 1 2 1] /Contents <00> >>")
+        .build();
+    (Document::open(Arc::new(pdf.clone())).unwrap(), pdf)
+}
+
+/// A field the walk did not read may be signed, so a walk cut short is listed as one more row,
+/// signed and of unknown validity: the document still counts as signed.
+#[test]
+fn a_walk_cut_short_is_listed_as_a_signed_row_of_unknown_validity() {
+    let (doc, bytes) = signed_field_past_the_cap();
+    let rows: Vec<_> = list(&doc, &bytes, &TrustStore::default()).into_iter().map(|r| (r.field, r.signed, r.status)).collect();
+    assert_eq!(rows, [("UnreadFields".to_string(), true, Status::Unknown)]);
+}
+
+/// The row says why it is there, in a sentence an interface can translate.
+#[test]
+fn the_row_for_a_walk_cut_short_says_why() {
+    let (doc, bytes) = signed_field_past_the_cap();
+    let rows = list(&doc, &bytes, &TrustStore::default());
+    let said: Vec<&str> = rows.iter().flat_map(|r| &r.details).map(|d| d.message.as_str()).collect();
+    assert!(matches!(said.as_slice(), [s] if s.starts_with("This form has too many fields")), "{said:?}");
+}
+
+/// A walk that reads the whole form adds no such row: a name at the cap is read.
+#[test]
+fn a_whole_walk_adds_no_row_for_unread_fields() {
+    let pdf = Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [3 0 R] >> >>")
+        .obj("<< /Type /Pages /Kids [] /Count 0 >>")
+        .obj(format!("<< /T ({}) /FT /Sig >>", "a".repeat(MAX_FIELD_NAME_BYTES)))
+        .build();
+    let doc = Document::open(Arc::new(pdf.clone())).unwrap();
+    let rows: Vec<_> = list(&doc, &pdf, &TrustStore::default()).into_iter().map(|r| (r.field.len(), r.signed)).collect();
+    assert_eq!(rows, [(MAX_FIELD_NAME_BYTES, false)]);
+}

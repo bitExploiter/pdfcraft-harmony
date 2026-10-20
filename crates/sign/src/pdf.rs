@@ -405,6 +405,8 @@ pub const WORDINGS: &[&str] = &[
     "The document has been altered since this timestamp was applied in ways it does not permit ({}).",
     "The timestamp token is valid and its authority is trusted.",
     "The timestamp token is valid, but the timestamp authority is not in your list of trusted certificates.",
+    // What the list itself could not read.
+    "This form has too many fields, or a field name too long, for PdfCraft to read them all. Any signature among the rest is not listed, so the document is treated as signed.",
     // The one line that stands for all of it.
     "Unsigned signature field",
     "Signature is valid",
@@ -511,9 +513,8 @@ impl Field {
     }
 }
 
-/// Most fields looked at for signature fields. Only a crafted or damaged form has more. The rest
-/// goes unread without a note, like the crate's other walk bounds (`dss_walk`,
-/// `signed_page_resources`): a note needs a signature row, and a field left out has none.
+/// Most fields looked at for signature fields; real forms have far fewer. Past it the walk stops,
+/// and [`list_cached`] stands for the fields it did not read with one row ([`unread_fields`]).
 const MAX_FIELDS: usize = 20_000;
 /// Most entries read from `/Fields` and all the `/Kids` arrays together: room for a few widgets
 /// for each of [`MAX_FIELDS`]. A `/Kids` array several fields list is read under each of them, so
@@ -521,7 +522,7 @@ const MAX_FIELDS: usize = 20_000;
 /// [`MAX_FIELDS`].
 const MAX_ENTRIES: usize = 100_000;
 /// Longest fully qualified field name read, in bytes. Real names are far shorter; a field named
-/// longer is passed over without a note, as with [`MAX_FIELDS`].
+/// longer is passed over, and counts as unread as fields past [`MAX_FIELDS`] do.
 pub(crate) const MAX_FIELD_NAME_BYTES: usize = 4096;
 
 /// Every signature field, depth first in `/Fields` order.
@@ -678,6 +679,8 @@ fn nums(doc: &Document, d: &Dict, key: &[u8]) -> Option<Vec<f64>> {
 }
 
 /// List and validate every signature field. `bytes` is the file as stored (the ranges index it).
+/// A form too large to read whole gets one more row, signed and of unknown validity, for the
+/// fields not read: any of them may be signed, so the document still counts as signed.
 pub fn list(doc: &Document, bytes: &[u8], trust: &TrustStore) -> Vec<SignatureInfo> {
     list_cached(doc, bytes, trust, &DigestCache::default())
 }
@@ -688,7 +691,8 @@ pub fn list_cached(doc: &Document, bytes: &[u8], trust: &TrustStore, cache: &Dig
     let pages = annot_pages(doc);
     let mut out = Vec::new();
     let mut field_values: HashSet<ObjRef> = HashSet::new();
-    for f in sig_fields(doc) {
+    let (fields, whole) = walk_sig_fields(doc);
+    for f in fields {
         if let Some(v_ref) = f.dict.get(b"V").and_then(Object::as_ref) {
             field_values.insert(v_ref);
         }
@@ -775,7 +779,46 @@ pub fn list_cached(doc: &Document, bytes: &[u8], trust: &TrustStore, cache: &Dig
         validate_doc_timestamp(doc, bytes, d, &mut info, cache, trust);
         out.push(info);
     }
+    if !whole {
+        out.push(unread_fields());
+    }
     out
+}
+
+/// The row [`list_cached`] adds for the fields a walk cut short did not read ([`walk_sig_fields`]).
+/// Any of them may be signed, so the row is signed, of unknown validity: the document still counts
+/// as signed, and nothing rewrites it in full.
+fn unread_fields() -> SignatureInfo {
+    SignatureInfo {
+        field: "UnreadFields".to_string(),
+        signed: true,
+        page: None,
+        rect: None,
+        visible: false,
+        signer: None,
+        certificate: None,
+        chain: Vec::new(),
+        date: None,
+        signing_time: None,
+        reason: None,
+        location: None,
+        contact: None,
+        sub_filter: None,
+        doc_timestamp: false,
+        certify: None,
+        revision: 0,
+        signed_len: 0,
+        digest: None,
+        algorithm: None,
+        timestamp: false,
+        timestamp_time: None,
+        status: Status::Unknown,
+        modification: Modification::None,
+        verdict_shown: false,
+        details: vec![Detail::plain(
+            "This form has too many fields, or a field name too long, for PdfCraft to read them all. Any signature among the rest is not listed, so the document is treated as signed.",
+        )],
+    }
 }
 
 fn page_index(doc: &Document, p: ObjRef) -> Option<usize> {
