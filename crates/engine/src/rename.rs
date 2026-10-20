@@ -5,7 +5,7 @@
 //! The rules are the same on every system, so a file renamed on one keeps working when the folder
 //! is synced to another: no path separators or `< > : " | ? *`, no control characters, no Windows
 //! device names (`CON`, `NUL`, `COM1`…), no name ending in a dot or a space, at most 255
-//! characters. The file keeps its extension: a name typed without it gets it back.
+//! bytes of UTF-8 and 255 UTF-16 code units. The file keeps its extension: a name typed without it gets it back.
 
 use std::path::{Path, PathBuf};
 
@@ -53,8 +53,9 @@ const DEVICE_NAMES: [&str; 22] = [
     "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5",
     "LPT6", "LPT7", "LPT8", "LPT9",
 ];
-/// The longest file name the common file systems take.
-const MAX_NAME_CHARS: usize = 255;
+/// The longest file name the common file systems take: 255 bytes of UTF-8 (ext4, APFS) and 255
+/// UTF-16 code units (NTFS), so a name is checked against both, never by its characters.
+const MAX_NAME_LEN: usize = 255;
 
 /// The file name `typed` gives the document now at `current`: trimmed, checked, with
 /// `current`'s extension added back when it was left out.
@@ -81,8 +82,8 @@ pub fn new_file_name(current: &Path, typed: &str) -> Result<String, RenameError>
     if DEVICE_NAMES.iter().any(|d| d.eq_ignore_ascii_case(stem)) {
         return Err(RenameError::Invalid(format!("{stem} is a name Windows reserves for a device")));
     }
-    if name.chars().count() > MAX_NAME_CHARS {
-        return Err(RenameError::Invalid(format!("a file name can be at most {MAX_NAME_CHARS} characters")));
+    if name.len() > MAX_NAME_LEN || name.encode_utf16().count() > MAX_NAME_LEN {
+        return Err(RenameError::Invalid(format!("a file name can be at most {MAX_NAME_LEN} bytes")));
     }
     Ok(name)
 }
