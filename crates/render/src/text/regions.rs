@@ -6,10 +6,14 @@
 //! multiline text on both sides and a gap wider than ordinary word spacing; horizontal cuts
 //! expose sections separated by spanning headings, footers and changes of column layout.
 //! Supported vertical gutters take precedence over paragraph whitespace. Spanning content
-//! obstructs those gutters, exposing horizontal cuts before its local column layouts. This
+//! obstructs those gutters, exposing horizontal cuts before its local column layouts.
+//! Retaining that tree allows adjacent paragraph bands to share compatible columns. This
 //! is a geometric fallback, not semantic table detection or tagged-PDF structure-tree order.
 
 use super::TextGlyph;
+
+mod flow;
+use flow::Layout;
 
 const MAX_DEPTH: usize = 64;
 
@@ -32,6 +36,7 @@ enum Task {
 struct Cut {
     axis: usize,
     at: f32,
+    span: [f32; 2],
     rows: bool,
 }
 
@@ -50,7 +55,7 @@ struct Region {
 }
 
 struct Regions {
-    leaves: Vec<Leaf>,
+    layout: Layout,
     structured: bool,
 }
 
@@ -86,8 +91,8 @@ pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<
                     // that slightly separated glyphs should become separate logical lines.
                     // Without a supported column cut, leave line grouping to the existing
                     // reconstructor (important for map labels and decorative typography).
-                    let mut a = left.leaves.into_iter().flat_map(|r| r.ids).peekable();
-                    let mut b = right.leaves.into_iter().flat_map(|r| r.ids).peekable();
+                    let mut a = left.layout.into_leaves().into_iter().flat_map(|r| r.ids).peekable();
+                    let mut b = right.layout.into_leaves().into_iter().flat_map(|r| r.ids).peekable();
                     let mut ids = Vec::new();
                     while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
                         ids.extend(if x <= y { a.next() } else { b.next() });
@@ -95,9 +100,15 @@ pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<
                     ids.extend(a);
                     ids.extend(b);
                     let join_row = row_scope && one_line(glyphs, &ids);
-                    left.leaves = vec![Leaf { ids, join_row }];
+                    left.layout = Layout::Leaf(Leaf { ids, join_row });
                 } else {
-                    left.leaves.extend(right.leaves);
+                    left.layout = if cut.axis == 0 {
+                        Layout::columns(left.layout, right.layout, cut.span)
+                    } else if cut.rows {
+                        Layout::Rows(vec![left.layout, right.layout])
+                    } else {
+                        Layout::sections(left.layout, right.layout, 0)
+                    };
                 }
                 left.structured |= row_scope;
                 done.push(left);
@@ -107,7 +118,7 @@ pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<
         let cut = (depth < MAX_DEPTH).then(|| subdivision(glyphs, &region, spaces_from_shows)).flatten();
         let Some(cut) = cut else {
             let join_row = row_scope && one_line(glyphs, &region.y);
-            done.push(Regions { leaves: vec![Leaf { ids: region.ids, join_row }], structured: row_scope });
+            done.push(Regions { layout: Layout::Leaf(Leaf { ids: region.ids, join_row }), structured: row_scope });
             continue;
         };
         let Cut { axis, at, .. } = cut;
@@ -120,7 +131,7 @@ pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<
         };
         let (first, second): (Vec<_>, Vec<_>) = region.ids.into_iter().partition(before);
         if first.is_empty() || second.is_empty() {
-            done.push(Regions { leaves: vec![Leaf { ids: first.into_iter().chain(second).collect(), join_row: false }], structured: false });
+            done.push(Regions { layout: Layout::Leaf(Leaf { ids: first.into_iter().chain(second).collect(), join_row: false }), structured: false });
             continue;
         }
         let (first_x, second_x) = region.x.into_iter().partition(before);
@@ -132,7 +143,7 @@ pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<
         pending.push(Task::Visit(Region { ids: second, x: second_x, y: second_y }, depth + 1, child_rows));
         pending.push(Task::Visit(Region { ids: first, x: first_x, y: first_y }, depth + 1, child_rows));
     }
-    done.pop().map_or_else(Vec::new, |r| r.leaves)
+    done.pop().map_or_else(Vec::new, |r| r.layout.into_leaves())
 }
 
 /// Select the upper median in place, or return no estimate for an empty sample.
@@ -177,6 +188,45 @@ fn space_advances(glyphs: &[TextGlyph], ids: &[usize], height: f32, spaces_from_
         widths.push(nominal.max(advance));
     }
     widths
+}
+
+/// A single local word space can cover a body gutter even when its font is a minority on
+/// the page. Repeated alignment spaces do not provide this evidence: one advance must span
+/// the whole corridor. Sweep sorted spaces and candidates rather than rescanning the page.
+fn word_bridges(glyphs: &[TextGlyph], ids: &[usize], spaces_from_shows: &[f32], candidates: &[Gap]) -> Vec<bool> {
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+    let mut spans: Vec<_> = ids
+        .iter()
+        .filter_map(|&id| {
+            let g = glyphs.get(id)?;
+            let mut chars = g.text.chars();
+            let c = chars.next()?;
+            if !c.is_whitespace() || c.is_control() || matches!(c, '\u{2028}' | '\u{2029}') || chars.next().is_some() {
+                return None;
+            }
+            let nominal = g.rect[2] - g.rect[0];
+            let advance = spaces_from_shows.get(id).copied().filter(|s| s.is_finite() && *s > 0.0).map_or(nominal, |s| s * (g.rect[3] - g.rect[1]));
+            let end = g.rect[0] + nominal.max(advance);
+            end.is_finite().then_some([g.rect[0], end])
+        })
+        .collect();
+    spans.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    let mut spans = spans.into_iter().peekable();
+    let mut end = f32::NEG_INFINITY;
+    candidates
+        .iter()
+        .map(|gap| {
+            let left = gap.at - gap.size * 0.5;
+            while spans.peek().is_some_and(|span| span[0] <= left + gap.error) {
+                if let Some(span) = spans.next() {
+                    end = end.max(span[1]);
+                }
+            }
+            end >= gap.at + gap.size * 0.5 - gap.error
+        })
+        .collect()
 }
 
 /// Recognize conventional list labels and colon-terminated field labels without limiting
@@ -489,18 +539,26 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region, spaces_from_shows: &[f32])
         .collect();
     let independent_space = (spaces.is_empty() && !candidates.is_empty()).then(|| fallback_word_space(glyphs, &region.y, h, letter_gap)).flatten();
     let supported = prose_support(glyphs, region, &candidates, h, word_space.max(independent_space.unwrap_or(0.0)));
+    let has_prose = supported.prose.iter().any(|&prose| prose);
+    let bridges = word_bridges(glyphs, &region.ids, spaces_from_shows, &candidates);
     let vertical = candidates
         .iter()
         .zip(supported.prose)
-        .filter(|(gap, supported)| *supported && independent_space.is_none_or(|space| gap.size > space + gap.error))
-        .map(|(gap, _)| gap)
+        .zip(bridges)
+        .filter(|((gap, supported), bridge)| *supported && !bridge && independent_space.is_none_or(|space| gap.size > space + gap.error))
+        .map(|((gap, _), _)| gap)
         .max_by(|a, b| a.size.total_cmp(&b.size).then_with(|| balance(a).cmp(&balance(b))));
     match (vertical, horizontal) {
         // A persistent gutter establishes a complete column even across large paragraph
         // gaps. A heading spanning it obstructs the projection and permits a horizontal
         // cut instead; the size of empty paragraph whitespace is not section evidence.
-        (Some(x), _) => Some(Cut { axis: 0, at: x.at, rows: false }),
-        (_, Some(y)) => Some(Cut { axis: 1, at: y.at, rows: !candidates.is_empty() && (supported.labels || y.size >= h - y.error) }),
+        (Some(x), _) => Some(Cut { axis: 0, at: x.at, span: [x.at - x.size * 0.5, x.at + x.size * 0.5], rows: false }),
+        (_, Some(y)) => Some(Cut {
+            axis: 1,
+            at: y.at,
+            span: [y.at - y.size * 0.5, y.at + y.size * 0.5],
+            rows: !has_prose && !candidates.is_empty() && (supported.labels || y.size >= h - y.error),
+        }),
         _ => None,
     }
 }
@@ -529,7 +587,12 @@ mod tests {
     /// Partitioning preserves every index exactly once, including blank and invalid geometry.
     #[test]
     fn every_original_index_survives_subdivision_including_blank_glyphs() {
-        let mut gs: Vec<_> = (0..4).flat_map(|col| (0..80).map(move |row| glyph("a", col as f32 * 50.0, row as f32 * 12.0))).collect();
+        let mut gs: Vec<_> = (0..4)
+            .flat_map(|col| {
+                (0..80).flat_map(move |row| (0..6).map(move |letter| glyph("a", col as f32 * 44.0 + letter as f32 * 6.0, row as f32 * 12.0)))
+            })
+            .collect();
+        assert_eq!(parts(&gs).len(), 4, "ownership check must exercise real subdivision");
         gs.extend([glyph(" ", 25.0, 5.0), glyph("", 75.0, 15.0)]);
         let mut ids: Vec<_> = parts(&gs).into_iter().flatten().collect();
         ids.sort_unstable();

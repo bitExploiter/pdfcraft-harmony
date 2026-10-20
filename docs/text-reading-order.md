@@ -56,7 +56,13 @@ whitespace: even a large aligned paragraph break must not interleave neighbourin
 When spanning content obstructs the gutter, a horizontal cut exposes headings, section
 changes and footers before their local column layouts. Empty space alone cannot establish
 a semantic section break. Equal gaps prefer balanced subdivisions to avoid unnecessarily
-deep trees. Horizontal subdivisions are retained when they expose supported columns or
+deep trees. The subdivision tree is retained through reconstruction of reading order.
+Adjacent horizontal bands with compatible empty gutter corridors share complete columns,
+even when a heading or footer initially blocked those corridors at the page level.
+Intersecting corridors identify continuity without a paragraph-gap cutoff; ambiguous
+one-to-many matches are left separate. A heading spanning only some columns stays inside
+their group. Spanning text leaves and proven table rows remain barriers, so actual section
+headings still separate layouts. Horizontal subdivisions are retained when they expose supported columns or
 row relationships: paired labels and values, or sparse cells separated by row whitespace.
 Other horizontal splits restore the original region and paint order, leaving line
 grouping to the existing reconstructor. All tolerances scale with the typography.
@@ -66,6 +72,10 @@ so widely spaced lettering is not interpreted as one column per letter.
 Word-space evidence includes the actual advance after explicit spaces, including `Tw`.
 Such advances are measured within one string operand: a trailing space must not borrow
 the position of an adjacent column's first glyph.
+A single word-space advance covering an entire candidate corridor also vetoes that cut.
+This local evidence protects a larger heading whose space is wider than the body gutter;
+the page's median space alone cannot describe mixed font sizes. Repeated alignment spaces
+do not combine into such a bridge.
 `text/spacing.rs` estimates implicit spaces within individual text-show operations when no
 Unicode spaces are available, protecting justified `TJ` text. Show provenance is evidence
 about spacing, not authority for reading order: one `TJ` can still paint several columns.
@@ -102,8 +112,10 @@ Subdivision is iterative with a depth limit of 64 and falls back to the existing
 at that limit or on nonfinite geometry. Axis indices are sorted once, then filtered at each
 cut; prefix and suffix bounds make testing all cut candidates linear. Tracking samples sort
 within visual bands only when a potential gutter exists. Pruned regions merge
-their original indices in linear time. Glyphs are referenced, not cloned. The new pass uses
-O(n) live auxiliary storage and bounded O(64 n log n) work. Existing per-leaf line
+their original indices in linear time. Column-band normalization also bounds its recursive
+descent at 64 and matches ordered gutter corridors in linear time. Glyphs are referenced,
+not cloned. Live auxiliary storage is O(n); subdivision and normalization have bounded
+depth. Existing per-leaf line
 reconstruction retains its previous complexity and benefits from smaller inputs.
 Rectangular copying sorts the selected glyphs of each logical line for cell-gap analysis,
 using O(k log k) time and O(k) auxiliary storage for k selected glyphs. Normal copying does
@@ -125,8 +137,12 @@ highlight bounds, not merely the presence of words. The UI regression drags with
 in both directions and checks the emitted clipboard content, including aligned paragraph
 breaks. The paragraph regression checks two and three columns over four paragraph spacings,
 with distinct text in every column and paragraph, and verifies cross-paragraph search bounds.
-It was observed failing with the previous horizontal-gap preference, as was the expanded
-plain-mouse/clipboard regression.
+The aligned-paragraph regression was observed failing with the previous horizontal-gap
+preference, as was the expanded plain-mouse/clipboard regression.
+Additional regressions cover headings at 14/20/30 points over a ten-point body, headings
+and footers enclosing two/three columns with paragraph gaps up to 180 points, and a heading
+over only two of three columns. The larger-font and headed-paragraph cases were observed
+failing before their fixes; the partial-heading case protects existing behavior.
 
 `crates/render/tests/row_structure.rs` covers the contributor's justified `TJ`/`Tw` example,
 implicit spaces without space glyphs, hanging bullets (also painted before their bodies),

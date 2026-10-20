@@ -200,6 +200,86 @@ fn spanning_headings_and_footer_surround_complete_columns() {
     );
 }
 
+/// A larger heading's single word space can fully cover the narrower body gutter. That
+/// local word relationship must survive even when body spaces dominate the page estimate.
+#[test]
+fn larger_spanning_headings_keep_their_words_together_above_columns() {
+    for size in [14.0, 20.0, 30.0] {
+        let cell = size * 0.6;
+        let x = 178.0 - cell * 0.5 - 5.0 * cell;
+        let mut ops = format!("BT /F1 {size} Tf {x} 740 Td (ALPHA BETA) Tj ET\n");
+        for x in [30.0, 182.0] {
+            for (row, text) in LINES.iter().enumerate() {
+                ops.push_str(&run(text, x, 700.0 - row as f32 * 12.0));
+            }
+        }
+        let t = extract(&ops);
+        let body = [LINES, LINES].concat().join("\n");
+        assert_eq!(t.plain_text(), format!("ALPHA BETA\n{body}"), "heading size {size}");
+        let first = t.find("ALPHA")[0].start;
+        let last = t.find("BETA")[0].end;
+        assert_eq!(t.text_of(first..last), "ALPHA BETA");
+        assert_eq!(t.line_rects(first..last).len(), 1);
+    }
+}
+
+/// Spanning elements must not make a larger paragraph gap interleave complete columns.
+#[test]
+fn spanning_header_footer_keep_columns_continuous_across_large_paragraph_gaps() {
+    let heading = "A spanning title across the complete multi column body on this page";
+    let footer = "A footer across all three columns and the entire body width";
+    for columns in [2, 3] {
+        for gap in [12.0, 84.0, 180.0] {
+            let labels = ['L', 'M', 'R'];
+            let line = |col, p, row| format!("{col} p{p} row{row} fills column");
+            let width = line('L', 0, 0).len() as f32 * 6.0;
+            let mut ops = run(heading, 30.0, 760.0);
+            for p in 0..2 {
+                for row in 0..3 {
+                    for (col, label) in labels.into_iter().take(columns).enumerate() {
+                        ops.push_str(&run(
+                            &line(label, p, row),
+                            30.0 + col as f32 * (width + 8.0),
+                            700.0 - p as f32 * (24.0 + gap) - row as f32 * 12.0,
+                        ));
+                    }
+                }
+            }
+            ops.push_str(&run(footer, 30.0, 700.0 - (24.0 + gap) - 24.0 - 48.0));
+            let column = |label| (0..2).flat_map(|p| (0..3).map(move |row| line(label, p, row))).collect::<Vec<_>>().join("\n");
+            let expected = labels.into_iter().take(columns).map(column).collect::<Vec<_>>().join("\n");
+            let t = extract(&ops);
+            assert_eq!(t.plain_text(), format!("{heading}\n{expected}\n{footer}"), "{columns} columns, paragraph gap {gap}");
+            let first = t.find(&line('L', 0, 0))[0].start;
+            let last = t.find(&line('L', 1, 2))[0].end;
+            assert_eq!(t.text_of(first..last), column('L'));
+            assert!(t.line_rects(first..last).iter().all(|r| r[2] <= 30.1 + width));
+        }
+    }
+}
+
+/// A heading over some columns must not interrupt the neighbouring complete column.
+#[test]
+fn partial_spanning_heading_preserves_adjacent_column_through_paragraph_gaps() {
+    let heading = "A heading across only the first two body columns";
+    let footer = "A footer across all three columns and the entire body width";
+    let mut ops = run(heading, 30.0, 740.0);
+    for (row, text) in LINES.iter().enumerate() {
+        ops.push_str(&run(text, 334.0, 740.0 - row as f32 * 12.0));
+    }
+    for p in 0..2 {
+        for (row, text) in LINES.iter().enumerate() {
+            for x in [30.0, 182.0, 334.0] {
+                ops.push_str(&run(text, x, 680.0 - p as f32 * 180.0 - row as f32 * 12.0));
+            }
+        }
+    }
+    ops.push_str(&run(footer, 30.0, 430.0));
+    let column = [LINES, LINES].concat().join("\n");
+    let expected = format!("{heading}\n{column}\n{column}\n{}\n{column}\n{footer}", LINES.join("\n"));
+    assert_eq!(extract(&ops).plain_text(), expected);
+}
+
 /// A spanning section heading separates independently reconstructed column layouts.
 #[test]
 fn section_breaks_can_change_the_number_of_columns() {
