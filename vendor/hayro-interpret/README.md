@@ -42,6 +42,12 @@ at your option.
 
 ## PdfCraft function limits
 
+The optional `Device::begin_text_run` notification identifies complete PDF text-show
+operations, including all strings and adjustments of one TJ array. `begin_text_string`
+also marks individual string operands so trailing spaces cannot measure an unrelated
+positioning jump. Text extraction uses that provenance to measure word spacing;
+raster devices retain the default no-op implementations.
+
 The PdfCraft patch rejects function construction after 64 nested functions or 10,000 total
 function nodes, including repeated references, and detects cycles on the current path. Shared
 children in different branches remain valid. Stitching functions reject empty or unresolved

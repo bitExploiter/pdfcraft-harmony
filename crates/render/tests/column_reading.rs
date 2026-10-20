@@ -29,6 +29,46 @@ fn run(text: &str, x: f32, y: f32) -> String {
 
 const LINES: [&str; 3] = ["Alfa text fills row here", "Beta text fills row here", "Last text fills row here"];
 
+/// A text-show operation is spacing evidence, not proof that everything in it shares a line.
+#[test]
+fn one_tj_operation_can_paint_both_columns() {
+    let mut ops = String::new();
+    for row in 0..3 {
+        let y = 740 - row * 12;
+        ops.push_str(&format!("BT /F1 10 Tf 30 {y} Td [(L row {row} fills column) -800 (R row {row} fills column)] TJ ET\n"));
+    }
+    let expected =
+        ['L', 'R'].into_iter().flat_map(|col| (0..3).map(move |row| format!("{col} row {row} fills column"))).collect::<Vec<_>>().join("\n");
+    assert_eq!(extract(&ops).plain_text(), expected);
+}
+
+/// A trailing space must not borrow the unrelated next text show's column placement as Tw.
+#[test]
+fn trailing_spaces_do_not_measure_the_next_columns_gutter_as_word_spacing() {
+    let line = "ABCDEFGHIJKLMNOPQRSTUVWXYZ ";
+    for shared_show in [false, true] {
+        let mut ops = String::new();
+        for row in 0..3 {
+            let y = 740.0 - row as f32 * 12.0;
+            if shared_show {
+                ops.push_str(&format!("BT /F1 10 Tf 30 {y} Td [({line}) -800 ({line})] TJ ET\n"));
+            } else {
+                for x in [30.0, 200.0] {
+                    ops.push_str(&run(line, x, y));
+                }
+            }
+        }
+        let t = extract(&ops);
+        let first = t.nearest(31.0, 59.0).unwrap();
+        let last = t.nearest(185.0, 83.0).unwrap();
+        assert!(
+            t.line_rects(first..last + 1).iter().all(|r| r[2] <= 192.1),
+            "shared TJ {shared_show}: a trailing space erased the gutter: {:?}",
+            t.plain_text()
+        );
+    }
+}
+
 /// Paragraph whitespace shared by columns must not turn their continuous reading order
 /// into horizontal page bands, even when the paragraph gap dwarfs a narrow gutter.
 #[test]
@@ -130,16 +170,16 @@ fn section_breaks_can_change_the_number_of_columns() {
     assert_eq!(extract(&ops).plain_text(), expected);
 }
 
-/// Normal ranges preserve column order without changing rectangular row/tab extraction.
+/// Short table cells preserve normal row order and rectangular row/tab extraction.
 #[test]
-fn short_table_cells_keep_normal_column_ranges_and_rectangular_rows() {
+fn short_table_cells_preserve_normal_rows_and_rectangular_tabs() {
     let mut ops = String::new();
     for (row, (left, right)) in [("Name", "Qty"), ("Apple", "12"), ("Pear", "7")].iter().enumerate() {
         ops.push_str(&run(left, 30.0, 700.0 - row as f32 * 12.0));
         ops.push_str(&run(right, 80.0, 700.0 - row as f32 * 12.0));
     }
     let t = extract(&ops);
-    assert_eq!(t.plain_text(), "Name\nApple\nPear\nQty\n12\n7");
+    assert_eq!(t.plain_text(), "Name Qty\nApple 12\nPear 7");
     assert_eq!(t.column_text(&t.glyphs_in([0.0, 0.0, 200.0, 200.0])), "Name\tQty\nApple\t12\nPear\t7");
 }
 

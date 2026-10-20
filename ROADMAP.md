@@ -1,6 +1,6 @@
 # PdfCraft roadmap
 
-> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M2/M3: normal multi-column selection uses reading regions before line reconstruction; estimates unchanged)
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M2/M3, PR #3676: distinguish prose columns from justified spaces, lists, forms and sparse table rows; estimates unchanged)
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
@@ -174,6 +174,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M2/M3, PR #3676 contributor review):** Column cuts require adjacent filled prose on both sides. Text-show provenance and actual space advances protect justified TJ/Tw text; hanging labels, forms and sparse table cells retain row order. Synthetic regressions include normal mouse copying in both directions at four zoom levels; semantic tag-tree ordering remains future work. Estimates unchanged.
 - **2026-10-20 (M2/M3, PR #3676 review):** Supported continuous column gutters take precedence over aligned paragraph whitespace. Regressions cover normal ranges, search/highlight bounds and plain mouse copying in both directions across paragraph breaks; spanning headings and section layout changes remain covered. New layout helpers and regression contracts are documented. Estimates unchanged.
 
 - **2026-10-20 (M2/M3):** Normal selection and copying respect persistent whitespace regions before line merging. Narrow and staggered columns, spanning headings, changing layouts, tracking and rotated text have focused regressions; the existing shared selection/clipboard path is retained. See [text reading order](docs/text-reading-order.md) for scope and geometric limitations. Estimates unchanged.

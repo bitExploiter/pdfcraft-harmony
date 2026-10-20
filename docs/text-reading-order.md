@@ -8,6 +8,9 @@ intentional selection across columns.
 ## Execution path
 
 - `vendor/hayro-interpret/src/interpret/text.rs` interprets text positioning and font operations.
+  The optional `Device::begin_text_run` notification marks each complete `Tj`, `TJ`, `'` or
+  `"` operation; `begin_text_string` marks its individual string operands. Both default
+  to no-ops for raster devices.
 - `crates/render/src/text.rs::TextDevice` receives decoded glyphs and transforms their advances
   and em boxes into page view coordinates. It handles marked-content `ActualText` replacements.
 - `extract_page_filtered` separates writing directions, normalizes each flow into its baseline
@@ -46,16 +49,30 @@ by font, or in other orders.
 `crates/render/src/text/regions.rs` performs an original implementation of geometric XY
 subdivision. It projects nonblank glyph boxes onto both axes. A vertical cut must be wider than
 ordinary letter tracking plus word spacing (and half the local median em height), with overlapping multiline text
-on both sides. A supported continuous gutter always takes precedence over horizontal
+on both sides. Each side also needs adjacent, substantially filled prose lines that reach the
+candidate edge. Repeated whitespace beside isolated cells or list markers is insufficient.
+A supported continuous gutter always takes precedence over horizontal
 whitespace: even a large aligned paragraph break must not interleave neighbouring columns.
 When spanning content obstructs the gutter, a horizontal cut exposes headings, section
 changes and footers before their local column layouts. Empty space alone cannot establish
 a semantic section break. Equal gaps prefer balanced subdivisions to avoid unnecessarily
-deep trees. Horizontal subdivisions are retained only when they expose a supported column
-split in their subtree; otherwise the original region and paint order are restored and line
-grouping remains with the existing reconstructor. All tolerances scale with the typography.
+deep trees. Horizontal subdivisions are retained when they expose supported columns or
+row relationships: paired labels and values, or sparse cells separated by row whitespace.
+Other horizontal splits restore the original region and paint order, leaving line
+grouping to the existing reconstructor. All tolerances scale with the typography.
 Tracking is measured in visual bands using the same lower-third statistic as word grouping,
 so widely spaced lettering is not interpreted as one column per letter.
+
+Word-space evidence includes the actual advance after explicit spaces, including `Tw`.
+Such advances are measured within one string operand: a trailing space must not borrow
+the position of an adjacent column's first glyph.
+`text/spacing.rs` estimates implicit spaces within individual text-show operations when no
+Unicode spaces are available, protecting justified `TJ` text. Show provenance is evidence
+about spacing, not authority for reading order: one `TJ` can still paint several columns.
+Conventional list markers (including multi-digit, alphabetic and bracketed numbering) and
+colon-terminated field labels are excluded from prose evidence. Established single-row
+leaves allow distant label/value fragments to join; wrapped table cells retain their own
+lines within each row. Rectangular extraction still splits distant cell pieces for tab output.
 
 Leaf regions retain original glyph indices in paint order. The existing line reconstructor
 runs independently inside each leaf; it cannot join text across an established gutter.
@@ -95,6 +112,13 @@ with distinct text in every column and paragraph, and verifies cross-paragraph s
 It was observed failing with the previous horizontal-gap preference, as was the expanded
 plain-mouse/clipboard regression.
 
+`crates/render/tests/row_structure.rs` covers the contributor's justified `TJ`/`Tw` example,
+implicit spaces without space glyphs, hanging bullets (also painted before their bodies),
+numeric and alphabetic labels, dense form rows and single-line/wrapped tables. The UI
+regression `normal_row_drags_copy_spaces_labels_and_cells_at_every_zoom` uses physical
+word endpoints and independent source expectations, checks word boundaries, and copies
+with plain drags in both directions at 50%, 100%, 200% and 400%.
+
 The private magazine regression is intentionally ignored by default. Set
 `PDFCRAFT_COLUMN_PDF` to the local supplied PDF, then run:
 
@@ -112,11 +136,9 @@ map-label checks also caught regressions during development.
 
 ## Practical limits
 
-Geometric subdivision is a fallback, not a proof of author intent. Untagged tables and prose
-columns can have identical geometry. The synthetic unruled table is read by column after
-subdivision; the legacy reconstructor read its rows. Explicit rectangular extraction retains
-row/tab output. This is a documented compatibility tradeoff, not preservation of semantic
-table reading order. No semantic table-cell model is added.
+Geometric subdivision is a fallback, not a proof of author intent. Sparse tables, lists and
+forms have regression coverage and retain row order. Dense wrapped tables and prose
+columns can still have identical geometry; no semantic table-cell model is added.
 This change does not yet use a tagged PDF's structure tree as the authority for reading order.
 Overlapping columns, gutters obstructed on every baseline, very tight gutters indistinguishable
 from word spacing, complex nonrectangular flows and RTL/mixed reading-region order need further
@@ -125,6 +147,13 @@ corpus work. Existing cross-page selection and dehyphenation limitations are unc
 Passing the regression suite and the supplied magazine is not a claim of universal Acrobat
 parity. Further work should add structure-tree ordering with validated geometric fallback and
 broader independently annotated reading-order corpora.
+
+The contributor's external corpus is the PDF Association's
+[accessible PDF techniques](https://github.com/pdf-association/techniques-for-accessible-pdf/tree/3e31095d8aeea941eccbbb766a23369374c2e9a6)
+(CC BY 4.0). Keep that checkout outside this repository: it contains document/font assets
+that are not product inputs. Differential extraction on its 82 PDFs is useful compatibility
+evidence, but matching a baseline does not establish tag-tree conformance or reproduce the
+contributor's independently annotated drag suite.
 
 ## Design references
 

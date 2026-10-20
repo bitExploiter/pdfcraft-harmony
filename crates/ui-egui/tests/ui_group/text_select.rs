@@ -35,7 +35,12 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> (Harness<'static, 
 
 /// `harness` with another document; the pointer ends over glyph 5 of its first page.
 fn harness_with(pdf: Vec<u8>, setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> (Harness<'static, PdfCraftApp>, Pos2) {
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).with_step_dt(1.0 / 60.0).build_eframe(move |_cc| {
+    harness_with_size(pdf, setup, egui::vec2(1400.0, 900.0))
+}
+
+/// A larger viewport keeps both physical drag endpoints visible even at 400% zoom.
+fn harness_with_size(pdf: Vec<u8>, setup: impl FnOnce(&mut PdfCraftApp) + 'static, size: egui::Vec2) -> (Harness<'static, PdfCraftApp>, Pos2) {
+    let mut h = Harness::builder().with_size(size).with_step_dt(1.0 / 60.0).build_eframe(move |_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
         app.open_bytes("lines.pdf", None, pdf).expect("opens");
@@ -571,21 +576,117 @@ fn a_plain_drag_copies_only_its_narrow_magazine_column_both_ways() {
         let anchor = text.find(left[0])[0].start;
         let head = text.find(left[2]).last().unwrap().end - 1;
         assert!(text.glyphs[anchor].rect[0] < 110.0 && text.glyphs[head].rect[2] < 110.1);
-        let (mut h, _) = harness_with(pdf, |_| {});
         let expected = [left, left].concat().join("\n");
-        for reverse in [false, true] {
-            let view = &h.state().views[0];
-            let from = view.glyph_screen_pos(0, anchor).unwrap();
-            let to = view.glyph_screen_pos(0, head).unwrap();
-            let (from, to) = if reverse { (to, from) } else { (from, to) };
-            press_and_move(&mut h, from, to);
-            h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
-            h.run_steps(1);
-            assert_eq!(h.state().views[0].selected_text().as_deref(), Some(expected.as_str()), "paragraph gap {paragraph_gap}, reverse {reverse}");
+        for zoom in ["50", "100", "200", "400"] {
+            let (mut h, _) = harness_with_size(pdf.clone(), move |app| app.set_option("zoom", zoom).unwrap(), egui::vec2(2400.0, 1800.0));
+            for reverse in [false, true] {
+                let view = &h.state().views[0];
+                let from = view.glyph_screen_pos(0, anchor).unwrap();
+                let to = view.glyph_screen_pos(0, head).unwrap();
+                let (from, to) = if reverse { (to, from) } else { (from, to) };
+                drag(&mut h, from, to);
+                assert_eq!(
+                    h.state().views[0].selected_text().as_deref(),
+                    Some(expected.as_str()),
+                    "paragraph gap {paragraph_gap}, zoom {zoom}, reverse {reverse}"
+                );
+                assert!(h.state_mut().execute("edit.copy"));
+                h.step();
+                assert!(copied(&h, &expected));
+                h.run_steps(60);
+            }
+            // Deliberate movement from the bottom of one column into the top of the next
+            // must remain possible; constraining the drag to a rectangle would break this.
+            let from = text.find(left[2]).last().unwrap().start;
+            let to = text.find(right[0])[0].end - 1;
+            let a = h.state().views[0].glyph_screen_pos(0, from).unwrap();
+            let b = h.state().views[0].glyph_screen_pos(0, to).unwrap();
+            drag(&mut h, a, b);
+            let across = format!("{}\n{}", left[2], right[0]);
+            assert_eq!(h.state().views[0].selected_text().as_deref(), Some(across.as_str()));
             assert!(h.state_mut().execute("edit.copy"));
             h.step();
-            assert!(copied(&h, &expected));
-            h.run_steps(60);
+            assert!(copied(&h, &across));
+        }
+    }
+}
+
+/// The contributor's four regression families, through plain pointer events and the real
+/// clipboard command. Expected words come from these original generators, not PageText.
+#[test]
+fn normal_row_drags_copy_spaces_labels_and_cells_at_every_zoom() {
+    use pdfcraft_render::{PageRenderer, RenderConfig, text::TextFilter};
+    use std::sync::Arc;
+
+    let run = |text: &str, x: usize, y: usize| format!("BT /F1 7 Tf {x} {y} Td ({text}) Tj ET\n");
+    let mut cases = vec![(
+        "justified".to_string(),
+        "BT /F1 7 Tf 20 160 Td [(Justified) -600 (text) -600 (without) -600 (any) -600 (space) -600 (characters)] TJ ET\n\
+         BT /F1 7 Tf 5 Tw 20 130 Td (Word spacing set with Tw on real spaces) Tj ET\n"
+            .to_string(),
+        "Justified",
+        "characters",
+        "Justified text without any space characters".to_string(),
+    )];
+    let bullets = run("\\225", 20, 160)
+        + &run("First item has words", 30, 160)
+        + &run("and its continuation", 30, 150)
+        + &run("\\225", 20, 120)
+        + &run("Second item has words", 30, 120)
+        + &run("\\225", 20, 90)
+        + &run("Third item has words", 30, 90)
+        + &run("and a final continuation", 30, 80);
+    cases.push((
+        "bullets".into(),
+        bullets,
+        "First",
+        "final",
+        "First item has words and its continuation • Second item has words • Third item has words and a final".into(),
+    ));
+    for offset in [60, 100] {
+        let fields = [("Name:", "Jane Example"), ("Role:", "Project reader"), ("City:", "Lake Town")];
+        let content = fields
+            .iter()
+            .enumerate()
+            .map(|(row, (label, value))| format!("BT /F1 7 Tf 20 {} Td ({label}) Tj {offset} 0 Td ({value}) Tj ET\n", 160 - row * 24))
+            .collect::<String>();
+        cases.push((format!("form-{offset}"), content, "Name:", "City:", "Name: Jane Example Role: Project reader City:".into()));
+    }
+    for wrapped in [false, true] {
+        let mut content = String::new();
+        for row in 0..2 {
+            for col in 0..3 {
+                content.push_str(&run(&format!("R{row}C{col} cell text"), 20 + col * 90, 160 - row * 60));
+                if wrapped {
+                    content.push_str(&run("wrap detail", 20 + col * 90, 150 - row * 60));
+                }
+            }
+        }
+        let want = if wrapped { "R0C1 cell text wrap detail R0C2" } else { "R0C1 cell text R0C2" };
+        cases.push((format!("table-wrapped-{wrapped}"), content, "R0C1", "R0C2", want.into()));
+    }
+    let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
+    for (name, content, first, last, expected) in cases {
+        let pdf = text_pdf(&content);
+        let text = PageRenderer::new(Arc::new(pdf.clone()), RenderConfig::default()).filtered_text(0, TextFilter::default()).unwrap();
+        let anchor = text.find(first)[0].start;
+        let head = text.find(last)[0].end - 1;
+        for zoom in ["50", "100", "200", "400"] {
+            let (mut h, _) = harness_with_size(pdf.clone(), move |app| app.set_option("zoom", zoom).unwrap(), egui::vec2(2400.0, 1800.0));
+            for reverse in [false, true] {
+                let view = &h.state().views[0];
+                let a = view.glyph_screen_pos(0, anchor).unwrap();
+                let b = view.glyph_screen_pos(0, head).unwrap();
+                assert!(view.viewport_rect().contains(a) && view.viewport_rect().contains(b), "both endpoints are visible");
+                let (a, b) = if reverse { (b, a) } else { (a, b) };
+                drag(&mut h, a, b);
+                let selected = h.state().views[0].selected_text().expect("normal selection");
+                assert_eq!(words(&selected), expected, "{name}, zoom {zoom}, reverse {reverse}");
+                assert!(h.state_mut().execute("edit.copy"));
+                h.step();
+                assert!(copied(&h, &selected), "the clipboard matches the verified selection");
+                h.run_steps(60);
+            }
         }
     }
 }

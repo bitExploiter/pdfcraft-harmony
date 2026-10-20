@@ -24,8 +24,21 @@ struct Gap {
 }
 
 enum Task {
-    Visit(Region, usize),
-    Join(usize),
+    Visit(Region, usize, bool),
+    Join(Cut, bool),
+}
+
+#[derive(Clone, Copy)]
+struct Cut {
+    axis: usize,
+    at: f32,
+    rows: bool,
+}
+
+/// A reading region; a proven single-row leaf can join distant labels and values.
+pub(super) struct Leaf {
+    pub(super) ids: Vec<usize>,
+    pub(super) join_row: bool,
 }
 
 struct Region {
@@ -37,8 +50,8 @@ struct Region {
 }
 
 struct Regions {
-    leaves: Vec<Vec<usize>>,
-    columns: bool,
+    leaves: Vec<Leaf>,
+    structured: bool,
 }
 
 /// Read a projection edge without allowing an invalid index to panic during sorting.
@@ -48,52 +61,56 @@ fn edge(glyphs: &[TextGlyph], id: usize, axis: usize) -> f32 {
 
 /// Original indices, partitioned in reading order. Within each leaf, retain paint order for
 /// redraw detection, combining marks and overlapping runs in the existing line reconstructor.
-pub(super) fn partition(glyphs: &[TextGlyph]) -> Vec<Vec<usize>> {
+pub(super) fn partition(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> Vec<Leaf> {
     let all: Vec<_> = (0..glyphs.len()).collect();
-    if glyphs.iter().any(|g| !g.rect.iter().all(|v| v.is_finite())) {
-        return vec![all];
+    if glyphs.iter().any(|g| !g.rect.iter().all(|v| v.is_finite()) || !(g.rect[2] - g.rect[0]).is_finite() || !(g.rect[3] - g.rect[1]).is_finite()) {
+        return vec![Leaf { ids: all, join_row: false }];
     }
     let mut x: Vec<_> = all.iter().copied().filter(|&i| glyphs.get(i).is_some_and(|g| !g.text.trim().is_empty())).collect();
     x.sort_by(|&a, &b| edge(glyphs, a, 0).total_cmp(&edge(glyphs, b, 0)));
     let mut y = x.clone();
     y.sort_by(|&a, &b| edge(glyphs, a, 1).total_cmp(&edge(glyphs, b, 1)));
-    let mut pending = vec![Task::Visit(Region { ids: all, x, y }, 0)];
+    let mut pending = vec![Task::Visit(Region { ids: all, x, y }, 0, false)];
     let mut done: Vec<Regions> = Vec::new();
     while let Some(task) = pending.pop() {
-        let (region, depth) = match task {
-            Task::Visit(region, depth) => (region, depth),
-            Task::Join(axis) => {
+        let (region, depth, row_scope) = match task {
+            Task::Visit(region, depth, row_scope) => (region, depth, row_scope),
+            Task::Join(cut, row_scope) => {
                 let (Some(right), Some(mut left)) = (done.pop(), done.pop()) else {
                     // Internal stack invariant; preserve all glyphs if it is ever broken.
-                    return vec![(0..glyphs.len()).collect()];
+                    return vec![Leaf { ids: (0..glyphs.len()).collect(), join_row: false }];
                 };
-                left.columns |= right.columns || axis == 0;
-                if !left.columns {
+                left.structured |= right.structured || cut.axis == 0 || cut.rows;
+                if !left.structured {
                     // Horizontal whitespace is only a way to expose columns, not evidence
                     // that slightly separated glyphs should become separate logical lines.
                     // Without a supported column cut, leave line grouping to the existing
                     // reconstructor (important for map labels and decorative typography).
-                    let mut a = left.leaves.into_iter().flatten().peekable();
-                    let mut b = right.leaves.into_iter().flatten().peekable();
+                    let mut a = left.leaves.into_iter().flat_map(|r| r.ids).peekable();
+                    let mut b = right.leaves.into_iter().flat_map(|r| r.ids).peekable();
                     let mut ids = Vec::new();
                     while let (Some(x), Some(y)) = (a.peek(), b.peek()) {
                         ids.extend(if x <= y { a.next() } else { b.next() });
                     }
                     ids.extend(a);
                     ids.extend(b);
-                    left.leaves = vec![ids];
+                    let join_row = row_scope && one_line(glyphs, &ids);
+                    left.leaves = vec![Leaf { ids, join_row }];
                 } else {
                     left.leaves.extend(right.leaves);
                 }
+                left.structured |= row_scope;
                 done.push(left);
                 continue;
             }
         };
-        let cut = (depth < MAX_DEPTH).then(|| subdivision(glyphs, &region)).flatten();
-        let Some((axis, at)) = cut else {
-            done.push(Regions { leaves: vec![region.ids], columns: false });
+        let cut = (depth < MAX_DEPTH).then(|| subdivision(glyphs, &region, spaces_from_shows)).flatten();
+        let Some(cut) = cut else {
+            let join_row = row_scope && one_line(glyphs, &region.y);
+            done.push(Regions { leaves: vec![Leaf { ids: region.ids, join_row }], structured: row_scope });
             continue;
         };
+        let Cut { axis, at, .. } = cut;
         let before = |&i: &usize| {
             glyphs.get(i).is_some_and(|g| {
                 let r = g.rect;
@@ -103,16 +120,17 @@ pub(super) fn partition(glyphs: &[TextGlyph]) -> Vec<Vec<usize>> {
         };
         let (first, second): (Vec<_>, Vec<_>) = region.ids.into_iter().partition(before);
         if first.is_empty() || second.is_empty() {
-            done.push(Regions { leaves: vec![first.into_iter().chain(second).collect()], columns: false });
+            done.push(Regions { leaves: vec![Leaf { ids: first.into_iter().chain(second).collect(), join_row: false }], structured: false });
             continue;
         }
         let (first_x, second_x) = region.x.into_iter().partition(before);
         let (first_y, second_y) = region.y.into_iter().partition(before);
-        // Stack order: top before bottom, left before right. Depth bounds total sorting work
-        // to O(n log n + MAX_DEPTH * n), even for successively unbalanced cuts.
-        pending.push(Task::Join(axis));
-        pending.push(Task::Visit(Region { ids: second, x: second_x, y: second_y }, depth + 1));
-        pending.push(Task::Visit(Region { ids: first, x: first_x, y: first_y }, depth + 1));
+        // Stack order: top before bottom, left before right. Axis filtering is linear per
+        // level; visual-band sorts for prose/tracking are bounded by MAX_DEPTH * n log n.
+        let child_rows = axis == 1 && cut.rows;
+        pending.push(Task::Join(cut, row_scope));
+        pending.push(Task::Visit(Region { ids: second, x: second_x, y: second_y }, depth + 1, child_rows));
+        pending.push(Task::Visit(Region { ids: first, x: first_x, y: first_y }, depth + 1, child_rows));
     }
     done.pop().map_or_else(Vec::new, |r| r.leaves)
 }
@@ -124,6 +142,168 @@ fn median(values: &mut [f32]) -> Option<f32> {
     }
     let mid = values.len() / 2;
     Some(*values.select_nth_unstable_by(mid, f32::total_cmp).1)
+}
+
+/// A row scope must not widen merging for a leaf that still contains several baselines.
+fn one_line(glyphs: &[TextGlyph], ids: &[usize]) -> bool {
+    let mut top = f32::INFINITY;
+    let mut bottom = f32::NEG_INFINITY;
+    let mut height = f32::INFINITY;
+    for &id in ids {
+        let Some(g) = glyphs.get(id) else { continue };
+        top = top.min(g.rect[1]);
+        bottom = bottom.max(g.rect[3]);
+        height = height.min((g.rect[3] - g.rect[1]).max(0.0));
+    }
+    height.is_finite() && height > 0.0 && bottom - top <= height * 1.5
+}
+
+/// Explicit spaces carry nominal widths, but Tw also moves the next glyph. Measure that
+/// advance within the same source line rather than treating the extra spacing as a gutter.
+fn space_advances(glyphs: &[TextGlyph], ids: &[usize], height: f32, spaces_from_shows: &[f32]) -> Vec<f32> {
+    let mut widths = Vec::new();
+    for &id in ids {
+        let Some(g) = glyphs.get(id) else { continue };
+        if g.text.is_empty() || !g.text.chars().all(char::is_whitespace) {
+            continue;
+        }
+        let nominal = g.rect[2] - g.rect[0];
+        if nominal <= 0.0 || nominal > height {
+            continue;
+        }
+        // Only a measured advance within one source string is trustworthy. The next
+        // paint-order glyph can instead start an adjacent column after a trailing space.
+        let advance = spaces_from_shows.get(id).copied().filter(|s| s.is_finite() && *s > 0.0).map_or(nominal, |s| s * (g.rect[3] - g.rect[1]));
+        widths.push(nominal.max(advance));
+    }
+    widths
+}
+
+/// Recognize conventional list labels and colon-terminated field labels without limiting
+/// their width or digit count. Such labels do not constitute full prose lines.
+#[derive(Default)]
+struct Label {
+    letters: bool,
+    number: bool,
+    separated: bool,
+    right: Option<f32>,
+    punctuation: bool,
+    other: bool,
+    last: Option<char>,
+}
+
+impl Label {
+    /// Inspect text without allocating or setting a document-specific label-length cutoff.
+    fn add(&mut self, g: &TextGlyph) {
+        let h = g.rect[3] - g.rect[1];
+        self.separated |= self.right.is_some_and(|right| g.rect[0] - right > h * super::WORD_GAP);
+        self.right = Some(g.rect[2]);
+        for c in g.text.chars() {
+            if c.is_whitespace() {
+                self.separated |= self.last.is_some();
+                continue;
+            }
+            self.last = Some(c);
+            if c.is_numeric() {
+                self.number = true;
+            } else if c.is_alphabetic() {
+                self.letters = true;
+            } else if matches!(c, '.' | ')' | '(' | '[' | ']' | '{' | '}' | '-' | '–' | '—' | '•' | '‣' | '◦' | '▪' | '▫' | '●' | '○' | '■' | '□')
+            {
+                self.punctuation = true;
+            } else {
+                self.other = true;
+            }
+        }
+    }
+
+    /// Field-label syntax and numeric/alphabetic/Roman list markers are row relationships.
+    fn is_label(&self) -> bool {
+        self.last == Some(':')
+            || (!self.other
+                && !self.separated
+                && ((!self.letters && (self.number || self.punctuation)) || (self.punctuation && matches!(self.last, Some('.' | ')' | ']' | '}')))))
+    }
+}
+
+struct Support {
+    prose: Vec<bool>,
+    labels: bool,
+}
+
+/// Require adjacent, substantially filled lines on each side of a candidate. Labels and
+/// isolated table cells do not establish prose columns merely by sharing whitespace.
+/// Each glyph contributes to one fragment, and fragments touch only neighbouring cuts.
+fn prose_support(glyphs: &[TextGlyph], region: &Region, candidates: &[Gap], height: f32, word_space: f32) -> Support {
+    if candidates.is_empty() {
+        return Support { prose: Vec::new(), labels: false };
+    }
+    let mut supported = vec![[false; 2]; candidates.len()];
+    let mut label_rows = vec![0usize; candidates.len()];
+    let mut previous: Vec<[Option<[f32; 2]>; 2]> = vec![[None; 2]; candidates.len()];
+    let mut row = Vec::new();
+    let mut top = f32::NEG_INFINITY;
+    let mut visit = |row: &mut Vec<usize>| {
+        row.sort_by(|&a, &b| edge(glyphs, a, 0).total_cmp(&edge(glyphs, b, 0)));
+        let mut fragments: Vec<(usize, [f32; 4], Label)> = Vec::new();
+        for &id in row.iter() {
+            let Some(g) = glyphs.get(id) else { continue };
+            let part = candidates.partition_point(|gap| gap.at < g.rect[0]);
+            if let Some((_, bounds, label)) = fragments.last_mut().filter(|(last, _, _)| *last == part) {
+                super::union(bounds, &g.rect);
+                label.add(g);
+            } else {
+                let mut label = Label::default();
+                label.add(g);
+                fragments.push((part, g.rect, label));
+            }
+        }
+        for pair in fragments.windows(2) {
+            let (Some(left), Some(right)) = (pair.first(), pair.get(1)) else { continue };
+            if left.0.checked_add(1) != Some(right.0) || !left.2.is_label() {
+                continue;
+            }
+            let Some(gap) = candidates.get(left.0) else { continue };
+            if gap.at - gap.size * 0.5 - left.1[2] <= height
+                && right.1[0] - gap.at - gap.size * 0.5 <= word_space + gap.error
+                && let Some(count) = label_rows.get_mut(left.0)
+            {
+                *count = count.saturating_add(1);
+            }
+        }
+        for (part, rect, label) in fragments {
+            for (candidate, side) in [(Some(part), 0), (part.checked_sub(1), 1)] {
+                let Some(candidate) = candidate else { continue };
+                let Some(gap) = candidates.get(candidate) else { continue };
+                let reaches = if side == 0 { gap.at - gap.size * 0.5 - rect[2] } else { rect[0] - gap.at - gap.size * 0.5 };
+                if label.is_label() || rect[2] - rect[0] <= gap.size || reaches > word_space + gap.error {
+                    continue;
+                }
+                let Some(last) = previous.get_mut(candidate).and_then(|s| s.get_mut(side)) else { continue };
+                if let Some(prev) = *last {
+                    let leading = rect[1] - prev[1];
+                    if leading >= -height * 0.5
+                        && leading < height + gap.error
+                        && let Some(found) = supported.get_mut(candidate).and_then(|s| s.get_mut(side))
+                    {
+                        *found = true;
+                    }
+                }
+                *last = Some([rect[1], rect[3]]);
+            }
+        }
+        row.clear();
+    };
+    for &id in &region.y {
+        let y = edge(glyphs, id, 1);
+        if y - top > height * 0.5 {
+            visit(&mut row);
+            top = y;
+        }
+        row.push(id);
+    }
+    visit(&mut row);
+    Support { prose: supported.into_iter().map(|s| s.into_iter().all(|v| v)).collect(), labels: label_rows.into_iter().any(|count| count >= 2) }
 }
 
 /// Gaps in an already sorted projection. Overlapping glyphs
@@ -183,7 +363,7 @@ fn tracking(glyphs: &[TextGlyph], sorted_y: &[usize], h: f32) -> f32 {
 
 /// Prefer a supported continuous column gutter; use horizontal whitespace only when no
 /// such gutter exists, so aligned paragraph breaks cannot interleave neighbouring columns.
-fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
+fn subdivision(glyphs: &[TextGlyph], region: &Region, spaces_from_shows: &[f32]) -> Option<Cut> {
     let ink = &region.x;
     if ink.len() < 2 {
         return None;
@@ -198,14 +378,8 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
         return None;
     }
     let h = median(&mut heights)?;
-    let mut spaces: Vec<_> = region
-        .ids
-        .iter()
-        .filter_map(|&i| glyphs.get(i))
-        .filter(|g| !g.text.is_empty() && g.text.chars().all(char::is_whitespace))
-        .map(|g| g.rect[2] - g.rect[0])
-        .filter(|&w| w > 0.0 && w <= h)
-        .collect();
+    let mut spaces = space_advances(glyphs, &region.ids, h, spaces_from_shows);
+    spaces.extend(ink.iter().filter_map(|&id| spaces_from_shows.get(id)).copied().filter(|s| s.is_finite() && *s > 0.0).map(|s| s * h));
     // Where a producer positions words without space glyphs, an ordinary word space is
     // estimated as a quarter em. A half em also protects ordinary letter tracking. All
     // other evidence (persistence, multiline support, section gaps) is measured on the page.
@@ -238,7 +412,7 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
             *slot = bounds;
         }
     }
-    let vertical = xgaps
+    let candidates: Vec<_> = xgaps
         .iter()
         .filter(|g| {
             let Some((&left, &right)) = g.before.checked_sub(1).and_then(|i| prefix.get(i)).zip(suffix.get(g.before)) else { return false };
@@ -247,13 +421,21 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
                 && right[1] - right[0] > h * 1.5
                 && left[1].min(right[1]) - left[0].max(right[0]) > h * 0.5
         })
+        .copied()
+        .collect();
+    let supported = prose_support(glyphs, region, &candidates, h, word_space);
+    let vertical = candidates
+        .iter()
+        .zip(supported.prose)
+        .filter(|(_, supported)| *supported)
+        .map(|(gap, _)| gap)
         .max_by(|a, b| a.size.total_cmp(&b.size).then_with(|| balance(a).cmp(&balance(b))));
     match (vertical, horizontal) {
         // A persistent gutter establishes a complete column even across large paragraph
         // gaps. A heading spanning it obstructs the projection and permits a horizontal
         // cut instead; the size of empty paragraph whitespace is not section evidence.
-        (Some(x), _) => Some((0, x.at)),
-        (_, Some(y)) => Some((1, y.at)),
+        (Some(x), _) => Some(Cut { axis: 0, at: x.at, rows: false }),
+        (_, Some(y)) => Some(Cut { axis: 1, at: y.at, rows: !candidates.is_empty() && (supported.labels || y.size >= h - y.error) }),
         _ => None,
     }
 }
@@ -261,6 +443,11 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Compare original ownership independently of the leaf's row reconstruction policy.
+    fn parts(glyphs: &[TextGlyph]) -> Vec<Vec<usize>> {
+        partition(glyphs, &[]).into_iter().map(|leaf| leaf.ids).collect()
+    }
 
     /// Make a fixed-size glyph so projection tests have exact, independent geometry.
     fn glyph(text: &str, x: f32, y: f32) -> TextGlyph {
@@ -271,7 +458,7 @@ mod tests {
     #[test]
     fn horizontal_gaps_alone_do_not_replace_line_reconstruction() {
         let gs: Vec<_> = (0..20).flat_map(|row| (0..30).map(move |col| glyph("a", col as f32 * 6.0, row as f32 * 12.0))).collect();
-        assert_eq!(partition(&gs), vec![(0..gs.len()).collect::<Vec<_>>()]);
+        assert_eq!(parts(&gs), vec![(0..gs.len()).collect::<Vec<_>>()]);
     }
 
     /// Partitioning preserves every index exactly once, including blank and invalid geometry.
@@ -279,13 +466,13 @@ mod tests {
     fn every_original_index_survives_subdivision_including_blank_glyphs() {
         let mut gs: Vec<_> = (0..4).flat_map(|col| (0..80).map(move |row| glyph("a", col as f32 * 50.0, row as f32 * 12.0))).collect();
         gs.extend([glyph(" ", 25.0, 5.0), glyph("", 75.0, 15.0)]);
-        let mut ids: Vec<_> = partition(&gs).into_iter().flatten().collect();
+        let mut ids: Vec<_> = parts(&gs).into_iter().flatten().collect();
         ids.sort_unstable();
         assert_eq!(ids, (0..gs.len()).collect::<Vec<_>>());
         for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             gs.push(glyph("a", value, value));
-            assert_eq!(partition(&gs), vec![(0..gs.len()).collect::<Vec<_>>()]);
+            assert_eq!(parts(&gs), vec![(0..gs.len()).collect::<Vec<_>>()]);
         }
-        assert!(partition(&[]).into_iter().flatten().next().is_none());
+        assert!(parts(&[]).into_iter().flatten().next().is_none());
     }
 }
