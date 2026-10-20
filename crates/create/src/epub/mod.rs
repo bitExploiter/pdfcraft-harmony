@@ -96,7 +96,7 @@ impl Pictures<'_> {
     fn load(&mut self, path: &str) -> Option<Picture> {
         let bytes = self.zip.read(path).ok().flatten()?;
         if path.to_ascii_lowercase().ends_with(".svg") || bytes.windows(4).take(512).any(|w| w == b"<svg") {
-            let opts = resvg::usvg::Options::default();
+            let opts = svg_options();
             let tree = resvg::usvg::Tree::from_data(&bytes, &opts).ok()?;
             let size = tree.size();
             let (w, h) = (f64::from(size.width()), f64::from(size.height()));
@@ -126,6 +126,15 @@ impl Pictures<'_> {
     }
 }
 
+/// Options for a picture's SVG: an `<image>` that names a file is left out, never read from disk
+/// (the default resolver reads any path it is given, so a book could embed a local file or hang on
+/// a device file). Pictures inside the SVG as `data:` URLs still draw.
+fn svg_options() -> resvg::usvg::Options<'static> {
+    let mut opts = resvg::usvg::Options::default();
+    opts.image_href_resolver.resolve_string = Box::new(|_, _| None);
+    opts
+}
+
 /// Text of a content document that isn't well-formed XHTML: its tags dropped, a paragraph per
 /// block-level tag, so its words still reach the PDF.
 fn loose_blocks(text: &str, path: &str) -> Vec<dom::Block> {
@@ -136,8 +145,10 @@ fn loose_blocks(text: &str, path: &str) -> Vec<dom::Block> {
     rest = &rest[body..];
     while let Some(lt) = rest.find('<') {
         current.push_str(&rest[..lt]);
-        let gt = rest[lt..].find('>').map_or(rest.len(), |g| lt + g + 1);
-        let tag = rest[lt + 1..gt.saturating_sub(1).max(lt + 1)].trim_start_matches('/').to_ascii_lowercase();
+        // The tag runs to its `>`, or to the end of the text when it is never closed ('<' is one
+        // byte, so `lt + 1` is a char boundary, and so are `lt + g` and the end).
+        let (tag_end, gt) = rest[lt..].find('>').map_or((rest.len(), rest.len()), |g| (lt + g, lt + g + 1));
+        let tag = rest.get(lt + 1..tag_end).unwrap_or_default().trim_start_matches('/').to_ascii_lowercase();
         let name = tag.split(|c: char| c.is_whitespace() || c == '/').next().unwrap_or_default();
         if matches!(name, "p" | "div" | "br" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "tr" | "blockquote") {
             paras.push(std::mem::take(&mut current));
@@ -676,3 +687,5 @@ fn xmp(title: &str, creators: &[String], language: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_limits;

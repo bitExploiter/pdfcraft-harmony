@@ -137,6 +137,9 @@ impl<'a> Zip<'a> {
         let data = at + 30 + name_len + extra_len;
         let raw = self.bytes.get(data..data + e.compressed as usize).ok_or_else(|| EpubError::Damaged(format!("{name} is cut short")))?;
         let out = match e.method {
+            // Stored: its bytes are its size, so a directory that understates them can't slip
+            // an entry past the caps above.
+            0 if e.compressed != e.size => return Err(EpubError::Damaged(format!("{name} is larger than the container says"))),
             0 => raw.to_vec(),
             8 => {
                 // Never more than the directory said, and never more than the cap: a bomb whose

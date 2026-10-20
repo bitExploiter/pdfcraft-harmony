@@ -510,6 +510,14 @@ impl Cascade {
     }
 }
 
+/// Elements nested deeper than this are not walked one by one: their text is kept, in the style
+/// of the element at the limit. The walk recurses, so this bounds the stack.
+pub const MAX_DEPTH: usize = 256;
+/// A list's `start` above this counts from here (a marker can't be worth a huge number).
+pub const MAX_LIST_START: usize = 1_000_000;
+/// Roman numerals are written up to this; past it the marker is decimal, as CSS does.
+const MAX_ROMAN: usize = 3999;
+
 /// The blocks of one content document. `path` is its container path (for links and images).
 pub struct Builder<'a> {
     cascade: &'a Cascade,
@@ -660,6 +668,7 @@ impl<'a> Builder<'a> {
             ListStyle::Decimal => format!("{n}."),
             ListStyle::LowerAlpha => format!("{}.", alpha(n)),
             ListStyle::UpperAlpha => format!("{}.", alpha(n).to_uppercase()),
+            ListStyle::LowerRoman | ListStyle::UpperRoman if n == 0 || n > MAX_ROMAN => format!("{n}."),
             ListStyle::LowerRoman => format!("{}.", roman(n)),
             ListStyle::UpperRoman => format!("{}.", roman(n).to_uppercase()),
         })
@@ -674,6 +683,17 @@ impl<'a> Builder<'a> {
             return;
         }
         if !node.is_element() {
+            return;
+        }
+        if self.stack.len() >= MAX_DEPTH {
+            // Too deep to walk: the words only, gathered without recursing.
+            for t in node.descendants().filter(|d| d.is_text()).filter_map(|d| d.text()) {
+                self.text(t);
+            }
+            let note = format!("{}: elements nested more than {MAX_DEPTH} deep were kept as plain text", self.path);
+            if !self.notes.contains(&note) {
+                self.notes.push(note);
+            }
             return;
         }
         let tag = node.tag_name().name().to_ascii_lowercase();
@@ -768,7 +788,7 @@ impl<'a> Builder<'a> {
         };
         let is_list = matches!(tag.as_str(), "ul" | "ol");
         if is_list {
-            let start = node.attribute("start").and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+            let start = node.attribute("start").and_then(|s| s.trim().parse::<usize>().ok()).unwrap_or(1).min(MAX_LIST_START);
             self.lists.push(start.saturating_sub(1));
         }
         let saved_link = self.link.clone();
@@ -785,7 +805,7 @@ impl<'a> Builder<'a> {
             self.heading = heading;
             if st.display == Display::ListItem {
                 if let Some(n) = self.lists.last_mut() {
-                    *n += 1;
+                    *n = n.saturating_add(1);
                 }
                 if let Some(m) = self.marker(&st) {
                     self.runs.push(Run { text: format!("{m}\u{a0}"), style: st.run.clone(), link: None });

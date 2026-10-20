@@ -221,8 +221,11 @@ fn nav_toc(zip: &Zip, path: &str) -> Result<Vec<NavEntry>, EpubError> {
                     out.push(NavEntry { title, target, level });
                 }
             }
-            for sub in li.children().filter(|c| c.tag_name().name() == "ol") {
-                walk(sub, level.saturating_add(1).min(32), base, out);
+            // The level stops at 32 and so does the walk, which recurses.
+            if level < 32 {
+                for sub in li.children().filter(|c| c.tag_name().name() == "ol") {
+                    walk(sub, level.saturating_add(1), base, out);
+                }
             }
         }
     }
@@ -250,7 +253,10 @@ fn ncx_toc(zip: &Zip, path: &str) -> Result<Vec<NavEntry>, EpubError> {
             if !title.is_empty() {
                 out.push(NavEntry { title, target, level });
             }
-            walk(point, level.saturating_add(1).min(32), base, out);
+            // The level stops at 32 and so does the walk, which recurses.
+            if level < 32 {
+                walk(point, level.saturating_add(1), base, out);
+            }
         }
     }
     if let Some(map) = xml.descendants().find(|n| n.tag_name().name() == "navMap") {
