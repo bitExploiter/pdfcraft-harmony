@@ -869,6 +869,8 @@ pub use added::{
 };
 
 #[cfg(test)]
+mod find_replace_rows_tests;
+#[cfg(test)]
 mod marked_isolation_tests;
 #[cfg(test)]
 mod tests;

@@ -182,10 +182,22 @@ impl Document {
                     Err(why) => out.skip(why, 1),
                 },
             }
-            // Last paragraph first: rewriting one never moves those before it in the page's order.
+            // Last paragraph first, which usually leaves those before it where they were. That is
+            // checked, not assumed: once a paragraph on this page is rewritten, the page is read
+            // again and a paragraph that is no longer what the match was found in is refused.
+            let mut rewrote = false;
             for (k, ranges) in chosen.into_iter().rev() {
                 let Some(block) = blocks.get(k) else { continue };
                 let count = ranges.len();
+                if rewrote {
+                    let same = pdfcraft_edit::text_blocks(&work, page)
+                        .ok()
+                        .is_some_and(|now| now.get(k).is_some_and(|b| b.editor_text == block.editor_text));
+                    if !same {
+                        refused(&mut out, count, page, "the page's paragraphs moved after an earlier replacement".into());
+                        continue;
+                    }
+                }
                 if block.invisible {
                     out.skip(Skip::ScannedText, count);
                     continue;
@@ -204,6 +216,7 @@ impl Document {
                 match guard(|| pdfcraft_edit::rewrite_block(&mut trial, page, k, Some(&text), &style)) {
                     Ok(Ok(pdfcraft_edit::LineEdit { substituted: None })) => {
                         work = trial;
+                        rewrote = true;
                         edits.push(Edit::EditTextBlock { page, block: k, text, style });
                         out.replaced = out.replaced.saturating_add(count);
                         if !out.pages.contains(&page) {
@@ -310,3 +323,5 @@ fn at(
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod rewrite_order_tests;
