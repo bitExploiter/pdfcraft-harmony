@@ -384,6 +384,22 @@ pub(crate) struct Incoming {
     pub open_doc: Option<pdfcraft_engine::DocId>,
 }
 
+/// One notice for every file `combine_paths` could not read, from `(name, error)` pairs: the
+/// names joined, and the errors (each once) joined. `None` when nothing failed.
+fn unreadable_notice(failed: &[(String, String)]) -> Option<(String, String)> {
+    if failed.is_empty() {
+        return None;
+    }
+    let names = failed.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ");
+    let mut errors: Vec<&str> = Vec::new();
+    for (_, e) in failed {
+        if !errors.contains(&e.as_str()) {
+            errors.push(e);
+        }
+    }
+    Some((names, errors.join("; ")))
+}
+
 /// A new value for [`CombineFile::auth`]: counted for the whole run, outside the undo history.
 fn next_auth() -> u64 {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -2550,6 +2566,7 @@ impl PdfCraftApp {
     /// as one undo step.
     pub fn combine_paths(&mut self, paths: &[String]) {
         let mut incoming = Vec::new();
+        let mut failed: Vec<(String, String)> = Vec::new();
         for path in paths.iter().map(std::path::Path::new) {
             let name = path.file_name().map_or_else(|| path.to_string_lossy().into_owned(), |n| n.to_string_lossy().into_owned());
             match std::fs::read(path) {
@@ -2557,8 +2574,11 @@ impl PdfCraftApp {
                     let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
                     incoming.push(Incoming { name, bytes: Arc::new(bytes), modified, note: None, open_doc: None });
                 }
-                Err(e) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &e.to_string())]),
+                Err(e) => failed.push((name, e.to_string())),
             }
+        }
+        if let Some((names, errors)) = unreadable_notice(&failed) {
+            self.notify_fmt("Couldn't read {name}: {e}", &[("name", &names), ("e", &errors)]);
         }
         self.stage_combine_with(incoming);
     }

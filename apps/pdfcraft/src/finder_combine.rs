@@ -5,7 +5,7 @@
 //! Finder hands a service its files through Apple events, not arguments, and a Services
 //! provider needs Objective-C classes (`unsafe`, which this workspace forbids); `fmv_macos_events`
 //! delivers only Open and Quit. So the app installs an Automator Quick Action in
-//! `~/Library/Services` whose shell step writes the selected paths, one a line, to
+//! `~/Library/Services` whose shell step writes the selected paths, each ending in a NUL byte, to
 //! `files.pdfcraft-combine` in a fresh `pdfcraft-combine.*` folder in the user's temporary folder
 //! and opens that file with this app (`open -b`). The open arrives as an ordinary Apple event,
 //! whether or not the app is running, and `from_open` turns it into the same `Combine` event a
@@ -78,7 +78,19 @@ fn listed(path: &Path, temp: &Path) -> Option<Vec<String>> {
     let text = if meta.is_file() && meta.len() <= MAX_LIST { std::fs::read_to_string(path).unwrap_or_default() } else { String::new() };
     let _ = std::fs::remove_file(path);
     let _ = std::fs::remove_dir(dir);
-    Some(text.lines().map(str::trim_end).filter(|l| !l.is_empty()).map(str::to_string).collect())
+    Some(parse_list(&text))
+}
+
+/// The paths in a list's text. The Quick Action separates them with NUL, which no file name
+/// holds, so a name with a newline or trailing spaces stays whole and nothing is trimmed. A
+/// list with no NUL is one an earlier Quick Action wrote, a path a line; that is still read
+/// that way (the Quick Action is rewritten at the app's next start, so this is short-lived).
+fn parse_list(text: &str) -> Vec<String> {
+    if text.contains('\0') {
+        text.split('\0').filter(|p| !p.is_empty()).map(str::to_string).collect()
+    } else {
+        text.lines().map(str::trim_end).filter(|l| !l.is_empty()).map(str::to_string).collect()
+    }
 }
 
 /// The Quick Action's folder: `~/Library/Services/<NAME>.workflow`.
@@ -138,7 +150,7 @@ const FILE_TYPES: [(&str, &[&str]); 8] = [
 /// The shell step: the selected paths into a fresh list, opened with the app.
 fn script(bundle_id: &str) -> String {
     format!(
-        "d=$(mktemp -d \"${{TMPDIR:-/tmp}}/{DIR}XXXXXX\") || exit 1\nfor p in \"$@\"; do printf '%s\\n' \"$p\"; done > \"$d/{LIST}\"\nopen -b {bundle_id} \"$d/{LIST}\"\n"
+        "d=$(mktemp -d \"${{TMPDIR:-/tmp}}/{DIR}XXXXXX\") || exit 1\nfor p in \"$@\"; do printf '%s\\0' \"$p\"; done > \"$d/{LIST}\"\nopen -b {bundle_id} \"$d/{LIST}\"\n"
     )
 }
 
@@ -479,3 +491,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+#[path = "finder_combine_tests.rs"]
+mod name_tests;
