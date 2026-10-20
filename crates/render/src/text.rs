@@ -290,6 +290,12 @@ impl PageText {
         if self.line_of.get(anchor)? == self.line_of.get(head)? {
             return None;
         }
+        // Rows mean nothing in vertical writing or turned text: two vertical columns at one
+        // height are not a row. Right-to-left rows are still rows.
+        let horizontal = |g: &TextGlyph| g.direction[1].abs() <= WORD_GAP;
+        if !horizontal(a) || !horizontal(h) {
+            return None;
+        }
         let centre = |g: &TextGlyph| (g.rect[1] + g.rect[3]) / 2.0;
         let (upper, lower) = if centre(a) <= centre(h) { (a, h) } else { (h, a) };
         let (top, bottom) = (upper.rect[1].min(lower.rect[1]), upper.rect[3].max(lower.rect[3]));
@@ -3276,6 +3282,10 @@ mod tests {
         };
         let all = t.glyphs_in([0.0, 0.0, 60.0, 40.0]);
         assert_eq!(t.column_text(&all), "日本\n語文");
+        // A drag from one vertical column into the next at the same height is not along a row:
+        // reading order stays (本 then 語文, down each column).
+        assert_eq!(t.visual_between(1, 3, Some(25.0)), None, "from 本 across to 文");
+        assert_eq!(t.visual_between(0, 2, Some(25.0)), None, "from 日 across to 語");
     }
 
     /// An embedded TrueType font with no `/Encoding`, flagged `flags`, its `/ToUnicode` (if
