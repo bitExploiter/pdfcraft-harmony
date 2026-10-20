@@ -931,6 +931,23 @@ impl Document {
         self.editor.as_ref().map_or_else(|| self.bytes.clone(), |e| e.saved.clone())
     }
 
+    /// The working file itself: [`Self::bytes`], except for a certificate-protected document,
+    /// whose `bytes` are a decrypted copy; its working file, written here when it has unsaved
+    /// edits, stays encrypted.
+    pub fn file_bytes(&self) -> Result<Arc<Vec<u8>>, EditError> {
+        match self.editor.as_ref().filter(|e| certificate_secured(&e.cos)) {
+            Some(e) => working_file(&e.cos),
+            None => Ok(self.bytes.clone()),
+        }
+    }
+
+    /// The first `len` bytes of [`Self::file_bytes`] (all of them when it is shorter): a saved
+    /// revision ([`Self::revision_ends`]) or the version a signature covers, as a file of its own.
+    pub fn file_prefix(&self, len: usize) -> Result<Arc<Vec<u8>>, EditError> {
+        let file = self.file_bytes()?;
+        Ok(Arc::new(file[..len.min(file.len())].to_vec()))
+    }
+
     /// Notes about damage repaired while opening (Document Properties ▸ Advanced, notices).
     pub fn repair_log(&self) -> Vec<String> {
         self.editor.as_ref().map(|e| e.cos.repair_log().to_vec()).unwrap_or_default()
@@ -3473,8 +3490,7 @@ impl Session {
         let name = format!("{} (revision {n}).pdf", doc.name.trim_end_matches(".pdf"));
         // Revision ends are offsets in the file itself: a certificate-protected document's
         // `bytes` are a decrypted rewrite of it.
-        let file = doc.editor.as_ref().map_or_else(|| doc.bytes.clone(), |e| e.cos.bytes().clone());
-        let (bytes, password) = (Arc::new(file[..end.min(file.len())].to_vec()), doc.password.clone());
+        let (bytes, password) = (doc.file_prefix(end).map_err(|e| e.to_string())?, doc.password.clone());
         self.open(name, None, bytes, password.as_deref()).map_err(|e| e.to_string())
     }
 
@@ -4913,13 +4929,7 @@ impl Session {
             if d.dirty && d.generation != d.snapshot_generation {
                 // A certificate-protected document's `bytes` are a decrypted copy: its snapshot is
                 // the encrypted working file, or none this time (never the plaintext).
-                let bytes = match d.editor.as_ref().filter(|e| certificate_secured(&e.cos)) {
-                    Some(e) => match working_file(&e.cos) {
-                        Ok(file) => file,
-                        Err(_) => continue,
-                    },
-                    None => d.bytes.clone(),
-                };
+                let Ok(bytes) = d.file_bytes() else { continue };
                 d.snapshot_generation = d.generation;
                 out.push(RecoverySnapshot {
                     doc: d.id,
