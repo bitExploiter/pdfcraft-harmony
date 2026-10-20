@@ -2008,8 +2008,10 @@ pub struct BlockStyle {
     pub underline: Option<bool>,
     /// Line spacing as a multiple of the font size (1.2 is ordinary).
     pub line_spacing: Option<f64>,
-    /// Space between paragraphs (a line break in the text starts one), in points, beyond the
-    /// line spacing; `None` is half the font size when the text has several paragraphs.
+    /// Space between paragraphs, in points, beyond the line spacing; `None` adds none. Where
+    /// the text keeps the page's rows in place, a line break starts a paragraph only on a new
+    /// row or on a row the page had already set apart, and the spacing replaces the space it
+    /// had; where the text is laid out afresh, every line break starts one.
     pub paragraph_spacing: Option<f64>,
     /// Character spacing (points) and horizontal scaling (percent).
     pub char_spacing: Option<f64>,
@@ -2298,8 +2300,8 @@ fn rewrite_block_from(
     let gap = match style.paragraph_spacing {
         Some(p) if p.is_finite() => (p / k).clamp(0.0, 14_400.0),
         Some(_) => return Err(EditError::Invalid("the paragraph spacing must be a number".into())),
-        // Turned text keeps its rows where they were (#1443) unless a spacing is asked for.
-        None if upright && paragraphs.iter().filter(|p| !p.is_empty()).count() > 1 => size * 0.5,
+        // The editor's draft breaks every source row, so a default spacing would spread
+        // the rows of one paragraph apart: none is added unless one is asked for.
         None => 0.0,
     };
     let n = pdfcraft_content::num;

@@ -709,21 +709,46 @@ pub(super) fn rewrite_styled_block(
         })
         .rfind(|v| *v > 0.0)
         .unwrap_or(first.size * 1.5);
-    // The space before a paragraph: a line break in the draft starts one when a paragraph
-    // spacing is set; rows the draft keeps from the page sit where they were, shifted by the
-    // spacing added above them.
+    // The space before a paragraph, when a paragraph spacing is set. The draft breaks every
+    // source row, so a break starts a paragraph only on a row the page did not have, or on one
+    // already set apart from the row above by more than the ordinary row step; there the set
+    // spacing replaces the space it had. Rows the draft keeps from the page sit where they
+    // were, shifted by the spacing added or taken away above them.
     let gap = match style.paragraph_spacing {
-        Some(p) if p.is_finite() => p.clamp(0.0, 14_400.0),
+        Some(p) if p.is_finite() => Some(p.clamp(0.0, 14_400.0)),
         Some(_) => return Err(EditError::Invalid("the paragraph spacing must be a number".into())),
-        None => 0.0,
+        None => None,
     };
+    let baseline_of = |r: usize| block.rows.get(r).and_then(|r| r.first()).and_then(|i| lines.get(*i)).map(|l| l.origin.baseline);
+    let row_step = (1..block.rows.len())
+        .filter_map(|r| Some(baseline_of(r - 1)? - baseline_of(r)?))
+        .filter(|v| *v > 0.0)
+        .fold(None, |min: Option<f64>, v| Some(min.map_or(v, |m| m.min(v))))
+        .unwrap_or(first.size * 1.5);
     let mut shift = 0.0;
     let mut baseline = first.origin.baseline;
     for (row_index, row) in rows.iter().enumerate() {
         let anchor = block.rows.get(row_index).and_then(|r| r.first()).and_then(|i| lines.get(*i));
-        if row_index > 0 && explicit.get(row_index).copied().unwrap_or(false) {
-            shift += gap;
-            baseline -= gap;
+        if let Some(gap) = gap
+            && row_index > 0
+            && explicit.get(row_index).copied().unwrap_or(false)
+        {
+            // The space this row already had above it, beyond the ordinary row step.
+            let existing = match (anchor, baseline_of(row_index - 1)) {
+                (Some(a), Some(above)) => Some((above - a.origin.baseline - row_step).max(0.0)),
+                _ => None,
+            };
+            match existing {
+                None => {
+                    shift += gap;
+                    baseline -= gap;
+                }
+                Some(existing) if existing > 0.5 => {
+                    shift += gap - existing;
+                    baseline -= gap;
+                }
+                Some(_) => {}
+            }
         }
         if style.line_spacing.is_none()
             && style.size.is_none()
