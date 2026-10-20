@@ -2234,12 +2234,19 @@ fn source_show(metrics: &Metrics, text: &str, size: f64, space: f64, char_spacin
 /// in, since [`source_show`] draws spaces the font lacks with a displacement.
 fn source_runs(metrics: &Metrics, text: &str) -> Vec<(bool, String)> {
     let mut runs: Vec<(bool, String)> = Vec::new();
+    // Spaces before the first word go with it: on their own they would make a run of the line's
+    // font with nothing to show (review on #2955).
+    let mut lead = String::new();
     for (i, word) in text.split(' ').enumerate() {
-        let own = word.is_empty() || metrics.encode(word).is_some();
         let piece = if i == 0 { word.to_string() } else { format!(" {word}") };
+        if runs.is_empty() && word.is_empty() {
+            lead.push_str(&piece);
+            continue;
+        }
+        let own = word.is_empty() || metrics.encode(word).is_some();
         match runs.last_mut() {
             Some((last, run)) if *last == own || word.is_empty() => run.push_str(&piece),
-            _ => runs.push((own, piece)),
+            _ => runs.push((own, std::mem::take(&mut lead) + &piece)),
         }
     }
     runs
@@ -2401,17 +2408,24 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     // with the line, or each edit would nest one more (review on #2955). The line then starts in
     // its own font, set again where the sequence was.
     if let Some((open, close)) = target.edited.and_then(|open| Some((open, matching_emc(&ops, open)?))) {
-        drops.extend(open..=close);
-        let size = font_size_before(&ops, first).unwrap_or(target.size);
-        let own_font = |i: usize| ops.get(i).is_some_and(|o| o.is("Tf") && o.name(0) == Some(target.font.as_bytes()) && o.num(1) == Some(size));
-        replacement.insert(0, Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
-        // The same font set just before the sequence (by the last edit) is set again here.
-        if let Some(i) = open.checked_sub(1).filter(|&i| own_font(i)) {
-            drops.insert(i);
-        }
-        // And set back after it: the replacement ends in that font too.
-        if let Some(i) = close.checked_add(1).filter(|&i| own_font(i)) {
-            drops.insert(i);
+        // Only when the sequence holds nothing but this line: a paragraph rewrite keeps the
+        // delimiters, so other rows can be inside it (review on #2955). Then the sequence stays
+        // as it is, since it is also what reads its own two-font line back as one, and only
+        // this line's operators go.
+        let others_inside = lines.iter().any(|l| l.ops.iter().any(|o| (open..=close).contains(o) && !drops.contains(o)));
+        if !others_inside {
+            drops.extend(open..=close);
+            let size = font_size_before(&ops, first).unwrap_or(target.size);
+            let own_font = |i: usize| ops.get(i).is_some_and(|o| o.is("Tf") && o.name(0) == Some(target.font.as_bytes()) && o.num(1) == Some(size));
+            replacement.insert(0, Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
+            // The same font set just before the sequence (by the last edit) is set again here.
+            if let Some(i) = open.checked_sub(1).filter(|&i| own_font(i)) {
+                drops.insert(i);
+            }
+            // And set back after it: the replacement ends in that font too.
+            if let Some(i) = close.checked_add(1).filter(|&i| own_font(i)) {
+                drops.insert(i);
+            }
         }
     }
     let new_data = splice(&pieces, &ops, |i| if i == first { (std::mem::take(&mut replacement), false) } else { (Vec::new(), !drops.contains(&i)) });
