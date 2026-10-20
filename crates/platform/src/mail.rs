@@ -95,7 +95,7 @@ pub enum Route {
     Run {
         command: PathBuf,
         args: Vec<String>,
-        /// Written to the helper's standard input (an AppleScript).
+        /// Written to the helper's standard input (an AppleScript; the Simple MAPI script's values).
         stdin: Option<String>,
         watch: Watch,
     },
@@ -157,7 +157,7 @@ pub enum Why {
 pub enum MailError {
     /// The file to attach is not a file that exists.
     NoFile(PathBuf),
-    /// A recipient is empty, starts with `-` or contains a control character.
+    /// A recipient is empty, starts with `-` or `mailto:`, or contains a control character.
     BadRecipient(String),
     /// No email program can be asked on this system (the web build).
     Unsupported,
@@ -179,12 +179,16 @@ impl std::fmt::Display for MailError {
 impl std::error::Error for MailError {}
 
 /// Refuse what can't be sent before anything runs: a file that isn't there, a recipient that
-/// isn't an address a command line or a message header can carry as it is.
+/// isn't an address a command line or a message header can carry as it is. A `mailto:` link is not
+/// an address either: `xdg-email` reads one as the whole message (its `bcc` and `attach` included).
 pub fn check(compose: &Compose) -> Result<(), MailError> {
     if !compose.path.is_file() {
         return Err(MailError::NoFile(compose.path.clone()));
     }
-    if let Some(bad) = compose.to.iter().find(|a| a.trim().is_empty() || a.starts_with('-') || a.chars().any(char::is_control)) {
+    let is_mailto = |a: &str| a.trim_start().get(.."mailto:".len()).is_some_and(|head| head.eq_ignore_ascii_case("mailto:"));
+    if let Some(bad) =
+        compose.to.iter().find(|a| a.trim().is_empty() || a.starts_with('-') || is_mailto(a) || a.chars().any(char::is_control))
+    {
         return Err(MailError::BadRecipient(bad.clone()));
     }
     Ok(())
@@ -247,8 +251,8 @@ pub fn plan_for(os: &str, default: &DefaultMail, compose: &Compose) -> Result<Pl
             program: Some(name.clone()),
             route: Route::Run {
                 command: system_program("WindowsPowerShell\\v1.0\\powershell.exe"),
-                args: powershell_args(&mapi_script(compose, std::process::id())),
-                stdin: None,
+                args: powershell_args(&mapi_script(std::process::id())),
+                stdin: Some(mapi_input(compose)),
                 watch: Watch::Answers,
             },
         }),
@@ -721,26 +725,26 @@ fn mail_app_script(path: &str, compose: &Compose) -> String {
     )
 }
 
-/// The Simple MAPI script with `compose`'s values. Every value goes in as base64 of its UTF-8, so
-/// no text (quotes of any kind, PowerShell treats ‘ ’ as quotes too) can end a string early.
-/// `caller` is this program's process: its own windows (whose title can carry the subject too)
-/// never count as the compose window.
-fn mapi_script(compose: &Compose, caller: u32) -> String {
+/// The Simple MAPI script. It holds no text of the message: the values come in on its standard
+/// input ([`mapi_input`]), so a long body never lengthens the command line (Windows refuses one
+/// over 32 767 characters, and the script travels encoded on it). `caller` is this program's
+/// process: its own windows (whose title can carry the subject too) never count as the compose
+/// window.
+fn mapi_script(caller: u32) -> String {
+    fill(MAPI_SCRIPT, &[("CALLER", caller.to_string()), ("SECONDS", MAPI_SECONDS.to_string())])
+}
+
+/// What the Simple MAPI script reads from its standard input, one value per line in the order it
+/// reads them: the file's path, its name, the subject, the body and the recipients (one per line
+/// inside the value). Every value is base64 of its UTF-8, so no text (line breaks, quotes of any
+/// kind) can end a line early or reach the script as anything but data.
+fn mapi_input(compose: &Compose) -> String {
     let path = compose.path.to_string_lossy();
     let to = compose.to.iter().map(|a| a.trim()).collect::<Vec<_>>().join("\n");
-    let b64 = |t: &str| format!("'{}'", base64(t.as_bytes()));
-    fill(
-        MAPI_SCRIPT,
-        &[
-            ("PATH", b64(&path)),
-            ("NAME", b64(&file_name(&compose.path))),
-            ("SUBJECT", b64(&compose.subject)),
-            ("BODY", b64(&compose.body)),
-            ("TO", b64(&to)),
-            ("CALLER", caller.to_string()),
-            ("SECONDS", MAPI_SECONDS.to_string()),
-        ],
-    )
+    [&*path, file_name(&compose.path).as_str(), compose.subject.as_str(), compose.body.as_str(), to.as_str()]
+        .iter()
+        .map(|value| format!("{}\n", base64(value.as_bytes())))
+        .collect()
 }
 
 /// `template` with each `@@KEY@@` replaced by its value, in one pass, so a value that happens to
@@ -776,13 +780,14 @@ fn fill(template: &str, values: &[(&str, String)]) -> String {
 /// (`Add-Type`), which every Windows has: `MAPISendMailW` runs on a thread of its own while the
 /// script looks for a new window, not this program's, whose title carries the subject (Outlook's
 /// "<subject> - Message", Thunderbird's "Write: <subject>"). A client that answers without a
-/// window (an error) is reported by its code.
+/// window (an error) is reported by its code. The message's values are read from standard input,
+/// one base64 line each, in the order [`mapi_input`] writes them.
 const MAPI_SCRIPT: &str = r##"$ErrorActionPreference = 'Stop'
 trap { 'failed ' + $_.Exception.Message; exit 0 }
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 $text = { param($b) $utf8.GetString([Convert]::FromBase64String($b)) }
-$path = & $text @@PATH@@; $name = & $text @@NAME@@; $subject = & $text @@SUBJECT@@; $body = & $text @@BODY@@
-$to = [string[]]@((& $text @@TO@@) -split "`n" | Where-Object { $_ -ne '' })
+$path = & $text ([Console]::In.ReadLine()); $name = & $text ([Console]::In.ReadLine()); $subject = & $text ([Console]::In.ReadLine()); $body = & $text ([Console]::In.ReadLine())
+$to = [string[]]@((& $text ([Console]::In.ReadLine())) -split "`n" | Where-Object { $_ -ne '' })
 $caller = @@CALLER@@
 $src = @'
 using System;
@@ -974,7 +979,7 @@ mod tests {
         let p = plan_for("windows", &DefaultMail::Mapi("Mozilla Thunderbird".into()), &compose()).unwrap();
         assert_eq!(p.program.as_deref(), Some("Mozilla Thunderbird"));
         let (command, args, stdin, watch) = run_of(&p);
-        assert!(command.ends_with("powershell.exe") && stdin.is_none() && watch == Watch::Answers);
+        assert!(command.ends_with("powershell.exe") && stdin.is_some_and(|s| s.lines().count() == 5) && watch == Watch::Answers);
         assert_eq!(args[args.len() - 2], "-EncodedCommand");
         let encoded = &args[args.len() - 1];
         assert!(encoded.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='));
@@ -1022,12 +1027,21 @@ mod tests {
         c.subject = "Núñez’s 'invoice'".into();
         c.body = "Hola\nadiós".into();
         c.to = vec!["ap@example.org".into(), "b@example.org".into()];
-        let script = mapi_script(&c, 4242);
+        let script = mapi_script(4242);
         assert!(!script.contains("@@"), "every value filled: {script}");
         assert!(!script.contains("Núñez") && !script.contains("invoice"), "no text goes in as text: {script}");
-        assert!(script.contains(&format!("$subject = & $text '{}'", base64("Núñez’s 'invoice'".as_bytes()))));
-        assert!(script.contains(&format!("$name = & $text '{}'", base64("Núñez’s 'x'.pdf".as_bytes()))));
-        assert!(script.contains(&format!("(& $text '{}')", base64(b"ap@example.org\nb@example.org"))));
+        assert_eq!(script.matches("[Console]::In.ReadLine()").count(), 5);
+        let lines: Vec<String> = mapi_input(&c).lines().map(str::to_string).collect();
+        assert_eq!(
+            lines,
+            [
+                base64("C:\\Temp\\Núñez’s 'x'.pdf".as_bytes()),
+                base64("Núñez’s 'x'.pdf".as_bytes()),
+                base64("Núñez’s 'invoice'".as_bytes()),
+                base64("Hola\nadiós".as_bytes()),
+                base64(b"ap@example.org\nb@example.org"),
+            ]
+        );
         assert!(script.contains("$caller = 4242") && script.contains(&format!("[uint32]$caller, {MAPI_SECONDS})")));
         assert!(script.contains("MAPISendMailW"));
         let bytes: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
