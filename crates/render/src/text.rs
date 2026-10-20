@@ -200,9 +200,11 @@ impl PageText {
                 let (Some(g), Some(n)) = (self.glyphs.get(r), self.glyphs.get(i)) else { return Some(r) };
                 let beside = (n.rect[1] - y).max(y - n.rect[3]) <= (n.rect[3] - n.rect[1]) * 0.5;
                 let h = g.rect[3] - g.rect[1];
-                let edge = if x > g.rect[2] { g.rect[2] } else { g.rect[0] };
+                // From the far end of the row's line, so its column's shorter lines count too.
+                let toward_right = x > g.rect[2];
+                let from = self.line_span(r).map_or(if toward_right { g.rect[2] } else { g.rect[0] }, |(l0, l1)| if toward_right { l0 } else { l1 });
                 let reach = h * GUTTER_ROWS;
-                Some(if beside && self.gutter_between(edge, x, y - reach, y + reach, h) { i } else { r })
+                Some(if beside && self.gutter_between(from, x, y - reach, y + reach, h) { i } else { r })
             }
             (on_row, any) => on_row.or(any).map(|(i, _)| i),
         }
@@ -300,8 +302,12 @@ impl PageText {
         // From the anchor to where the pointer ended (or the head glyph), across a gutter no text
         // of these rows crosses: another column. Word gaps in a column, however wide a justified
         // line spreads them, are crossed by the other rows' text.
+        // From the far end of the anchor's line, so its column's other lines count wherever along
+        // the line the drag started.
         let to_x = head_x.unwrap_or((h.rect[0] + h.rect[2]) / 2.0);
-        let other_column = self.gutter_between((a.rect[0] + a.rect[2]) / 2.0, to_x, top, bottom, a.rect[3] - a.rect[1]);
+        let a_x = (a.rect[0] + a.rect[2]) / 2.0;
+        let from = spans.map_or(a_x, |((a0, a1), _)| if to_x >= a_x { a0 } else { a1 });
+        let other_column = self.gutter_between(from, to_x, top, bottom, a.rect[3] - a.rect[1]);
         if !strays && (one_row || !other_column) {
             return None;
         }
@@ -3097,6 +3103,22 @@ mod tests {
         }
         let t = layout(v);
         // y 27: between the right lines (16..26 and 28..38), within the left line at 22..32.
+        let i = t.nearest(205.0, 27.0).expect("a glyph");
+        assert!(t.glyphs[i].rect[0] >= 200.0, "took {:?} at {:?}", t.glyphs[i].text, t.glyphs[i].rect);
+    }
+
+    /// The same, with the left line level with the point the longest of its column (ragged right):
+    /// the column's shorter lines still mark the gutter.
+    #[test]
+    fn a_long_level_line_does_not_hide_the_gutter_from_its_column() {
+        let mut v = Vec::new();
+        for (row, s) in ["Left text", "Left text longer", "Left text"].into_iter().enumerate() {
+            word(&mut v, s, 10.0, 10.0 + row as f32 * 12.0, 6.0);
+        }
+        for row in 0..2 {
+            word(&mut v, "Right text", 200.0, 16.0 + row as f32 * 12.0, 6.0);
+        }
+        let t = layout(v);
         let i = t.nearest(205.0, 27.0).expect("a glyph");
         assert!(t.glyphs[i].rect[0] >= 200.0, "took {:?} at {:?}", t.glyphs[i].text, t.glyphs[i].rect);
     }
