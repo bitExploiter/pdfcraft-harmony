@@ -643,7 +643,7 @@ impl Automation {
                     "words": p.words.len(),
                     "already_on_page": p.already_on_page,
                     "rotated": u32::from(p.turn % 4) * 90,
-                    "deskewed": p.straighten.map_or(0.0, |(_, d)| f64::from(d)),
+                    "deskewed": p.straighten.map_or(0.0, |s| f64::from(s.degrees)),
                     "text": p.text(),
                 }),
             })

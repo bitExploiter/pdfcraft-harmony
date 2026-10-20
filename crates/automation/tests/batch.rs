@@ -97,6 +97,8 @@ fn invalid_batch_arguments_and_outside_paths_write_nothing() {
         json!({"ppi":2000}),
         json!({"steps":["ocr"],"language":"not-a-language"}),
         json!({"steps":["ocr"],"dpi":1}),
+        json!({"steps":["ocr"],"auto_rotate":"yes"}),
+        json!({"steps":["ocr"],"deskew":1}),
     ] {
         let mut args = json!({"paths":["input"],"steps":["optimize"],"out_dir":"out"});
         args.as_object_mut().unwrap().extend(change.as_object().unwrap().clone());
@@ -237,4 +239,16 @@ fn mcp_batch_errors_keep_the_structured_per_file_report() {
     let report: Value = serde_json::from_slice(&out).unwrap();
     assert_eq!(report["result"]["isError"], true, "{report}");
     assert_eq!(report["result"]["structuredContent"]["failed"], 1);
+}
+
+/// The OCR step takes Recognize text's auto_rotate and deskew (both on by default).
+#[test]
+fn ocr_corrections_can_be_turned_off_for_a_batch() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("input")).unwrap();
+    std::fs::write(dir.path().join("input/a.pdf"), pdf()).unwrap();
+    let mut auto = Automation::new().with_root(dir.path()).unwrap();
+    let args = json!({"paths":["input"],"steps":["optimize"],"out_dir":"out","auto_rotate":false,"deskew":false});
+    let report = result(&mut auto, args);
+    assert_eq!(report["completed"], 1, "{report}");
 }

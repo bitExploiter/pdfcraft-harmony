@@ -6184,8 +6184,8 @@ fn recognize_text_levels_a_turned_scan() {
     let id = turned_scan(&mut s, tilt);
     assert!((shown_skew(&s, id) - 3.0).abs() <= 0.2, "the scan is turned 3° clockwise");
     let found = s.recognize_text(id, &[], ocr::OcrSettings::default()).unwrap();
-    let (index, degrees) = found[0].straighten.unwrap();
-    assert!(index == 0 && (degrees - 3.0).abs() <= 0.2, "{:?}", found[0].straighten);
+    let level = found[0].straighten.unwrap();
+    assert!(level.image == 0 && (level.degrees - 3.0).abs() <= 0.2, "{level:?}");
     assert_eq!(found[0].turn, 0);
     assert!(shown_skew(&s, id).abs() <= 0.15, "the page shows level text");
     let text = page_texts(&s, id)[0].to_lowercase();
@@ -6194,6 +6194,24 @@ fn recognize_text_levels_a_turned_scan() {
     }
     s.undo(id).unwrap();
     assert!((shown_skew(&s, id) - 3.0).abs() <= 0.2, "undo turns the scan back");
+
+    // Recognition runs in the background: a scan moved or a page turned meanwhile is not
+    // corrected from the old reading.
+    let engine = ocr::engine().unwrap();
+    let id = turned_scan(&mut s, tilt);
+    let job = s.ocr_job(id, &[], ocr::OcrSettings::default()).unwrap();
+    let rect = s.get(id).unwrap().page_images(0)[0].rect;
+    let moved = [rect[0] + 20.0, rect[1], rect[2] + 20.0, rect[3]];
+    s.apply(id, Edit::EditPageImage { page: 0, index: 0, change: ImageEdit::Move(moved) }).unwrap();
+    let found = job.run(&engine, |_, _| true);
+    assert!(found[0].straighten.is_some());
+    assert!(s.apply_ocr(id, &found).is_err(), "the scan moved");
+    let id = turned_scan(&mut s, |px, w, h| orient::quarter_turn(&px, w, h, 2));
+    let job = s.ocr_job(id, &[], ocr::OcrSettings::default()).unwrap();
+    s.apply(id, Edit::RotatePages { pages: vec![0], degrees: 90 }).unwrap();
+    let found = job.run(&engine, |_, _| true);
+    assert_eq!(found[0].turn, 2);
+    assert!(s.apply_ocr(id, &found).is_err(), "the page turned");
 
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let id = turned_scan(&mut s, tilt);
