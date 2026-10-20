@@ -620,6 +620,14 @@ fn interpret_window<'a>(
 
                 device.begin_marked_content(bdc.0, mcid);
 
+                // PdfCraft patch (44): every nested content stream (forms, annotation appearances,
+                // soft masks, patterns, Type 3 glyphs) runs at a nesting depth above 0.
+                if let Some(mcid) = mcid
+                    && context.nesting_depth() == 0
+                {
+                    device.page_marked_content(mcid);
+                }
+
                 // PdfCraft patch (25): hand the device the sequence's `/ActualText`, from an inline
                 // property list or one named in the resources' `/Properties`.
                 let actual = dict_or_stream(bdc.1)

@@ -10,6 +10,7 @@
 
 use hayro::hayro_interpret::font::Glyph;
 use hayro::hayro_interpret::hayro_syntax::Pdf;
+use hayro::hayro_interpret::hayro_syntax::object::ObjectIdentifier;
 use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask, interpret_page,
 };
@@ -36,6 +37,7 @@ impl TextFilter {
     }
 }
 
+mod replacements;
 mod search;
 
 /// One glyph on the page.
@@ -362,6 +364,15 @@ struct TextDevice {
     excluded_depth: Option<usize>,
     actual_filtered: bool,
     partial_replacement: bool,
+    /// The structure elements' `/ActualText` over the page's MCIDs (#3660).
+    structure: replacements::Replacements,
+    /// Per element: `true` once its replacement has been given (its later sequences stand for no
+    /// text), `false` once it couldn't be (its sequences keep their own text). Undecided while
+    /// its sequences so far drew nothing.
+    structure_given: HashMap<ObjectIdentifier, bool>,
+    /// Whether the open replacement comes from a structure element, and the element when it
+    /// carries that element's text (not when it is a later sequence of one already given).
+    actual_structure: Option<Option<ObjectIdentifier>>,
 }
 
 /// An `/ActualText` replacement: the glyph standing for it in `TextDevice::glyphs` (none for an
@@ -435,6 +446,9 @@ impl TextDevice {
             excluded_depth: None,
             actual_filtered: false,
             partial_replacement: false,
+            structure: replacements::Replacements::default(),
+            structure_given: HashMap::new(),
+            actual_structure: None,
         }
     }
 
@@ -448,7 +462,32 @@ impl TextDevice {
     /// Unicode). An empty one (a soft hyphen at a line break, say) stands for no text at all.
     fn end_actual_text(&mut self) {
         let Some((_, text, drawn)) = self.actual.take() else { return };
-        if std::mem::take(&mut self.actual_filtered) {
+        let structure = self.actual_structure.take();
+        let filtered = std::mem::take(&mut self.actual_filtered);
+        if let Some(element) = structure {
+            match element {
+                // A later sequence of an element already given stands for no text, even where its
+                // glyphs can't be boxed as one (they are covered by the text given).
+                None if filtered || merge(&drawn, String::new()).is_none() => return,
+                None => {}
+                // The text can't be placed on the glyphs it replaces (they span lines or writing
+                // directions, or a filter excludes some of them): the element is abandoned and its
+                // sequences keep their own text, as without a replacement.
+                // (This first sequence's own nested /ActualText, suppressed while the element's
+                // replacement was open, isn't recovered; later sequences have theirs.)
+                Some(element) if !drawn.is_empty() && (filtered || merge(&drawn, text.clone()).is_none()) => {
+                    self.structure_given.insert(element, false);
+                    self.glyphs.extend(drawn.into_iter().filter(|d| !d.2.text.chars().all(|c| c.is_control())));
+                    return;
+                }
+                // Nothing drawn yet (or all of it filtered out): the next sequence gives the text.
+                Some(_) if drawn.is_empty() => return,
+                Some(element) => {
+                    self.structure_given.insert(element, true);
+                }
+            }
+        }
+        if filtered {
             // ActualText has no mapping from replacement words to individual glyphs. A mixed
             // span cannot be filtered honestly; a wholly excluded span can simply be omitted.
             self.partial_replacement |= !drawn.is_empty();
@@ -646,6 +685,23 @@ impl<'a> Device<'a> for TextDevice {
             self.excluded_depth = Some(self.depth);
         }
     }
+    fn page_marked_content(&mut self, mcid: i32) {
+        // The element encloses the sequence, so its replacement is the outer one: it comes first,
+        // and the sequence's own /ActualText then nests inside it. An element over several
+        // sequences gives its text at the first; the others stand for no text.
+        if self.actual.is_none()
+            && self.excluded_depth.is_none()
+            && let Some((element, text)) = self.structure.get(mcid)
+        {
+            let (text, carrier) = match self.structure_given.get(&element) {
+                Some(false) => return,
+                Some(true) => (String::new(), None),
+                None => (pdfcraft_cos::PdfString::literal(text).to_text(), Some(element)),
+            };
+            self.actual = Some((self.depth, text, Vec::new()));
+            self.actual_structure = Some(carrier);
+        }
+    }
     fn actual_text(&mut self, text: &[u8]) {
         // A replacement nested in another is already covered by the outer one.
         if self.actual.is_none() && self.excluded_depth.is_none() {
@@ -680,6 +736,7 @@ pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &Interpret
     let mut ctx = Context::new(initial, Rect::new(0.0, 0.0, w as f64, h as f64), &cache, p.xref(), settings);
     let mut dev = TextDevice::new();
     dev.filter = filter;
+    dev.structure = replacements::replacements(p);
     interpret_page(p, &mut ctx, &mut dev);
     // A replacement the content never closed ends with the page.
     dev.finish();
@@ -1832,6 +1889,217 @@ mod tests {
         assert!(started.elapsed() < std::time::Duration::from_secs(30), "took {:?}", started.elapsed());
         assert_eq!(dev.glyphs.len(), 2 * N + 2, "unmatched glyphs are kept");
         assert_eq!(dev.glyphs[1].2.text, "fi", "the redraw found within the budget takes the replacement");
+    }
+
+    /// One tagged page with key 0 in the parent tree `tree`: `content`, Helvetica as /F1, a form
+    /// /Fm0 drawing `form`, and `objects` (structure elements and tree nodes, numbered from 10, or
+    /// a replacement for one of the objects 1–7).
+    fn tagged(content: &str, form: &str, tree: &str, objects: &[(u32, &str)]) -> Pdf {
+        let stream = |dict: &str, data: &str| format!("<< {dict} /Length {} >>\nstream\n{data}\nendstream", data.len());
+        let mut objs: Vec<(u32, String)> = vec![
+            (1, "<< /Type /Catalog /Pages 2 0 R /MarkInfo << /Marked true >> /StructTreeRoot 5 0 R >>".into()),
+            (2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into()),
+            (
+                3,
+                "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /StructParents 0 /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> /XObject << /Fm0 7 0 R >> >> >>"
+                    .into(),
+            ),
+            (4, stream("", content)),
+            (5, format!("<< /Type /StructTreeRoot /K 10 0 R /ParentTree {tree} >>")),
+            (6, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into()),
+            (7, stream("/Type /XObject /Subtype /Form /BBox [0 0 300 300] /Resources << /Font << /F1 6 0 R >> >>", form)),
+        ];
+        objs.retain(|(n, _)| !objects.iter().any(|(m, _)| m == n));
+        objs.extend(objects.iter().map(|(n, o)| (*n, o.to_string())));
+        objs.sort_by_key(|(n, _)| *n);
+        let size = objs.last().map_or(1, |(n, _)| n + 1);
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = vec![None; size as usize];
+        for (n, o) in &objs {
+            offsets[*n as usize] = Some(out.len());
+            out.extend(format!("{n} 0 obj\n{o}\nendobj\n").into_bytes());
+        }
+        let xref = out.len();
+        out.extend(format!("xref\n0 {size}\n").into_bytes());
+        for offset in offsets {
+            out.extend(match offset {
+                Some(at) => format!("{at:010} 00000 n \n").into_bytes(),
+                None => b"0000000000 65535 f \n".to_vec(),
+            });
+        }
+        out.extend(format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").into_bytes());
+        Pdf::new(std::sync::Arc::new(out)).unwrap()
+    }
+
+    /// #3660: replacement text given on a structure element (ISO 32000-2 §14.9.4) replaces the
+    /// content it encloses, found through the page's `/StructParents` entry in the parent tree. An
+    /// OCR layer's misread words are tagged this way with the right ones.
+    #[test]
+    fn actual_text_of_a_structure_element_replaces_its_content() {
+        let parents = "<< /Nums [0 [11 0 R 12 0 R]] >>";
+        let ocr = "/Span <</MCID 0>> BDC BT 3 Tr /F1 14 Tf 50 250 Td (an appointroP.nt online) Tj ET EMC \
+                   /P <</MCID 1>> BDC BT 0 Tr /F1 12 Tf 50 200 Td (Plain text) Tj ET EMC";
+        let pdf = tagged(
+            ocr,
+            "",
+            parents,
+            &[
+                (10, "<< /Type /StructElem /S /Document /P 5 0 R /K [11 0 R 12 0 R] >>"),
+                (11, "<< /Type /StructElem /S /Span /P 10 0 R /Pg 3 0 R /K 0 /ActualText (an appointment online) >>"),
+                (12, "<< /Type /StructElem /S /P /P 10 0 R /Pg 3 0 R /K 1 >>"),
+            ],
+        );
+        let text = marked_text(&pdf, 0);
+        assert_eq!(text.plain_text(), "an appointment online\nPlain text");
+        assert_eq!(text.find("appointment").len(), 1);
+        assert!(text.find("appointroP").is_empty(), "the misread words are no longer found");
+        // Excluding invisible text (word count) leaves the whole replaced OCR span out, as it
+        // leaves out the OCR glyphs it replaces.
+        let filter = TextFilter { images: true, ..TextFilter::default() };
+        let counted = extract_page_filtered(&pdf, 0, &InterpreterSettings::default(), filter).unwrap();
+        assert_eq!(counted.plain_text(), "Plain text");
+
+        // An element over two sequences gives its text once, at the first; an ancestor's text
+        // covers its descendants' content.
+        let line = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0>> BDC (ab) Tj EMC (c) Tj /Span <</MCID 1>> BDC (de) Tj EMC ET";
+        let pdf = tagged(
+            line,
+            "",
+            parents,
+            &[
+                (10, "<< /Type /StructElem /S /P /P 5 0 R /K [11 0 R 12 0 R] /ActualText (XY) >>"),
+                (11, "<< /Type /StructElem /S /Span /P 10 0 R /K 0 >>"),
+                (12, "<< /Type /StructElem /S /Span /P 10 0 R /K 1 >>"),
+            ],
+        );
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "XYc");
+
+        // Nested replacements: the outermost covers everything inside it, the marked content's
+        // own /ActualText included.
+        let line = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0 /ActualText (in)>> BDC (x) Tj EMC ET";
+        let pdf = tagged(
+            line,
+            "",
+            "<< /Nums [0 [11 0 R]] >>",
+            &[
+                (10, "<< /Type /StructElem /S /P /P 5 0 R /K [11 0 R] /ActualText (OUT) >>"),
+                (11, "<< /Type /StructElem /S /Span /P 10 0 R /K 0 /ActualText (inner) >>"),
+            ],
+        );
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "OUT");
+
+        // A parent tree split into kids, with limits.
+        let line = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0>> BDC (x) Tj EMC ET";
+        let pdf = tagged(
+            line,
+            "",
+            "20 0 R",
+            &[
+                (10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (fixed) >>"),
+                (20, "<< /Kids [21 0 R 22 0 R] >>"),
+                (21, "<< /Limits [3 9] /Nums [3 [] 9 []] >>"),
+                (22, "<< /Limits [0 0] /Nums [0 [10 0 R]] >>"),
+            ],
+        );
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "fixed");
+    }
+
+    /// #3660: only the page's own MCIDs index its parent tree entry. A form XObject's marked content
+    /// has MCIDs of its own (its `/StructParents`), so the same number there is another sequence.
+    #[test]
+    fn structure_replacement_text_stays_out_of_form_xobjects() {
+        let page = "BT /F1 20 Tf 1 0 0 1 100 150 Tm (a) Tj ET /Fm0 Do";
+        let form = "/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 100 100 Tm (zz) Tj ET EMC";
+        let pdf = tagged(page, form, "<< /Nums [0 [10 0 R]] >>", &[(10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (WRONG) >>")]);
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "a\nzz");
+    }
+
+    /// #3660 review: an element's text is given once it has been placed, never lost. When its
+    /// first sequence can't take it (the glyphs span lines), every sequence keeps its own text;
+    /// an empty first sequence leaves it to the next; a later sequence over several lines adds
+    /// nothing to the text given.
+    #[test]
+    fn structure_replacement_text_is_given_once_and_never_lost() {
+        let parents = "<< /Nums [0 [10 0 R 10 0 R]] >>";
+        let element = [(10, "<< /Type /StructElem /S /P /P 5 0 R /K [0 1] /ActualText (FIXED) >>")];
+        let cases = [
+            (
+                "/P <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 250 Tm (ab) Tj 0 -40 Td (cd) Tj ET EMC /P <</MCID 1>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (ef) Tj ET EMC",
+                "ab\ncd\nef",
+            ),
+            ("/P <</MCID 0>> BDC q Q EMC /P <</MCID 1>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (xy) Tj ET EMC", "FIXED"),
+            (
+                "/P <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 250 Tm (ab) Tj ET EMC /P <</MCID 1>> BDC BT /F1 20 Tf 1 0 0 1 50 200 Tm (cd) Tj 0 -40 Td (ef) Tj ET EMC",
+                "FIXED",
+            ),
+        ];
+        for (content, want) in cases {
+            assert_eq!(marked_text(&tagged(content, "", parents, &element), 0).plain_text(), want, "{content}");
+        }
+    }
+
+    /// #3660: an annotation's appearance has MCIDs of its own too.
+    #[test]
+    fn structure_replacement_text_stays_out_of_annotation_appearances() {
+        let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /StructParents 0 /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> >> /Annots [11 0 R] >>";
+        let pdf = tagged(
+            "BT /F1 20 Tf 1 0 0 1 100 150 Tm (a) Tj ET",
+            "",
+            "<< /Nums [0 [10 0 R]] >>",
+            &[
+                (3, page),
+                (10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (WRONG) >>"),
+                (11, "<< /Type /Annot /Subtype /FreeText /Rect [100 50 200 80] /AP << /N 7 0 R >> >>"),
+                (
+                    7,
+                    "<< /Type /XObject /Subtype /Form /BBox [0 0 100 30] /Resources << /Font << /F1 6 0 R >> >> /Length 59 >>\nstream\n/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 5 5 Tm (zz) Tj ET EMC\nendstream",
+                ),
+            ],
+        );
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "a\nzz");
+    }
+
+    /// An element under more ancestors than the walk follows gets no replacement.
+    #[test]
+    fn an_overlong_structure_chain_keeps_the_content_text() {
+        let line = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0>> BDC (x) Tj EMC ET";
+        let chain: Vec<(u32, String)> = (10..400u32)
+            .map(|n| {
+                let parent = if n == 399 { "5 0 R".to_string() } else { format!("{} 0 R", n + 1) };
+                let text = if n == 399 { "/ActualText (TOP)" } else { "" };
+                (n, format!("<< /Type /StructElem /S /Span /P {parent} /K 0 {text} >>"))
+            })
+            .collect();
+        let objects: Vec<(u32, &str)> = chain.iter().map(|(n, o)| (*n, o.as_str())).collect();
+        assert_eq!(marked_text(&tagged(line, "", "<< /Nums [0 [10 0 R]] >>", &objects), 0).plain_text(), "x");
+        // The same chain, short enough, is followed to the top.
+        let short: Vec<(u32, &str)> = objects.iter().copied().filter(|(n, _)| *n >= 300).collect();
+        assert_eq!(marked_text(&tagged(line, "", "<< /Nums [0 [300 0 R]] >>", &short), 0).plain_text(), "TOP");
+        // Measured whole, whatever order the MCIDs are read in: MCID 0's element (300) is 100
+        // below the top, and MCID 1's (100) 200 further below it, past the limit.
+        let two = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0>> BDC (x) Tj EMC 0 -40 Td /Span <</MCID 1>> BDC (y) Tj EMC ET";
+        let deep: Vec<(u32, &str)> = objects.iter().copied().filter(|(n, _)| *n >= 100).collect();
+        assert_eq!(marked_text(&tagged(two, "", "<< /Nums [0 [300 0 R 100 0 R]] >>", &deep), 0).plain_text(), "TOP\ny");
+    }
+
+    /// Malformed structure (cyclic ancestors, a parent tree that contains itself, no entry for
+    /// the page) leaves the content's own text and ends.
+    #[test]
+    fn malformed_structure_keeps_the_content_text() {
+        let line = "BT /F1 20 Tf 1 0 0 1 100 150 Tm /Span <</MCID 0>> BDC (x) Tj EMC ET";
+        let cycle = [
+            (10, "<< /Type /StructElem /S /Span /P 11 0 R /K 0 /ActualText (A) >>"),
+            (11, "<< /Type /StructElem /S /P /P 10 0 R /K [10 0 R] /ActualText (B) >>"),
+        ];
+        let cases = [
+            tagged(line, "", "<< /Nums [0 [10 0 R]] >>", &cycle),
+            tagged(line, "", "20 0 R", &[(10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (A) >>"), (20, "<< /Kids [20 0 R] >>")]),
+            tagged(line, "", "<< /Nums [5 [10 0 R]] >>", &[(10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (A) >>")]),
+            tagged(line, "", "<< /Nums [0 [10 0 R]] >>", &[(10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText 7 >>")]),
+        ];
+        for (i, pdf) in cases.iter().enumerate() {
+            assert_eq!(marked_text(pdf, 0).plain_text(), "x", "case {i}");
+        }
     }
 
     #[test]
