@@ -1,5 +1,6 @@
 # PdfCraft roadmap: milestones and what's next
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M5, PR #2164: light-ink alpha cleanup, UI-thread error localization and accurate web limitations; estimates unchanged)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M5, PR #2164: refreshed signature background cleanup against upstream ec0a965; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M14/#2383 GPU-limit candidate; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -201,6 +202,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | M5, PR #2164: corrected light-ink alpha compositing and UI-thread localization of cleanup failures; clarified the web worker limitation. Estimates unchanged. |
 | 2026-10-20 | minor | M5: refreshed PR #2164 against upstream ec0a965; preserved newer FDF/form behavior and reconciled translation hashes. Estimates unchanged. |
 | 2026-10-14 | minor | M5: reversible image-signature cleanup removes low-alpha haze and paper; sensitivity, ink polarity and transparency preview, with matching headless options. Estimates unchanged. |
 | 2026-10-17 | minor | M5: reconciled signature background cleanup with upstream drawing undo and resizing changes (PR #2164). Estimates unchanged. |

@@ -2580,3 +2580,5 @@ animation effects	Off	Desactivados
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Estás viendo la versión firmada de «{from}» (revisión {rev}). Es una instantánea: los cambios aquí no afectarán al original.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Estás viendo la revisión {rev} de «{from}». Es una instantánea: los cambios aquí no afectarán al original.
+	No signature was found. Adjust the ink sensitivity or keep the original image.	No se encontró ninguna firma. Ajusta la sensibilidad de la tinta o conserva la imagen original.
+	Signature cleanup stopped unexpectedly.	La limpieza de la firma se detuvo inesperadamente.

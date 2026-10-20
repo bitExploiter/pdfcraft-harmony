@@ -2439,3 +2439,5 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	No signature was found. Adjust the ink sensitivity or keep the original image.	署名が見つかりません。インクの感度を調整するか、元の画像を保持してください。
+	Signature cleanup stopped unexpectedly.	署名のクリーンアップが予期せず停止しました。

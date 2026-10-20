@@ -2651,3 +2651,5 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Nessuna firma trovata. Regola la sensibilità all’inchiostro o mantieni l’immagine originale.
+	Signature cleanup stopped unexpectedly.	La pulizia della firma si è interrotta in modo imprevisto.

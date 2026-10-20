@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M5, PR #2164: light-ink alpha cleanup, UI-thread error localization and accurate web limitations; estimates unchanged)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M5, PR #2164: refreshed signature background cleanup against upstream ec0a965; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -172,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-20 (M5, PR #2164 review):** Corrected alpha compositing for light ink; cleanup errors are translated on the UI thread in all catalogs. Synthetic regressions reproduce the original failures. Documented the remaining web-threading limitation and import worker contracts. Estimates unchanged.
 
 - **2026-10-20 (M5, PR #2164):** Refreshed against upstream ec0a965, retained newer FDF/form/navigation work, and reconciled catalog hashes with the combined translations. Signature cleanup behavior and estimates unchanged.
 - **2026-10-14 (M5, image signature background cleanup):** Image import can remove low-alpha scanner haze and paper locally with adjustable sensitivity, dark/light ink and reversible original preview. Cleaned images remain movable and undoable; CLI/MCP opt in with `fill_sign_add remove_background`. Complex overlapping backgrounds still need manual preparation.
