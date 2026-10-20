@@ -532,7 +532,7 @@ impl PdfCraftApp {
             v.pending_edit.is_some()
                 || v.forms.focus.is_some()
                 || v.fill_text.as_ref().is_some_and(|t| !t.text.trim().is_empty())
-                || self.session.get(id).is_some_and(|d| comment_draft(v, &d.info).is_some())
+                || self.session.get(id).is_some_and(|d| comment_draft(v, &d.info).is_some_and(|c| !matches!(c, CommentDraft::Discard)))
         });
         if self.active != Some(i) {
             if !typing {
@@ -547,7 +547,7 @@ impl PdfCraftApp {
     /// Save button does, so that saving keeps it. The note leaves the card before the edit runs, so
     /// it is written once. When the document refuses it, it goes back in the card, the Comments
     /// panel shows it, and this returns false so the caller writes nothing without it. A note whose
-    /// comment is gone is dropped, and the user told.
+    /// comment is gone is dropped, and the user told if it had any text.
     fn commit_comment_draft(&mut self, id: pdfcraft_engine::DocId) -> bool {
         let Some(i) = self.views.iter().position(|v| v.id == id) else { return true };
         let draft = match (self.views.get(i), self.session.get(id)) {
@@ -557,6 +557,8 @@ impl PdfCraftApp {
         let Some(draft) = draft else { return true };
         let note = self.views.get_mut(i).and_then(|v| v.comments.editing.take());
         match draft {
+            // Taken just above: cleared.
+            CommentDraft::Discard => true,
             CommentDraft::Orphaned => {
                 self.notify_tr("The comment being edited no longer exists, so its text was not saved.");
                 true
@@ -1045,6 +1047,9 @@ enum CommentDraft {
     /// The comment it was typed for is gone, or another now has its place in `/Annots` (a deleted
     /// or undone comment shifts the ones after it): there is nowhere safe to keep it.
     Orphaned,
+    /// As `Orphaned`, but nothing was typed (a new highlight's note): nothing is lost, so the
+    /// note is only cleared, without a word.
+    Discard,
 }
 
 /// `view`'s comment-card note, unless there is none or it is already the comment's text. The note
@@ -1060,6 +1065,7 @@ fn comment_draft(view: &crate::canvas::DocView, info: &pdfcraft_render::DocInfo)
             }
             Some(CommentDraft::Changes(Box::new(Edit::SetAnnotationContents { page: *page, index: *index, text: text.clone() })))
         }
+        _ if text.is_empty() => Some(CommentDraft::Discard),
         _ => Some(CommentDraft::Orphaned),
     }
 }
@@ -1633,6 +1639,51 @@ mod revert_draft_tests {
         );
         assert_eq!(app.active_ids(), Some((0, source)));
         assert_eq!(app.toast.as_ref().unwrap().0, pdfcraft_engine::EditError::NoDocument.to_string());
+    }
+
+    /// Highlight on page 1 of tab 0, type `note` into the note it opens, then undo the highlight:
+    /// the note is left without its comment. Returns tab 0's document.
+    fn note_left_by_an_undone_highlight(app: &mut PdfCraftApp, note: &str) -> pdfcraft_engine::DocId {
+        use pdfcraft_engine::{Markup, NewAnnotation, Shape, Style};
+        let source = app.views[0].id;
+        let shape = Shape::TextMarkup { kind: Markup::Highlight, quads: vec![[72.0, 712.0, 200.0, 712.0, 72.0, 700.0, 200.0, 700.0]] };
+        let style = Style::default_for(&shape);
+        assert!(app.apply_edit(Edit::AddAnnotation(NewAnnotation { page: 0, shape, style, contents: String::new(), author: "Test".into() })));
+        let open = app.views[0].comments.editing.as_mut().expect("the new highlight's note is open");
+        assert!(open.2.is_empty());
+        open.2 = note.into();
+        app.undo();
+        assert!(app.session.get(source).unwrap().info.annotations.iter().all(|a| a.subtype != "Highlight"), "the highlight is gone");
+        source
+    }
+
+    #[test]
+    fn an_empty_note_left_by_an_undone_highlight_is_cleared_without_a_word() {
+        let mut app = app();
+        let source = note_left_by_an_undone_highlight(&mut app, "");
+        app.open_bytes("other.pdf", None, include_bytes!("../tests/data/form.pdf").to_vec()).unwrap();
+        assert_eq!(app.active, Some(1));
+        app.toast = None;
+        // Saving the source from another document: nothing was typed, so nothing to bring forward or say.
+        assert!(app.commit_typing_in(source));
+        assert_eq!(app.active, Some(1), "the other document stays in front");
+        assert_eq!(app.toast, None, "nothing is reported");
+        // Committing the source itself clears the empty note, still without a word.
+        app.active = Some(0);
+        assert!(app.commit_typing_in(source));
+        assert_eq!(app.views[0].comments.editing, None, "the empty note is cleared");
+        assert_eq!(app.toast, None, "nothing is reported");
+    }
+
+    #[test]
+    fn a_typed_note_left_by_an_undone_highlight_is_still_reported() {
+        let mut app = app();
+        let source = note_left_by_an_undone_highlight(&mut app, "Typed before the undo");
+        app.toast = None;
+        assert!(app.commit_typing_in(source));
+        assert_eq!(app.views[0].comments.editing, None, "the note is dropped");
+        let reported = app.toast.as_ref().map(|(m, _)| m.as_str());
+        assert_eq!(reported, Some(tl!("The comment being edited no longer exists, so its text was not saved.")));
     }
 }
 
