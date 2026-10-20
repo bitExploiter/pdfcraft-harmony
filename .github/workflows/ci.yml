@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: storytold/craft-fonts
-          ref: 6d6b27033c4118320aa8baa11ae6748a3cc3c49f
+          ref: 18b2d502de90f48a12aefe8a05b73acfdac8e3e7
           path: craft-fonts
 
       - name: Configure craft-fonts (Linux)
