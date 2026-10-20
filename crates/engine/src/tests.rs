@@ -6212,6 +6212,18 @@ fn recognize_text_levels_a_turned_scan() {
     let found = job.run(&engine, |_, _| true);
     assert_eq!(found[0].turn, 2);
     assert!(s.apply_ocr(id, &found).is_err(), "the page turned");
+    // Any other change too (text added, a scan replaced): the reading is of an older document.
+    let id = turned_scan(&mut s, |px, w, h| orient::quarter_turn(&px, w, h, 2));
+    let job = s.ocr_job(id, &[], ocr::OcrSettings::default()).unwrap();
+    s.apply(id, rect_comment(0, [10.0, 10.0, 50.0, 50.0])).unwrap();
+    let found = job.run(&engine, |_, _| true);
+    assert!(s.apply_ocr(id, &found).is_err(), "a comment was added");
+    // Unchanged, the same reading applies.
+    let id = turned_scan(&mut s, |px, w, h| orient::quarter_turn(&px, w, h, 2));
+    let job = s.ocr_job(id, &[], ocr::OcrSettings::default()).unwrap();
+    let found = job.run(&engine, |_, _| true);
+    s.apply_ocr(id, &found).unwrap();
+    assert_eq!(s.get(id).unwrap().info.pages[0].rotation, 180);
 
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let id = turned_scan(&mut s, tilt);
