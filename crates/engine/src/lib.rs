@@ -4388,7 +4388,9 @@ impl Session {
             };
             pdfcraft_optimize::recolour_image(doc, s, target)
         };
-        pdfcraft_edit::convert_colours(&mut cos, pages, settings, &mut recolour).unwrap_or_default()
+        // The preview runs the image decoders over the document's own bytes; a panic in one is
+        // a count of nothing, not a crash.
+        guard(|| pdfcraft_edit::convert_colours(&mut cos, pages, settings, &mut recolour).unwrap_or_default()).unwrap_or_default()
     }
 
     /// The print-ready PDF for `settings` (sheets laid out for the paper; see `pdfcraft-print`).

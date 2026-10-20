@@ -864,6 +864,7 @@ pub use text::{
 };
 mod colour;
 pub mod convert_colours;
+mod page_streams;
 pub use convert_colours::{ColourTarget, ConvertColours, Converted as ColoursConverted, ImageRecolour, convert_colours};
 pub mod added;
 pub use added::{
