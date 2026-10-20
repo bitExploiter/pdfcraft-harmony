@@ -4,11 +4,12 @@
 //! for the person to address and send.
 //!
 //! An unchanged file goes as it is; one with unsaved edits goes as a copy with those edits,
-//! written under the temp folder, so nobody is asked to save first and the open file stays as it
-//! was. While the email app is asked, a notice says so (and a second request only says it is
-//! still waiting). When the file can't be attached (a webmail site or another app that can't be
-//! handed a file, no email app, an app that didn't answer), a dialog says why and offers a new
-//! message without the file, with the file shown in its folder to attach by hand.
+//! written to a new folder of its own under the temp folder, so nobody is asked to save first and
+//! the open file stays as it was. While the email app is asked, a notice says so (and a second
+//! request only says it is still waiting). When the file can't be attached (a webmail site or
+//! another app that can't be handed a file, no email app, an app that didn't answer), a dialog
+//! says why and offers a new message without the file, with the file shown in its folder to attach
+//! by hand.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError};
@@ -109,13 +110,13 @@ impl PdfCraftApp {
                         return;
                     }
                 };
-                let dir = copy_dir();
-                let target = dir.join(attachment_name(&name));
-                if let Err(e) = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&target, &*bytes)) {
-                    self.notify_fmt("The copy to attach couldn't be written: {e}", &[("e", &e.to_string())]);
-                    return;
+                match write_private_copy(&name, &bytes) {
+                    Ok(target) => target,
+                    Err(e) => {
+                        self.notify_fmt("The copy to attach couldn't be written: {e}", &[("e", &e.to_string())]);
+                        return;
+                    }
                 }
-                target
             }
         };
         let compose = Compose { path: attach, subject: subject_for(&name), body: String::new(), to: Vec::new() };
@@ -243,10 +244,63 @@ fn file_name(path: &Path) -> String {
     path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
-/// Where copies with unsaved edits are written: a folder of PdfCraft's under the system's temp
-/// folder, one file per document name (a later send of the same document replaces it).
-pub fn copy_dir() -> PathBuf {
-    std::env::temp_dir().join("pdfcraft-send-email")
+/// Writes a copy with unsaved edits for the email app: into a new folder of its own under the
+/// system's temp folder ([`new_copy_dir`]), created fresh as well, so nothing already at the name
+/// (a file or a link someone else put there) is opened or written through, and on Unix only its
+/// owner can read it. Each send gets its own folder, so a later send of the same document never
+/// replaces a copy the email app may not have read yet. The folders are left for the system's
+/// temp clean-up: the email app can read the file any time until the message is sent, and nothing
+/// here can tell when it has.
+fn write_private_copy(name: &str, bytes: &[u8]) -> std::io::Result<PathBuf> {
+    use std::io::Write;
+    let dir = new_copy_dir(&std::env::temp_dir())?;
+    let target = dir.join(attachment_name(name));
+    let mut opts = std::fs::OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+    let mut file = match opts.open(&target) {
+        Ok(file) => file,
+        Err(e) => {
+            let _ = std::fs::remove_dir(&dir);
+            return Err(e);
+        }
+    };
+    if let Err(e) = file.write_all(bytes) {
+        // Nothing half-written is left for the email app. The file is closed first (Windows can't
+        // remove an open file), and only what was created here is removed.
+        drop(file);
+        let _ = std::fs::remove_file(&target);
+        let _ = std::fs::remove_dir(&dir);
+        return Err(e);
+    }
+    Ok(target)
+}
+
+/// How many names [`new_copy_dir`] tries before it gives up.
+const COPY_DIR_ATTEMPTS: u32 = 16;
+
+/// A folder made new under `parent` (never one already there: anything at the name, a folder or a
+/// link, makes it try another), on Unix readable only by its owner. The name is PdfCraft's, the
+/// process's, the time's and a count's, so two sends never share one.
+fn new_copy_dir(parent: &Path) -> std::io::Result<PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let mut builder = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    let mut taken = std::io::Error::from(std::io::ErrorKind::AlreadyExists);
+    for _ in 0..COPY_DIR_ATTEMPTS {
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+        let count = NEXT.fetch_add(1, Ordering::Relaxed);
+        let dir = parent.join(format!("pdfcraft-send-email-{}-{nanos:x}-{count}", std::process::id()));
+        match builder.create(&dir) {
+            Ok(()) => return Ok(dir),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => taken = e,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(taken)
 }
 
 /// The attachment's file name: the document's, ending in .pdf, with nothing a path would read.

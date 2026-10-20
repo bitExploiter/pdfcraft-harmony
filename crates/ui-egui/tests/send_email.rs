@@ -134,7 +134,8 @@ fn unsaved_edits_go_as_a_copy_and_the_open_file_is_left_alone() {
     answer(Answer::Opened { program: Some("Mail".into()) });
     h.run_steps(3);
     assert!(!h.state().send_email.waiting() && h.state().dialog.is_none() && h.state().send_email.problem.is_none());
-    let _ = std::fs::remove_file(copy);
+    // The copy's folder is its own, made for this send.
+    let _ = std::fs::remove_dir_all(copy.parent().unwrap());
     let _ = std::fs::remove_dir_all(path.parent().unwrap());
 }
 
