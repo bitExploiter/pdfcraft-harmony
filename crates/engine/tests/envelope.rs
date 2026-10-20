@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use pdfcraft_cos::{Algorithm, Document as CosDocument, NewEncryption, SaveOptions, write_full};
-use pdfcraft_engine::{Edit, EditError, Session};
+use pdfcraft_engine::{Edit, EditError, FileReadRefusal, Session};
 use pdfcraft_render::OpenError;
 use pdfcraft_sign::pkcs12;
 
@@ -270,14 +270,45 @@ fn sibling_read_is_confined_by_the_hosts_guard() {
     let path = dir.join("openssl-signed.pdf.p7s").to_string_lossy().into_owned();
     // The host's guard refuses the sibling, as one resolving out of its root would be: the
     // pair does not open, and the refusal is the host's own message.
-    let mut refused =
-        Session::new().with_file_read_guard(Arc::new(|p: &std::path::Path| Err(format!("{} is outside the allowed directory /root", p.display()))));
+    let mut refused = Session::new().with_file_read_guard(Arc::new(|p: &std::path::Path| {
+        Err(FileReadRefusal::Refused(format!("{} is outside the allowed directory /root", p.display())))
+    }));
     let err = refused.open("openssl-signed.pdf.p7s", Some(path.clone()), Arc::new(sig.clone()), None).unwrap_err();
     assert!(matches!(err, OpenError::Unsupported(ref m) if m.contains("outside the allowed directory")), "{err}");
-    // A guard that allows the read leaves the pair opening as it does without one.
-    let mut allowed = Session::new().with_file_read_guard(Arc::new(|_: &std::path::Path| Ok(())));
+    // A guard that opens the sibling leaves the pair opening as it does without one.
+    let mut allowed =
+        Session::new().with_file_read_guard(Arc::new(|p: &std::path::Path| std::fs::File::open(p).map_err(|_| FileReadRefusal::Unreadable)));
     let id = allowed.open("openssl-signed.pdf.p7s", Some(path), Arc::new(sig), None).unwrap();
     assert!(allowed.get(id).unwrap().envelope.as_ref().is_some_and(|e| e.detached));
+}
+
+/// The guard performs the confined open and the engine reads from the handle it gets back
+/// (#2202 review): once the guard has opened the sibling, the path can be unlinked and the
+/// pair still opens, verified over the bytes of that handle. This fails if the engine
+/// resolves the sibling's path again after the guard — the time-of-check-to-time-of-use
+/// window in which a swapped link could steer the read outside the host's root.
+#[test]
+fn detached_sibling_is_read_from_the_guards_handle() {
+    let dir = scratch("guard-handle");
+    let pdf = data("openssl-signed.pdf");
+    let sig = detached_signature_over(&pdf);
+    std::fs::write(dir.join("openssl-signed.pdf.p7s"), &sig).unwrap();
+    std::fs::write(dir.join("openssl-signed.pdf"), &pdf).unwrap();
+    let path = dir.join("openssl-signed.pdf.p7s").to_string_lossy().into_owned();
+    // The host's guarded open, after which the sibling disappears from disk: nothing that
+    // resolves the path again can reach it.
+    let mut gone = Session::new().with_file_read_guard(Arc::new(|p: &std::path::Path| {
+        let handle = std::fs::File::open(p).map_err(|_| FileReadRefusal::Unreadable)?;
+        std::fs::remove_file(p).unwrap();
+        Ok(handle)
+    }));
+    let id = gone.open("openssl-signed.pdf.p7s", Some(path), Arc::new(sig), None).unwrap();
+    let d = gone.get(id).unwrap();
+    let env = d.envelope.as_ref().expect("the pair opens from the guard's handle");
+    assert!(env.detached);
+    assert!(env.digest_ok, "verified over the bytes the guard opened, not a later re-read of the path");
+    assert_eq!(d.name, "openssl-signed.pdf");
+    assert!(!dir.join("openssl-signed.pdf").exists(), "the sibling really is gone: the engine read the handle, not the path");
 }
 
 #[test]

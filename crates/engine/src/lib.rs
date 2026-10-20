@@ -165,6 +165,7 @@ pub fn merge_data_files(files: &[(String, Vec<u8>)]) -> Result<String, String> {
 
 pub type SplitPart = (usize, usize, Arc<Vec<u8>>);
 
+use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
 #[cfg(test)]
@@ -3014,16 +3015,32 @@ pub struct OpenContext {
     now: Option<i64>,
     js_off: bool,
     trust: Arc<TrustStore>,
-    /// The session's [`FileReadGuard`], consulted before a file is read besides the one the
-    /// host handed over.
+    /// The session's [`FileReadGuard`], which opens a file read besides the one the host
+    /// handed over.
     file_read_guard: Option<FileReadGuard>,
 }
 
 /// Confinement for a file the engine reads on its own besides the one it was given: today the
-/// document beside a detached signature (`.p7s`, #2129). `Err(message)` refuses the read. Hosts
-/// that hold every path to a root install one, so a link beside the signature cannot lead out
-/// of the allowed directory; the desktop UI, where the user picked the file themselves, has none.
-pub type FileReadGuard = Arc<dyn Fn(&std::path::Path) -> std::result::Result<(), String> + Send + Sync>;
+/// document beside a detached signature (`.p7s`, #2129). The guard performs the open itself,
+/// under the host's rules, and hands back the handle; the engine reads only from that, so the
+/// path is never resolved again after the host's check — a sibling (or a folder above it)
+/// swapped for a link after the guard returns cannot steer the engine's read to a file the
+/// host would refuse. What remains is the window inside the guard, between its check and its
+/// open; closing that needs no-follow opens, which the workspace does not carry a crate for.
+/// Hosts that hold every path to a root install one (AGENTS.md §3); the desktop UI, where the
+/// user picked the file themselves, has none.
+pub type FileReadGuard = Arc<dyn Fn(&std::path::Path) -> std::result::Result<std::fs::File, FileReadRefusal> + Send + Sync>;
+
+/// Why a [`FileReadGuard`] handed back no file. `Unreadable` carries no detail on purpose:
+/// every cause reads the same to whoever asked for the file, so the engine's caller cannot
+/// use it to probe the directory around the file it was given.
+#[derive(Debug)]
+pub enum FileReadRefusal {
+    /// The host's rules refuse this path; the message says why and becomes the open error.
+    Refused(String),
+    /// The file could not be opened at all: missing, unreadable, not a file.
+    Unreadable,
+}
 
 /// A fully prepared document that has not yet been registered in a session.
 pub struct PreparedDocument {
@@ -3365,8 +3382,9 @@ impl Session {
     }
 
     /// Confine the engine's own reads besides the opened file (the document beside a detached
-    /// signature) with `guard`. Automation installs its root check, so a `.p7s` cannot reach a
-    /// file the tools themselves would refuse to open.
+    /// signature) with `guard`, which performs the confined open itself and hands the engine
+    /// the handle. Automation installs its root check, so a `.p7s` cannot reach a file the
+    /// tools themselves would refuse to open.
     pub fn with_file_read_guard(mut self, guard: FileReadGuard) -> Self {
         self.file_read_guard = Some(guard);
         self
@@ -3490,15 +3508,27 @@ impl Session {
                     return Err(OpenError::Unsupported(DETACHED_ALONE.into()));
                 };
                 // The sibling is a file of its own, one the host never resolved when it
-                // confined the `.p7s`: hold it to the host's root before it is read, so a
-                // link beside the signature cannot lead out of the allowed directory.
-                if let Some(guard) = &context.file_read_guard {
-                    guard(&sibling_path).map_err(OpenError::Unsupported)?;
-                }
-                // Every way the read can fail — missing, unreadable, not a file — says the
-                // same thing, so opening a `.p7s` cannot be used to probe the directory around it.
-                let sibling = std::fs::read(&sibling_path)
-                    .map_err(|_| OpenError::Unsupported(format!("{sig_name} signs {doc_name}, which was not found beside it")))?;
+                // confined the `.p7s`: the host's guard opens it under its rules and hands
+                // back the handle, and the engine reads only from that. Nothing resolves
+                // the path a second time after the check (#2202 review), so a sibling or a
+                // folder above it swapped for a link once the guard has opened cannot move
+                // the bytes the engine verifies; the window that remains is inside the
+                // guard, between its check and its open. Without a guard — the desktop UI,
+                // where the user picked the file themselves — the engine opens the sibling
+                // itself. Every way the open or the read can fail — missing, unreadable,
+                // not a file — says the same thing, so opening a `.p7s` cannot be used to
+                // probe the directory around it.
+                let not_found = || OpenError::Unsupported(format!("{sig_name} signs {doc_name}, which was not found beside it"));
+                let mut sibling = Vec::new();
+                let mut opened = match &context.file_read_guard {
+                    Some(guard) => match guard(&sibling_path) {
+                        Ok(handle) => handle,
+                        Err(FileReadRefusal::Refused(message)) => return Err(OpenError::Unsupported(message)),
+                        Err(FileReadRefusal::Unreadable) => return Err(not_found()),
+                    },
+                    None => std::fs::File::open(&sibling_path).map_err(|_| not_found())?,
+                };
+                opened.read_to_end(&mut sibling).map_err(|_| not_found())?;
                 if !sibling.starts_with(b"%PDF-") {
                     let kind = if sibling.starts_with(b"<?xml") || sibling.starts_with(b"<") { "XML data" } else { "non-PDF data" };
                     return Err(OpenError::Unsupported(format!("the detached signature's document is {kind}, not a PDF")));
