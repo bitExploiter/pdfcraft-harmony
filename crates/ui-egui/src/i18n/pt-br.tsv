@@ -2447,4 +2447,8 @@ animation effects	Off	Desativados
 	Opacity:	Opacidade:
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
-	Page properties	Propriedades da página
+	Page properties	Propriedades da página	PKCS #11 modules	Módulos PKCS #11
+	Token  ·  	Token  ·  
+	Token PIN	PIN do token
+	Tokens and smart cards sign through a PKCS #11 module. Only add modules you trust: a module runs its own code.	Tokens e cartões inteligentes assinam através de um módulo PKCS #11. Adicione apenas módulos em que confia: um módulo executa o próprio código.
+

@@ -2432,4 +2432,8 @@ animation effects	Off	Ki
 	Opacity:	Átlátszatlanság:
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
-	Page properties	Oldaltulajdonságok
+	Page properties	Oldaltulajdonságok	PKCS #11 modules	PKCS #11 modulok
+	Token  ·  	Token  ·  
+	Token PIN	Token PIN
+	Tokens and smart cards sign through a PKCS #11 module. Only add modules you trust: a module runs its own code.	A tokenek és okoskártyák PKCS #11 modulon keresztül írnak alá. Csak megbízható modulokat adjon hozzá: a modul saját kódot futtat.
+

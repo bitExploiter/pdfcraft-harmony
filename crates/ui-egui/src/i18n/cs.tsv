@@ -2507,4 +2507,8 @@ animation effects	Off	Vypnuto
 	Opacity:	Neprůhlednost:
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
-	Page properties	Vlastnosti stránky
+	Page properties	Vlastnosti stránky	PKCS #11 modules	PKCS #11 moduly
+	Token  ·  	Token  ·  
+	Token PIN	PIN tokenu
+	Tokens and smart cards sign through a PKCS #11 module. Only add modules you trust: a module runs its own code.	Tokeny a čipové karty podepisují prostřednictvím modulu PKCS #11. Přidávejte pouze moduly, kterým důvěřujete: modul spouští vlastní kód.
+
