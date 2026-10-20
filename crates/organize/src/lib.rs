@@ -810,11 +810,8 @@ pub fn is_valid_pdf_date_input(s: &str) -> bool {
                 }
                 if let Some(time_part) = parts.get(1) {
                     let cleaned = time_part.trim_end_matches(|c: char| c == 'Z' || c == 'z' || c.is_ascii_alphabetic());
-                    let cleaned = if let Some(idx) = cleaned.find('+').or_else(|| cleaned.find('-')) {
-                        cleaned.get(..idx).unwrap_or(cleaned)
-                    } else {
-                        cleaned
-                    };
+                    let cleaned =
+                        if let Some(idx) = cleaned.find('+').or_else(|| cleaned.find('-')) { cleaned.get(..idx).unwrap_or(cleaned) } else { cleaned };
                     let time_chunks: Vec<&str> = cleaned.split(':').collect();
                     if !time_chunks.is_empty() {
                         let Some(h_str) = time_chunks.get(0) else { return false };
@@ -1059,11 +1056,7 @@ pub fn normalize_pdf_date(s: &str) -> String {
         return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");
     }
 
-    if s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 4 {
-        format!("D:{s}")
-    } else {
-        s.to_string()
-    }
+    if s.chars().all(|c| c.is_ascii_digit()) && s.len() >= 4 { format!("D:{s}") } else { s.to_string() }
 }
 
 /// Longest custom property name accepted, in bytes: the name length every reader is asked to

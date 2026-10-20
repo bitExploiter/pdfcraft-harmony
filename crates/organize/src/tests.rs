@@ -600,13 +600,13 @@ fn is_valid_pdf_date_input_checks_pattern_correctly() {
     assert!(!is_valid_pdf_date_input("10/20"));
     assert!(!is_valid_pdf_date_input("13/20/26, 4:16:49 PM")); // month 13
     assert!(!is_valid_pdf_date_input("10/32/26, 4:16:49 PM")); // day 32
-    assert!(!is_valid_pdf_date_input("2/29/26, 4:16:49 PM"));  // 2026 is not a leap year
-    assert!(is_valid_pdf_date_input("2/29/24, 4:16:49 PM"));   // 2024 is a leap year
+    assert!(!is_valid_pdf_date_input("2/29/26, 4:16:49 PM")); // 2026 is not a leap year
+    assert!(is_valid_pdf_date_input("2/29/24, 4:16:49 PM")); // 2024 is a leap year
     assert!(!is_valid_pdf_date_input("10/20/26, 13:16:49 PM")); // hour 13 with PM
-    assert!(!is_valid_pdf_date_input("10/20/26, 0:16:49 PM"));  // hour 0 with PM
-    assert!(!is_valid_pdf_date_input("10/20/26, 4:60:49 PM"));  // minute 60
-    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:60 PM"));  // second 60
-    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:49 XM"));  // invalid AM/PM
+    assert!(!is_valid_pdf_date_input("10/20/26, 0:16:49 PM")); // hour 0 with PM
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:60:49 PM")); // minute 60
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:60 PM")); // second 60
+    assert!(!is_valid_pdf_date_input("10/20/26, 4:16:49 XM")); // invalid AM/PM
     assert!(!is_valid_pdf_date_input("D:invalid"));
     assert!(!is_valid_pdf_date_input("D:20261301")); // month 13 in PDF date
 

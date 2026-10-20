@@ -39,14 +39,13 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
         && app.props_draft.as_ref().is_none_or(|(d, _)| *d != id)
         && let Some(doc) = app.session.get(id)
     {
-        app.props_draft = Some((id, INFO_KEYS.map(|k| {
-            let val = doc.info_value(k).unwrap_or_default();
-            if k == "CreationDate" || k == "ModDate" {
-                pdfcraft_engine::format_pdf_date(&val)
-            } else {
-                val
-            }
-        })));
+        app.props_draft = Some((
+            id,
+            INFO_KEYS.map(|k| {
+                let val = doc.info_value(k).unwrap_or_default();
+                if k == "CreationDate" || k == "ModDate" { pdfcraft_engine::format_pdf_date(&val) } else { val }
+            }),
+        ));
         app.view_draft = Some((id, doc.initial_view()));
     }
     let mut apply = false;
@@ -156,9 +155,11 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                                 .labelled_by(l.id);
                                             if is_err {
                                                 ui.label(
-                                                    egui::RichText::new(tl!("Please follow pattern: MM/DD/YY, h:mm:ss AM/PM (e.g. 10/20/26, 4:16:49 PM)"))
-                                                        .color(egui::Color32::from_rgb(220, 60, 60))
-                                                        .small(),
+                                                    egui::RichText::new(tl!(
+                                                        "Please follow pattern: MM/DD/YY, h:mm:ss AM/PM (e.g. 10/20/26, 4:16:49 PM)"
+                                                    ))
+                                                    .color(egui::Color32::from_rgb(220, 60, 60))
+                                                    .small(),
                                                 );
                                             }
                                         });
@@ -1238,9 +1239,10 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 }
             } else if changed {
                 let has_error = app.props_draft.as_ref().is_some_and(|(_, draft)| {
-                    INFO_KEYS.iter().zip(draft.iter()).any(|(k, v)| {
-                        (*k == "CreationDate" || *k == "ModDate") && !pdfcraft_engine::is_valid_pdf_date_input(v)
-                    })
+                    INFO_KEYS
+                        .iter()
+                        .zip(draft.iter())
+                        .any(|(k, v)| (*k == "CreationDate" || *k == "ModDate") && !pdfcraft_engine::is_valid_pdf_date_input(v))
                 });
                 if ui.add_enabled_ui(!has_error, |ui| widgets::pill_button(ui, tl!("OK"), true)).inner.clicked() {
                     apply = true;
@@ -1466,11 +1468,7 @@ fn draft_changes(app: &PdfCraftApp) -> Option<Vec<Edit>> {
                     !existing.is_empty()
                 } else {
                     let formatted_existing = pdfcraft_engine::format_pdf_date(&existing);
-                    if formatted_existing == v_trimmed {
-                        false
-                    } else {
-                        pdfcraft_engine::normalize_pdf_date(v_trimmed) != existing
-                    }
+                    if formatted_existing == v_trimmed { false } else { pdfcraft_engine::normalize_pdf_date(v_trimmed) != existing }
                 }
             } else {
                 existing.trim() != v.trim()
