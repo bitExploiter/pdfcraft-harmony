@@ -437,6 +437,7 @@ fn merge(drawn: &[Drawn], text: String) -> Option<Drawn> {
 }
 
 impl TextDevice {
+    /// A device collecting no text yet, with no filter and no structure replacements.
     fn new() -> Self {
         TextDevice {
             glyphs: Vec::new(),
@@ -693,11 +694,12 @@ impl<'a> Device<'a> for TextDevice {
             self.excluded_depth = Some(self.depth);
         }
     }
+    /// Opens the replacement of the structure element over the page's sequence `mcid`, if any.
+    /// The element encloses the sequence, so its replacement is the outer one: it comes first,
+    /// and the sequence's own /ActualText then nests inside it. An element over several
+    /// sequences gives its text at the first; the others stand for no text. An excluded sequence
+    /// opens it too, so that `end_actual_text` sees its excluded glyphs.
     fn page_marked_content(&mut self, mcid: i32) {
-        // The element encloses the sequence, so its replacement is the outer one: it comes first,
-        // and the sequence's own /ActualText then nests inside it. An element over several
-        // sequences gives its text at the first; the others stand for no text. An excluded sequence
-        // opens it too, so that `end_actual_text` sees its excluded glyphs.
         if self.actual.is_none()
             && let Some((element, text)) = self.structure.get(mcid)
         {
@@ -732,6 +734,8 @@ pub(crate) fn extract_page(pdf: &Pdf, page: usize, settings: &InterpreterSetting
     extract_page_filtered(pdf, page, settings, TextFilter::default()).ok()
 }
 
+/// Extract the text of one page, leaving out what `filter` excludes. Fails when a replacement
+/// text spans included and excluded content, since its words can't be split between them.
 pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &InterpreterSettings, filter: TextFilter) -> Result<PageText, String> {
     let pages = pdf.pages();
     let p = pages.get(page).ok_or("the page could not be read")?;
@@ -2075,6 +2079,11 @@ mod tests {
     #[test]
     fn structure_replacement_text_stays_out_of_annotation_appearances() {
         let page = "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 300] /StructParents 0 /Contents 4 0 R /Resources << /Font << /F1 6 0 R >> >> /Annots [11 0 R] >>";
+        let ap = "/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 5 5 Tm (zz) Tj ET EMC";
+        let appearance = format!(
+            "<< /Type /XObject /Subtype /Form /BBox [0 0 100 30] /Resources << /Font << /F1 6 0 R >> >> /Length {} >>\nstream\n{ap}\nendstream",
+            ap.len()
+        );
         let pdf = tagged(
             "BT /F1 20 Tf 1 0 0 1 100 150 Tm (a) Tj ET",
             "",
@@ -2083,10 +2092,7 @@ mod tests {
                 (3, page),
                 (10, "<< /Type /StructElem /S /Span /P 5 0 R /K 0 /ActualText (WRONG) >>"),
                 (11, "<< /Type /Annot /Subtype /FreeText /Rect [100 50 200 80] /AP << /N 7 0 R >> >>"),
-                (
-                    7,
-                    "<< /Type /XObject /Subtype /Form /BBox [0 0 100 30] /Resources << /Font << /F1 6 0 R >> >> /Length 59 >>\nstream\n/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 5 5 Tm (zz) Tj ET EMC\nendstream",
-                ),
+                (7, appearance.as_str()),
             ],
         );
         assert_eq!(marked_text(&pdf, 0).plain_text(), "a\nzz");
