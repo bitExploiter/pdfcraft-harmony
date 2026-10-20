@@ -3320,18 +3320,23 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             }
 
             // Comments: tools, selection, moving and resizing come before text selection.
-            // Snap to drawing (M5): the page's paths, for the drawing tools that set points, on
-            // the page the pointer is over (extracting a plan's paths takes up to a second).
-            let snap = match tool {
-                QuickTool::Comment(t) if prefs.snap && t.snaps() && (resp.hovered() || resp.dragged()) => {
-                    let mut notice = None;
-                    let geometry = view.comments.snap_cache.geometry(doc, i, &mut notice);
-                    if notice.is_some() {
-                        view.comments.notice = notice;
-                    }
-                    geometry
+            // Snap to drawing (M5): the page's paths, for the drawing tools that set points and
+            // the tools that place text or a Fill & Sign mark, on the page the pointer is over
+            // (extracting a plan's paths takes up to a second).
+            let snaps = match tool {
+                QuickTool::Comment(t) => t.snaps(),
+                QuickTool::Fill(t) => t.snaps(),
+                _ => false,
+            };
+            let snap = if prefs.snap && snaps && (resp.hovered() || resp.dragged()) {
+                let mut notice = None;
+                let geometry = view.comments.snap_cache.geometry(doc, i, &mut notice);
+                if notice.is_some() {
+                    view.comments.notice = notice;
                 }
-                _ => None,
+                geometry
+            } else {
+                None
             };
             let pcx = comments::PageCx { page: i, xf: &xf, info, tool, prefs, allowed, hidden: comments_hidden, redact_mark, snap };
             if let QuickTool::Measure(measure_tool) = tool {
@@ -3403,6 +3408,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     &mut app.signature_preview,
                     &author,
                     &date_text,
+                    &pcx,
                 ) {
                     Some(crate::fill_sign::FillAction::Edit(e)) => view.pending_edit = Some(*e),
                     Some(crate::fill_sign::FillAction::Signature(e)) => {
@@ -5159,6 +5165,11 @@ fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
                         {
                             app.apply_edit(Edit::FontSizeAnnotation { page, index: annotation, size: app.fill_text_size });
                         }
+                    }
+                    // Snap to drawing (F3), as for the drawing tools: ticks and crosses into the
+                    // middle of a check box, text onto a line.
+                    if current_fill.is_some_and(crate::fill_sign::FillTool::snaps) {
+                        comments::snap_button(ui, &mut app.comment_prefs);
                     }
                     if let QuickTool::Comment(tool) = app.quick_tool {
                         let (r, _) = ui.allocate_exact_size(vec2(32.0, 9.0), Sense::hover());

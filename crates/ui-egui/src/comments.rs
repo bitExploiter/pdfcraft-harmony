@@ -189,7 +189,7 @@ impl CommentTool {
     /// Tools whose points snap to the page's drawing when snapping is on (M5): the ones that
     /// set points or corners, not freehand drawing.
     pub fn snaps(self) -> bool {
-        self.clicks_points() || matches!(self, Self::Line | Self::Arrow | Self::Rectangle | Self::Oval)
+        self.clicks_points() || matches!(self, Self::Line | Self::Arrow | Self::Rectangle | Self::Oval | Self::Note | Self::TextBox | Self::Callout)
     }
 
     /// Whether the line-thickness control applies.
@@ -680,7 +680,7 @@ impl PageCx<'_> {
     /// A pointer position as a point in user space, moved onto the page's drawing when snapping
     /// is on and a path, endpoint, midpoint or intersection lies within reach; with what it
     /// snapped to.
-    fn snapped(&self, p: Pos2) -> ([f64; 2], Option<measure::snap::SnapKind>) {
+    pub(crate) fn snapped(&self, p: Pos2) -> ([f64; 2], Option<measure::snap::SnapKind>) {
         let u = self.to_user(p);
         let Some(geometry) = &self.snap else { return (u, None) };
         // The reach in user units: the screen distance of one user unit, at this zoom.
@@ -690,6 +690,23 @@ impl PageCx<'_> {
             Ok(Some(hit)) => (hit.point, Some(hit.kind)),
             _ => (u, None),
         }
+    }
+
+    /// Where a Fill & Sign mark `side` points across goes for the pointer at `p` when snapping is
+    /// on: the centre of the box drawn around it when that is a check box or a table cell (at
+    /// most ten marks long and three across, either way round: a protocol's "OK" column), else as
+    /// [`Self::snapped`] puts a point.
+    pub(crate) fn snapped_mark(&self, p: Pos2, side: f64) -> ([f64; 2], Option<measure::snap::SnapKind>) {
+        let u = self.to_user(p);
+        let (long, short) = (10.0 * side, 3.0 * side);
+        if let Some(geometry) = &self.snap
+            && let Some([x0, y0, x1, y1]) = geometry.enclosing_box(u, long)
+            && let (w, h) = (x1 - x0, y1 - y0)
+            && ((w <= long && h <= short) || (w <= short && h <= long))
+        {
+            return ([(x0 + x1) / 2.0, (y0 + y1) / 2.0], Some(measure::snap::SnapKind::Centre));
+        }
+        self.snapped(p)
     }
 
     fn to_user(&self, p: Pos2) -> [f64; 2] {
@@ -899,7 +916,8 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
     let draw_grab = draw_grabs(ui, cx, view);
     let caret_text = if cx.tool == QuickTool::Comment(CommentTool::Caret) { view.page_text(cx.page) } else { None };
     let cv = &mut view.comments;
-    if cv.snap_hover.is_some_and(|(page, _, _)| page == cx.page) {
+    // (The Fill & Sign tools set their own, before this runs.)
+    if !matches!(cx.tool, QuickTool::Fill(_)) && cv.snap_hover.is_some_and(|(page, _, _)| page == cx.page) {
         cv.snap_hover = None;
     }
     if cv.gesture.is_some() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
@@ -1074,11 +1092,18 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             if over_page {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             }
+            // Snapping: what the callout points at goes onto the drawing.
+            if cv.gesture.is_none()
+                && let Some(p) = pointer.filter(|_| over_page)
+                && let (u, Some(kind)) = cx.snapped(p)
+            {
+                cv.snap_hover = Some((cx.page, u, kind));
+            }
             if resp.drag_started()
                 && pressed_here
                 && let Some(o) = origin
             {
-                cv.gesture = Some(Gesture::Draw { page: cx.page, tool: CommentTool::Callout, points: vec![cx.to_user(o)] });
+                cv.gesture = Some(Gesture::Draw { page: cx.page, tool: CommentTool::Callout, points: vec![cx.snapped(o).0] });
                 cv.selected = None;
             }
             if let Some(Gesture::Draw { page, points, .. }) = cv.gesture.as_mut()
@@ -1150,7 +1175,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     && pressed_here
                     && let Some(o) = origin
                 {
-                    cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)] });
+                    cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.snapped(o).0] });
                     cv.selected = None;
                 }
                 if let Some(Gesture::Draw { page, points, .. }) = cv.gesture.as_mut()
@@ -1158,7 +1183,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     && let Some(p) = pointer
                 {
                     points.truncate(1);
-                    points.push(cx.to_user(clamp_to(page_rect, p)));
+                    points.push(cx.snapped(clamp_to(page_rect, p)).0);
                 }
                 if resp.drag_stopped()
                     && let Some(Gesture::Draw { page, points, .. }) = cv.gesture.clone()
@@ -1175,12 +1200,19 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     }
                 }
             }
+            // Snapping: the note's or text box's corner goes onto the drawing, as a drawing
+            // tool's point does.
+            if let Some(p) = pointer.filter(|_| over_page)
+                && let (u, Some(kind)) = cx.snapped(p)
+            {
+                cv.snap_hover = Some((cx.page, u, kind));
+            }
             if resp.clicked()
                 && over_page
                 && let Some(p) = pointer
             {
                 let kind = if tool == CommentTool::Note { ComposerKind::Note } else { ComposerKind::TextBox { size: None } };
-                cv.composer = Some(Composer { page: cx.page, at: cx.to_user(p), kind, text: String::new(), focus: true });
+                cv.composer = Some(Composer { page: cx.page, at: cx.snapped(p).0, kind, text: String::new(), focus: true });
                 cv.selected = None;
             }
             true
@@ -1553,6 +1585,7 @@ fn paint_snap_marker(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
                 measure::snap::SnapKind::Midpoint => "Midpoint",
                 measure::snap::SnapKind::Intersection => "Intersection",
                 measure::snap::SnapKind::Path => "Path",
+                measure::snap::SnapKind::Centre => "Box centre",
             }),
             crate::theme::regular(11.0),
             green,
@@ -2231,6 +2264,15 @@ pub fn fill_picker(ui: &mut egui::Ui, current: Option<Rgb>) -> Option<Option<Rgb
     picked
 }
 
+/// The quick bar's Snap to drawing switch (F3), for the tools whose points snap.
+pub(crate) fn snap_button(ui: &mut egui::Ui, prefs: &mut CommentPrefs) {
+    let key = crate::commands::command_shortcut_label(ui.ctx(), "comment.snap");
+    let tip = format!("{} ({key})", tl!(if prefs.snap { "Snap to drawing: on" } else { "Snap to drawing" }));
+    if icons::button(ui, "circle-dot", 32.0, prefs.snap, &tip).clicked() {
+        prefs.snap = !prefs.snap;
+    }
+}
+
 /// The comment tools' extra quick-bar controls: pin, colour, fill, opacity and thickness.
 pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &mut CommentPrefs) -> Option<Rgb> {
     let style = prefs.style(tool);
@@ -2239,11 +2281,7 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
         prefs.pinned = !prefs.pinned;
     }
     if tool.snaps() {
-        let key = crate::commands::command_shortcut_label(ui.ctx(), "comment.snap");
-        let tip = format!("{} ({key})", tl!(if prefs.snap { "Snap to drawing: on" } else { "Snap to drawing" }));
-        if icons::button(ui, "circle-dot", 32.0, prefs.snap, &tip).clicked() {
-            prefs.snap = !prefs.snap;
-        }
+        snap_button(ui, prefs);
     }
     let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
     ui.painter().circle_filled(r.center(), 9.0, color32(style.color));
