@@ -2006,6 +2006,26 @@ fn redaction_is_refused_when_the_page_still_shows_text_under_a_mark() {
     assert!(shown.starts_with("Public words then") && shown.ends_with("and more") && !shown.contains("SECRET42"), "{shown}");
 }
 
+/// A word drawn as outlines reads through its /ActualText. A mark over part of it applies (the
+/// outlines are clipped), and the name that would still read the whole word is gone from the page
+/// and from the saved file.
+#[test]
+fn a_word_drawn_as_outlines_is_redacted_with_its_name() {
+    let mut s = Session::new().with_clock(|| 1_700_000_000);
+    let page = one_line_page("", "/Span <</ActualText (SECRET42)>> BDC 20 150 m 140 150 l 140 170 l 20 170 l h f EMC");
+    let id = s.open("outlines.pdf", None, Arc::new(page), None).unwrap();
+    assert_eq!(page_texts(&s, id), ["SECRET42"]);
+    let shape =
+        Shape::Redact { quads: vec![pdfcraft_annot::rect_quad([10.0, 140.0, 90.0, 180.0])], overlay: String::new(), look: Default::default() };
+    let mark =
+        Edit::AddAnnotation(NewAnnotation { page: 0, style: Style::default_for(&shape), shape, contents: String::new(), author: "Ada".into() });
+    s.apply(id, mark).unwrap();
+    s.apply(id, Edit::ApplyRedactions { pages: None }).unwrap();
+    assert_eq!(page_texts(&s, id), [""]);
+    let saved = s.save_bytes(id).unwrap();
+    assert!(!saved.windows(b"SECRET42".len()).any(|w| w == b"SECRET42"), "the name is not left in the file");
+}
+
 #[test]
 fn redaction_marks_apply_for_good_and_undo() {
     let (mut s, id) = session_with(2);
