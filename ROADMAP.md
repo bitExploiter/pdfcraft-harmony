@@ -174,6 +174,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M2/M3, PR #3676 review):** Supported continuous column gutters take precedence over aligned paragraph whitespace. Regressions cover normal ranges, search/highlight bounds and plain mouse copying in both directions across paragraph breaks; spanning headings and section layout changes remain covered. New layout helpers and regression contracts are documented. Estimates unchanged.
+
 - **2026-10-20 (M2/M3):** Normal selection and copying respect persistent whitespace regions before line merging. Narrow and staggered columns, spanning headings, changing layouts, tracking and rotated text have focused regressions; the existing shared selection/clipboard path is retained. See [text reading order](docs/text-reading-order.md) for scope and geometric limitations. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.

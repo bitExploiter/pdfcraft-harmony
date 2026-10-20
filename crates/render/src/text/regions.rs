@@ -5,8 +5,9 @@
 //! Recursive XY subdivision uses projections of nonblank glyph boxes. Vertical cuts need
 //! multiline text on both sides and a gap wider than ordinary word spacing; horizontal cuts
 //! expose sections separated by spanning headings, footers and changes of column layout.
-//! Gaps are scored in local word/line-spacing units, not page points. This is a geometric
-//! fallback, not semantic table detection or a replacement for a tagged PDF's structure tree.
+//! Supported vertical gutters take precedence over paragraph whitespace. Spanning content
+//! obstructs those gutters, exposing horizontal cuts before its local column layouts. This
+//! is a geometric fallback, not semantic table detection or tagged-PDF structure-tree order.
 
 use super::TextGlyph;
 
@@ -40,6 +41,7 @@ struct Regions {
     columns: bool,
 }
 
+/// Read a projection edge without allowing an invalid index to panic during sorting.
 fn edge(glyphs: &[TextGlyph], id: usize, axis: usize) -> f32 {
     glyphs.get(id).and_then(|g| g.rect.get(axis)).copied().unwrap_or(0.0)
 }
@@ -115,6 +117,7 @@ pub(super) fn partition(glyphs: &[TextGlyph]) -> Vec<Vec<usize>> {
     done.pop().map_or_else(Vec::new, |r| r.leaves)
 }
 
+/// Select the upper median in place, or return no estimate for an empty sample.
 fn median(values: &mut [f32]) -> Option<f32> {
     if values.is_empty() {
         return None;
@@ -178,6 +181,8 @@ fn tracking(glyphs: &[TextGlyph], sorted_y: &[usize], h: f32) -> f32 {
     *samples.select_nth_unstable_by(k, f32::total_cmp).1
 }
 
+/// Prefer a supported continuous column gutter; use horizontal whitespace only when no
+/// such gutter exists, so aligned paragraph breaks cannot interleave neighbouring columns.
 fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
     let ink = &region.x;
     if ink.len() < 2 {
@@ -206,8 +211,6 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
     // other evidence (persistence, multiline support, section gaps) is measured on the page.
     let word_space = median(&mut spaces).unwrap_or(h * 0.25).max(h * super::WORD_GAP);
     let ygaps = gaps(glyphs, &region.y, 1);
-    let mut leading: Vec<_> = ygaps.iter().map(|g| g.size).collect();
-    let line_space = median(&mut leading).unwrap_or(h).max(h * super::WORD_GAP);
     let balance = |g: &Gap| g.before.min(ink.len().saturating_sub(g.before));
     let horizontal = ygaps.iter().max_by(|a, b| a.size.total_cmp(&b.size).then_with(|| balance(a).cmp(&balance(b))));
 
@@ -246,7 +249,9 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
         })
         .max_by(|a, b| a.size.total_cmp(&b.size).then_with(|| balance(a).cmp(&balance(b))));
     match (vertical, horizontal) {
-        (Some(x), Some(y)) if y.size / line_space > x.size / word_space => Some((1, y.at)),
+        // A persistent gutter establishes a complete column even across large paragraph
+        // gaps. A heading spanning it obstructs the projection and permits a horizontal
+        // cut instead; the size of empty paragraph whitespace is not section evidence.
         (Some(x), _) => Some((0, x.at)),
         (_, Some(y)) => Some((1, y.at)),
         _ => None,
@@ -257,16 +262,19 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region) -> Option<(usize, f32)> {
 mod tests {
     use super::*;
 
+    /// Make a fixed-size glyph so projection tests have exact, independent geometry.
     fn glyph(text: &str, x: f32, y: f32) -> TextGlyph {
         TextGlyph { text: text.into(), rect: [x, y, x + 6.0, y + 10.0], quad: [[0.0; 2]; 4], direction: [1.0, 0.0] }
     }
 
+    /// Horizontal whitespace without columns must preserve the legacy line grouping input.
     #[test]
     fn horizontal_gaps_alone_do_not_replace_line_reconstruction() {
         let gs: Vec<_> = (0..20).flat_map(|row| (0..30).map(move |col| glyph("a", col as f32 * 6.0, row as f32 * 12.0))).collect();
         assert_eq!(partition(&gs), vec![(0..gs.len()).collect::<Vec<_>>()]);
     }
 
+    /// Partitioning preserves every index exactly once, including blank and invalid geometry.
     #[test]
     fn every_original_index_survives_subdivision_including_blank_glyphs() {
         let mut gs: Vec<_> = (0..4).flat_map(|col| (0..80).map(move |row| glyph("a", col as f32 * 50.0, row as f32 * 12.0))).collect();

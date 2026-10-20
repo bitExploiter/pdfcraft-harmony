@@ -4,6 +4,7 @@
 use pdfcraft_render::{PageRenderer, PageText, RenderConfig, text::TextFilter};
 use std::sync::Arc;
 
+/// Extract the public text layer from an original, in-memory one-page Courier PDF.
 fn extract(ops: &str) -> PageText {
     use lopdf::{Document, Object, Stream, dictionary};
     let mut doc = Document::with_version("1.7");
@@ -21,12 +22,51 @@ fn extract(ops: &str) -> PageText {
     PageRenderer::new(Arc::new(bytes), RenderConfig::default()).filtered_text(0, TextFilter::default()).unwrap()
 }
 
+/// Position a ten-point Courier text run independently of the preceding paint order.
 fn run(text: &str, x: f32, y: f32) -> String {
     format!("BT /F1 10 Tf 1 0 0 1 {x} {y} Tm ({text}) Tj ET\n")
 }
 
 const LINES: [&str; 3] = ["Alfa text fills row here", "Beta text fills row here", "Last text fills row here"];
 
+/// Paragraph whitespace shared by columns must not turn their continuous reading order
+/// into horizontal page bands, even when the paragraph gap dwarfs a narrow gutter.
+#[test]
+fn aligned_paragraph_breaks_keep_complete_columns_in_normal_ranges() {
+    for columns in [2, 3] {
+        for paragraph_gap in [12.0, 24.0, 84.0, 180.0] {
+            let line = |col, paragraph, row| format!("{col} para {paragraph} row {row} fill");
+            let width = line('L', 0, 0).len() as f32 * 6.0;
+            let mut ops = String::new();
+            // Row-major PDF paint order, with distinct text in every paragraph and column.
+            for paragraph in 0..2 {
+                for row in 0..3 {
+                    for (col, label) in ['L', 'M', 'R'].into_iter().take(columns).enumerate() {
+                        let y = 740.0 - paragraph as f32 * (24.0 + paragraph_gap) - row as f32 * 12.0;
+                        ops.push_str(&run(&line(label, paragraph, row), 30.0 + col as f32 * (width + 8.0), y));
+                    }
+                }
+            }
+            let column = |label| (0..2).flat_map(|paragraph| (0..3).map(move |row| line(label, paragraph, row))).collect::<Vec<_>>().join("\n");
+            let t = extract(&ops);
+            let expected = ['L', 'M', 'R'].into_iter().take(columns).map(column).collect::<Vec<_>>().join("\n");
+            assert_eq!(t.plain_text(), expected, "{columns} columns, paragraph gap {paragraph_gap}");
+            let first = t.find(&line('L', 0, 0))[0].start;
+            let last = t.find(&line('L', 1, 2))[0].end;
+            assert_eq!(t.text_of(first..last), column('L'));
+            let across_paragraphs = format!("{} {}", line('L', 0, 2), line('L', 1, 0));
+            let hits = t.find(&across_paragraphs);
+            assert_eq!(hits.len(), 1, "search follows paragraph continuity in the same column");
+            assert!(t.line_rects(hits[0].clone()).iter().all(|r| r[2] <= 30.1 + width));
+            let rects = t.line_rects(first..last);
+            assert_eq!(rects.len(), 6);
+            assert!(rects.iter().all(|r| r[0] >= 29.9 && r[2] <= 30.1 + width), "{rects:?}");
+        }
+    }
+}
+
+/// Narrow gutters constrain normal drag, triple-click and highlight ranges, while an
+/// intentional cross-column range still traverses the complete preceding column.
 #[test]
 fn normal_ranges_and_highlights_stay_inside_narrow_columns() {
     // Courier: 24 glyphs * 6 pt, 8 pt gutter. Row-major paint crosses it in one text object.
@@ -48,21 +88,26 @@ fn normal_ranges_and_highlights_stay_inside_narrow_columns() {
     assert!(t.text_of(from..other + 1).starts_with(&LINES.join("\n")));
 }
 
+/// Full-width headings and footers enclose complete body columns in reading order.
 #[test]
 fn spanning_headings_and_footer_surround_complete_columns() {
     let mut ops = run("A heading that spans both body columns", 30.0, 740.0);
     for x in [30.0, 182.0] {
-        for (row, line) in LINES.iter().enumerate() {
-            ops.push_str(&run(line, x, 700.0 - row as f32 * 12.0));
+        for paragraph in 0..2 {
+            for (row, line) in LINES.iter().enumerate() {
+                ops.push_str(&run(line, x, 700.0 - paragraph as f32 * 60.0 - row as f32 * 12.0));
+            }
         }
     }
-    ops.push_str(&run("A footer that spans both body columns", 30.0, 640.0));
+    ops.push_str(&run("A footer that spans both body columns", 30.0, 580.0));
+    let column = [LINES, LINES].concat().join("\n");
     assert_eq!(
         extract(&ops).plain_text(),
-        format!("A heading that spans both body columns\n{}\n{}\nA footer that spans both body columns", LINES.join("\n"), LINES.join("\n"))
+        format!("A heading that spans both body columns\n{column}\n{column}\nA footer that spans both body columns")
     );
 }
 
+/// A spanning section heading separates independently reconstructed column layouts.
 #[test]
 fn section_breaks_can_change_the_number_of_columns() {
     let mut ops = String::new();
@@ -85,6 +130,7 @@ fn section_breaks_can_change_the_number_of_columns() {
     assert_eq!(extract(&ops).plain_text(), expected);
 }
 
+/// Normal ranges preserve column order without changing rectangular row/tab extraction.
 #[test]
 fn short_table_cells_keep_normal_column_ranges_and_rectangular_rows() {
     let mut ops = String::new();
@@ -97,6 +143,7 @@ fn short_table_cells_keep_normal_column_ranges_and_rectangular_rows() {
     assert_eq!(t.column_text(&t.glyphs_in([0.0, 0.0, 200.0, 200.0])), "Name\tQty\nApple\t12\nPear\t7");
 }
 
+/// A right column starting below an illustration follows the complete left column.
 #[test]
 fn text_wrapping_around_an_illustration_keeps_its_column() {
     let mut ops = String::new();
@@ -114,12 +161,14 @@ fn text_wrapping_around_an_illustration_keeps_its_column() {
     assert_eq!(extract(&ops).plain_text(), expected.join("\n"));
 }
 
+/// Offset column starts do not require more than one overlapping baseline for support.
 #[test]
 fn staggered_short_columns_need_only_one_shared_baseline() {
     let ops = format!("{}{}{}{}", run(LINES[0], 30.0, 700.0), run(LINES[1], 30.0, 688.0), run(LINES[0], 182.0, 688.0), run(LINES[1], 182.0, 676.0));
     assert_eq!(extract(&ops).plain_text(), [LINES[0], LINES[1], LINES[0], LINES[1]].join("\n"));
 }
 
+/// A heading over two columns belongs to their region rather than the adjacent third one.
 #[test]
 fn a_heading_can_span_two_columns_alongside_a_third_column() {
     let mut ops = run("A heading across two columns", 30.0, 740.0);
@@ -134,6 +183,7 @@ fn a_heading_can_span_two_columns_alongside_a_third_column() {
     assert_eq!(extract(&ops).plain_text(), format!("A heading across two columns\n{}", vec![LINES.join("\n"); 3].join("\n")));
 }
 
+/// Straight turned text is subdivided in its baseline frame with original quads retained.
 #[test]
 fn straight_columns_rotated_thirty_degrees_keep_their_reading_order() {
     let mut ops = "q 0.8660254 0.5 -0.5 0.8660254 350 50 cm\n".to_string();
@@ -146,6 +196,7 @@ fn straight_columns_rotated_thirty_degrees_keep_their_reading_order() {
     assert_eq!(extract(&ops).plain_text(), format!("{}\n{}", LINES.join("\n"), LINES.join("\n")));
 }
 
+/// Relative typography and spatial evidence must survive transformations and reversed draws.
 #[test]
 fn layout_is_independent_of_scale_translation_and_glyph_paint_order() {
     let mut ops = String::new();
@@ -172,6 +223,7 @@ fn layout_is_independent_of_scale_translation_and_glyph_paint_order() {
     }
 }
 
+/// Repeated word spaces and isolated same-line fragments are insufficient column evidence.
 #[test]
 fn aligned_word_spaces_and_large_gaps_on_one_line_are_not_columns() {
     let mut ops = String::new();
@@ -183,6 +235,7 @@ fn aligned_word_spaces_and_large_gaps_on_one_line_are_not_columns() {
     assert_eq!(extract(&separated).plain_text(), "Left\nRight");
 }
 
+/// The original magazine's left paragraph must retain local highlights and copied text.
 #[test]
 #[ignore = "private corpus: set PDFCRAFT_COLUMN_PDF to the supplied magazine, then run --ignored"]
 fn magazine_page_twelve_normal_selection() {
@@ -197,6 +250,7 @@ fn magazine_page_twelve_normal_selection() {
     assert!(!t.text_of(start..end).contains("skyscraper"));
 }
 
+/// Geometric subdivision must not fragment curved labels elsewhere in the private corpus.
 #[test]
 #[ignore = "private corpus: set PDFCRAFT_COLUMN_PDF to the supplied magazine, then run --ignored"]
 fn magazine_decorative_map_labels_remain_searchable() {

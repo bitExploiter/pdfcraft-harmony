@@ -46,9 +46,11 @@ by font, or in other orders.
 `crates/render/src/text/regions.rs` performs an original implementation of geometric XY
 subdivision. It projects nonblank glyph boxes onto both axes. A vertical cut must be wider than
 ordinary letter tracking plus word spacing (and half the local median em height), with overlapping multiline text
-on both sides. A horizontal cut exposes spanning headings, section changes and footers. The
-strongest gaps compete in local word/line-spacing units, allowing a large section break to
-take priority over a gutter. Equal gaps prefer balanced subdivisions to avoid unnecessarily
+on both sides. A supported continuous gutter always takes precedence over horizontal
+whitespace: even a large aligned paragraph break must not interleave neighbouring columns.
+When spanning content obstructs the gutter, a horizontal cut exposes headings, section
+changes and footers before their local column layouts. Empty space alone cannot establish
+a semantic section break. Equal gaps prefer balanced subdivisions to avoid unnecessarily
 deep trees. Horizontal subdivisions are retained only when they expose a supported column
 split in their subtree; otherwise the original region and paint order are restored and line
 grouping remains with the existing reconstructor. All tolerances scale with the typography.
@@ -87,7 +89,11 @@ cargo check -p pdfcraft-render -j 2 --target wasm32-unknown-unknown
 gutters, full-width headings, section layout changes, short table cells, text beside an
 illustration, scale/translation invariance and reordered glyphs. It checks logical ranges and
 highlight bounds, not merely the presence of words. The UI regression drags without modifiers
-in both directions and checks the emitted clipboard content.
+in both directions and checks the emitted clipboard content, including aligned paragraph
+breaks. The paragraph regression checks two and three columns over four paragraph spacings,
+with distinct text in every column and paragraph, and verifies cross-paragraph search bounds.
+It was observed failing with the previous horizontal-gap preference, as was the expanded
+plain-mouse/clipboard regression.
 
 The private magazine regression is intentionally ignored by default. Set
 `PDFCRAFT_COLUMN_PDF` to the local supplied PDF, then run:
@@ -107,8 +113,10 @@ map-label checks also caught regressions during development.
 ## Practical limits
 
 Geometric subdivision is a fallback, not a proof of author intent. Untagged tables and prose
-columns can have identical geometry. Normal table order remains column-oriented as before;
-explicit rectangular extraction retains row/tab output. No semantic table-cell model is added.
+columns can have identical geometry. The synthetic unruled table is read by column after
+subdivision; the legacy reconstructor read its rows. Explicit rectangular extraction retains
+row/tab output. This is a documented compatibility tradeoff, not preservation of semantic
+table reading order. No semantic table-cell model is added.
 This change does not yet use a tagged PDF's structure tree as the authority for reading order.
 Overlapping columns, gutters obstructed on every baseline, very tight gutters indistinguishable
 from word spacing, complex nonrectangular flows and RTL/mixed reading-region order need further

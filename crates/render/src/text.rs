@@ -1408,8 +1408,9 @@ fn union(a: &mut [f32; 4], b: &[f32; 4]) {
 ///
 /// Heuristics (documented so they can be tuned and tested; plan/architecture.md §8):
 /// 1. *Regions:* subdivide along persistent whitespace before joining any glyphs. Region
-///    boundaries constrain both content-order runs and later geometric merging. Spanning
-///    headings and section breaks are separated before their columns (see `text/regions.rs`).
+///    boundaries constrain both content-order runs and later geometric merging. Continuous
+///    columns take priority over paragraph gaps; spanning content exposes local column layouts
+///    through horizontal cuts (see `text/regions.rs`).
 /// 2. *Segments:* consecutive glyphs (content order) on one baseline within one region.
 ///    A smaller glyph right next to the previous one (a sub- or superscript) stays in the segment.
 ///    Segments on the same baseline that nearly touch are merged (text drawn out of order).
@@ -2214,6 +2215,7 @@ mod tests {
         assert_eq!(t.plain_text(), "Left1\nLeft2\nRight1\nRight2");
     }
 
+    /// Normal ranges follow whole columns regardless of column-major, row-major or reverse draws.
     #[test]
     fn narrow_columns_are_read_in_full_in_every_paint_order() {
         for paint in 0..3 {
@@ -2251,6 +2253,7 @@ mod tests {
         assert_eq!(layout(v).plain_text(), "CHAPTER FOUR");
     }
 
+    /// Repeated tracking gaps remain letter spacing even when they exceed a normal word gap.
     #[test]
     fn widely_tracked_lines_are_not_mistaken_for_letter_columns() {
         let mut glyphs = Vec::new();

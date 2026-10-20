@@ -547,32 +547,46 @@ fn coalesced_primary_clicks_select_line_then_spaced_click_clears() {
 
 /// Normal mouse selection must follow a complete column even when the gutter is smaller
 /// than the old same-baseline merge tolerance. No modifier or Column select tool is involved.
+/// Aligned paragraph breaks must not interrupt that continuity in either drag direction.
 #[test]
 fn a_plain_drag_copies_only_its_narrow_magazine_column_both_ways() {
+    use pdfcraft_render::{PageRenderer, RenderConfig, text::TextFilter};
+    use std::sync::Arc;
+
     let left = ["Left first line", "Left next line!", "Left last line!"];
     let right = ["Right first one", "Right next one!", "Right last one!"];
-    let mut ops = String::new();
-    // Monospace font: 15 * 6 pt + an 8 pt gutter, with text drawn row by row.
-    for row in 0..3 {
-        for (x, text) in [(20, left[row]), (118, right[row])] {
-            ops.push_str(&format!("BT /F1 10 Tf 1 0 0 1 {x} {} Tm ({text}) Tj ET\n", 150 - row * 12));
+    for paragraph_gap in [12, 60] {
+        let mut ops = String::new();
+        // Monospace font: 15 * 6 pt + an 8 pt gutter, with text drawn row by row.
+        for row in 0..6 {
+            for (x, text) in [(20, left[row % 3]), (118, right[row % 3])] {
+                let y = 150 - row * 12 - usize::from(row >= 3) * (paragraph_gap - 12);
+                ops.push_str(&format!("BT /F1 10 Tf 1 0 0 1 {x} {y} Tm ({text}) Tj ET\n"));
+            }
         }
-    }
-    let pdf = String::from_utf8(text_pdf(&ops)).unwrap().replace("/BaseFont /Helvetica", "/BaseFont /Courier").into_bytes();
-    let (mut h, _) = harness_with(pdf, |_| {});
-    for reverse in [false, true] {
-        let view = &h.state().views[0];
-        let from = view.glyph_screen_pos(0, 0).unwrap();
-        let to = view.glyph_screen_pos(0, 44).unwrap();
-        let (from, to) = if reverse { (to, from) } else { (from, to) };
-        press_and_move(&mut h, from, to);
-        h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
-        h.run_steps(1);
-        assert_eq!(h.state().views[0].selected_text().as_deref(), Some(left.join("\n").as_str()));
-        assert!(h.state_mut().execute("edit.copy"));
-        h.step();
-        assert!(copied(&h, &left.join("\n")));
-        h.run_steps(60);
+        let pdf = String::from_utf8(text_pdf(&ops)).unwrap().replace("/BaseFont /Helvetica", "/BaseFont /Courier").into_bytes();
+        // Locate the same physical endpoints even if the reading order is broken. Fixed
+        // logical indices would move the pointer into a different column before the fix.
+        let text = PageRenderer::new(Arc::new(pdf.clone()), RenderConfig::default()).filtered_text(0, TextFilter::default()).unwrap();
+        let anchor = text.find(left[0])[0].start;
+        let head = text.find(left[2]).last().unwrap().end - 1;
+        assert!(text.glyphs[anchor].rect[0] < 110.0 && text.glyphs[head].rect[2] < 110.1);
+        let (mut h, _) = harness_with(pdf, |_| {});
+        let expected = [left, left].concat().join("\n");
+        for reverse in [false, true] {
+            let view = &h.state().views[0];
+            let from = view.glyph_screen_pos(0, anchor).unwrap();
+            let to = view.glyph_screen_pos(0, head).unwrap();
+            let (from, to) = if reverse { (to, from) } else { (from, to) };
+            press_and_move(&mut h, from, to);
+            h.event(Event::PointerButton { pos: to, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+            assert_eq!(h.state().views[0].selected_text().as_deref(), Some(expected.as_str()), "paragraph gap {paragraph_gap}, reverse {reverse}");
+            assert!(h.state_mut().execute("edit.copy"));
+            h.step();
+            assert!(copied(&h, &expected));
+            h.run_steps(60);
+        }
     }
 }
 
