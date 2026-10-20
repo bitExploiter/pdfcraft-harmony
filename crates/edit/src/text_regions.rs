@@ -678,13 +678,20 @@ pub(super) fn rewrite_styled_block(
     let o = &lead.origin;
     // Row-unification: a visual row of contextual or bidi text (Arabic, say) must sit on a single
     // face, because joining and right-to-left reordering span the whole row — shaping each
-    // font/style run of it apart would break them. A row mixes runs when, for example, existing
-    // subset glyphs sit beside a newly typed character that fell back to another face. Route the
-    // whole row onto one face that can shape all of it: a document face that covers the row if one
-    // does, otherwise the bundled script fallback, both resolved by `shape_source`. Its resource
-    // name becomes the whole row's, so the shaping loop below treats the row as one run. Only when
-    // nothing can shape the row (no covering face and no bundled fallback) is the edit refused,
-    // with `shape_source`'s own error.
+    // font run of it apart would break them. A row mixes faces when, for example, existing subset
+    // glyphs sit beside a newly typed character that fell back to another face. Route the whole row
+    // onto one face that can shape all of it: a document face that covers the row if one does,
+    // otherwise the bundled script fallback, both resolved by `shape_source`. Its resource name
+    // becomes the whole row's, so the shaping loop below treats the row as one run. The edit is
+    // refused when nothing can shape the row (no covering face and no bundled fallback), with
+    // `shape_source`'s own error.
+    //
+    // Only the font *resource* (`c.2`) is unified. The styled-source-line index (`c.1`) keys every
+    // per-range style (`overrides`, `underlines`, size, scale, colour, char spacing), so flattening
+    // it to the anchor's would silently drop a user's per-word formatting on a contextual row (e.g.
+    // one coloured or resized word). When the row's characters carry different style indices we keep
+    // the refusal instead: shaping each styled segment apart would break joining, and silent
+    // flattening would lose the user's request without telling them.
     for (row_index, row) in rows.iter_mut().enumerate() {
         if kept.get(row_index).copied().unwrap_or(false) {
             continue;
@@ -695,12 +702,14 @@ pub(super) fn rewrite_styled_block(
         if !pdfcraft_fonts::source_shaping::required(&text) || !mixed {
             continue;
         }
+        if row.iter().any(|v| v.1 != anchor.1) {
+            return Err(EditError::Invalid("formatting part of a joined or right-to-left row separately isn't supported yet".into()));
+        }
         // The bundled script fallback does not depend on the resource, so any run's resource makes
         // `shape_source` resolve the whole row to one face; it errors only when the row truly
         // cannot be shaped, which propagates as the refusal.
         shape_source(doc, &fonts, &anchor.2, &text)?;
         for c in row.iter_mut() {
-            c.1 = anchor.1;
             c.2 = anchor.2.clone();
         }
     }
