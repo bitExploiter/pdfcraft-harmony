@@ -286,6 +286,8 @@ const COPY_DIR_ATTEMPTS: u32 = 16;
 fn new_copy_dir(parent: &Path) -> std::io::Result<PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
+    // Only Unix sets a mode on the builder.
+    #[cfg_attr(not(unix), allow(unused_mut))]
     let mut builder = std::fs::DirBuilder::new();
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
