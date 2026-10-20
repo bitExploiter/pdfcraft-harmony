@@ -145,6 +145,9 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                     true,
                                 );
                                 slots.push((i, response.rect));
+                                if response.drag_started() {
+                                    app.tab_drag_cancelled = false;
+                                }
                                 if response.dragged() || response.drag_stopped() {
                                     dragged = Some((i, response.drag_stopped()));
                                 }
@@ -153,7 +156,12 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 }
                                 let id = app.views[i].id;
                                 let reveal = cfg!(not(target_arch = "wasm32")) && doc.path.is_some();
+                                let can_detach = app.can_detach_tab(id);
                                 response.context_menu(|ui| {
+                                    if ui.add_enabled(can_detach, egui::Button::new(tl!("Move Tab to New Window"))).clicked() {
+                                        action = Some(crate::tab_context::Action::Detach(id));
+                                        ui.close();
+                                    }
                                     if ui.button(tl!("Close Tab")).clicked() {
                                         action = Some(crate::tab_context::Action::Close(id));
                                         ui.close();
@@ -180,13 +188,38 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             // Dragging a tab moves it (#1537): a line marks the gap it will land
                             // in, and releasing the button drops it there.
                             if let Some((from, released)) = dragged
-                                && let Some(x) = ui.ctx().pointer_latest_pos().map(|p| p.x)
+                                && let Some(pointer) = ui.ctx().pointer_latest_pos()
                             {
+                                let cancelled = app.tab_drag_cancelled;
+                                let x = pointer.x;
+                                let id = app.views.get(from).map(|v| v.id);
+                                let tear_off = id.is_some_and(|id| app.can_detach_tab(id))
+                                    && crate::tab_windows::outside_strip(full, ui.ctx().input(|i| i.viewport_rect()), pointer);
                                 let to = drop_index(&slots, from, x);
                                 if released {
-                                    if close.is_none() && action.is_none() {
-                                        app.move_tab(from, to);
+                                    if !cancelled && close.is_none() && action.is_none() {
+                                        if tear_off {
+                                            if let Some(id) = id {
+                                                let position = ui.ctx().input(|i| i.viewport().inner_rect.map(|r| r.min + pointer.to_vec2()));
+                                                app.request_detach_tab(id, position);
+                                            }
+                                        } else {
+                                            app.move_tab(from, to);
+                                        }
                                     }
+                                } else if cancelled {
+                                    // Escape leaves both ownership and order untouched until release.
+                                } else if tear_off {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                    egui::Area::new(ui.id().with("tear-off-hint"))
+                                        .order(egui::Order::Tooltip)
+                                        .fixed_pos(pointer + vec2(12.0, 18.0))
+                                        .interactable(false)
+                                        .show(ui.ctx(), |ui| {
+                                            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                                                ui.label(tl!("Move Tab to New Window"));
+                                            });
+                                        });
                                 } else {
                                     drag_x = Some(x);
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);

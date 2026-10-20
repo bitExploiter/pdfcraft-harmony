@@ -6106,3 +6106,25 @@ fn undo_never_makes_an_unsaved_document_clean() {
     s.undo(new).unwrap();
     assert!(!s.get(new).unwrap().dirty, "once saved, undo back to the saved state is clean");
 }
+
+#[test]
+fn detach_document_moves_live_history_without_reopening_or_saving() {
+    let mut source = Session::default();
+    let id = source.open("edited.pdf", Some("original.pdf".into()), Arc::new(fixture(2)), None).unwrap();
+    source.apply(id, Edit::SetInfo { key: "Title".into(), value: "keep".into() }).unwrap();
+    let edited = source.get(id).unwrap().bytes.clone();
+    assert!(source.detach_document(DocId(u64::MAX)).is_none());
+    assert_eq!(source.docs().len(), 1);
+    let mut target = source.detach_document(id).unwrap();
+    assert!(source.docs().is_empty());
+    let document = target.get(id).unwrap();
+    assert!(Arc::ptr_eq(&edited, &document.bytes));
+    assert!(document.dirty);
+    assert_eq!(document.path.as_deref(), Some("original.pdf"));
+    target.undo(id).unwrap();
+    assert!(target.get(id).unwrap().can_redo().is_some());
+    target.redo(id).unwrap();
+    assert_eq!(target.get(id).unwrap().bytes, edited);
+    let next = target.open("second.pdf", None, Arc::new(fixture(1)), None).unwrap();
+    assert_ne!(next, id);
+}

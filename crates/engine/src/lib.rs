@@ -4926,6 +4926,23 @@ impl Session {
         Ok(())
     }
 
+    /// Move one open document into an independent session, without saving or reparsing it.
+    /// Its identity, password, editor, Undo/Redo and autosave generations are preserved.
+    /// A missing id leaves this session unchanged.
+    pub fn detach_document(&mut self, id: DocId) -> Option<Self> {
+        let index = self.docs.iter().position(|d| d.id == id)?;
+        Some(Self {
+            docs: vec![self.docs.remove(index)],
+            next_id: self.next_id,
+            clock: self.clock,
+            utc_offset: self.utc_offset,
+            trust: self.trust.clone(),
+            js_off: self.js_off,
+            date_format: self.date_format.clone(),
+            date_language: self.date_language.clone(),
+        })
+    }
+
     pub fn close(&mut self, id: DocId) {
         self.docs.retain(|d| d.id != id);
     }

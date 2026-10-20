@@ -260,6 +260,22 @@ pub struct FileWatch {
 }
 
 impl FileWatch {
+    /// Move the original file stamps too: detaching must not acknowledge an external rewrite.
+    pub(crate) fn transfer(&mut self, id: DocId, target: &mut Self) {
+        if let Some(value) = self.known.remove(&id) {
+            target.known.insert(id, value);
+        }
+        if let Some(value) = self.basis.remove(&id) {
+            target.basis.insert(id, value);
+        }
+        if let Some(value) = self.epoch.remove(&id) {
+            target.epoch.insert(id, value);
+        }
+        if self.reload_request == Some(id) {
+            target.reload_request = self.reload_request.take();
+        }
+    }
+
     /// PdfCraft read or wrote `path` for `doc`: that version is not a change, and anything the
     /// watcher found before it is stale.
     pub fn known_now(&mut self, doc: DocId, path: &str) {
