@@ -311,6 +311,30 @@ fn add_resources(doc: &mut Document, page: &pdfcraft_model::Page, opacity: Optio
         font.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
         fonts.set(name.to_vec(), Object::Dict(font));
     }
+    if content.is_some_and(|c| c.windows(6).any(|w| w == b"/PCOCR")) && fonts.get(b"PCOCR").is_none() {
+        let cmap_bytes = b"/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n/CMapName /PCOCRUnicode def\n/CMapType 2 def\n1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n1 beginbfrange\n<0001> <FFFE> <0001>\nendbfrange\nendcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n";
+        let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap_bytes)));
+        let mut sys = Dict::new();
+        sys.set(b"Registry".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"Adobe".to_vec())));
+        sys.set(b"Ordering".to_vec(), Object::String(pdfcraft_cos::PdfString::literal(b"Identity".to_vec())));
+        sys.set(b"Supplement".to_vec(), Object::Int(0));
+        let mut cid = Dict::new();
+        cid.set(b"Type".to_vec(), Object::name("Font"));
+        cid.set(b"Subtype".to_vec(), Object::name("CIDFontType2"));
+        cid.set(b"BaseFont".to_vec(), Object::name("PCOCR"));
+        cid.set(b"CIDSystemInfo".to_vec(), Object::Dict(sys));
+        cid.set(b"DW".to_vec(), Object::Int(500));
+        cid.set(b"CIDToGIDMap".to_vec(), Object::name("Identity"));
+        let cid_ref = doc.add(Object::Dict(cid));
+        let mut font = Dict::new();
+        font.set(b"Type".to_vec(), Object::name("Font"));
+        font.set(b"Subtype".to_vec(), Object::name("Type0"));
+        font.set(b"BaseFont".to_vec(), Object::name("PCOCR"));
+        font.set(b"Encoding".to_vec(), Object::name("Identity-H"));
+        font.set(b"DescendantFonts".to_vec(), Object::Array(vec![Object::Ref(cid_ref)]));
+        font.set(b"ToUnicode".to_vec(), Object::Ref(cmap));
+        fonts.set(b"PCOCR".to_vec(), Object::Dict(font));
+    }
     res.set(b"Font".to_vec(), Object::Dict(fonts));
     if let Some(o) = opacity {
         let mut gs = res.get(b"ExtGState").map(|g| doc.resolve(g)).and_then(|g| g.as_dict().cloned()).unwrap_or_default();
