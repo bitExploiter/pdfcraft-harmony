@@ -3,9 +3,10 @@
 //! A named-layer appearance's `/N` draws a layer form, which draws `n0` (background), `n1`
 //! (unknown or valid), `n2` (signer details), `n3` (invalid) and `n4` (status text). The file
 //! stores one state, usually "not verified". When `/N` draws exactly one Form whose resources hold
-//! both `n1` and `n3`, `n1`, `n3` and `n4` (if present) are redrawn for the signature's state and
-//! every other layer is left as stored. Any other layout keeps its artwork, and the viewer marks
-//! it with its own badge.
+//! both `n1` and `n3`, and that Form draws them, `n1`, `n3` and `n4` (if present) are redrawn for
+//! the signature's state and every other layer is left as stored. Any other layout keeps its
+//! artwork. Either way the viewer marks the widget with its own badge: a document can clip or
+//! cover its own layers, but not the badge.
 //!
 //! Only the display copy changes, and nothing in it is edited in place: each recognised
 //! appearance is copied once per state, so a stream shared between widgets or fields never shows
@@ -161,12 +162,13 @@ const TRIANGLE_ALERT: &str = "21.73 18 m 13.73 4 l 13.375 3.373 12.71 2.986 11.9
 /// `circle-x.svg`: `<circle cx="12" cy="12" r="10"/>`, `<path d="m15 9-6 6"/>`, `<path d="m9 9 6 6"/>`.
 const CIRCLE_X: &str = "22 12 m 22 17.523 17.523 22 12 22 c 6.477 22 2 17.523 2 12 c 2 6.477 6.477 2 12 2 c 17.523 2 22 6.477 22 12 c h S 15 9 m 9 15 l S 9 9 m 15 15 l S";
 
-/// Decoded bytes read from a `/N` stream at most: appearances are kilobytes, and anything
-/// bigger is damage, which only costs the widget its regeneration.
+/// Decoded bytes read from an `/N` or layer-form stream at most: appearances are kilobytes, and
+/// anything bigger is damage, which only costs the widget its regeneration.
 const MAX_LAYER_DECODED: usize = 1 << 20;
 
-/// The most distinct XObjects an `/N` may draw and still be recognised. The convention draws
-/// one; the cap bounds the lookups a stream drawing thousands would cost.
+/// The most distinct XObjects an `/N` or its layer form may draw and still be recognised. The
+/// convention draws one from `/N` and five from the layer form; the cap bounds the lookups a
+/// stream drawing thousands would cost.
 const MAX_DRAWN_NAMES: usize = 16;
 
 /// The caption's resource name. The regenerated `n4` has resources of its own holding this
@@ -174,7 +176,7 @@ const MAX_DRAWN_NAMES: usize = 16;
 const CAPTION_FONT: &str = "Cap";
 
 /// Draw each signed signature's state into its recognised widgets, in `doc` (the display copy
-/// only). A signature whose every visible widget was regenerated comes back with `verdict_shown`
+/// only). A signature with a visible widget that was regenerated comes back with `verdict_shown`
 /// set. Best-effort and total: anything unexpected leaves that widget as it was. Returns whether
 /// anything changed.
 ///
@@ -182,24 +184,22 @@ const CAPTION_FONT: &str = "Cap";
 /// and a field's other widgets may show where the first does not.
 pub fn show_status_layers(doc: &mut Document, signatures: &mut [SignatureInfo], captions: &StatusCaptions) -> bool {
     let fields = Fields::of(doc);
-    let mut copies = Copies { face: Face::new(captions), n: HashMap::new(), forms: HashMap::new() };
+    let mut copies = Copies { face: Face::new(captions), n: HashMap::new(), forms: HashMap::new(), drawing: HashMap::new() };
     let mut changed = false;
     for sig in signatures.iter_mut().filter(|s| drawable(s)) {
         let Some(widgets) = fields.widgets(&sig.field) else { continue };
-        let mut visible = 0usize;
-        let mut shown = 0usize;
+        let mut shown = false;
         for (r, widget) in widgets {
             if !shows(doc, widget) {
                 continue;
             }
-            visible += 1;
             let Some(r) = r.filter(|r| !fields.shared(*r)) else { continue };
             if draw(doc, r, widget, sig.status, &mut copies).is_some() {
-                shown += 1;
+                shown = true;
                 changed = true;
             }
         }
-        sig.verdict_shown = visible > 0 && shown == visible;
+        sig.verdict_shown = shown;
     }
     changed
 }
@@ -208,14 +208,15 @@ pub fn show_status_layers(doc: &mut Document, signatures: &mut [SignatureInfo], 
 /// builds a display copy only when it would change something.
 pub fn has_status_layers(doc: &Document, signatures: &[SignatureInfo]) -> bool {
     let fields = Fields::of(doc);
-    // Each appearance is read once, however many widgets share it.
+    // Each appearance and layer form is read once, however many widgets share it.
     let mut checked = HashSet::new();
+    let mut drawing = HashMap::new();
     signatures.iter().filter(|s| drawable(s)).any(|sig| {
         fields.widgets(&sig.field).is_some_and(|widgets| {
             widgets.iter().any(|(r, w)| {
                 r.is_some_and(|r| !fields.shared(r))
                     && shows(doc, w)
-                    && appearance(doc, w).is_some_and(|n| checked.insert(n.num) && recognise(doc, n).is_some())
+                    && appearance(doc, w).is_some_and(|n| checked.insert(n.num) && recognise(doc, n, &mut drawing).is_some())
             })
         })
     })
@@ -237,6 +238,9 @@ struct Copies<'a> {
     n: HashMap<(u32, Status), Option<ObjRef>>,
     /// Original layer form and state → its copy.
     forms: HashMap<(u32, Status), ObjRef>,
+    /// Layer form → whether its content draws `n1` and `n3`, read once per call however many
+    /// appearances share it.
+    drawing: HashMap<u32, bool>,
 }
 
 /// Point one widget at its appearance's copy for `status`, drawing that copy first if this call
@@ -246,7 +250,7 @@ fn draw(doc: &mut Document, widget_ref: ObjRef, widget: &Dict, status: Status, c
     let copy = match copies.n.get(&(n.num, status)) {
         Some(copy) => *copy,
         None => {
-            let copy = recognise(doc, n).and_then(|layout| regenerate(doc, &layout, status, copies));
+            let copy = recognise(doc, n, &mut copies.drawing).and_then(|layout| regenerate(doc, &layout, status, copies));
             copies.n.insert((n.num, status), copy);
             copy
         }
@@ -354,22 +358,26 @@ struct Layout {
 }
 
 /// The named-layer rule: a widget's `/N` (`n`) is a stream that draws, from its own XObject
-/// resources, exactly one Form whose own XObject resources hold both `n1` and `n3`. Those two,
-/// and `n4` if present, must be Forms with a usable `/BBox`.
-fn recognise(doc: &Document, n: ObjRef) -> Option<Layout> {
-    let n = doc.get(n);
+/// resources, exactly one Form whose own XObject resources hold both `n1` and `n3`, and that
+/// Form's content draws them. Those two, and `n4` if present, must be Forms with a usable
+/// `/BBox`.
+///
+/// Whether the redrawn layers end up visible (not clipped away or painted over) is not checked
+/// here, so the page keeps its validation badge either way.
+///
+/// `drawing` remembers, per layer form, whether its content draws `n1` and `n3`.
+fn recognise(doc: &Document, n_ref: ObjRef, drawing: &mut HashMap<u32, bool>) -> Option<Layout> {
+    let n = doc.get(n_ref);
     // A dictionary here is a set of named states (on/off), not the one static appearance.
     let Object::Stream(n) = &*n else { return None };
     let n_xobjects = xobjects(doc, &n.dict)?;
-    let content = n.decoded_within(MAX_LAYER_DECODED).ok()?;
-    let parsed = pdfcraft_content::parse(&content);
-    let drawn: HashSet<&[u8]> = parsed.ops.iter().filter(|op| op.is("Do")).filter_map(|op| op.operands.last().and_then(Object::as_name)).collect();
-    if drawn.len() > MAX_DRAWN_NAMES {
-        return None;
-    }
     let mut found = None;
-    for name in drawn {
-        let Some(form_ref) = n_xobjects.get(name).and_then(Object::as_ref) else { continue };
+    for name in drawn_names(n)? {
+        let Some(form_ref) = n_xobjects.get(&name).and_then(Object::as_ref) else { continue };
+        // `/N` drawing itself is no layer form: its own layers would draw over the copy.
+        if form_ref.num == n_ref.num {
+            continue;
+        }
         let form = doc.get(form_ref);
         let Object::Stream(form) = &*form else { continue };
         if !is_form(doc, &form.dict) {
@@ -381,10 +389,15 @@ fn recognise(doc: &Document, n: ObjRef) -> Option<Layout> {
             if found.is_some() {
                 return None;
             }
-            found = Some((name.to_vec(), form_ref, form.clone(), layers));
+            found = Some((name, form_ref, form.clone(), layers));
         }
     }
     let (name, form_ref, form, form_xobjects) = found?;
+    // Layers the form holds but never draws would be redrawn out of sight.
+    let draws = drawing.entry(form_ref.num).or_insert_with(|| drawn_names(&form).is_some_and(|d| d.contains(&b"n1"[..]) && d.contains(&b"n3"[..])));
+    if !*draws {
+        return None;
+    }
     let n1 = layer(doc, form_xobjects.get(b"n1"))?;
     let n3 = layer(doc, form_xobjects.get(b"n3"))?;
     let n4 = match form_xobjects.get(b"n4") {
@@ -392,6 +405,22 @@ fn recognise(doc: &Document, n: ObjRef) -> Option<Layout> {
         None => None,
     };
     Some(Layout { n: n.clone(), n_xobjects, name, form_ref, form, form_xobjects, n1, n3, n4 })
+}
+
+/// The names a content stream draws with `Do`, or `None` when it doesn't decode within
+/// [`MAX_LAYER_DECODED`] or draws more than [`MAX_DRAWN_NAMES`] of them.
+fn drawn_names(stream: &Stream) -> Option<HashSet<Vec<u8>>> {
+    let content = stream.decoded_within(MAX_LAYER_DECODED).ok()?;
+    let mut names = HashSet::new();
+    for op in pdfcraft_content::parse(&content).ops.iter().filter(|op| op.is("Do")) {
+        if let Some(name) = op.operands.last().and_then(Object::as_name)
+            && names.insert(name.to_vec())
+            && names.len() > MAX_DRAWN_NAMES
+        {
+            return None;
+        }
+    }
+    Some(names)
 }
 
 fn is_form(doc: &Document, dict: &Dict) -> bool {
@@ -460,8 +489,8 @@ fn regenerate_form(doc: &mut Document, layout: &Layout, status: Status, face: &m
     Some(doc.add(form))
 }
 
-/// A fresh Form dictionary for a regenerated layer: the original's `/BBox` and `/Matrix`, so it
-/// sits where the original did, and `resources`.
+/// A fresh Form dictionary for a regenerated layer: the original's `/BBox`, `/Matrix` and `/OC`,
+/// so it sits where the original did and shows when it would, and `resources`.
 fn layer_dict(doc: &Document, layer: &Layer, resources: Dict) -> Dict {
     let mut d = Dict::new();
     d.set(b"Type".to_vec(), Object::name("XObject"));
@@ -470,6 +499,11 @@ fn layer_dict(doc: &Document, layer: &Layer, resources: Dict) -> Dict {
         if let Some(v) = layer.stream.dict.get(key) {
             d.set(key.to_vec(), (*doc.resolve(v)).clone());
         }
+    }
+    // As it is, reference and all: an optional content group is the document's object, and its
+    // state there decides whether the layer shows.
+    if let Some(oc) = layer.stream.dict.get(b"OC") {
+        d.set(b"OC".to_vec(), oc.clone());
     }
     d.set(b"Resources".to_vec(), resources);
     d
@@ -890,6 +924,32 @@ mod tests {
             ..Fixture::layered()
         };
         let flat = five.clone().with(|f| f.extra = vec![(10, form([0.0, 0.0, W, H], HELV, SIGNER))]);
+        // The layer form holds all five but draws only `drawn`.
+        let drawing = |drawn: &str| {
+            let res = "<< /XObject << /n0 12 0 R /n1 13 0 R /n2 14 0 R /n3 15 0 R /n4 16 0 R >> >>";
+            five.clone().with(|f| f.extra = vec![(11, form([0.0, 0.0, W, H], res, drawn))])
+        };
+        // `/N` holds itself as its layer form, beside n1 and n3, and draws all three.
+        let itself = five.clone().with(|f| {
+            f.extra = vec![(10, form([0.0, 0.0, W, H], "<< /XObject << /FRM 10 0 R /n1 13 0 R /n3 15 0 R >> >>", "/FRM Do /n1 Do /n3 Do"))]
+        });
+        // The layer form reaches n1 and n3 only through another form, whose copies would not
+        // point at the redrawn ones.
+        let nested_draw = five.clone().with(|f| {
+            let res = "<< /XObject << /n0 12 0 R /n1 13 0 R /n2 14 0 R /n3 15 0 R /n4 16 0 R /G 31 0 R >> >>";
+            f.extra = vec![
+                (11, form([0.0, 0.0, W, H], res, "/n0 Do /G Do /n2 Do /n4 Do")),
+                (31, form([0.0, 0.0, W, H], "<< /XObject << /n1 13 0 R /n3 15 0 R >> >>", "/n1 Do /n3 Do")),
+            ]
+        });
+        let five_and = |more: usize| format!("/n0 Do /n1 Do /n2 Do /n3 Do /n4 Do {}", (0..more).map(|i| format!("/X{i} Do ")).collect::<String>());
+        // `/N` also draws a second Form holding n1 and n3, which draws neither.
+        let two_holding = five.clone().with(|f| {
+            f.extra = vec![
+                (10, form([0.0, 0.0, W, H], "<< /XObject << /FRM 11 0 R /FRM2 30 0 R >> >>", "/FRM Do /FRM2 Do")),
+                (30, form([0.0, 0.0, W, H], "<< /XObject << /n1 13 0 R /n3 15 0 R >> >>", "")),
+            ]
+        });
         let cases: Vec<(&str, Fixture, bool)> = vec![
             ("n0 to n4", five.clone(), true),
             ("n0 to n4, invalid", five.clone(), true),
@@ -907,13 +967,51 @@ mod tests {
             ("n3 without n1", Fixture::named(&["n0", "n2", "n3", "n4"]), false),
             ("layer form named Foo", five.clone().with(|f| f.frm = "Foo"), true),
             ("image in n1, no n3", image_n1, false),
+            ("n1 and n3 held, not drawn", drawing("/n0 Do /n2 Do /n4 Do"), false),
+            ("n3 held, not drawn", drawing("/n0 Do /n1 Do /n2 Do /n4 Do"), false),
+            ("n1 and n3 drawn, n4 not", drawing("/n0 Do /n1 Do /n2 Do /n3 Do"), true),
+            ("two forms hold n1 and n3, one draws them", two_holding, false),
+            ("layer form draws 16 names", drawing(&five_and(MAX_DRAWN_NAMES - 5)), true),
+            ("layer form draws 17 names", drawing(&five_and(MAX_DRAWN_NAMES - 4)), false),
+            ("n1 drawn as /n#31", drawing("/n0 Do /n#31 Do /n2 Do /n3 Do /n4 Do"), true),
+            ("/N is its own layer form", itself, false),
+            ("n1 and n3 drawn only through a nested form", nested_draw, false),
         ];
-        assert_eq!(cases.len(), 16);
+        assert_eq!(cases.len(), 25);
         for (name, fixture, redrawn) in cases {
             let doc = fixture.open();
             let status = if name.ends_with("invalid") { Status::Invalid } else { Status::Valid };
             assert_eq!(has_status_layers(&doc, &[sig("Signature1", status)]), redrawn, "{name}");
         }
+    }
+
+    #[test]
+    fn a_layer_form_shared_by_appearances_is_read_once() {
+        // Two /N streams draw the same layer form: whether it draws n1 and n3 is read for the
+        // first and remembered for the second.
+        let doc = Fixture::layered().with(|f| f.extra = vec![(30, form([0.0, 0.0, W, H], "<< /XObject << /FRM 11 0 R >> >>", "/FRM Do"))]).open();
+        let mut drawing = HashMap::new();
+        assert!(recognise(&doc, ObjRef::new(10, 0), &mut drawing).is_some());
+        assert_eq!(drawing, HashMap::from([(11, true)]));
+        // What it remembers is what it uses: a form marked as not drawing them is refused.
+        drawing.insert(11, false);
+        assert!(recognise(&doc, ObjRef::new(30, 0), &mut drawing).is_none());
+    }
+
+    #[test]
+    fn a_regenerated_layer_keeps_its_optional_content() {
+        // n1 sits in an optional content group; its copy stays in the same group, by reference,
+        // so the document's layer state still decides whether it shows.
+        let mut fixture = Fixture::layered();
+        fixture.layers[1].res = "<< >> /OC 40 0 R".into();
+        fixture.extra = vec![(40, "<< /Type /OCG /Name (Validity) >>".into())];
+        let mut doc = fixture.open();
+        assert!(show(&mut doc, Status::Valid).verdict_shown);
+        let n1 = layer_ref(&doc, 4, b"FRM", b"n1").unwrap();
+        assert_ne!(n1, ObjRef::new(13, 0), "a copy");
+        let copy = doc.get(n1);
+        let Object::Stream(copy) = &*copy else { panic!("{n1} is not a stream") };
+        assert_eq!(copy.dict.get(b"OC"), Some(&Object::Ref(ObjRef::new(40, 0))));
     }
 
     #[test]
@@ -1241,27 +1339,26 @@ mod tests {
     }
 
     #[test]
-    fn a_verdict_counts_as_shown_only_when_every_visible_widget_shows_it() {
-        // Widget 32 draws its text flat, so it keeps its artwork and the field keeps its badge;
-        // hidden, it no longer counts.
+    fn a_verdict_counts_as_shown_when_a_visible_widget_shows_it() {
+        // Widget 32 draws its text flat and keeps its artwork; widget 4 shows the state, unless it
+        // is hidden.
         let two = |flags: u32| {
             Fixture::layered().with(|f| {
                 f.split = true;
+                f.flags = flags;
                 f.extra = vec![
                     (8, "<< /FT /Sig /T (Signature1) /V 9 0 R /Kids [4 0 R 32 0 R] >>".into()),
-                    (
-                        32,
-                        format!("<< /Type /Annot /Subtype /Widget /F {flags} /Rect [200 400 400 520] /P 3 0 R /AP << /N 36 0 R >> /Parent 8 0 R >>"),
-                    ),
+                    (32, "<< /Type /Annot /Subtype /Widget /F 132 /Rect [200 400 400 520] /P 3 0 R /AP << /N 36 0 R >> /Parent 8 0 R >>".into()),
                     (36, form([0.0, 0.0, W, H], HELV, SIGNER)),
                 ]
             })
         };
         let mut doc = two(132).open();
-        assert!(!show(&mut doc, Status::Valid).verdict_shown);
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK), "the recognised widget is still drawn");
-        let mut doc = two(132 | 2).open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
+        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        assert_eq!(widget_n(&doc, 32), ObjRef::new(36, 0), "the flat one keeps its artwork");
+        let mut doc = two(132 | 2).open();
+        assert!(!show(&mut doc, Status::Valid).verdict_shown);
     }
 
     #[test]

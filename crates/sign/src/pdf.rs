@@ -448,8 +448,10 @@ pub struct SignatureInfo {
     pub timestamp_time: Option<Time>,
     pub status: Status,
     pub modification: Modification,
-    /// The display copy draws this verdict into the signature's appearance (its named status
-    /// layers, see [`crate::status_layers`]).
+    /// The display copy draws this verdict into the appearance of at least one of the
+    /// signature's visible widgets (its named status layers, see [`crate::status_layers`]). The
+    /// document can still clip those layers away or cover them, so this never stands in for the
+    /// page's own validation badge.
     pub verdict_shown: bool,
     /// Acrobat-style sentences explaining the verdict, each one ready to read in English and ready to
     /// be said in another language (see [`Detail`]).
