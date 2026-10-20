@@ -2686,3 +2686,7 @@ key	Space	Space
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
+
+# AI-assisted addition for the comment-note save fix (2026-10-21).
+# This addition has not had separate native-speaker review.
+	The comment being edited no longer exists, so its text was not saved.	Bình luận đang chỉnh sửa không còn tồn tại nên văn bản của nó không được lưu.
