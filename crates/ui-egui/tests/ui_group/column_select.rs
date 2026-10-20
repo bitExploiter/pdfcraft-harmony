@@ -226,3 +226,18 @@ fn select_all_keeps_every_line_of_uneven_columns() {
     h.run_steps(1);
     assert_eq!(text(&h).as_deref(), Some("Left first line.\nLeft other line.\nLeft final line.\nRight first line.\nRight final line."));
 }
+
+/// A drag after a double-click extends by whole words, and over a table it takes the rows as a
+/// plain drag does: from "Name" down to "12", not reading order's detour through "Pear".
+#[test]
+fn a_double_click_drag_over_table_rows_selects_the_rows() {
+    let mut h = harness(|_| {});
+    let (name, two) = (glyph(&h, 1), glyph(&h, 17));
+    for pressed in [true, false] {
+        h.hover_at(name);
+        h.event(Event::PointerButton { pos: name, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE });
+        h.run_steps(1);
+    }
+    drag(&mut h, name, two, Modifiers::NONE);
+    assert_eq!(text(&h).as_deref(), Some("Name\tQty\nApple\t12"));
+}

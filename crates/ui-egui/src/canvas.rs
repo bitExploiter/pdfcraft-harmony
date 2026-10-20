@@ -255,8 +255,9 @@ impl Selection {
     }
 
     /// What a drag over table rows selects by rows, not reading order's detour down each column.
-    /// Only a drag (or ⇧-click) has a pointer end; a word, line or page unit, Select all and a
-    /// command's selection keep reading order, which is the text they stand for.
+    /// Only a drag (also one after a double- or triple-click) or a ⇧-click has a pointer end; a
+    /// clicked word, line or page, Select all and a command's selection keep reading order, which
+    /// is the text they stand for.
     fn by_rows(text: &PageText, anchor: usize, head: usize, head_x: Option<f32>) -> Option<Vec<usize>> {
         head_x.and_then(|x| text.visual_between(anchor, head, Some(x)))
     }
@@ -3382,12 +3383,14 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                             // After a multi-click the drag extends by its unit (#1685), as in
                             // Acrobat and browsers: whole words or lines, always keeping the one
                             // clicked, which holds the anchor whichever way the drag went.
-                            Span::Run { anchor, head, .. } if clicks >= 2 => {
+                            Span::Run { anchor, head, head_x } if clicks >= 2 => {
                                 if let Some(h) = text.nearest(vx, vy)
                                     && let Some((first, last)) = click_unit(&text, clicks, *anchor)
                                 {
                                     let (to_first, to_last) = click_unit(&text, clicks, h).unwrap_or((h, h));
                                     (*anchor, *head) = if to_first < first { (last, to_first) } else { (first, to_last.max(last)) };
+                                    // A drag, so it selects table rows as a plain drag does, by whole units.
+                                    *head_x = Some(vx).filter(|x| x.is_finite());
                                 }
                             }
                             Span::Run { head, head_x, .. } => {
