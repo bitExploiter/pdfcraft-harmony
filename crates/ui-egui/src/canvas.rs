@@ -2100,12 +2100,17 @@ impl DocView {
                 };
                 for (ri, pair) in rows.into_iter().enumerate() {
                     let sizes: Vec<Vec2> = pair.iter().map(|p| self.display_size(p)).map(|(w, h)| vec2(w * s, h * s)).collect();
-                    let row_w: f32 = sizes.iter().map(|v| v.x).sum::<f32>() + GAP * (sizes.len() as f32 - 1.0);
                     let row_h = sizes.iter().map(|v| v.y).fold(0.0, f32::max);
-                    let mut x = if self.cover && ri == 0 { (content_w / 2.0 + GAP / 2.0).max(SIDE) } else { ((content_w - row_w) / 2.0).max(SIDE) };
-                    for size in sizes {
-                        rects.push(Rect::from_min_size(pos2(x, y + (row_h - size.y) / 2.0), size));
-                        x += size.x + GAP;
+                    let spine = content_w / 2.0;
+                    if let Some(left) = sizes.first().copied() {
+                        if self.cover && ri == 0 {
+                            rects.push(Rect::from_min_size(pos2((spine + GAP / 2.0).max(SIDE), y), left));
+                        } else {
+                            rects.push(Rect::from_min_size(pos2((spine - GAP / 2.0 - left.x).max(SIDE), y), left));
+                            if let Some(right) = sizes.get(1).copied() {
+                                rects.push(Rect::from_min_size(pos2((spine + GAP / 2.0).max(SIDE), y), right));
+                            }
+                        }
                     }
                     y += row_h + GAP;
                 }
@@ -2510,7 +2515,8 @@ impl RulerLayout {
             corner: Rect::from_min_max(outer.min, split),
             horizontal: Rect::from_min_max(pos2(split.x, outer.top()), pos2(outer.right(), split.y)),
             vertical: Rect::from_min_max(pos2(outer.left(), split.y), pos2(split.x, outer.bottom())),
-            canvas: Rect::from_min_max(split, outer.max),
+            // Fixed viewport chrome: rulers overlay rather than shifting document layout.
+            canvas: outer,
         }
     }
 
@@ -2531,9 +2537,33 @@ fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGe
     // shrinking to the current scroll viewport. Page geometry still supplies the moving origin.
     crate::ruler::paint_corner(ui, layout.corner, units);
 
-    let active = geometry.active_page();
+    // Pointer movement must never switch the coordinate system between visible pages.
+    let axes = ruler_axes(geometry);
     let pointer = ui.input(|input| input.pointer.hover_pos()).filter(|position| geometry.viewport_rect.contains(*position));
-    let (horizontal_origin, horizontal_length, vertical_origin, vertical_length, scale) = active.map_or((0.0, 0.0, 0.0, 0.0, 1.0), ruler_page_axes);
+    let (mut horizontal_origin, horizontal_start, mut horizontal_length, rendered_width, mut vertical_origin, mut vertical_length, scale) =
+        axes.unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0));
+    // Acrobat-style rulers become page-relative only once the rendered sheet is large enough to
+    // read distinctly. At wider views an axis uses viewport coordinates, with zero at its ruler
+    // corner. Rendered geometry keeps fit-page, resizing and differently sized PDFs consistent.
+    // Each axis switches independently at 72%. The horizontal decision uses the actual rendered
+    // page or spread bounds, including the facing-page gap, rather than reconstructing them from
+    // PDF point widths. The vertical decision keeps using the rendered page height.
+    let horizontal_page_relative = if horizontal_start < 0.0 {
+        // In two-page view, 72% means the displayed zoom. Do not require the spread to consume
+        // 72% of a wide application window, which delays the switch well past 120% zoom.
+        ruler_axis_is_page_relative(scale, 1.0)
+    } else {
+        ruler_axis_is_page_relative(rendered_width, f64::from(layout.horizontal.width()))
+    };
+    let vertical_page_relative = ruler_axis_is_page_relative(vertical_length * scale, f64::from(layout.vertical.height()));
+    // Once the horizontal threshold is reached, a facing-page ruler starts at the left page edge,
+    // never at the spread spine. Below it, the horizontal axis remains viewport-relative.
+    (horizontal_origin, horizontal_length) =
+        horizontal_ruler_axis(layout, horizontal_origin, horizontal_start, horizontal_length, scale, horizontal_page_relative);
+    if !vertical_page_relative {
+        vertical_origin = f64::from(layout.vertical.top());
+        vertical_length = f64::from(layout.vertical.height()) / scale.max(f64::EPSILON);
+    }
 
     crate::ruler::paint_ruler(
         ui,
@@ -2561,17 +2591,77 @@ fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGe
     );
 }
 
-fn ruler_page_axes(page: &VisiblePageGeometry) -> (f64, f64, f64, f64, f64) {
+/// Select the horizontal ruler range. Facing pages deliberately use the viewport's left edge:
+/// their signed page range is useful for describing the spread, but the spine is not a ruler
+/// origin because it would move zero to the middle of the window.
+fn horizontal_ruler_axis(layout: RulerLayout, page_origin: f64, page_start: f64, page_length: f64, scale: f64, page_relative: bool) -> (f64, f64) {
+    if !page_relative {
+        (f64::from(layout.horizontal.left()), f64::from(layout.horizontal.width()) / scale.max(f64::EPSILON))
+    } else if page_start < 0.0 {
+        (page_origin + page_start * scale, page_length)
+    } else {
+        (page_origin, page_length)
+    }
+}
+
+/// Whether one rendered axis occupies at least 72% of its corresponding ruler track.
+fn ruler_axis_is_page_relative(rendered_length: f64, ruler_length: f64) -> bool {
+    const DISTINCT_PAGE_SHARE: f64 = 0.72;
+    rendered_length.is_finite() && ruler_length.is_finite() && ruler_length > 0.0 && rendered_length / ruler_length >= DISTINCT_PAGE_SHARE
+}
+
+fn ruler_axes(geometry: &CanvasGeometry) -> Option<(f64, f64, f64, f64, f64, f64, f64)> {
+    // Ignore the pointer entirely. The viewport policy chooses one stable visible row, and a
+    // facing-page row is represented as one signed range around its fixed spine.
+    let page = active_page_geometry(geometry.viewport_rect, &geometry.pages, None)?;
     let rotated = !page.rotation_degrees.is_multiple_of(180);
-    let horizontal_length = if rotated { page.unrotated_size_points.y } else { page.unrotated_size_points.x };
-    let vertical_length = if rotated { page.unrotated_size_points.x } else { page.unrotated_size_points.y };
-    (
-        f64::from(page.page_rect.left()),
+    let page_width_points = if rotated { page.unrotated_size_points.y } else { page.unrotated_size_points.x };
+    let page_height_points = if rotated { page.unrotated_size_points.x } else { page.unrotated_size_points.y };
+    let same_row = |other: &&VisiblePageGeometry| {
+        other.page_index != page.page_index
+            && (other.page_rect.top() - page.page_rect.top()).abs() <= 1.0
+            && other.page_rect.bottom() >= page.page_rect.top()
+            && other.page_rect.top() <= page.page_rect.bottom()
+    };
+    let partner = geometry.pages.iter().filter(same_row).min_by(|a, b| {
+        let gap = |other: &VisiblePageGeometry| {
+            if other.page_rect.center().x < page.page_rect.center().x {
+                (page.page_rect.left() - other.page_rect.right()).abs()
+            } else {
+                (other.page_rect.left() - page.page_rect.right()).abs()
+            }
+        };
+        gap(a).total_cmp(&gap(b))
+    });
+    let (horizontal_origin, horizontal_start, horizontal_length, rendered_width) =
+        partner.map_or((page.page_rect.left(), 0.0, page_width_points, page.page_rect.width()), |other| {
+            let other_rotated = !other.rotation_degrees.is_multiple_of(180);
+            let other_width_points = if other_rotated { other.unrotated_size_points.y } else { other.unrotated_size_points.x };
+            if other.page_rect.center().x < page.page_rect.center().x {
+                (
+                    (other.page_rect.right() + page.page_rect.left()) / 2.0,
+                    -other_width_points,
+                    other_width_points + page_width_points,
+                    page.page_rect.right() - other.page_rect.left(),
+                )
+            } else {
+                (
+                    (page.page_rect.right() + other.page_rect.left()) / 2.0,
+                    -page_width_points,
+                    page_width_points + other_width_points,
+                    other.page_rect.right() - page.page_rect.left(),
+                )
+            }
+        });
+    Some((
+        f64::from(horizontal_origin),
+        f64::from(horizontal_start),
         f64::from(horizontal_length),
+        f64::from(rendered_width),
         f64::from(page.page_rect.top()),
-        f64::from(vertical_length),
+        f64::from(page_height_points),
         f64::from(page.screen_points_per_pdf_point),
-    )
+    ))
 }
 
 fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
@@ -3110,11 +3200,13 @@ fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 pressed_page = Some(i);
             }
             let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
+            // Rulers need the complete current row. Keep adjacent page geometry from the same
+            // expanded paint range even when one page has just moved outside the viewport.
+            page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             if r.intersects(visible) {
                 visible_now.push(i);
                 view.screen_rects.push((i, r));
                 view.screen_xforms.push((i, xf));
-                page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             }
             let overlap = r.intersect(visible).height();
             if i == view.current {
@@ -6605,6 +6697,20 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
+    fn two_page_layout_uses_a_fixed_spine_and_top_alignment() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 500.0), page(500.0, 300.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+        let pages = view.layout(&info, 1000.0);
+        assert!((pages[0].right() - (500.0 - GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[1].left() - (500.0 + GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[0].top() - pages[1].top()).abs() < 1e-3);
+    }
+
+    #[test]
     fn layouts_match_their_commands_and_names() {
         for l in PageLayout::ORDER {
             let spec = pdfcraft_engine::commands::command(l.command()).expect("registered");
@@ -6790,13 +6896,13 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
-    fn ruler_layout_reserves_only_the_top_and_left_bands() {
+    fn ruler_layout_overlays_the_full_document_viewport() {
         let outer = Rect::from_min_max(pos2(10.0, 20.0), pos2(810.0, 620.0));
         let layout = RulerLayout::new(outer, 18.0, 20.0);
         assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(30.0, 38.0)));
         assert_eq!(layout.horizontal, Rect::from_min_max(pos2(30.0, 20.0), pos2(810.0, 38.0)));
         assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(30.0, 620.0)));
-        assert_eq!(layout.canvas, Rect::from_min_max(pos2(30.0, 38.0), pos2(810.0, 620.0)));
+        assert_eq!(layout.canvas, outer);
     }
 
     #[test]
@@ -6806,10 +6912,10 @@ trailer << /Root 1 0 R >>
         assert_eq!(layout.corner, outer);
         assert_eq!(layout.horizontal, Rect::from_min_max(pos2(15.0, 7.0), pos2(15.0, 15.0)));
         assert_eq!(layout.vertical, Rect::from_min_max(pos2(5.0, 15.0), pos2(15.0, 15.0)));
-        assert_eq!(layout.canvas, Rect::from_min_max(pos2(15.0, 15.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.canvas, outer);
         assert!(!layout.horizontal.is_positive());
         assert!(!layout.vertical.is_positive());
-        assert!(!layout.canvas.is_positive());
+        assert!(layout.canvas.is_positive());
     }
 
     #[test]
@@ -6825,17 +6931,61 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
-    fn ruler_page_axes_follow_display_rotation_without_rebuilding_layout() {
-        let page = |rotation_degrees| VisiblePageGeometry {
-            page_index: 0,
-            page_rect: Rect::from_min_size(pos2(100.0, 200.0), vec2(300.0, 400.0)),
+    fn each_ruler_axis_switches_at_72_percent_of_its_own_length() {
+        assert!(!ruler_axis_is_page_relative(719.9, 1_000.0));
+        assert!(ruler_axis_is_page_relative(720.0, 1_000.0));
+        assert!(ruler_axis_is_page_relative(720.1, 1_000.0));
+        assert!(!ruler_axis_is_page_relative(720.0, 0.0));
+        assert!(!ruler_axis_is_page_relative(f64::NAN, 1_000.0));
+    }
+
+    #[test]
+    fn two_page_horizontal_switch_uses_the_72_percent_zoom_threshold() {
+        assert!(!ruler_axis_is_page_relative(0.719, 1.0));
+        assert!(ruler_axis_is_page_relative(0.72, 1.0));
+        assert!(ruler_axis_is_page_relative(1.20, 1.0));
+    }
+
+    #[test]
+    fn horizontal_switch_uses_rendered_spread_width_independently_of_vertical() {
+        let horizontal_ruler_width = 1_000.0;
+        let vertical_ruler_height = 900.0;
+        assert!(ruler_axis_is_page_relative(720.0, horizontal_ruler_width));
+        assert!(!ruler_axis_is_page_relative(400.0, vertical_ruler_height));
+        assert!(!ruler_axis_is_page_relative(719.9, horizontal_ruler_width));
+        assert!(ruler_axis_is_page_relative(648.0, vertical_ruler_height));
+    }
+
+    #[test]
+    fn facing_pages_align_horizontal_zero_to_the_left_page_edge() {
+        let layout = RulerLayout::new(Rect::from_min_size(pos2(10.0, 20.0), vec2(1_200.0, 900.0)), 24.0, 26.0);
+        let scale = 1.0;
+        let spine = 607.0_f64;
+        let (origin, length) = horizontal_ruler_axis(layout, spine, -600.0, 1_200.0, scale, true);
+        assert_eq!(origin, 7.0);
+        assert_ne!(origin, f64::from(layout.horizontal.left()));
+        assert_ne!(origin, spine);
+        assert_eq!(length, 1_200.0);
+    }
+
+    #[test]
+    fn ruler_axes_are_pointer_independent_and_describe_the_visible_spread() {
+        let page = |page_index, left, rotation_degrees| VisiblePageGeometry {
+            page_index,
+            page_rect: Rect::from_min_size(pos2(left, 200.0), vec2(300.0, 400.0)),
             unrotated_size_points: vec2(600.0, 800.0),
             rotation_degrees,
             screen_points_per_pdf_point: 0.5,
         };
-        assert_eq!(ruler_page_axes(&page(0)), (100.0, 600.0, 200.0, 800.0, 0.5));
-        assert_eq!(ruler_page_axes(&page(180)), (100.0, 600.0, 200.0, 800.0, 0.5));
-        assert_eq!(ruler_page_axes(&page(90)), (100.0, 800.0, 200.0, 600.0, 0.5));
-        assert_eq!(ruler_page_axes(&page(270)), (100.0, 800.0, 200.0, 600.0, 0.5));
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 700.0));
+        let single = CanvasGeometry::new(viewport, vec![page(0, 100.0, 0)], Some(pos2(350.0, 300.0)));
+        assert_eq!(ruler_axes(&single), Some((100.0, 0.0, 600.0, 300.0, 200.0, 800.0, 0.5)));
+        let pages = vec![page(0, 100.0, 0), page(1, 414.0, 0)];
+        let left = CanvasGeometry::new(viewport, pages.clone(), Some(pos2(200.0, 300.0)));
+        let right = CanvasGeometry::new(viewport, pages, Some(pos2(500.0, 300.0)));
+        assert_eq!(ruler_axes(&left), Some((407.0, -600.0, 1200.0, 614.0, 200.0, 800.0, 0.5)));
+        assert_eq!(ruler_axes(&right), ruler_axes(&left));
+        let rotated = CanvasGeometry::new(viewport, vec![page(0, 100.0, 90)], None);
+        assert_eq!(ruler_axes(&rotated), Some((100.0, 0.0, 800.0, 300.0, 200.0, 600.0, 0.5)));
     }
 }

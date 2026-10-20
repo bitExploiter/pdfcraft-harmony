@@ -200,10 +200,8 @@ pub fn screen_to_page_points(geometry: RulerGeometry, screen_position: f64) -> O
     points.is_finite().then_some(points)
 }
 
-/// Generate ticks within both the displayed page and the visible ruler range.
-///
-/// The returned ticks are ordered by screen position. Invalid, empty or entirely off-screen
-/// geometry returns an empty vector. Work is bounded even for hostile or accidental huge inputs.
+/// Generate ticks across the complete ruler. The page supplies a stable origin and scale but does
+/// not clip the ticks; measurements continue through the pasteboard on both sides.
 pub fn visible_ticks(geometry: RulerGeometry) -> Vec<RulerTick> {
     let Some(screen_points_per_unit) = geometry.screen_points_per_unit() else {
         return Vec::new();
@@ -211,17 +209,11 @@ pub fn visible_ticks(geometry: RulerGeometry) -> Vec<RulerTick> {
     let Some(spec) = choose_tick_spec(geometry.unit, screen_points_per_unit) else {
         return Vec::new();
     };
-    let page_end = geometry.page_origin + geometry.page_length_pdf_points * geometry.screen_points_per_pdf_point;
-    let visible_start = geometry.ruler_start.max(geometry.page_origin);
-    let visible_end = geometry.ruler_end.min(page_end);
-    if visible_end < visible_start || geometry.page_length_pdf_points == 0.0 {
-        return Vec::new();
-    }
-
+    let visible_start = geometry.ruler_start;
+    let visible_end = geometry.ruler_end;
     let per_point = geometry.unit.per_point();
-    let start_units = ((visible_start - geometry.page_origin) / geometry.screen_points_per_pdf_point * per_point).max(0.0);
-    let page_units = geometry.page_length_pdf_points * per_point;
-    let end_units = ((visible_end - geometry.page_origin) / geometry.screen_points_per_pdf_point * per_point).min(page_units);
+    let start_units = (visible_start - geometry.page_origin) / geometry.screen_points_per_pdf_point * per_point;
+    let end_units = (visible_end - geometry.page_origin) / geometry.screen_points_per_pdf_point * per_point;
     if !start_units.is_finite() || !end_units.is_finite() || end_units < start_units {
         return Vec::new();
     }
@@ -351,10 +343,6 @@ pub fn paint_ruler(ui: &egui::Ui, input: RulerPaintInput) {
     painter.rect_filled(input.rect, egui::CornerRadius::ZERO, style.outside_background);
 
     let calculation = input.calculation_geometry();
-    if let Some(page_span) = page_span(input) {
-        painter.rect_filled(page_span, egui::CornerRadius::ZERO, style.page_background);
-        paint_page_boundaries(&painter, input, page_span, style);
-    }
 
     let ticks = visible_ticks(calculation);
     for kind in [TickKind::Minor, TickKind::Medium, TickKind::Major] {
@@ -381,11 +369,9 @@ pub fn paint_corner(ui: &egui::Ui, rect: egui::Rect, unit: Unit) {
 #[derive(Clone, Copy)]
 struct RulerPaintStyle {
     outside_background: egui::Color32,
-    page_background: egui::Color32,
     tick: egui::Stroke,
     major_tick: egui::Stroke,
     edge: egui::Stroke,
-    boundary: egui::Stroke,
     label: egui::Color32,
     pointer: egui::Color32,
 }
@@ -395,47 +381,11 @@ impl RulerPaintStyle {
         let tokens = crate::theme::Tokens::get(ui.ctx());
         Self {
             outside_background: tokens.chrome,
-            page_background: tokens.chrome,
             tick: egui::Stroke::new(1.0, tokens.text_muted),
             major_tick: egui::Stroke::new(1.0, tokens.text),
             edge: egui::Stroke::new(1.0, tokens.border),
-            boundary: egui::Stroke::new(1.0, tokens.border),
             label: tokens.text,
             pointer: tokens.accent,
-        }
-    }
-}
-
-fn page_span(input: RulerPaintInput) -> Option<egui::Rect> {
-    if !input.rect.is_positive()
-        || !input.page_origin.is_finite()
-        || !input.page_length_pdf_points.is_finite()
-        || input.page_length_pdf_points < 0.0
-        || !input.screen_points_per_pdf_point.is_finite()
-        || input.screen_points_per_pdf_point <= 0.0
-    {
-        return None;
-    }
-    let page_end = input.page_origin + input.page_length_pdf_points * input.screen_points_per_pdf_point;
-    let start = screen_coordinate(input.page_origin)?;
-    let end = screen_coordinate(page_end)?;
-    let span = match input.orientation {
-        RulerOrientation::Horizontal => egui::Rect::from_min_max(egui::pos2(start, input.rect.top()), egui::pos2(end, input.rect.bottom())),
-        RulerOrientation::Vertical => egui::Rect::from_min_max(egui::pos2(input.rect.left(), start), egui::pos2(input.rect.right(), end)),
-    };
-    let clipped = span.intersect(input.rect);
-    clipped.is_positive().then_some(clipped)
-}
-
-fn paint_page_boundaries(painter: &egui::Painter, input: RulerPaintInput, page_span: egui::Rect, style: RulerPaintStyle) {
-    match input.orientation {
-        RulerOrientation::Horizontal => {
-            painter.line_segment([page_span.left_top(), page_span.left_bottom()], style.boundary);
-            painter.line_segment([page_span.right_top(), page_span.right_bottom()], style.boundary);
-        }
-        RulerOrientation::Vertical => {
-            painter.line_segment([page_span.left_top(), page_span.right_top()], style.boundary);
-            painter.line_segment([page_span.left_bottom(), page_span.right_bottom()], style.boundary);
         }
     }
 }
@@ -662,20 +612,22 @@ mod tests {
     }
 
     #[test]
-    fn a_page_entirely_outside_the_ruler_has_no_ticks() {
+    fn ruler_ticks_continue_when_the_page_is_outside_the_viewport() {
         let mut g = geometry(Unit::Points, 1.0);
         g.ruler_start = 0.0;
         g.ruler_end = 100.0;
         g.page_origin = 200.0;
-        assert!(visible_ticks(g).is_empty());
+        let ticks = visible_ticks(g);
+        assert!(!ticks.is_empty());
+        assert!(ticks.iter().all(|tick| tick.value < 0.0));
     }
 
     #[test]
-    fn zero_length_page_has_no_ticks() {
+    fn zero_length_page_still_supplies_a_ruler_origin() {
         let mut g = geometry(Unit::Centimetres, 1.0);
         g.page_length_pdf_points = 0.0;
         assert!(g.is_valid());
-        assert!(visible_ticks(g).is_empty());
+        assert!(!visible_ticks(g).is_empty());
     }
 
     #[test]
@@ -737,34 +689,6 @@ mod tests {
                 assert!(labels.windows(2).all(|pair| pair[1] - pair[0] >= MIN_LABEL_SPACING - 0.01));
             }
         }
-    }
-
-    #[test]
-    fn horizontal_and_vertical_page_spans_are_clipped_to_the_ruler() {
-        let horizontal_rect = egui::Rect::from_min_size(egui::pos2(10.0, 20.0), egui::vec2(200.0, HORIZONTAL_RULER_HEIGHT));
-        let mut horizontal = paint_input(RulerOrientation::Horizontal, horizontal_rect);
-        horizontal.page_origin = -50.0;
-        horizontal.page_length_pdf_points = 500.0;
-        assert_eq!(page_span(horizontal), Some(horizontal_rect));
-
-        let vertical_rect = egui::Rect::from_min_size(egui::pos2(30.0, 40.0), egui::vec2(VERTICAL_RULER_WIDTH, 240.0));
-        let mut vertical = paint_input(RulerOrientation::Vertical, vertical_rect);
-        vertical.page_origin = 100.0;
-        vertical.page_length_pdf_points = 60.0;
-        assert_eq!(page_span(vertical), Some(egui::Rect::from_min_max(egui::pos2(30.0, 100.0), egui::pos2(30.0 + VERTICAL_RULER_WIDTH, 160.0))));
-    }
-
-    #[test]
-    fn invalid_page_spans_are_not_painted() {
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(200.0, HORIZONTAL_RULER_HEIGHT));
-        let mut input = paint_input(RulerOrientation::Horizontal, rect);
-        for scale in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            input.screen_points_per_pdf_point = scale;
-            assert_eq!(page_span(input), None);
-        }
-        input.screen_points_per_pdf_point = 1.0;
-        input.page_origin = f64::MAX;
-        assert_eq!(page_span(input), None);
     }
 
     #[test]
