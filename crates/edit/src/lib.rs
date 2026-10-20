@@ -857,10 +857,11 @@ pub use images::{ImageChange, PageImage, change_image, page_images, reading_imag
 pub mod bidi;
 pub mod indic;
 mod linebreak;
+mod optional_content;
 pub mod text;
 pub use text::{
     BlockStyle, LineEdit, MAX_FORM_DEPTH, MAX_FORM_VISITS, RangeStyle, ReadingBlocks, TextBlock, TextLine, clear_block, reading_blocks,
-    reading_blocks_checked, replace_block, replace_line, rewrite_block, text_blocks, text_lines,
+    reading_blocks_checked, replace_block, replace_line, rewrite_block, text_blocks, text_lines, text_lines_including_hidden,
 };
 pub mod added;
 pub use added::{

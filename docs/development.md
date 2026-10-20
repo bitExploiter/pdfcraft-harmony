@@ -147,3 +147,44 @@ Relative includes resolve beside the config that contains them. Included directo
 digit-prefixed `*.conf` files, in lexical order; backups and disabled files are ignored. The scan
 limits each config to 1 MiB, visits at most 256 config files/directories, and bounds include depth
 to 16 and directory entries to 32,768. Cyclic includes are skipped.
+
+
+## Optional-content text visibility (#3211)
+
+Office text export and Edit text use the COS text reader's default optional-content
+configuration: `/BaseState`, `/ON`, `/OFF`, nested `/OC` marked content and a Form XObject's
+own `/OC`. A visible inner scope cannot make its hidden parent visible. Forms use their
+own property resources and a fresh marked-content stack; an invisible `Do` is not entered.
+Hidden text-showing operators still update text positions and state. Their glyphs are omitted
+from reading/editing, so following visible glyphs keep their PDF positions and hidden source
+operators survive edits to visible text. A replacement `/ActualText` spanning hidden glyphs
+is ignored in favor of its visible glyph text, preventing the replacement from exposing them.
+A form invocation also invalidates an enclosing replacement conservatively: hidden content
+inside that form is discovered by a separate traversal. This includes fully visible forms,
+whose surrounding glyph text is read instead of the enclosing replacement. Visible image
+invocations and missing/non-form resources retain their existing replacement-text behavior.
+
+`crates/edit/src/optional_content.rs` evaluates OCMD `AnyOn`/`AllOn`/`AnyOff`/`AllOff` policies
+and `/VE` expressions (`And`, `Or`, `Not`), following [PDF 1.7 §4.10](https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf).
+Malformed or excessive expressions fall back to the policy. Expression depth is capped at 32
+and work at 4096 nodes. Marked-content visibility uses a depth counter and the first hidden
+scope's depth, taking constant space without dropping visible text beyond 256 levels.
+Paragraph/ActualText metadata remains capped at 256 levels, with matching excess closes ignored.
+Configurations exceeding 65,536 entries omit optional text rather than export text whose
+visibility could not be determined. Referenced OCG/OCMD results are cached across operators
+and form visits, with at most 65,536 cached objects per read; direct dictionaries retain the
+per-evaluation limits. The cache is rebuilt on every read. XObject resources resolve once per
+interpreter invocation. Existing form depth/visit limits remain in place.
+
+Redaction auditing uses `text_lines_including_hidden`, which reads retained page glyphs
+regardless of default layer state and ignores ActualText substitutions. Hidden-layer text
+under a cover or an unapplied mark must still be reported. This retains the audit's existing
+page-stream-only text scope; it does not add auditing of text inside forms. No source PDF is
+modified by reading.
+
+This is default-configuration text visibility. Transient Layers-panel overrides, image selection
+and export visibility (#3214), and preserving different paint states when regrouping visible
+rows (#3115, PR #3310) remain separate. The renderer's `/VE` implementation is tracked in
+PR #2987; this change does not alter the vendored renderer. Named `/ActualText` decoding from
+PR #3301 uses each page/form's own resources and shares these visibility and form boundaries.
+The Office formats retain their existing layout limitations.

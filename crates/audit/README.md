@@ -13,8 +13,10 @@ It reports two kinds of finding:
   extractable underneath;
 - **unapplied mark**: a Redact annotation that was marked but never applied.
 
-A properly applied redaction removes the text, so it never flags. Page backgrounds, table
-shading and highlights don't either: they're painted before the text, or light against it.
+The audit reads retained glyphs even in default-hidden layers, without ActualText replacements.
+Marked-content nesting cannot suppress that text. A properly applied redaction removes the
+text, so it never flags. Page backgrounds, table shading and highlights don't either: they're
+painted before the text, or light against it.
 
 A rectangle covers a text line when it hides at least half of one of the line's words, at
 least 40% of the area of the words the line draws, or at least 40% of the line's box together

@@ -5218,3 +5218,5 @@ fn a_clipping_copy_on_the_same_baseline_is_refused() {
     assert!(matches!(&block, Err(EditError::Invalid(m)) if m.contains("clipping path")), "{block:?}");
     assert_eq!(text::text_lines(&doc, 0).unwrap().len(), 2, "refused means untouched");
 }
+#[path = "tests/optional_content.rs"]
+mod optional_content;

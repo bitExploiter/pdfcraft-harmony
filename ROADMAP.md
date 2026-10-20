@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (#3211 / PR #3334 review: hidden-layer auditing, deep marked-content visibility and shared membership cache; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M6: CSV tab-containing headers; estimates unchanged)
@@ -185,6 +186,10 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 - **2026-10-18 (M6, #2892):** Push-button normal labels are editable per widget through Options and form_set_props, independently of field names; rendering, undo/redo and incremental/full save/reopen are covered. Estimates unchanged.
 
 - **2026-10-18 (M7, #3212):** Headers, Bates numbers, watermarks and added text stay visible after unfinished marked content, with original content preserved.
+- 2026-10-20: #3211 / PR #3334 review: redaction audit retains hidden-layer glyphs; constant-space visibility keeps text beyond 256 marked scopes; shared OCG/OCMD cache prevents repeated membership work. Rebased on current main, retaining form traversal budgets.
+- **2026-10-18 (M10/M7, #3211 review):** Enclosing ActualText no longer republishes hidden text discovered inside a visible form. Form invocations conservatively use glyph text; image replacements are preserved. Regression tests cover disclosure and non-form controls. Estimates unchanged.
+
+- **2026-10-18 (M10/M7, #3211):** Office text exports and Edit text omit text in default-hidden optional-content spans and forms. Visible controls and following text positions are preserved; bounded OCG/OCMD evaluation covers policies and visibility expressions. View overrides and image visibility remain separate. Estimates unchanged.
 - **2026-10-15 (M7, Edit text caret):** In a text region that mixes sizes (a 24 pt title over 12 pt lines), the inline editor's caret on a small row was as tall as the region's first size and reached into the row below: egui draws the caret at least one row of the text field's font tall, and that font had the paragraph's first size. The field's font is now half the region's smallest size, so each row's own height decides. Kittest regression; checked in the app on a real document. Estimates unchanged.
 - **2026-10-16 (M3, #2781):** The Pages panel follows the current page, as Acrobat's page thumbnails do: going to a page whose thumbnail is out of sight (scrolling, Page Down, Go to page, a bookmark) scrolls the panel just enough to show it. A thumbnail already in view, or clicked, leaves the panel where it is, and a page change while the user scrolls the panel or drags thumbnails does not move it. Estimates unchanged.
 - **2026-10-16 (M12, #1645):** CLI info, text and render use the engine's dynamic XFA layout rather than placeholder pages. Synthetic two-page and encrypted-form regressions cover counts, text, pixels, copy permissions and unchanged input bytes. Estimates unchanged.
