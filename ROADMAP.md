@@ -2,6 +2,8 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M7: #3528 automatic Unicode fallback normalizes CRLF/CR before font selection; unconditional synthetic CFF metadata coverage; estimates unchanged)
+
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M7: PR #3528 review, cached shared fonts/layouts, persistent automatic fallback, one-step undo; licence-policy decision separate; estimates unchanged)
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -173,6 +175,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-21 (M7, PR #3528):** Normalize CRLF/CR before automatic Inter coverage and reuse the same normalization for selected-font layout, preserving editable source text. Add edit/tool regressions for fallback, drawing, save/reopen and retyping, plus unconditional synthetic CFF CMap metadata assertions. Document the PDFium mixed Arabic/ASCII extraction limit separately from successful rendering and internal exact search. Licence policy and estimates unchanged.
 
 - **2026-10-20 (M7, CodeRabbit #3528):** Fix import lookup over existing subsets, reject ineffective selected-face style updates, preserve Unicode shaping controls through coverage checks, and normalize selected-font CRLF/CR layout. Regression tests cover refusal atomicity, save/reopen and search; licence policy and estimates unchanged.
 - **2026-10-20 (M7, PR #3528 review):** Cache document-font catalogues per page/revision and share decoded programs across added items and refreshes; reuse prepared shaping and batch horizontal glyphs. Preserve automatic fallback on reopen, exclude subsets, report layout budgets accurately, and commit loaded fonts with a single Add/Update undo step. Licence-policy changes are separate; Real Thai/CFF external-input tests and CFF metadata assertions are opt-in; existing synthetic CFF smoke coverage remains unconditional. Estimates unchanged.

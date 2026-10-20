@@ -21,13 +21,18 @@ use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, p
 const TAG: &str = "Added";
 mod font;
 
+/// Font selection and shaping use the same rows, while markers retain the original text.
+fn normalized_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains('\r') { std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n")) } else { std::borrow::Cow::Borrowed(text) }
+}
+
 /// The selected document program, or the bundled Unicode face when the standard encoding
 /// cannot represent the text. Coverage, rather than a language list, chooses that fallback.
 fn selected_font(t: &AddedText) -> Option<&[u8]> {
     t.font.as_deref().map(Vec::as_slice).or_else(|| {
-        (!t.text.contains('\r')
-            && t.text.split('\n').any(|s| pdfcraft_fonts::first_non_win_ansi(s).is_some())
-            && pdfcraft_fonts::embedding::covers(pdfcraft_fonts::INTER_REGULAR, &t.text))
+        let text = normalized_text(&t.text);
+        (text.split('\n').any(|s| pdfcraft_fonts::first_non_win_ansi(s).is_some())
+            && pdfcraft_fonts::embedding::covers(pdfcraft_fonts::INTER_REGULAR, &text))
         .then_some(pdfcraft_fonts::INTER_REGULAR)
     })
 }

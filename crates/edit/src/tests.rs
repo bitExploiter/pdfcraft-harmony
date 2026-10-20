@@ -111,6 +111,44 @@ fn added_selected_font_normalizes_line_endings_for_layout_and_reopen() {
     }
 }
 
+/// Automatic fallback must see the same rows as the Unicode layout, before font selection.
+#[test]
+fn added_automatic_fallback_normalizes_line_endings_before_font_selection() {
+    let normalized = AddedText { text: "Привет\nмир".into(), rect: [20.0, 100.0, 580.0, 300.0], ..Default::default() };
+    let mut reference = fixture();
+    add_content(&mut reference, 0, &Content::Text(normalized.clone())).unwrap();
+    for ending in ["\r\n", "\r", "\n"] {
+        let t = AddedText { text: format!("Привет{ending}мир"), ..normalized.clone() };
+        let latin = AddedText { text: format!("Latin{ending}rows"), ..normalized.clone() };
+        assert!(latin.font_bytes().is_none(), "line endings alone must not select a Unicode fallback");
+        assert!(t.font.is_none());
+        assert!(t.font_bytes().is_some_and(|bytes| bytes == pdfcraft_fonts::INTER_REGULAR));
+        assert_eq!(first_undrawable(&t), None);
+        assert_eq!(super::added::text_error(&t), None);
+        assert_eq!(super::added::lines(&t), ["Привет", "мир"]);
+        assert_eq!(super::added::text_width(&t), super::added::text_width(&normalized));
+        assert_eq!(super::added::text_rect(&t), super::added::text_rect(&normalized));
+        let mut doc = fixture();
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        assert_eq!(streams(&doc, 0), streams(&reference, 0), "{ending:?}: identical glyphs and positions");
+        for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+            let mut reopened = Document::open(Arc::new(bytes)).unwrap();
+            let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+            assert_eq!(saved.text, t.text, "retain the original editable line endings");
+            assert!(saved.font.is_none(), "automatic fallback stays automatic");
+            assert!(saved.font_bytes().is_some_and(|bytes| bytes == pdfcraft_fonts::INTER_REGULAR));
+            let lines = text::text_lines(&reopened, 0).unwrap();
+            for expected in ["Привет", "мир"] {
+                assert!(lines.iter().any(|line| line.text == expected), "{lines:?}");
+            }
+            let latin = AddedText { text: "Latin".into(), ..saved };
+            assert!(latin.font_bytes().is_none());
+            update_content(&mut reopened, 0, 0, &Content::Text(latin)).unwrap();
+            assert!(streams(&reopened, 0).last().unwrap().contains("/PCFHelvetica"));
+        }
+    }
+}
+
 #[test]
 fn added_document_font_errors_do_not_mutate_or_substitute() {
     let mut doc = fixture();

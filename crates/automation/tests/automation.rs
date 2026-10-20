@@ -6196,6 +6196,36 @@ fn added_unicode_document_fonts_through_tools() {
     }
 }
 
+/// No explicit font: Windows line endings must select Inter just like LF and remain editable.
+#[test]
+fn added_automatic_fallback_crlf_through_tools() {
+    let dir = workdir("added-automatic-crlf");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+    for (case, ending) in ["\r\n", "\r", "\n"].into_iter().enumerate() {
+        let text = format!("Привет{ending}мир");
+        ok(&mut a, "page_add_text", json!({"doc":doc,"page":1,"text":text,"at":[10,20],"width":180,"size":10}));
+        let items = ok(&mut a, "content_list", json!({"doc":doc}));
+        assert_eq!(items["items"][0]["text"], text);
+        assert!(items["items"][0]["font"].as_str().unwrap().contains("Inter"));
+        let path = format!("automatic-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":doc,"path":path}));
+        let reopened = ok(&mut a, "doc_open", json!({"path":path}))["doc"].as_u64().unwrap();
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        for query in ["Привет", "мир"] {
+            assert_eq!(ok(&mut a, "text_find", json!({"doc":reopened,"query":query}))["count"], 1);
+        }
+        ok(&mut a, "content_update", json!({"doc":reopened,"page":1,"index":1,"text":"Latin"}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["font"], "Helvetica");
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], "Latin");
+        ok(&mut a, "doc_close", json!({"doc":reopened,"discard_changes":true}));
+        ok(&mut a, "content_delete", json!({"doc":doc,"page":1,"index":1}));
+    }
+}
+
 #[test]
 fn added_font_resources_reject_style_flags_subsets_and_preview_only_faces() {
     let dir = workdir("added-font-admission");

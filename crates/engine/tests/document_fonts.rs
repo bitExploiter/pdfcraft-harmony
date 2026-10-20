@@ -82,6 +82,33 @@ fn exercise(font: Vec<u8>, text: &str, expected_family: &str) {
 fn opentype_cff_document_font_preserves_program_codes_and_rendering_after_reopen() {
     exercise(support::font_fixture::cff_font(), "A A", "RectFont-Regular");
 }
+
+/// The CFF CMap metadata fix must run in CI without an external font file.
+#[test]
+fn synthetic_cff_cmaps_declare_matching_metadata() {
+    let mut doc = Document::new_empty();
+    let mut fonts = Dict::new();
+    let resource = pdfcraft_fonts::embedding::embed(&mut doc, &mut fonts, &support::font_fixture::cff_font(), "RectFont-Regular").unwrap();
+    let font = doc.dict(fonts.get(resource.as_bytes()).unwrap()).unwrap();
+    let descendants = doc.resolve(font.get(b"DescendantFonts").unwrap());
+    let descendant = doc.dict(descendants.as_array().unwrap().first().unwrap()).unwrap();
+    for (key, name, ordering) in [(b"Encoding".as_slice(), "PCGlyphs", "Identity"), (b"ToUnicode".as_slice(), "PCUnicode", "UCS")] {
+        let object = doc.resolve(font.get(key).unwrap());
+        let Object::Stream(cmap) = object.as_ref() else { panic!("CFF CMaps must be streams") };
+        assert_eq!(cmap.dict.name(b"Type"), Some(b"CMap".as_slice()));
+        assert_eq!(cmap.dict.name(b"CMapName"), Some(name.as_bytes()));
+        let system = doc.dict(cmap.dict.get(b"CIDSystemInfo").unwrap()).unwrap();
+        assert_eq!(system.get(b"Registry").unwrap().as_string().unwrap().to_text(), "Adobe");
+        assert_eq!(system.get(b"Ordering").unwrap().as_string().unwrap().to_text(), ordering);
+        assert_eq!(system.get(b"Supplement"), Some(&Object::Int(0)));
+        let program = String::from_utf8(cmap.decoded().unwrap()).unwrap();
+        assert!(program.contains(&format!("/CMapName /{name} def")));
+        assert!(program.contains(&format!("/CIDSystemInfo << /Registry (Adobe) /Ordering ({ordering}) /Supplement 0 >> def")));
+        if key == b"Encoding" {
+            assert_eq!(cmap.dict.get(b"CIDSystemInfo"), descendant.get(b"CIDSystemInfo"));
+        }
+    }
+}
 #[test]
 fn contextual_arabic_marks_ligatures_and_mixed_bidi_keep_logical_text_after_reopen() {
     if let Some(path) = std::env::var_os("PDFCRAFT_TEST_ARABIC_FONT") {

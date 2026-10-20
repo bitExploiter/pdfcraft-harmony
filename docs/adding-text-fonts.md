@@ -37,8 +37,9 @@ plain Latin returns to the standard face. Explicit Inter selection stays explici
 Bold/italic controls are disabled while a complete face supplies the style.
 Coverage checks allow Unicode default-ignorable controls (joiners, bidi controls
 and variation selectors) without requiring visible cmap glyphs; shaping still
-receives them unchanged. Selected-font layout accepts CRLF and lone CR as row
-separators, retaining the original typed text in the editable marker.
+receives them unchanged. Explicit-font and automatic Inter layout accept CRLF and
+lone CR as row separators. Line endings are normalized before fallback coverage
+and layout, retaining the original typed text in the editable marker.
 
 The font catalogue is cached for the current page and COS document revision;
 decoded native Unicode programs are shared through `Arc` across items and refreshes
@@ -83,9 +84,20 @@ variables: the real-font scenarios and
 `cff_encoding_cmap_declares_its_character_collection` are local opt-in checks,
 not unconditional CI evidence. The existing engine test
 `opentype_cff_document_font_preserves_program_codes_and_rendering_after_reopen`
-runs unconditionally with a synthetic CFF face. It exercises the CFF writer and
-save/reopen/rendering, but does not assert the CMap metadata invariants.
+runs unconditionally with a synthetic CFF face and exercises the CFF writer and
+save/reopen/rendering. `synthetic_cff_cmaps_declare_matching_metadata` uses that
+same synthetic face to check both CMap dictionaries, their programs and the
+descendant character collection without external inputs. The automatic-fallback
+CRLF/CR/LF edit and tool regressions also run without external fonts.
 With TH Sarabun New, the automation
 test uses an externally embedded PDF font and checks that file import is refused
 by the unchanged policy. With allowed fonts it covers import/reuse, saving, reopening, extraction,
 search, rendering, retyping, undo/redo and missing-resource refusal.
+
+Independent-reader checks distinguish rendering from text extraction. PDFium
+156.0.8076.0 renders the tested Cyrillic, Thai, Arabic, Georgian and CFF rows, and
+extracts the Cyrillic, Thai, Georgian and CFF text. Its mixed Arabic/ASCII extraction
+reorders characters despite the PDF retaining the exact logical `/ActualText`;
+a separate minimal standard-font PDF reproduces RTL `/ActualText` reordering.
+PdfCraft's exact Arabic search, editable text and save/reopen checks pass. This is
+a reader-interoperability limitation, not an exact PDFium Arabic extraction pass.

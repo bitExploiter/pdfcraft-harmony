@@ -60,7 +60,7 @@ fn prepare(t: &AddedText, bytes: &[u8], width: f64) -> Result<Layout, EditError>
     let shaper = ShapingFont::new(bytes).map_err(EditError::Invalid)?;
     let mut rows = Vec::new();
     let mut natural_width: f64 = 0.0;
-    let text = t.text.replace("\r\n", "\n").replace('\r', "\n");
+    let text = normalized_text(&t.text);
     for para in text.split('\n') {
         let rtl = unicode_bidi::get_base_direction(para) == unicode_bidi::Direction::Rtl;
         let shaped = shaper.shape(para, rtl).map_err(EditError::Invalid)?;

@@ -1107,7 +1107,7 @@ mod tests {
 
     #[test]
     fn automatic_inter_disables_style_flags_and_budget_warning_is_accurate() {
-        let text = AddedText { text: "Привет".into(), ..Default::default() };
+        let text = AddedText { text: "Привет\r\nмир".into(), ..Default::default() };
         let mut fonts = false;
         let mut h = egui_kittest::Harness::new_ui(move |ui| {
             if !fonts {
