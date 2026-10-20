@@ -184,7 +184,7 @@ impl PrinterMarks {
 }
 
 /// Add printer marks to `pages` (0-based). With `replace`, marks already there are removed
-/// first. Returns the pages that were widened to make room.
+/// first. Returns the pages that were widened (media or crop box) to make room.
 pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMarks, replace: bool) -> Result<Vec<usize>, EditError> {
     let all = page_list(doc);
     check(pages, all.len())?;
@@ -201,19 +201,37 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
     let reach = marks.reach();
     let mut widened = Vec::new();
     for &i in pages {
-        let boxes = pdfcraft_organize_boxes(doc, i)?;
-        let [media, _crop, bleed, trim, _art] = boxes;
+        let ([media, crop, bleed, trim, art], given) = pdfcraft_organize_boxes(doc, i)?;
         let needed = [trim[0] - reach, trim[1] - reach, trim[2] + reach, trim[3] + reach];
-        let fits = media[0] <= needed[0] && media[1] <= needed[1] && media[2] >= needed[2] && media[3] >= needed[3];
-        if !fits && let Some(room) = marks.make_room {
-            let room = room.max(reach);
-            let new_media = [media[0].min(trim[0] - room), media[1].min(trim[1] - room), media[2].max(trim[2] + room), media[3].max(trim[3] + room)];
+        let within = |b: [f64; 4]| b[0] <= needed[0] && b[1] <= needed[1] && b[2] >= needed[2] && b[3] >= needed[3];
+        // The crop box is what shows, so the marks need room inside it, not only inside the media box.
+        if !within(crop) && let Some(room) = marks.make_room {
+            let new_media = if within(media) {
+                None
+            } else {
+                let room = room.max(reach);
+                Some([media[0].min(trim[0] - room), media[1].min(trim[1] - room), media[2].max(trim[2] + room), media[3].max(trim[3] + room)])
+            };
+            // Without a wider media box, only the crop box grows, to the marks and no further than the media box.
+            let new_crop = match new_media {
+                Some(m) => m,
+                None => [crop[0].min(needed[0]).max(media[0]), crop[1].min(needed[1]).max(media[1]), crop[2].max(needed[2]).min(media[2]), crop[3].max(needed[3]).min(media[3])],
+            };
+            let rect = |r: [f64; 4]| Object::Array(r.iter().map(|v| Object::Real(*v)).collect());
             let page = page_list(doc)[i].clone();
-            let rect = Object::Array(new_media.iter().map(|v| Object::Real(*v)).collect());
             doc.update_dict(page.obj, |d| {
-                d.set(b"MediaBox".to_vec(), rect.clone());
-                // The crop box shows the marks too; the trim, bleed and art boxes stay.
-                d.set(b"CropBox".to_vec(), rect.clone());
+                if let Some(m) = new_media {
+                    d.set(b"MediaBox".to_vec(), rect(m));
+                }
+                // The crop box shows the marks too. The trim, bleed and art boxes default to the
+                // crop box, so any of them not given is written out as it was, or it would move
+                // with the crop box and a second run would widen the page again.
+                d.set(b"CropBox".to_vec(), rect(new_crop));
+                for (key, value, has) in [(&b"BleedBox"[..], bleed, given[0]), (&b"TrimBox"[..], trim, given[1]), (&b"ArtBox"[..], art, given[2])] {
+                    if !has {
+                        d.set(key.to_vec(), rect(value));
+                    }
+                }
             })?;
             widened.push(i);
         }
@@ -228,8 +246,9 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
 }
 
 /// A page's boxes: media, crop, bleed, trim, art (each inherited or falling back as the
-/// standard says), without depending on the organize crate.
-fn pdfcraft_organize_boxes(doc: &Document, page: usize) -> Result<[[f64; 4]; 5], EditError> {
+/// standard says), without depending on the organize crate, and whether the bleed, trim and
+/// art boxes are given (rather than defaulting to the crop box).
+fn pdfcraft_organize_boxes(doc: &Document, page: usize) -> Result<([[f64; 4]; 5], [bool; 3]), EditError> {
     let p = page_list(doc).get(page).cloned().ok_or_else(|| EditError::Invalid(format!("page {} does not exist", page + 1)))?;
     let rect = |k: &[u8]| -> Option<[f64; 4]> {
         let a = p.dict.get(k).map(|o| doc.resolve(o))?;
@@ -239,8 +258,7 @@ fn pdfcraft_organize_boxes(doc: &Document, page: usize) -> Result<[[f64; 4]; 5],
     let media = rect(b"MediaBox").unwrap_or([0.0, 0.0, 612.0, 792.0]);
     let clip = |r: [f64; 4]| [r[0].max(media[0]), r[1].max(media[1]), r[2].min(media[2]), r[3].min(media[3])];
     let crop = rect(b"CropBox").map(clip).unwrap_or(media);
-    let bleed = rect(b"BleedBox").map(clip).unwrap_or(crop);
-    let trim = rect(b"TrimBox").map(clip).unwrap_or(crop);
-    let art = rect(b"ArtBox").map(clip).unwrap_or(crop);
-    Ok([media, crop, bleed, trim, art])
+    let (bleed, trim, art) = (rect(b"BleedBox").map(clip), rect(b"TrimBox").map(clip), rect(b"ArtBox").map(clip));
+    let given = [bleed.is_some(), trim.is_some(), art.is_some()];
+    Ok(([media, crop, bleed.unwrap_or(crop), trim.unwrap_or(crop), art.unwrap_or(crop)], given))
 }
