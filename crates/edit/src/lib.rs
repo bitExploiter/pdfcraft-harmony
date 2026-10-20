@@ -863,6 +863,7 @@ pub use text::{
     reading_blocks_checked, replace_block, replace_line, rewrite_block, text_blocks, text_lines,
 };
 pub mod hairlines;
+mod page_streams;
 pub use hairlines::{Fixed as HairlinesFixed, Hairlines, fix_hairlines};
 pub mod added;
 pub use added::{

@@ -7,6 +7,7 @@ use pdfcraft_content::{Op, parse, serialize_ops};
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
 use std::collections::HashSet;
 
+use crate::page_streams::PageStreams;
 use crate::{EditError, check, n, page_list};
 
 /// The stream `r` holds, if it is one.
@@ -63,12 +64,31 @@ fn mul(a: [f64; 6], b: [f64; 6]) -> [f64; 6] {
     ]
 }
 
-/// Rewrite one content stream drawn under `base` (the CTM when it starts, scale only matters).
+/// The graphics state a stream leaves for the next one on the same page: CTM and line width,
+/// with the q/Q stack, and whether a path is still being built.
+#[derive(Clone, Debug)]
+struct State {
+    ctm: [f64; 6],
+    width: f64,
+    stack: Vec<([f64; 6], f64)>,
+    in_path: bool,
+}
+
+impl State {
+    fn new(base: [f64; 6]) -> Self {
+        Self { ctm: base, width: 1.0, stack: Vec::new(), in_path: false }
+    }
+}
+
+/// Rewrite one content stream drawn under `state` (the CTM when it starts, scale only
+/// matters), leaving in it the state at the stream's end. A thin stroke gets a `w` of its own
+/// before its path begins (graphics-state operators are not allowed inside a path) and the
+/// old width back after it is painted, so nothing else drawn changes width.
 /// `forms` collects the Form XObjects it draws, with the CTM each is drawn under, for the
 /// caller to rewrite in turn. Returns the new bytes when anything changed, and the count.
 fn rewrite(
     data: &[u8],
-    base: [f64; 6],
+    state: &mut State,
     h: &Hairlines,
     resources: Option<&Dict>,
     doc: &Document,
@@ -78,38 +98,38 @@ fn rewrite(
     let mut ops: Vec<Op> = parsed.ops;
     let mut fixed = 0usize;
     let mut changed = false;
-    // The graphics state: CTM and line width, with the q/Q stack.
-    let mut ctm = base;
-    let mut width = 1.0f64;
-    let mut stack: Vec<([f64; 6], f64)> = Vec::new();
-    // The `w` that set the current width, to rewrite it in place when a stroke needs it.
-    let mut width_op: Option<usize> = None;
+    // Where in `out` the path being built began (None when it began in an earlier stream).
+    let mut path_start: Option<usize> = None;
     let mut out: Vec<Op> = Vec::with_capacity(ops.len() + 8);
     let xobjects = resources.and_then(|r| r.get(b"XObject")).map(|x| doc.resolve(x)).and_then(|x| x.as_dict().cloned());
     for op in ops.drain(..) {
         match op.op.as_slice() {
             b"q" => {
-                stack.push((ctm, width));
-                if stack.len() > 512 {
-                    stack.remove(0);
+                state.stack.push((state.ctm, state.width));
+                if state.stack.len() > 512 {
+                    state.stack.remove(0);
                 }
             }
             b"Q" => {
-                if let Some((c, w)) = stack.pop() {
-                    ctm = c;
-                    width = w;
+                if let Some((c, w)) = state.stack.pop() {
+                    state.ctm = c;
+                    state.width = w;
                 }
-                width_op = None;
             }
             b"cm" => {
                 if let Some(m) = op.nums::<6>() {
-                    ctm = mul(m, ctm);
+                    state.ctm = mul(m, state.ctm);
                 }
             }
             b"w" => {
                 if let Some([w]) = op.nums::<1>() {
-                    width = w;
-                    width_op = Some(out.len());
+                    state.width = w;
+                }
+            }
+            b"m" | b"re" => {
+                if !state.in_path {
+                    state.in_path = true;
+                    path_start = Some(out.len());
                 }
             }
             b"Do" => {
@@ -118,30 +138,38 @@ fn rewrite(
                     && let Some(r) = x.as_ref()
                     && stream_of(doc, r).is_some_and(|s| s.dict.name(b"Subtype") == Some(b"Form"))
                 {
-                    forms.push((r, ctm));
+                    forms.push((r, state.ctm));
                 }
             }
             b"S" | b"s" | b"B" | b"B*" | b"b" | b"b*" => {
-                let scale = scale_of(ctm);
-                let on_page = width * scale;
-                let thin = width <= 0.0 || (scale > 0.0 && on_page < h.narrower_than);
-                if thin && scale > 0.0 {
+                let scale = scale_of(state.ctm);
+                let on_page = state.width * scale;
+                let thin = state.width <= 0.0 || (scale > 0.0 && on_page < h.narrower_than);
+                // A path begun in an earlier stream cannot get its `w` before it here; it is
+                // left as it is rather than given an operator inside the path.
+                let at = match path_start {
+                    Some(i) => Some(i),
+                    None if !state.in_path => Some(out.len()),
+                    None => None,
+                };
+                state.in_path = false;
+                path_start = None;
+                if thin
+                    && scale > 0.0
+                    && let Some(at) = at
+                {
                     let new_w = h.width / scale;
-                    match width_op {
-                        // The `w` that set this width is rewritten, so every stroke under it
-                        // changes with one operator.
-                        Some(i) if out.get(i).is_some_and(|o| o.is("w")) => {
-                            out[i] = Op::new("w", vec![Object::Real(new_w)]);
-                        }
-                        _ => {
-                            out.push(Op::new("w", vec![Object::Real(new_w)]));
-                            width_op = Some(out.len() - 1);
-                        }
-                    }
-                    width = new_w;
+                    out.insert(at, Op::new("w", vec![Object::Real(new_w)]));
+                    out.push(op);
+                    out.push(Op::new("w", vec![Object::Real(state.width)]));
                     fixed += 1;
                     changed = true;
+                    continue;
                 }
+            }
+            b"f" | b"F" | b"f*" | b"n" => {
+                state.in_path = false;
+                path_start = None;
             }
             _ => {}
         }
@@ -166,29 +194,17 @@ pub fn fix_hairlines(doc: &mut Document, pages: &[usize], h: &Hairlines) -> Resu
         let resources = page.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned());
         let mut forms: Vec<(ObjRef, [f64; 6])> = Vec::new();
         let mut page_fixed = 0usize;
-        // The page's streams, each rewritten on its own (state carries across them).
-        let entries: Vec<Object> = match page.dict.get(b"Contents").map(|c| doc.resolve(c)) {
-            Some(c) => match &*c {
-                Object::Array(a) => a.clone(),
-                _ => page.dict.get(b"Contents").cloned().into_iter().collect(),
-            },
-            None => Vec::new(),
-        };
-        let joined: Vec<u8> = entries
-            .iter()
-            .filter_map(|e| e.as_ref())
-            .filter_map(|r| stream_of(doc, r).and_then(|s| s.decoded().ok()))
-            .flat_map(|d| {
-                let mut v = d;
-                v.push(b'\n');
-                v
-            })
-            .collect();
-        let (new, fixed) = rewrite(&joined, [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], h, resources.as_ref(), doc, &mut forms);
-        if let Some(bytes) = new {
-            let stream = doc.add(Object::Stream(Stream::flate(Dict::new(), &bytes)));
-            doc.update_dict(page.obj, |d| d.set(b"Contents".to_vec(), Object::Ref(stream)))?;
-            page_fixed += fixed;
+        // The page's streams, each rewritten on its own (state carries across them). A page
+        // with a stream that cannot be read is left alone.
+        if let Some(streams) = PageStreams::read(doc, &page.dict) {
+            let mut state = State::new([1.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
+            let mut new: Vec<Option<Vec<u8>>> = Vec::with_capacity(streams.data.len());
+            for data in &streams.data {
+                let (bytes, fixed) = rewrite(data, &mut state, h, resources.as_ref(), doc, &mut forms);
+                page_fixed += fixed;
+                new.push(bytes);
+            }
+            streams.write(doc, page.obj, new)?;
         }
         // The forms the page draws, and the forms they draw.
         while let Some((r, ctm)) = forms.pop() {
@@ -207,7 +223,7 @@ pub fn fix_hairlines(doc: &mut Document, pages: &[usize], h: &Hairlines) -> Resu
             };
             let res = s.dict.get(b"Resources").map(|x| doc.resolve(x)).and_then(|x| x.as_dict().cloned());
             let mut inner: Vec<(ObjRef, [f64; 6])> = Vec::new();
-            let (new, fixed) = rewrite(&data, base, h, res.as_ref(), doc, &mut inner);
+            let (new, fixed) = rewrite(&data, &mut State::new(base), h, res.as_ref(), doc, &mut inner);
             forms.extend(inner);
             if let Some(bytes) = new {
                 let mut dict = s.dict.clone();
@@ -284,7 +300,7 @@ fn fix_in_resources(doc: &mut Document, resources: Option<&Dict>, h: &Hairlines,
         let Ok(data) = s.decoded() else { continue };
         let res = s.dict.get(b"Resources").map(|x| doc.resolve(x)).and_then(|x| x.as_dict().cloned());
         let mut inner = Vec::new();
-        let (new, n_fixed) = rewrite(&data, base, h, res.as_ref(), doc, &mut inner);
+        let (new, n_fixed) = rewrite(&data, &mut State::new(base), h, res.as_ref(), doc, &mut inner);
         if let Some(bytes) = new {
             let mut dict = s.dict.clone();
             dict.remove(b"Length");
