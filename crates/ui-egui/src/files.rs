@@ -155,9 +155,27 @@ pub enum SplitPlan {
     Bookmarks,
 }
 
+/// The source pages chosen in the Extract Pages dialog.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExtractPages {
+    /// Existing thumbnail selection, or the current page when no thumbnails are selected.
+    #[default]
+    Selection,
+    /// Every physical page, before applying the odd/even filter.
+    All,
+    /// Physical page numbers from the typed range.
+    Range,
+}
+
 /// Organize ▸ Extract options.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ExtractDraft {
+    /// Keep manual selection as the default extraction workflow.
+    pub selection: ExtractPages,
+    /// Comma/semicolon-separated physical 1-based numbers and inclusive ranges.
+    pub range: String,
+    /// Filter by physical page number, independently of where a range begins.
+    pub parity: pdfcraft_engine::PageParity,
     /// Each page as its own file.
     pub separate: bool,
     /// Delete the pages after extracting them.
@@ -166,6 +184,19 @@ pub struct ExtractDraft {
     /// the document's name when it opens; empty means that name too. As separate files each
     /// page is `<name> (page N).pdf`, and a single page the user renamed is `<name>.pdf`.
     pub name: String,
+}
+
+impl ExtractDraft {
+    /// Resolve extraction targets without changing the thumbnail selection or document.
+    /// Invalid ranges fail; an empty result must be rejected before extracting or deleting.
+    pub fn pages(&self, count: usize, selected: &[usize]) -> Result<Vec<usize>, pdfcraft_engine::print::PrintError> {
+        let (pages, range) = match self.selection {
+            ExtractPages::Selection => (Some(selected), None),
+            ExtractPages::All => (None, None),
+            ExtractPages::Range => (None, Some(self.range.as_str())),
+        };
+        pdfcraft_engine::page_selection::select(count, pages, range, self.parity)
+    }
 }
 
 /// `name` made safe as a file name on every platform: no path separators, reserved or control
@@ -604,21 +635,39 @@ impl PdfCraftApp {
         }
     }
 
-    /// Show Extract pages, its file name filled in with the active document's (#737).
+    /// Open extraction with the current manual selection and the active document's file name.
     pub fn open_extract_dialog(&mut self) {
+        self.extract_draft.selection = ExtractPages::Selection;
+        self.extract_draft.range.clear();
+        self.extract_draft.parity = pdfcraft_engine::PageParity::Both;
         self.extract_draft.name =
             self.active_ids().and_then(|(_, id)| self.session.get(id)).map(|d| strip_pdf(&d.name).to_string()).unwrap_or_default();
         self.dialog = Some(crate::Dialog::Extract);
     }
 
-    /// Copy the selected pages (or the current page) into a new unsaved document tab.
+    /// Extract validated manual/all/range targets, optionally filtered by physical page parity.
+    /// Commit pending edits first; reject invalid/empty targets before extraction output or deletion.
     pub fn extract_selection(&mut self) {
         // What's typed in a form field is part of the document (#166).
         if !self.commit_form_typing() {
             return;
         }
+
         let Some((i, id)) = self.active_ids() else { return };
-        let pages = self.views[i].target_pages();
+        let Some(doc) = self.session.get(id) else { return };
+        let selected = self.views.get(i).map(|v| v.target_pages()).unwrap_or_default();
+        let pages = match self.extract_draft.pages(doc.info.pages.len(), &selected) {
+            Ok(pages) if !pages.is_empty() => pages,
+            Ok(_) => {
+                self.notify_tr("No pages selected");
+                return;
+            }
+            Err(e) => {
+                let message = e.said(&|s| crate::i18n::t(s).to_string());
+                self.notify_fmt("Couldn't extract pages: {e}", &[("e", &message)]);
+                return;
+            }
+        };
         let stem = self.session.get(id).map(|d| strip_pdf(&d.name).to_string()).unwrap_or_default();
         let opts = self.extract_draft.clone();
         // The name typed in the dialog (#737), else the document's.
