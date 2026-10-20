@@ -130,6 +130,13 @@ pub(crate) struct PsDevice<'a> {
     /// around every image draw) hold nothing but must still match their pops, so
     /// they ride the same stack.
     group_stack: Vec<OpenGroup>,
+    /// The number of clips currently open. Every `push_clip_path` emits one
+    /// `gsave` and every `pop_clip_path` one `grestore` (transparency groups
+    /// emit neither — they withhold bytes instead), so this counts the
+    /// program's unmatched `gsave`s. `export` records it before a page's own
+    /// clip and unwinds to that depth when interpretation crashes mid-clip,
+    /// so the cleanup's pops stay balanced ([`Self::unwind_clips_to`]).
+    clip_depth: usize,
     /// A text run waiting for its `show`: glyphs batch here until a font,
     /// strategy, transform-basis or paint change flushes them.
     run: Option<TextRun<'a>>,
@@ -146,9 +153,16 @@ enum OpenGroup {
 
 /// One open real-transparency group: the operator bytes emitted before its push,
 /// withheld until the pop decides between the raster (discard them) and the
-/// fallback (append them back — never lose output).
+/// fallback (append them back — never lose output), plus the clip depth at the
+/// push. A raster discards the withheld bytes, and any clip opened inside dies
+/// with its `gsave`, so the pop rolls the depth back to that snapshot — a later
+/// unwind must not emit `grestore`s for `gsave`s that never reached the program.
+/// (Today a clip still open at the pop makes the flatten decline first — its
+/// replay cannot express a group pop over an open clip — so the rollback guards
+/// the raster arms' invariant, not a state the replay can currently produce.)
 struct GroupBuffer {
     parent_out: Vec<u8>,
+    clips_at_push: usize,
 }
 
 /// The page the unit-test device draws over: the 200×300 `MediaBox` the crate's
@@ -197,6 +211,7 @@ impl<'a> PsDevice<'a> {
             scene: ShadowScene::new(page_rect),
             matrix: page_matrix(page_rect),
             group_stack: Vec::new(),
+            clip_depth: 0,
             run: None,
             _marker: PhantomData,
         }
@@ -263,6 +278,26 @@ impl<'a> PsDevice<'a> {
     /// transparency announced inside one; wrappers do not count).
     fn inside_real_group(&self) -> bool {
         self.group_stack.iter().any(|open| matches!(open, OpenGroup::Real(_)))
+    }
+
+    /// The number of clips currently open ([`Self::clip_depth`]).
+    pub(crate) fn clip_depth(&self) -> usize {
+        self.clip_depth
+    }
+
+    /// Close the clips a crashed interpretation left open, popping until
+    /// `depth` — the floor `export` records before a page's own clip. Called
+    /// after `finish`, when no group still withholds a buffer: every clip's
+    /// `gsave` is then in the final program, and each balancing `grestore`
+    /// lands after the `gsave` it pops (a `grestore` closes the innermost open
+    /// clip wherever its push sits, so page-body order needs nothing more).
+    /// A current depth already below `depth` (hostile unbalanced pops sank it
+    /// there) unwinds nothing: those `grestore`s were absorbed by the page's
+    /// wrapper pair.
+    pub(crate) fn unwind_clips_to(&mut self, depth: usize) {
+        while self.clip_depth > depth {
+            self.pop_clip_path();
+        }
     }
 
     /// Emit the pending run as one `show`/`xyshow` inside the usual
@@ -834,6 +869,7 @@ impl<'a> Device<'a> for PsDevice<'a> {
         // The scene records the path cloned in (flatten.rs applies the page matrix).
         self.flush_text();
         self.scene.record_push_clip(clip_path);
+        self.clip_depth += 1;
         self.emit.op("gsave");
         path_ops(&mut self.emit, &clip_path.path);
         match clip_path.fill {
@@ -855,7 +891,7 @@ impl<'a> Device<'a> for PsDevice<'a> {
         if real {
             self.saw_transparency = true;
             self.scene.push_frame();
-            self.group_stack.push(OpenGroup::Real(GroupBuffer { parent_out: std::mem::take(&mut self.emit.out) }));
+            self.group_stack.push(OpenGroup::Real(GroupBuffer { parent_out: std::mem::take(&mut self.emit.out), clips_at_push: self.clip_depth }));
         } else {
             self.group_stack.push(OpenGroup::Wrapper);
         }
@@ -977,6 +1013,10 @@ impl<'a> Device<'a> for PsDevice<'a> {
     fn pop_clip_path(&mut self) {
         self.flush_text();
         self.scene.record_pop_clip();
+        // Saturating: a hostile unbalanced pop bottoms out at zero — its
+        // `grestore` then eats the page wrapper's gsave, the absorption the
+        // assembly-level pair around every page body exists for.
+        self.clip_depth = self.clip_depth.saturating_sub(1);
         self.emit.op("grestore");
     }
 
@@ -1003,6 +1043,11 @@ impl<'a> Device<'a> for PsDevice<'a> {
         self.emit.out = buffer.parent_out;
         match self.scene.flatten() {
             Some(raster) if raster.width > 0 && raster.height > 0 => {
+                // The withheld bytes are gone; the clips opened inside them died
+                // with their `gsave`s, so the depth rolls back to the push's
+                // snapshot — a later unwind must not emit `grestore`s for
+                // `gsave`s that never reached the program.
+                self.clip_depth = self.clip_depth.min(buffer.clips_at_push);
                 // The raster maps pixel space (row 0 first) back onto the page
                 // (`place`), which is exactly the `draw_image` convention: concat
                 // it and ride the opaque-Flate image pipeline.
@@ -1014,7 +1059,10 @@ impl<'a> Device<'a> for PsDevice<'a> {
             }
             Some(_) => {
                 // The group painted nothing on the page (an empty region): nothing
-                // was ignored, the flattening still discloses itself.
+                // was ignored, the flattening still discloses itself — and the
+                // withheld bytes (any interior clip's `gsave` among them) are
+                // gone with the group, so the depth rolls back here too.
+                self.clip_depth = self.clip_depth.min(buffer.clips_at_push);
                 self.emit.note_once("transparency flattened to raster");
             }
             None => {
@@ -1167,6 +1215,78 @@ mod tests {
         let mut dev = device();
         dev.push_clip_path(&ClipPath { path, fill: FillRule::EvenOdd });
         assert!(output(&dev).contains("\neoclip\n"), "even-odd clip: {}", output(&dev));
+    }
+
+    /// The crash-path clip unwind (`export`'s panic guard): a panic mid-clip leaves
+    /// content clips open, each an unmatched `gsave`. The cleanup pops one clip —
+    /// without unwinding to the pre-page floor, that pop closes the innermost stray
+    /// and the page clip's `gsave` rides the page's wrapper pair, accumulating
+    /// gstate depth page after crashed page. This drives the device through the
+    /// exact sequence `export` runs: page clip, page wrapper, one content clip the
+    /// panicked interpretation never popped, then the cleanup's group pop, clip
+    /// pop, `finish` and unwind. (A fixture cannot force the interpreter itself to
+    /// panic mid-clip — a panic there is a hayro bug, and the budgets decline
+    /// instead — so the test starts from the state such a panic leaves behind.)
+    #[test]
+    fn crash_unwind_balances_nested_clips() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.line_to((10.0, 0.0));
+        path.line_to((10.0, 10.0));
+        path.close_path();
+
+        let mut dev = device();
+        let floor = dev.clip_depth();
+        dev.push_clip_path(&ClipPath { path: path.clone(), fill: FillRule::NonZero });
+        dev.push_transparency_group(1.0, None, BlendMode::Normal);
+        dev.push_clip_path(&ClipPath { path, fill: FillRule::EvenOdd });
+        assert_eq!(dev.clip_depth(), floor + 2, "the page clip and the stray content clip are open");
+        dev.pop_transparency_group();
+        dev.pop_clip_path();
+        dev.finish();
+        dev.unwind_clips_to(floor);
+        let out = output(&dev);
+        assert_eq!(out.matches("gsave").count(), out.matches("grestore").count(), "gsave/grestore balanced: {out}");
+        assert_eq!(dev.clip_depth(), floor, "back at the pre-page floor");
+    }
+
+    /// A clip left open *inside* a real-transparency group when the crash
+    /// cleanup pops it: the flattener's replay cannot express a group pop with a
+    /// clip still open (its balance log matches any push against any pop, and
+    /// vello pops layers strictly LIFO), so the replay unwinds vello twice, the
+    /// flattener's own `catch_unwind` catches it, the scene poisons and the
+    /// flatten *declines* — the withheld bytes return with the clip's `gsave`
+    /// among them, so the depth keeps counting the clip and the unwind closes
+    /// it at the end of the body. Balanced, and the decline is disclosed.
+    #[test]
+    fn crash_unwind_closes_a_clip_left_open_inside_a_group() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.line_to((10.0, 0.0));
+        path.line_to((10.0, 10.0));
+        path.close_path();
+
+        let mut dev = device();
+        let floor = dev.clip_depth();
+        dev.push_clip_path(&ClipPath { path: path.clone(), fill: FillRule::NonZero });
+        dev.push_transparency_group(1.0, None, BlendMode::Normal);
+        dev.push_transparency_group(0.5, None, BlendMode::Normal);
+        dev.push_clip_path(&ClipPath { path, fill: FillRule::EvenOdd });
+        dev.draw_rect(&Rect::new(2.0, 2.0, 8.0, 8.0), Affine::IDENTITY, &red(), &PathDrawMode::Fill(FillRule::NonZero));
+        // The cleanup `export` runs when the catch_unwind trips.
+        dev.pop_transparency_group();
+        dev.pop_clip_path();
+        dev.finish();
+        dev.unwind_clips_to(floor);
+        let out = output(&dev);
+        assert!(out.contains("closepath\neoclip\n"), "the clip's bytes returned with the group's: {out}");
+        assert!(
+            dev.emit.notes.iter().any(|n| n.text == "transparency ignored (transparency group)"),
+            "the decline is disclosed: {:?}",
+            dev.emit.notes
+        );
+        assert_eq!(out.matches("gsave").count(), out.matches("grestore").count(), "gsave/grestore balanced: {out}");
+        assert_eq!(dev.clip_depth(), floor, "back at the pre-page floor");
     }
 
     /// `draw_rect` (the shortcut the interpreter uses for axis-aligned rectangles) emits plain
