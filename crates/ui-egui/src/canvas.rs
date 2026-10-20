@@ -1863,6 +1863,19 @@ impl DocView {
     /// all of them, and a request they share (the same page at the same scale) is rendered once
     /// and handed to each.
     pub(crate) fn finish_shared_render_frame(ctx: &egui::Context, info: &DocInfo, pool: &RenderPool, views: &mut [DocView], group: &[usize]) {
+        // As for one view (#3149): an edit after the canvases collected demand leaves its scales
+        // and indexes on the old pages, in every view of the document (the pool's queue is theirs).
+        if group.iter().any(|&i| views.get(i).is_some_and(|v| v.frame_geometry_changed)) {
+            for &i in group {
+                if let Some(view) = views.get_mut(i) {
+                    view.begin_render_frame();
+                    view.last_queue.clear();
+                }
+            }
+            pool.set_queue(Vec::new());
+            ctx.request_repaint();
+            return;
+        }
         let ppp = ctx.pixels_per_point();
         let mut changed = false;
         let mut union: Vec<RenderRequest> = Vec::new();
@@ -1881,20 +1894,23 @@ impl DocView {
         if changed {
             pool.set_queue(union);
         }
-        receive_batch(pool, |r| {
-            let wanting: Vec<usize> = group.iter().copied().filter(|&i| views.get(i).is_some_and(|v| v.last_queue.contains(&r.request))).collect();
-            let Some((&last, rest)) = wanting.split_last() else { return 0 };
-            let mut uploaded = 0usize;
-            for &i in rest {
-                if let Some(view) = views.get_mut(i) {
-                    uploaded = uploaded.saturating_add(view.receive_result(ctx, copy_result(&r)));
+        // A result can go to both views, so one view holding its rasters holds them for both.
+        if !group.iter().any(|&i| views.get(i).is_some_and(|v| v.hold_rasters)) {
+            receive_batch(pool, |r| {
+                let wanting: Vec<usize> = group.iter().copied().filter(|&i| views.get(i).is_some_and(|v| v.last_queue.contains(&r.request))).collect();
+                let Some((&last, rest)) = wanting.split_last() else { return 0 };
+                let mut uploaded = 0usize;
+                for &i in rest {
+                    if let Some(view) = views.get_mut(i) {
+                        uploaded = uploaded.saturating_add(view.receive_result(ctx, copy_result(&r)));
+                    }
                 }
-            }
-            if let Some(view) = views.get_mut(last) {
-                uploaded = uploaded.saturating_add(view.receive_result(ctx, r));
-            }
-            uploaded
-        });
+                if let Some(view) = views.get_mut(last) {
+                    uploaded = uploaded.saturating_add(view.receive_result(ctx, r));
+                }
+                uploaded
+            });
+        }
         if group.iter().any(|&i| views.get(i).is_some_and(|v| !v.last_queue.is_empty())) {
             ctx.request_repaint_after(std::time::Duration::from_millis(30));
         }

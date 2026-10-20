@@ -19,6 +19,7 @@ mod protect;
 mod redact;
 mod split_view;
 mod split_view_edits;
+mod split_view_render;
 mod text_select;
 mod theme;
 mod updates;
