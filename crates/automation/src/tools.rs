@@ -130,17 +130,18 @@ pub fn tools() -> Vec<ToolDef> {
                 "language": {"type":"string"}, "skip_text_pages": {"type":"boolean"}
             }), &["paths","out_dir","steps"])),
         t("doc_protect_certificates", "Encrypt with certificates", "Encrypt the document for the holders of certificates (Acrobat: Protect ▸ Encrypt with certificate): `certificates` are files (.cer/.crt/.pem/.der, or the certificates in a .p12 with `password`), RSA ones; every holder gets the same permissions (printing none/low/high, changes none/pages/fill-sign/comment-fill-sign/any-except-extract, copy, accessibility; omit all for everything). `owners` are certificate files whose holders get everything whatever the restrictions (yourself, so you can still open and change the file). Takes effect on the next save (a full rewrite); the open session keeps everything. compatibility aes-256 (default) or aes-128.")
+            .cmd("protect.certificate")
             .with(schema(
                 json!({
                     "doc": doc(),
                     "certificates": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
                     "owners": { "type": "array", "items": { "type": "string" } },
                     "password": { "type": "string", "description": "For a .p12 among the certificates." },
-                    "printing": { "type": "string", "enum": ["none", "low", "high"] },
-                    "changes": { "type": "string", "enum": ["none", "pages", "fill-sign", "comment-fill-sign", "any-except-extract"] },
-                    "copy": { "type": "boolean" },
-                    "accessibility": { "type": "boolean" },
-                    "compatibility": { "type": "string", "enum": ["aes-256", "aes-128"] },
+                    "printing": { "type": "string", "enum": ["none", "low", "high"], "description": "Default high when another restriction is given; omit all four for everything allowed." },
+                    "changes": { "type": "string", "enum": ["none", "pages", "fill-sign", "comment-fill-sign", "any-except-extract"], "description": "Default none when another restriction is given; omit all four for everything allowed." },
+                    "copy": { "type": "boolean", "description": "Allow copying text and images (default false when another restriction is given; omit all four for everything allowed)." },
+                    "accessibility": { "type": "boolean", "description": "Allow screen readers to read the text (default true when another restriction is given; omit all four for everything allowed)." },
+                    "compatibility": { "type": "string", "enum": ["aes-256", "aes-128"], "description": "Default aes-256." },
                     "encrypt_metadata": { "type": "boolean" },
                 }),
                 &["doc", "certificates"],
