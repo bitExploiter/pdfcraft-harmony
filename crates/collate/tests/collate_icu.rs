@@ -200,6 +200,8 @@ fn agrees_with_icu_vi_on_tone_matrix() {
             input.push(word.to_uppercase());
             input.push(nfd(&word));
             input.push(title(&word));
+            // The grave and acute tone marks U+0340 and U+0341, which decompose to U+0300 and U+0301.
+            input.push(word.replace('\u{300}', "\u{340}").replace('\u{301}', "\u{341}"));
         }
     }
     let mut by_ours = input.clone();

@@ -43,11 +43,13 @@
 //! Unicode Character Database 17.0 data as packaged in ICU4X `icu_normalizer_data` 2.3.0
 //! (Unicode-3.0, Copyright © 2020-2024 Unicode, Inc.; the licence above is that package's
 //! notice), for the collation key: the canonical decomposition of
-//! the Latin letters and the combining class of the marks U+0300..=U+036F. Data only; the code
+//! the Latin letters and of the four marks that have one, and the combining class of the marks
+//! U+0300..=U+036F. Data only; the code
 //! that reads these tables is in `lib.rs`.
 
-/// Canonical (full, flattened) decomposition of each character in U+00C0..=U+024F and
-/// U+1E00..=U+1EFF that has one, sorted by code point. 497 entries.
+/// Canonical (full, flattened) decomposition of each character in U+00C0..=U+024F, U+0300..=U+036F
+/// and U+1E00..=U+1EFF that has one, sorted by code point. 501 entries: 497 letters and the four
+/// marks U+0340, U+0341, U+0343 and U+0344, which decompose to other marks.
 pub(crate) static DECOMPOSITION: &[(char, &str)] = &[
     ('\u{c0}', "A\u{300}"),
     ('\u{c1}', "A\u{301}"),
@@ -301,6 +303,10 @@ pub(crate) static DECOMPOSITION: &[(char, &str)] = &[
     ('\u{231}', "o\u{307}\u{304}"),
     ('\u{232}', "Y\u{304}"),
     ('\u{233}', "y\u{304}"),
+    ('\u{340}', "\u{300}"),
+    ('\u{341}', "\u{301}"),
+    ('\u{343}', "\u{313}"),
+    ('\u{344}', "\u{308}\u{301}"),
     ('\u{1e00}', "A\u{325}"),
     ('\u{1e01}', "a\u{325}"),
     ('\u{1e02}', "B\u{307}"),

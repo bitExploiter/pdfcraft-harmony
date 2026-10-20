@@ -18,7 +18,9 @@
 //! Nothing here changes the user's text: it builds keys and answers comparisons only. The data
 //! behind the key is in `ucd.rs`: the canonical decomposition of the Latin letters
 //! U+00C0..=U+024F and U+1E00..=U+1EFF (497 characters) and the 111 combining marks of
-//! U+0300..=U+036F with a nonzero combining class. Anything outside them is left alone (a
+//! U+0300..=U+036F with a nonzero combining class, four of which decompose to other marks (U+0340
+//! and U+0341, the grave and acute tone marks, are U+0300 and U+0301; U+0343 is U+0313; U+0344 is
+//! U+0308 U+0301). Anything outside them is left alone (a
 //! starter without a decomposition): this is not a general NFD, it is the part of NFD that
 //! Vietnamese and the Latin scripts need. The tables are generated from the Unicode Character
 //! Database 17.0 (via ICU4X `icu_normalizer` =2.3.0, data generated with CLDR 48.2.1 and
@@ -635,11 +637,14 @@ mod tables {
     use icu_normalizer::DecomposingNormalizerBorrowed;
     use icu_normalizer::properties::CanonicalCombiningClassMapBorrowed;
 
-    /// The scalar ranges the table covers: Latin-1 Supplement letters to Latin Extended-B, and
-    /// Latin Extended Additional.
+    /// The scalar ranges the table covers: Latin-1 Supplement letters to Latin Extended-B, the
+    /// combining marks, and Latin Extended Additional.
     fn covered() -> impl Iterator<Item = char> {
-        ('\u{c0}'..='\u{24f}').chain('\u{1e00}'..='\u{1eff}')
+        ('\u{c0}'..='\u{24f}').chain('\u{300}'..='\u{36f}').chain('\u{1e00}'..='\u{1eff}')
     }
+
+    /// The marks of U+0300..=U+036F that have a canonical decomposition of their own.
+    const MARKS_THAT_DECOMPOSE: [char; 4] = ['\u{340}', '\u{341}', '\u{343}', '\u{344}'];
 
     #[test]
     fn tables_match_icu_normalizer() {
@@ -654,6 +659,55 @@ mod tables {
         }
         assert_eq!(ccc('a'), 0);
         assert_eq!(ccc('\u{10ffff}'), 0);
+        // The marks that decompose, after a letter and next to marks of other classes, in either
+        // order: decomposed, then ordered with their neighbours.
+        for m in MARKS_THAT_DECOMPOSE {
+            for base in ["", "a", "U", "\u{1b0}"] {
+                for other in ["", "\u{323}", "\u{31b}", "\u{302}", "\u{345}"] {
+                    for s in [format!("{base}{m}{other}"), format!("{base}{other}{m}")] {
+                        assert_eq!(canonical(&s), nfd.normalize(&s), "{s:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn marks_that_decompose_equal_their_decomposition() {
+        // U+0340 and U+0341 (the grave and acute tone marks) are U+0300 and U+0301; U+0343 is
+        // U+0313; U+0344 is U+0308 U+0301.
+        assert_eq!(canonical("\u{340}\u{341}\u{343}"), "\u{300}\u{301}\u{313}");
+        assert_eq!(canonical("\u{344}"), "\u{308}\u{301}");
+        assert_eq!(canonical("a\u{344}\u{323}"), "a\u{323}\u{308}\u{301}");
+        assert_eq!(fold_key("\u{341}"), "\u{301}");
+        assert!(text_eq("a\u{341}", "á"));
+        assert!(text_eq("a\u{340}", "à"));
+        assert!(text_eq("U\u{344}", "ǘ"));
+        assert!(text_eq("Ma\u{341}", "MÁ"));
+        assert!(search_contains("Ma\u{341} Hoa\u{340}", "má hoà"));
+        assert!(search_contains("Má Hoà", "ma\u{341}"));
+        assert_eq!(natural("scan2 ma\u{341}", "scan02 má", Collation::Root), Ordering::Equal);
+        for c in [Collation::Root, Collation::Vi] {
+            for (single, usual) in
+                [("ma\u{341}", "má"), ("ma\u{340}", "mà"), ("Ă\u{341}", "Ắ"), ("Hoa\u{340}", "Hoà"), ("a\u{344}", "a\u{308}\u{301}")]
+            {
+                assert_eq!(compare(single, usual, c), Ordering::Equal, "{single:?} {c:?}");
+                assert_eq!(text_key(single, c), text_key(usual, c), "{single:?} {c:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn vi_tone_marks_typed_as_their_singletons_are_the_tones() {
+        // U+0340 and U+0341 decompose to U+0300 (huyền) and U+0301 (sắc).
+        assert_eq!(Key::vi("ma\u{340}").secondary.get(2), Some(&1));
+        assert_eq!(Key::vi("ma\u{341}").secondary.get(2), Some(&4));
+        // They sort exactly where `mà` and `má` do.
+        let row = ["ma", "ma\u{340}", "mả", "mã", "ma\u{341}", "mạ"];
+        let mut v = row;
+        v.reverse();
+        v.sort_by(|a, b| compare(a, b, Collation::Vi));
+        assert_eq!(v, row);
     }
 
     #[test]
