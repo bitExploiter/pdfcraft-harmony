@@ -756,8 +756,11 @@ pub(crate) fn process(doc: &mut Document, scope: &mut Scope<'_>, streams: &[Vec<
                     }
                 }
                 b"sh" if scope.mode == Mode::Apply => {
-                    // A shading fills the current clip: clip the regions out.
-                    if let Some(c) = clip_out(scope.rects, &gs.ctm, [-1e6, -1e6, 1e6, 1e6]) {
+                    // A shading fills the current clip: clip the regions out. Removing hidden
+                    // content has no regions, so the shading and its name stay as they are.
+                    if let Some(c) = clip_out(scope.rects, &gs.ctm, [-1e6, -1e6, 1e6, 1e6])
+                        && !c.is_empty()
+                    {
                         changed = true;
                         clipped.insert(op.span.start);
                         ops.push(Op::new("q", vec![]));
@@ -824,7 +827,13 @@ fn clean_replacements(
             b"EMC" => {
                 stack.pop();
             }
-            _ if !unchanged.contains(&op.span.start) || clipped.contains(&op.span.start) => affected.extend(stack.iter().copied()),
+            // A scope joins `affected` only with every scope around it, so once the innermost one
+            // is in, the rest are too: deep nesting over many changed ops stays linear.
+            _ if (!unchanged.contains(&op.span.start) || clipped.contains(&op.span.start))
+                && stack.last().is_some_and(|top| !affected.contains(top)) =>
+            {
+                affected.extend(stack.iter().copied())
+            }
             _ => {}
         }
     }
