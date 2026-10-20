@@ -69,10 +69,23 @@ the position of an adjacent column's first glyph.
 `text/spacing.rs` estimates implicit spaces within individual text-show operations when no
 Unicode spaces are available, protecting justified `TJ` text. Show provenance is evidence
 about spacing, not authority for reading order: one `TJ` can still paint several columns.
+When separately positioned word shows provide no spacing hints, visual rows with several
+non-letter gaps supply a fallback estimate. Uniform character advances bound it by a
+character cell; proportional advances use the local em, including lines containing only
+narrow lowercase letters. Advances are normalized to their own glyph height so changes of
+point size do not masquerade as proportional spacing. This does not impose a three-line
+minimum on short or staggered columns.
+CJK character gaps do not contribute to that inter-word estimate; unspaced CJK columns
+remain covered independently of the Latin prose fixtures.
 Conventional list markers (including multi-digit, alphabetic and bracketed numbering) and
 colon-terminated field labels are excluded from prose evidence. Established single-row
 leaves allow distant label/value fragments to join; wrapped table cells retain their own
 lines within each row. Rectangular extraction still splits distant cell pieces for tab output.
+It finds empty projection gaps in visual order before grouping logical glyphs. A bidi number
+or Latin run can jump across intervening ink in logical order; that jump is not an empty cell
+gap. Cell pieces from one logical line keep their logical order, including neutral numeric
+cells; pieces from different lines retain the existing spatial row ordering. This preserves
+mixed RTL rows without suppressing real gaps between RTL table cells.
 
 Leaf regions retain original glyph indices in paint order. The existing line reconstructor
 runs independently inside each leaf; it cannot join text across an established gutter.
@@ -92,6 +105,9 @@ within visual bands only when a potential gutter exists. Pruned regions merge
 their original indices in linear time. Glyphs are referenced, not cloned. The new pass uses
 O(n) live auxiliary storage and bounded O(64 n log n) work. Existing per-leaf line
 reconstruction retains its previous complexity and benefits from smaller inputs.
+Rectangular copying sorts the selected glyphs of each logical line for cell-gap analysis,
+using O(k log k) time and O(k) auxiliary storage for k selected glyphs. Normal copying does
+not run this additional projection pass.
 
 ## Verification
 
@@ -114,10 +130,13 @@ plain-mouse/clipboard regression.
 
 `crates/render/tests/row_structure.rs` covers the contributor's justified `TJ`/`Tw` example,
 implicit spaces without space glyphs, hanging bullets (also painted before their bodies),
+per-word `Tj` without spacing hints in Courier/Helvetica and three paint orders,
 numeric and alphabetic labels, dense form rows and single-line/wrapped tables. The UI
 regression `normal_row_drags_copy_spaces_labels_and_cells_at_every_zoom` uses physical
 word endpoints and independent source expectations, checks word boundaries, and copies
 with plain drags in both directions at 50%, 100%, 200% and 400%.
+The mixed Hebrew/Arabic, number, punctuation and Latin unit cases check rectangular copying
+against independent logical strings, alongside the existing real-gap RTL table cases.
 
 The private magazine regression is intentionally ignored by default. Set
 `PDFCRAFT_COLUMN_PDF` to the local supplied PDF, then run:

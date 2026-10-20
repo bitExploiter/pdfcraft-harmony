@@ -361,6 +361,70 @@ fn tracking(glyphs: &[TextGlyph], sorted_y: &[usize], h: f32) -> f32 {
     *samples.select_nth_unstable_by(k, f32::total_cmp).1
 }
 
+/// Without Unicode spaces or usable show provenance, repeated non-letter gaps in visual
+/// rows provide independent word-spacing evidence. One gap alone may be the column gutter;
+/// only rows containing several such gaps contribute. Uniform advances bound the ambiguous
+/// estimate by a character cell; proportional advances use an em. Repeating gaps between
+/// complete monospaced lines are not word spaces. Keep weak candidates for row detection.
+fn fallback_word_space(glyphs: &[TextGlyph], sorted_y: &[usize], h: f32, letter_gap: f32) -> Option<f32> {
+    let mut row = Vec::new();
+    let mut samples = Vec::new();
+    let mut top = f32::NEG_INFINITY;
+    let mut sample = |row: &mut Vec<usize>| {
+        row.sort_by(|&a, &b| edge(glyphs, a, 0).total_cmp(&edge(glyphs, b, 0)));
+        let gaps: Vec<_> = row
+            .windows(2)
+            .filter_map(|pair| {
+                let a = glyphs.get(*pair.first()?)?;
+                let b = glyphs.get(*pair.get(1)?)?;
+                // These scripts place characters continuously rather than using word
+                // spaces; their repeated column gutters cannot estimate inter-word gaps.
+                if a.text.chars().any(super::is_cjk) || b.text.chars().any(super::is_cjk) {
+                    return None;
+                }
+                let gap = b.rect[0] - a.rect[2];
+                (gap.is_finite() && gap > letter_gap + h * super::WORD_GAP).then_some(gap)
+            })
+            .collect();
+        if gaps.len() >= 2 {
+            samples.extend(gaps);
+        }
+        row.clear();
+    };
+    for &id in sorted_y {
+        let y = edge(glyphs, id, 1);
+        if y - top > h * 0.5 {
+            sample(&mut row);
+            top = y;
+        }
+        row.push(id);
+    }
+    sample(&mut row);
+    let (mut smallest, mut widest, mut error) = (f32::INFINITY, 0.0_f32, 0.0_f32);
+    for &id in sorted_y {
+        let Some(g) = glyphs.get(id) else { continue };
+        if g.text.chars().take(2).count() != 1 || g.text.chars().any(super::is_cjk) {
+            continue;
+        }
+        let height = g.rect[3] - g.rect[1];
+        if height <= 0.0 {
+            continue;
+        }
+        let advance = (g.rect[2] - g.rect[0]) / height;
+        if !advance.is_finite() || advance <= 0.0 || advance > 1.0 {
+            continue;
+        }
+        smallest = smallest.min(advance);
+        widest = widest.max(advance);
+        // Coordinates and both subtractions contribute rounding error. Normalize each
+        // advance to its own em so changes of point size do not look proportional.
+        let coordinate = g.rect.iter().map(|v| v.abs()).fold(0.0_f32, f32::max);
+        error = error.max(coordinate * (16.0 * f32::EPSILON) / height);
+    }
+    let cap = letter_gap + if widest - smallest > error { h } else { widest * h };
+    median(&mut samples).map(|space| space.min(cap)).filter(|space| *space > 0.0)
+}
+
 /// Prefer a supported continuous column gutter; use horizontal whitespace only when no
 /// such gutter exists, so aligned paragraph breaks cannot interleave neighbouring columns.
 fn subdivision(glyphs: &[TextGlyph], region: &Region, spaces_from_shows: &[f32]) -> Option<Cut> {
@@ -423,11 +487,12 @@ fn subdivision(glyphs: &[TextGlyph], region: &Region, spaces_from_shows: &[f32])
         })
         .copied()
         .collect();
-    let supported = prose_support(glyphs, region, &candidates, h, word_space);
+    let independent_space = (spaces.is_empty() && !candidates.is_empty()).then(|| fallback_word_space(glyphs, &region.y, h, letter_gap)).flatten();
+    let supported = prose_support(glyphs, region, &candidates, h, word_space.max(independent_space.unwrap_or(0.0)));
     let vertical = candidates
         .iter()
         .zip(supported.prose)
-        .filter(|(_, supported)| *supported)
+        .filter(|(gap, supported)| *supported && independent_space.is_none_or(|space| gap.size > space + gap.error))
         .map(|(gap, _)| gap)
         .max_by(|a, b| a.size.total_cmp(&b.size).then_with(|| balance(a).cmp(&balance(b))));
     match (vertical, horizontal) {

@@ -174,6 +174,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M2/M3, PR #3676 follow-up review):** Repeated visual spacing protects per-word Tj prose without show hints, while short/staggered columns remain supported. Rectangular copying measures physical empty gaps before grouping bidi logical text, preserving RTL rows with numbers and Latin runs and real RTL cell gaps. Estimates unchanged.
 - **2026-10-20 (M2/M3, PR #3676 contributor review):** Column cuts require adjacent filled prose on both sides. Text-show provenance and actual space advances protect justified TJ/Tw text; hanging labels, forms and sparse table cells retain row order. Synthetic regressions include normal mouse copying in both directions at four zoom levels; semantic tag-tree ordering remains future work. Estimates unchanged.
 - **2026-10-20 (M2/M3, PR #3676 review):** Supported continuous column gutters take precedence over aligned paragraph whitespace. Regressions cover normal ranges, search/highlight bounds and plain mouse copying in both directions across paragraph breaks; spanning headings and section layout changes remain covered. New layout helpers and regression contracts are documented. Estimates unchanged.
 

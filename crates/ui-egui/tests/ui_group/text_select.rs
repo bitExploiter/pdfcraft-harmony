@@ -628,6 +628,21 @@ fn normal_row_drags_copy_spaces_labels_and_cells_at_every_zoom() {
         "characters",
         "Justified text without any space characters".to_string(),
     )];
+    for (name, metrics, source_words) in [
+        ("per-word-courier", pdfcraft_fonts::Std14::Courier, ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]),
+        ("per-word-helvetica", pdfcraft_fonts::Std14::Helvetica, ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]),
+        ("per-word-lowercase", pdfcraft_fonts::Std14::Helvetica, ["little", "birds", "sit", "still", "inside"]),
+    ] {
+        let mut positioned = String::new();
+        for y in [160, 145] {
+            let mut x = 20.0;
+            for word in source_words {
+                positioned.push_str(&format!("BT /F1 7 Tf {x} {y} Td ({word}) Tj ET\n"));
+                x += metrics.text_width(word, 7.0) as f32 + 4.2;
+            }
+        }
+        cases.push((name.into(), positioned, source_words[0], source_words[4], source_words.join(" ")));
+    }
     let bullets = run("\\225", 20, 160)
         + &run("First item has words", 30, 160)
         + &run("and its continuation", 30, 150)
@@ -667,7 +682,11 @@ fn normal_row_drags_copy_spaces_labels_and_cells_at_every_zoom() {
     }
     let words = |s: &str| s.split_whitespace().collect::<Vec<_>>().join(" ");
     for (name, content, first, last, expected) in cases {
-        let pdf = text_pdf(&content);
+        let pdf = if name == "per-word-courier" {
+            String::from_utf8(text_pdf(&content)).unwrap().replace("/BaseFont /Helvetica", "/BaseFont /Courier").into_bytes()
+        } else {
+            text_pdf(&content)
+        };
         let text = PageRenderer::new(Arc::new(pdf.clone()), RenderConfig::default()).filtered_text(0, TextFilter::default()).unwrap();
         let anchor = text.find(first)[0].start;
         let head = text.find(last)[0].end - 1;

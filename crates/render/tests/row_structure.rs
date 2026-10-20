@@ -6,9 +6,14 @@ use std::sync::Arc;
 
 /// Build an original one-page document with standard Helvetica and WinAnsi bullet encoding.
 fn extract(content: &str) -> PageText {
+    extract_font(content, "Helvetica")
+}
+
+/// Select standard metrics without embedding a font asset in the generated document.
+fn extract_font(content: &str, face: &str) -> PageText {
     use lopdf::{Document, Object, Stream, dictionary};
     let mut doc = Document::with_version("1.7");
-    let font = doc.add_object(dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica", "Encoding" => "WinAnsiEncoding"});
+    let font = doc.add_object(dictionary! {"Type" => "Font", "Subtype" => "Type1", "BaseFont" => face, "Encoding" => "WinAnsiEncoding"});
     let contents = doc.add_object(Stream::new(dictionary! {}, content.as_bytes().to_vec()));
     let pages = doc.new_object_id();
     let page = doc.add_object(dictionary! {"Type" => "Page", "Parent" => pages,
@@ -20,6 +25,39 @@ fn extract(content: &str) -> PageText {
     let mut bytes = Vec::new();
     doc.save_to(&mut bytes).unwrap();
     PageRenderer::new(Arc::new(bytes), RenderConfig::default()).filtered_text(0, TextFilter::default()).unwrap()
+}
+
+/// Separate per-word Tj operators carry no within-show word-space hint. Repeated ordinary
+/// gaps must be inferred visually, independent of paint order, rather than becoming columns.
+#[test]
+fn justified_per_word_tj_without_spacing_hints_keeps_lines_together() {
+    for (face, metrics) in [("Courier", pdfcraft_fonts::Std14::Courier), ("Helvetica", pdfcraft_fonts::Std14::Helvetica)] {
+        for source_words in [["Alpha", "Bravo", "Charlie", "Delta", "Echo"], ["little", "birds", "sit", "still", "inside"]] {
+            for paint in 0..3 {
+                let mut runs = Vec::new();
+                for row in 0..2 {
+                    let mut x = 50.0;
+                    for (col, word) in source_words.iter().enumerate() {
+                        runs.push((row, col, format!("BT /F1 11 Tf {x} {} Td ({word}) Tj ET\n", 740 - row * 15)));
+                        x += metrics.text_width(word, 11.0) as f32 + 6.6;
+                    }
+                }
+                if paint == 1 {
+                    runs.sort_by_key(|(row, col, _)| (*col, *row));
+                }
+                if paint == 2 {
+                    runs.reverse();
+                }
+                let text = extract_font(&runs.into_iter().map(|(_, _, s)| s).collect::<String>(), face);
+                let line = source_words.join(" ");
+                assert_eq!(words(&text.plain_text()), format!("{line} {line}"), "{face}, paint order {paint}");
+                let first = text.find(source_words[0])[0].start;
+                let last = text.find(source_words[4])[0].end;
+                assert_eq!(words(&text.text_of(first..last)), line);
+                assert_eq!(text.line_rects(first..last).len(), 1);
+            }
+        }
+    }
 }
 
 /// Ignore line-ending choices while still checking every word boundary and word's position.

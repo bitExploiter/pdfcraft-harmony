@@ -29,6 +29,59 @@ fn run(text: &str, x: f32, y: f32) -> String {
 
 const LINES: [&str; 3] = ["Alfa text fills row here", "Beta text fills row here", "Last text fills row here"];
 
+/// Original visual glyph geometry for script tests, without requiring an embedded font.
+fn visual_glyphs(text: &str, x: f32, y: f32, advance: f32) -> Vec<pdfcraft_render::text::TextGlyph> {
+    text.chars()
+        .enumerate()
+        .map(|(at, c)| {
+            let x = x + at as f32 * advance;
+            pdfcraft_render::text::TextGlyph {
+                text: c.to_string(),
+                rect: [x, y, x + advance, y + 10.0],
+                quad: [[x, y + 10.0], [x + advance, y + 10.0], [x + advance, y], [x, y]],
+                direction: [1.0, 0.0],
+            }
+        })
+        .collect()
+}
+
+/// A normal logical RTL row determines the order of its genuine rectangular cell pieces;
+/// a numeric cell is neutral and must not turn that row into a left-to-right table row.
+#[test]
+fn rtl_rows_with_numeric_cells_keep_their_logical_cell_order() {
+    let mut glyphs = Vec::new();
+    for row in 0..2 {
+        let y = 10.0 + row as f32 * 12.0;
+        for (x, text) in [(10.0, "םילקש"), (100.0, "120"), (200.0, "ריחמ")] {
+            glyphs.extend(visual_glyphs(text, x, y, 6.0));
+        }
+    }
+    let t = pdfcraft_render::text::layout(glyphs);
+    assert_eq!(t.plain_text(), "מחיר 120 שקלים\nמחיר 120 שקלים");
+    assert_eq!(t.column_text(&(0..t.glyphs.len()).collect::<Vec<_>>()), "מחיר\t120\tשקלים\nמחיר\t120\tשקלים");
+}
+
+/// Full-width CJK glyphs do not use inter-word spaces. A repeated gutter is not word spacing.
+#[test]
+fn cjk_columns_without_word_spaces_keep_complete_column_order() {
+    use pdfcraft_render::text::layout;
+    let body = "正文".repeat(10);
+    let line = |col: char, row: char| format!("{col}{row}{body}");
+    let mut glyphs = Vec::new();
+    for (row, label) in ['一', '二', '三'].into_iter().enumerate() {
+        for (col, name) in ['甲', '乙', '丙'].into_iter().enumerate() {
+            glyphs.extend(visual_glyphs(&line(name, label), 10.0 + col as f32 * 228.0, 10.0 + row as f32 * 12.0, 10.0));
+        }
+    }
+    let mut expected = Vec::new();
+    for col in ['甲', '乙', '丙'] {
+        for row in ['一', '二', '三'] {
+            expected.push(line(col, row));
+        }
+    }
+    assert_eq!(layout(glyphs).plain_text(), expected.join("\n"));
+}
+
 /// A text-show operation is spacing evidence, not proof that everything in it shares a line.
 #[test]
 fn one_tj_operation_can_paint_both_columns() {

@@ -272,22 +272,20 @@ impl PageText {
     /// turned by `/Rotate`) rows mean nothing, and the lines come out one per row in reading order
     /// instead.
     pub fn column_text(&self, glyphs: &[usize]) -> String {
+        let cell_breaks = self.cell_breaks(glyphs);
         // The selected glyphs of each line, with their box: (glyphs, bbox).
         let mut lines: Vec<(Vec<usize>, [f32; 4])> = Vec::new();
         let mut line_ids: Vec<u32> = Vec::new();
         for &i in glyphs {
             let (Some(g), Some(&line)) = (self.glyphs.get(i), self.line_of.get(i)) else { continue };
-            // Normal row order can join labels and values without erasing their geometric
-            // cell gap. Rectangular copying keeps those pieces separate for tabular paste.
-            // Explicit Unicode whitespace remains word spacing even with a large PDF Tw.
-            let cell_gap = lines.last().and_then(|(ids, _)| ids.last()).and_then(|&last| self.glyphs.get(last)).is_some_and(|previous| {
-                let gap = (g.rect[0] - previous.rect[2]).max(previous.rect[0] - g.rect[2]);
-                let h = (g.rect[3] - g.rect[1]).min(previous.rect[3] - previous.rect[1]);
-                gap > h * 1.2
-                    && g.direction[1].abs() <= WORD_GAP
-                    && previous.direction[1].abs() <= WORD_GAP
-                    && !previous.text.chars().any(char::is_whitespace)
-                    && !g.text.chars().any(char::is_whitespace)
+            // Test empty space in visual order, not distance between logical neighbours:
+            // an RTL/number transition can jump over other glyphs in the same physical cell.
+            let cell_gap = cell_breaks.get(&line).is_some_and(|cuts| {
+                lines
+                    .last()
+                    .and_then(|(ids, _)| ids.last())
+                    .and_then(|&last| self.glyphs.get(last))
+                    .is_some_and(|previous| cuts.partition_point(|&x| x < g.rect[0]) != cuts.partition_point(|&x| x < previous.rect[0]))
             });
             match (lines.last_mut(), line_ids.last()) {
                 (Some((members, bb)), Some(&l)) if l == line && !cell_gap => {
@@ -338,7 +336,15 @@ impl PageText {
         let mut out = Vec::with_capacity(rows.len());
         for (_, _, mut members) in rows {
             let right_to_left = members.iter().all(|&k| lines.get(k).is_some_and(|(m, _)| rtl(m)));
+            let shared_line =
+                members.first().and_then(|&k| line_ids.get(k)).is_some_and(|line| members.iter().all(|&k| line_ids.get(k) == Some(line)));
             members.sort_by(|a, b| {
+                // Cell pieces of one reconstructed line already have a logical order.
+                // A neutral number cell must not reverse that line's bidi base direction.
+                if shared_line {
+                    let first = |k: usize| lines.get(k).and_then(|(ids, _)| ids.first()).copied().unwrap_or(usize::MAX);
+                    return first(*a).cmp(&first(*b));
+                }
                 let x = |k: usize| lines.get(k).map_or(0.0, |(_, bb)| bb[0]);
                 if right_to_left { x(*b).total_cmp(&x(*a)) } else { x(*a).total_cmp(&x(*b)) }
             });
@@ -346,6 +352,45 @@ impl PageText {
             out.push(cells.join("\t"));
         }
         out.join("\n")
+    }
+
+    /// Empty horizontal projection gaps between cells of the same logical line. Bidi order
+    /// can move between distant x coordinates while intervening ink keeps the line connected.
+    /// Compute geometry first, preserving the existing logical order within every piece.
+    fn cell_breaks(&self, selected: &[usize]) -> HashMap<u32, Vec<f32>> {
+        let mut rows: HashMap<u32, Vec<&TextGlyph>> = HashMap::new();
+        for &id in selected {
+            let (Some(g), Some(&line)) = (self.glyphs.get(id), self.line_of.get(id)) else { continue };
+            if g.direction[1].abs() > WORD_GAP {
+                return HashMap::new();
+            }
+            rows.entry(line).or_default().push(g);
+        }
+        let mut result = HashMap::new();
+        for (line, mut glyphs) in rows {
+            if glyphs.iter().any(|g| !g.rect.iter().all(|v| v.is_finite())) {
+                continue;
+            }
+            glyphs.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+            let mut right: Option<&TextGlyph> = None;
+            let mut cuts = Vec::new();
+            for g in glyphs {
+                if let Some(p) = right {
+                    let gap = g.rect[0] - p.rect[2];
+                    let h = (g.rect[3] - g.rect[1]).min(p.rect[3] - p.rect[1]);
+                    if h > 0.0 && gap > h * 1.2 && !p.text.chars().any(char::is_whitespace) && !g.text.chars().any(char::is_whitespace) {
+                        cuts.push(p.rect[2] * 0.5 + g.rect[0] * 0.5);
+                    }
+                }
+                if right.is_none_or(|p| g.rect[2] >= p.rect[2]) {
+                    right = Some(g);
+                }
+            }
+            if !cuts.is_empty() {
+                result.insert(line, cuts);
+            }
+        }
+        result
     }
 }
 
@@ -2339,14 +2384,21 @@ mod tests {
                 word(&mut v, w, x, 10.0, 6.0);
                 x += w.chars().count() as f32 * 6.0 + 6.0;
             }
-            layout(v).plain_text()
+            layout(v)
         };
         // Each line as drawn, left to right.
-        assert_eq!(line(&["םילקש", "120", "ריחמ"]), "מחיר 120 שקלים");
-        assert_eq!(line(&[".הקידב", "ךמסמ", "והז", ":תירבע"]), "עברית: זהו מסמך בדיקה.");
-        assert_eq!(line(&["باتك", "12.5", "ددع"]), "عدد 12.5 كتاب");
-        assert_eq!(line(&["םלוע", "םולש"]), "שלום עולם");
-        assert_eq!(line(&["Total", "םולש", "price"]), "Total שלום price");
+        let cases: &[(&[&str], &str)] = &[
+            (&["םילקש", "120", "ריחמ"], "מחיר 120 שקלים"),
+            (&[".הקידב", "ךמסמ", "והז", ":תירבע"], "עברית: זהו מסמך בדיקה."),
+            (&["باتك", "12.5", "ددع"], "عدد 12.5 كتاب"),
+            (&["םלוע", "םולש"], "שלום עולם"),
+            (&["Total", "םולש", "price"], "Total שלום price"),
+        ];
+        for (drawn, expected) in cases {
+            let t = line(drawn);
+            assert_eq!(t.plain_text(), *expected);
+            assert_eq!(t.column_text(&(0..t.glyphs.len()).collect::<Vec<_>>()), *expected, "rectangular copy of {expected}");
+        }
     }
 
     /// Two lines, "ab cd" and "e fg": words stop at blank glyphs, word gaps and line ends.

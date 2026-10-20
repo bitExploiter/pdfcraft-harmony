@@ -202,6 +202,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-20 | minor | M2/M3, PR #3676 follow-up: repeated visual spacing protects separate word shows; rectangular cell boundaries use empty projection gaps rather than bidi logical jumps. Short columns, mixed RTL rows and real RTL cell gaps remain covered. Estimates unchanged. |
 | 2026-10-20 | minor | M2/M3, PR #3676 contributor review: prose continuity and text-show spacing protect justified text, hanging labels, forms and sparse table rows. Normal mouse/clipboard regressions cover both directions at 50–400% zoom. Semantic tag ordering remains future work; estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
