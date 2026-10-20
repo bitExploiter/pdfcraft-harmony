@@ -14,7 +14,7 @@ use hayro::hayro_interpret::{
     BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, Paint, PathDrawMode, SoftMask, interpret_page,
 };
 use kurbo::{Affine, BezPath, Rect, Shape};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Semantic exclusions for statistics. Untagged text is retained; no layout guess is made.
 #[derive(Clone, Debug, Default)]
@@ -159,31 +159,39 @@ impl PageText {
             .collect()
     }
 
-    /// Index of the glyph nearest to a view-space point (for selection anchors).
+    /// Index of the glyph nearest to a view-space point (for selection anchors). A point level
+    /// with some text takes the nearest glyph of that row, however far along it: past the end of
+    /// a short table cell, a longer cell in the next row must not win. Between rows, the nearest
+    /// glyph by distance, vertical distance weighing more.
     pub fn nearest(&self, x: f32, y: f32) -> Option<usize> {
-        self.glyphs
-            .iter()
-            .enumerate()
-            .map(|(i, g)| {
-                let dx = if x < g.rect[0] {
-                    g.rect[0] - x
-                } else if x > g.rect[2] {
-                    x - g.rect[2]
-                } else {
-                    0.0
-                };
-                let dy = if y < g.rect[1] {
-                    g.rect[1] - y
-                } else if y > g.rect[3] {
-                    y - g.rect[3]
-                } else {
-                    0.0
-                };
-                // Prefer the same line: vertical distance weighs more.
-                (i, dx + dy * 3.0)
-            })
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .map(|(i, _)| i)
+        let mut on_row: Option<(usize, f32)> = None;
+        let mut any: Option<(usize, f32)> = None;
+        for (i, g) in self.glyphs.iter().enumerate() {
+            let dx = if x < g.rect[0] {
+                g.rect[0] - x
+            } else if x > g.rect[2] {
+                x - g.rect[2]
+            } else {
+                0.0
+            };
+            let dy = if y < g.rect[1] {
+                g.rect[1] - y
+            } else if y > g.rect[3] {
+                y - g.rect[3]
+            } else {
+                0.0
+            };
+            // `total_cmp` ranks NaN last, so a glyph with a broken box never wins over a real one.
+            let closer = |best: Option<(usize, f32)>, d: f32| best.is_none_or(|(_, b)| d.total_cmp(&b).is_lt());
+            if dy == 0.0 && closer(on_row, dx) {
+                on_row = Some((i, dx));
+            }
+            let d = dx + dy * 3.0;
+            if closer(any, d) {
+                any = Some((i, d));
+            }
+        }
+        on_row.or(any).map(|(i, _)| i)
     }
 
     /// The word around glyph `i` as its first and last glyph (double-click): it stops at word
@@ -246,6 +254,140 @@ impl PageText {
             }
         }
         out.into_iter().map(|(_, _, r)| r).collect()
+    }
+
+    /// What a drag from glyph `anchor` to glyph `head` selects by visual rows, as Preview selects
+    /// it, where reading order between them would not follow the rows: on one row, the row's
+    /// glyphs from one end to the other, as [`Self::glyphs_in`] takes them; over several, the rest
+    /// of the top row from the upper end, the rows between and the bottom row up to the lower end.
+    ///
+    /// A table reads column by column, so a drag across its columns would take the first column
+    /// down to the drag's end and the next ones from the top, and a row whose cells came apart
+    /// reads its last cells after the table. Rows are used when reading order strays above or
+    /// below the rows the drag covers, or when the drag ends in another column than it started
+    /// in: the two glyphs' lines don't overlap side by side, or the pointer, at `head_x` (view
+    /// space) when known, ended past the end of both of them. `None` otherwise
+    /// (running text, a drag down one article or table column): the reading-order range is the
+    /// answer.
+    pub fn visual_between(&self, anchor: usize, head: usize, head_x: Option<f32>) -> Option<Vec<usize>> {
+        let (a, h) = (self.glyphs.get(anchor)?, self.glyphs.get(head)?);
+        if self.line_of.get(anchor)? == self.line_of.get(head)? {
+            return None;
+        }
+        let centre = |g: &TextGlyph| (g.rect[1] + g.rect[3]) / 2.0;
+        let (upper, lower) = if centre(a) <= centre(h) { (a, h) } else { (h, a) };
+        let (top, bottom) = (upper.rect[1].min(lower.rect[1]), upper.rect[3].max(lower.rect[3]));
+        let range = self.glyphs.get(anchor.min(head)..=anchor.max(head))?;
+        let strays = !range.iter().all(|g| (top..=bottom).contains(&centre(g)));
+        // One row: each one's centre lies within the other's height.
+        let within = |y: f32, g: &TextGlyph| (g.rect[1]..=g.rect[3]).contains(&y);
+        let one_row = within(centre(upper), lower) && within(centre(lower), upper);
+        let spans = self.line_span(anchor).zip(self.line_span(head));
+        // From the anchor to where the pointer ended (or the head glyph), across a gutter no text
+        // of these rows crosses: another column. Word gaps in a column, however wide a justified
+        // line spreads them, are crossed by the other rows' text.
+        let to_x = head_x.unwrap_or((h.rect[0] + h.rect[2]) / 2.0);
+        let lh = a.rect[3] - a.rect[1];
+        let reach = lh * GUTTER_ROWS;
+        let other_column = self.gutter_between((a.rect[0] + a.rect[2]) / 2.0, to_x, top - reach, bottom + reach, lh);
+        if !strays && (one_row || !other_column) {
+            return None;
+        }
+        let picked = if one_row {
+            self.glyphs_in([a.rect[0].min(h.rect[0]), top, a.rect[2].max(h.rect[2]), bottom])
+        } else {
+            // Rows run left to right from the upper end; other writing keeps reading order.
+            let ltr = |g: &TextGlyph| g.direction[0] > 0.0 && g.direction[1].abs() <= WORD_GAP && !g.text.chars().any(is_rtl);
+            if !ltr(upper) || !ltr(lower) {
+                return None;
+            }
+            // The rows take only lines reaching into the columns the drag went through: none left
+            // of everywhere it has been (the column beside a right-hand one), and, when it stayed
+            // in one column (reading order only strayed, as when a justified line's last word is
+            // read late), none right of it either. Across columns, rows run on to their end.
+            let ((a0, a1), (b0, b1)) = spans?;
+            let pointer = head_x.filter(|x| x.is_finite());
+            let left = a0.min(b0).min(pointer.unwrap_or(f32::INFINITY));
+            let right = if other_column { f32::INFINITY } else { a1.max(b1).max(pointer.unwrap_or(f32::NEG_INFINITY)) };
+            let mut lines: BTreeMap<u32, (f32, f32)> = BTreeMap::new();
+            for (g, &l) in self.glyphs.iter().zip(&self.line_of) {
+                if (top..=bottom).contains(&centre(g)) {
+                    let span = lines.entry(l).or_insert((f32::INFINITY, f32::NEG_INFINITY));
+                    *span = (span.0.min(g.rect[0]), span.1.max(g.rect[2]));
+                }
+            }
+            let in_column = |l: u32| lines.get(&l).is_some_and(|&(l0, l1)| l0.max(left) < l1.min(right));
+            let wanted = |(g, &l): (&TextGlyph, &u32)| {
+                let (cx, cy) = ((g.rect[0] + g.rect[2]) / 2.0, centre(g));
+                let on_top_row = cy <= upper.rect[3];
+                let on_bottom_row = cy >= lower.rect[1];
+                (top..=bottom).contains(&cy) && (!on_top_row || cx >= upper.rect[0]) && (!on_bottom_row || cx <= lower.rect[2]) && in_column(l)
+            };
+            self.glyphs.iter().zip(&self.line_of).enumerate().filter(|(_, gl)| wanted(*gl)).map(|(i, _)| i).collect()
+        };
+        // The same glyphs as reading order, in running text: its text is the better copy. In a
+        // table (pieces side by side on a row) the rows give the copy its row-by-row order.
+        let (lo, hi) = (anchor.min(head), anchor.max(head));
+        let same = picked.first() == Some(&lo) && picked.last() == Some(&hi) && picked.len() == hi - lo + 1;
+        if same && !self.side_by_side(&picked) {
+            return None;
+        }
+        (!picked.is_empty()).then_some(picked)
+    }
+
+    /// Whether two of the lines `glyphs` fall on sit side by side on one row, as table cells do.
+    /// Only the first [`SIDE_BY_SIDE_LINES`] lines are compared.
+    fn side_by_side(&self, glyphs: &[usize]) -> bool {
+        let mut lines: Vec<(u32, [f32; 4])> = Vec::new();
+        for &i in glyphs {
+            let (Some(g), Some(&l)) = (self.glyphs.get(i), self.line_of.get(i)) else { continue };
+            if let Some((last, bb)) = lines.last_mut()
+                && *last == l
+            {
+                union(bb, &g.rect);
+            } else if lines.len() >= SIDE_BY_SIDE_LINES {
+                break;
+            } else {
+                lines.push((l, g.rect));
+            }
+        }
+        lines.iter().enumerate().any(|(k, (_, a))| {
+            lines.iter().skip(k + 1).any(|(_, b)| {
+                let (ca, cb) = ((a[1] + a[3]) / 2.0, (b[1] + b[3]) / 2.0);
+                (b[1]..=b[3]).contains(&ca) && (a[1]..=a[3]).contains(&cb)
+            })
+        })
+    }
+
+    /// Whether some vertical strip at least `width` wide between `x0` and `x1` (either order) is
+    /// crossed by no glyph whose centre lies between `top` and `bottom`.
+    fn gutter_between(&self, x0: f32, x1: f32, top: f32, bottom: f32, width: f32) -> bool {
+        let (lo, hi) = (x0.min(x1), x0.max(x1));
+        if !(hi - lo >= width && width > 0.0) {
+            return false;
+        }
+        let mut spans: Vec<(f32, f32)> = self
+            .glyphs
+            .iter()
+            .filter(|g| (top..=bottom).contains(&((g.rect[1] + g.rect[3]) / 2.0)) && g.rect[2] > lo && g.rect[0] < hi)
+            .map(|g| (g.rect[0], g.rect[2]))
+            .collect();
+        spans.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut covered = lo;
+        for (s0, s1) in spans {
+            if s0 - covered >= width {
+                return true;
+            }
+            covered = covered.max(s1);
+        }
+        hi - covered >= width
+    }
+
+    /// The left and right edges of the line glyph `i` is on.
+    fn line_span(&self, i: usize) -> Option<(f32, f32)> {
+        let (first, last) = self.line_at(i)?;
+        let line = self.glyphs.get(first..=last)?;
+        Some(line.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(x0, x1), g| (x0.min(g.rect[0]), x1.max(g.rect[2]))))
     }
 
     /// The glyphs whose centre lies inside `rect` (view space, corners in either order), in
@@ -938,6 +1080,9 @@ struct Seg {
     extra: Option<Box<SegExtra>>,
     bbox: [f32; 4],
     h: f32,
+    /// The right edge of its visible glyphs; the box may reach further with trailing spaces.
+    /// Negative infinity when every glyph is blank.
+    ink: f32,
 }
 
 #[derive(Default)]
@@ -946,8 +1091,16 @@ struct SegExtra {
 }
 
 impl Seg {
-    fn new(first: Run, bbox: [f32; 4], h: f32) -> Self {
-        Seg { first, extra: None, bbox, h }
+    fn new(first: Run, bbox: [f32; 4], h: f32, ink: f32) -> Self {
+        Seg { first, extra: None, bbox, h, ink }
+    }
+
+    /// Whether this segment is a table cell padded with spaces towards `next`, the next cell on
+    /// its baseline: a report generator lays rows out in fixed-width fields this way (see
+    /// [`PADDED_FIELD`]).
+    fn padded_towards(&self, next: &Seg, h: f32) -> bool {
+        let gap = next.bbox[0] - self.bbox[2];
+        self.ink.is_finite() && self.bbox[2] - self.ink >= h * PADDED_FIELD && (0.0..h * PADDED_REACH).contains(&gap)
     }
 
     fn cy(&self) -> f32 {
@@ -961,6 +1114,7 @@ impl Seg {
     fn merge(&mut self, other: Seg) {
         union(&mut self.bbox, &other.bbox);
         self.h = self.h.max(other.h);
+        self.ink = self.ink.max(other.ink);
         let extra = self.extra.get_or_insert_with(Default::default);
         extra.more.push(other.first);
         if let Some(o) = other.extra {
@@ -969,6 +1123,19 @@ impl Seg {
     }
 }
 
+/// A gutter between columns runs down past the rows a drag covers: it is looked for over this many
+/// line heights above and below them too, where the column's other lines cross the wide gaps a
+/// justified line can leave between two words.
+const GUTTER_ROWS: f32 = 4.0;
+/// Lines a selection compares pairwise to tell a table from running text.
+const SIDE_BY_SIDE_LINES: usize = 256;
+/// A segment whose box runs on past its last visible glyph by this many line heights of spaces is
+/// a padded table cell, and the next cell on its baseline belongs to the same row if it starts
+/// within [`PADDED_REACH`] line heights of the padding. Without this, a row whose padding stops
+/// short of the next cell reads that cell after the whole table, and a drag along the row selects
+/// everything between.
+const PADDED_FIELD: f32 = 2.0;
+const PADDED_REACH: f32 = 8.0;
 /// Two glyphs of different runs that overlap by more than this fraction of the line height collide.
 const RUN_COLLISION: f32 = 0.25;
 /// A run that starts inside the runs before it by more than this fraction of the line height starts a new word.
@@ -1402,7 +1569,8 @@ fn union(a: &mut [f32; 4], b: &[f32; 4]) {
 /// Heuristics (documented so they can be tuned and tested; plan/architecture.md §8):
 /// 1. *Segments:* consecutive glyphs (content order) on one baseline with no column-sized gap.
 ///    A smaller glyph right next to the previous one (a sub- or superscript) stays in the segment.
-///    Segments on the same baseline that nearly touch are merged (text drawn out of order).
+///    Segments on the same baseline that nearly touch are merged (text drawn out of order), and so
+///    is a table cell padded with spaces with the next cell of its row ([`PADDED_FIELD`]).
 /// 2. *Blocks:* segments stacked with line-sized gaps and overlapping horizontally.
 /// 3. *Block order:* repeatedly take the top-most remaining block, preferring a block to its left
 ///    that overlaps it vertically (so columns read left, then right).
@@ -1467,9 +1635,13 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
             s.first.end = i + 1;
             union(&mut s.bbox, &g);
             s.h = s.h.max(height(i));
+            if !glyphs[i].text.trim().is_empty() {
+                s.ink = s.ink.max(g[2]);
+            }
             furthest_progress = furthest_progress.max((g[0] - run_start_x).abs()).max((g[2] - run_start_x).abs());
         } else {
-            segs.push(Seg::new(Run { start: i, end: i + 1 }, g, height(i)));
+            let ink = if glyphs[i].text.trim().is_empty() { f32::NEG_INFINITY } else { g[2] };
+            segs.push(Seg::new(Run { start: i, end: i + 1 }, g, height(i), ink));
             run_start_x = g[0];
             furthest_progress = 0.0;
         }
@@ -1518,7 +1690,7 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
         kept_runs
     };
     segs.truncate(retained);
-    // Merge same-baseline segments that nearly touch.
+    // Merge same-baseline segments that nearly touch, and a padded cell with the next of its row.
     let mut merged = true;
     while merged {
         merged = false;
@@ -1530,7 +1702,8 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
                 let (sa, sb) = (&segs[a], &segs[b]);
                 let h = sa.h.min(sb.h);
                 let gap = (sb.bbox[0] - sa.bbox[2]).max(sa.bbox[0] - sb.bbox[2]);
-                if (sa.cy() - sb.cy()).abs() < h * 0.3 && (sa.h / sb.h - 1.0).abs() < 0.35 && gap < h * 1.2 {
+                let joined = gap < h * 1.2 || sa.padded_towards(sb, h);
+                if (sa.cy() - sb.cy()).abs() < h * 0.3 && (sa.h / sb.h - 1.0).abs() < 0.35 && joined {
                     let sb = segs.remove(b);
                     let a = if b < a { a - 1 } else { a };
                     segs[a].merge(sb);
@@ -2710,6 +2883,152 @@ mod tests {
         let part = t.glyphs_in([0.0, 25.0, 31.0, 33.0]);
         assert_eq!(t.column_text(&part), "Appl");
         assert_eq!(t.glyph_rects(&part), vec![[10.0, 24.0, 34.0, 34.0]]);
+    }
+
+    /// A drag along one row of a table that reads column by column selects that row, not the
+    /// rest of the first column and the top of the second.
+    #[test]
+    fn a_drag_along_one_table_row_selects_that_row() {
+        let t = table();
+        let (apple, two) = (4, 17);
+        assert_eq!(t.text_of(apple..two + 1), "Apple\nPear\nQty\n12", "reading order detours through the columns");
+        for (anchor, head) in [(apple, two), (two, apple)] {
+            let row = t.visual_between(anchor, head, None).expect("one row");
+            assert_eq!(t.column_text(&row), "Apple\t12");
+            assert_eq!(t.glyph_rects(&row).len(), 2, "one highlight per cell");
+        }
+        // Part of a row: from inside "Apple" to the "1" of "12".
+        let part = t.visual_between(6, 16, None).expect("one row");
+        assert_eq!(t.column_text(&part), "ple\t1");
+    }
+
+    /// A drag over several rows of that table selects by rows too: the rest of the top row from
+    /// where it started, then the bottom row up to where it ends.
+    #[test]
+    fn a_drag_over_table_rows_selects_those_rows() {
+        let t = table();
+        let (name, two) = (0, 17);
+        assert_eq!(t.text_of(name..two + 1), "Name\nApple\nPear\nQty\n12", "reading order takes \"Pear\" from the row below");
+        for (anchor, head) in [(name, two), (two, name)] {
+            let rows = t.visual_between(anchor, head, None).expect("rows");
+            assert_eq!(t.column_text(&rows), "Name\tQty\nApple\t12");
+        }
+        // From inside "Name" ("me") to the "1" of "12": the start of the top row and the end of
+        // the bottom one are left out.
+        let rows = t.visual_between(2, 16, None).expect("rows");
+        assert_eq!(t.column_text(&rows), "me\tQty\nApple\t1");
+        // Over three rows, ending in the other column: the middle row comes whole, though reading
+        // order (down the first column, then the second) would cover the same glyphs.
+        let rows = t.visual_between(1, 18, None).expect("rows");
+        assert_eq!(t.column_text(&rows), "ame\tQty\nApple\t12\nPear\t7");
+        // Down the second column only, reading order stays.
+        assert_eq!(t.visual_between(13, 18, None), None, "from \"Qty\" down to \"7\"");
+    }
+
+    /// A drag down the first column whose pointer ends out to the right, past the text of its
+    /// last row, crosses the columns: the rows. With the pointer over the column, reading order.
+    #[test]
+    fn a_pointer_ending_beside_the_column_takes_the_rows() {
+        let t = table();
+        let pear = 9;
+        assert_eq!(t.visual_between(0, pear, Some(20.0)), None, "over the first column");
+        let rows = t.visual_between(0, pear, Some(150.0)).expect("rows");
+        assert_eq!(t.column_text(&rows), "Name\tQty\nApple\t12\nP");
+        // Running text: the rows are reading order's own glyphs, so reading order stays.
+        let mut v = Vec::new();
+        word(&mut v, "Heading", 10.0, 10.0, 6.0);
+        word(&mut v, "A longer line of text", 10.0, 22.0, 6.0);
+        let t = layout(v);
+        assert_eq!(t.visual_between(0, 20, Some(200.0)), None);
+    }
+
+    /// Side-by-side columns (a bilingual contract): a drag in the right column that ends on a list
+    /// marker hanging left of its text, past a gap like a gutter, still takes nothing from the left
+    /// column, where it never went.
+    #[test]
+    fn a_drag_in_the_right_column_takes_nothing_from_the_left() {
+        let mut v = Vec::new();
+        for (row, (left, right)) in [("Uno dos", "One two"), ("Tres cuatro", "Three four"), ("Cinco seis", "Five six")].into_iter().enumerate() {
+            let y = 10.0 + row as f32 * 12.0;
+            word(&mut v, left, 10.0, y, 6.0);
+            word(&mut v, right, 230.0, y, 6.0);
+        }
+        word(&mut v, "II.", 200.0, 46.0, 6.0);
+        word(&mut v, "Seven", 230.0, 46.0, 6.0);
+        let t = layout(v);
+        let one = (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 230.0 && t.glyphs[i].rect[1] == 10.0).expect("\"One\"");
+        let marker = (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 200.0).expect("\"II.\"");
+        let selected = t.visual_between(one, marker, Some(203.0)).unwrap_or_else(|| (one.min(marker)..=one.max(marker)).collect());
+        assert!(selected.iter().all(|&i| t.glyphs[i].rect[0] >= 200.0), "{:?}", t.column_text(&selected));
+    }
+
+    /// A justified line leaves a gap between two words wider than a column gutter. Over the rows of
+    /// a drag it may be crossed by nothing, but the column's other lines cross it.
+    #[test]
+    fn a_justified_gap_is_not_a_gutter() {
+        let mut v = Vec::new();
+        for row in 0..8 {
+            word(&mut v, "Some words of a line", 10.0, 10.0 + row as f32 * 12.0, 6.0);
+        }
+        // Row 8: "Wide" then, 60 units on, "gap".
+        word(&mut v, "Wide", 10.0, 106.0, 6.0);
+        word(&mut v, "gap", 94.0, 106.0, 6.0);
+        let t = layout(v);
+        assert!(!t.gutter_between(20.0, 100.0, 106.0 - 40.0, 116.0 + 40.0, 10.0), "the rows above cross it");
+        assert!(t.gutter_between(20.0, 100.0, 106.0, 116.0, 10.0), "on its own row nothing does");
+        assert!(t.gutter_between(20.0, 200.0, 0.0, 200.0, 10.0), "past the text's right edge");
+    }
+
+    /// Reading order stays the answer on one line, down one column, and where it doesn't leave
+    /// the rows the drag covers.
+    #[test]
+    fn a_drag_that_reading_order_already_covers_keeps_it() {
+        let t = table();
+        assert_eq!(t.visual_between(4, 8, None), None, "within \"Apple\"");
+        assert_eq!(t.visual_between(0, 10, None), None, "down the first column, from \"Name\" into \"Pear\"");
+        assert_eq!(t.visual_between(4, usize::MAX, None), None, "past the text");
+        // One row of two cells: the first cell, then the second, reading order stays on the row.
+        let mut v = Vec::new();
+        word(&mut v, "Left", 10.0, 10.0, 6.0);
+        word(&mut v, "Right", 100.0, 10.0, 6.0);
+        let t = layout(v);
+        assert_eq!(t.plain_text(), "Left\nRight");
+        assert_eq!(t.visual_between(0, 8, None), None);
+    }
+
+    /// A report generator pads each cell of a row with spaces. A cell whose padding stops short of
+    /// the next cell (here 42 units, past the usual 3-height gap) still reads as one row with it,
+    /// instead of the next cell coming after the whole table.
+    #[test]
+    fn a_cell_padded_with_spaces_joins_the_next_cell_of_its_row() {
+        let line_of_cells = |cell: &str, next_x: f32| {
+            let mut v = Vec::new();
+            word(&mut v, cell, 10.0, 10.0, 6.0);
+            word(&mut v, "9.00", next_x, 10.0, 6.0);
+            let t = layout(v);
+            let last = t.glyphs.len() - 1;
+            t.line_of[0] == t.line_of[last]
+        };
+        assert!(line_of_cells("Item    ", 100.0), "padded to x 58, the amount 42 further on");
+        assert!(!line_of_cells("Item", 100.0), "unpadded, the gap is a column gap");
+        assert!(!line_of_cells("Item    ", 160.0), "padded, but the next cell is too far");
+    }
+
+    /// Past the end of a short row, the pointer stays on that row: a longer row just below,
+    /// nearer by the old distance, used to take the drag's end into it.
+    #[test]
+    fn a_point_level_with_a_row_takes_that_rows_nearest_glyph() {
+        let mut v = Vec::new();
+        word(&mut v, "Short", 10.0, 10.0, 6.0);
+        word(&mut v, "A much longer row", 10.0, 22.0, 6.0);
+        let t = layout(v);
+        // Level with "Short" (y 10..20), far right of it, above the end of the long row.
+        assert_eq!(t.nearest(100.0, 15.0), Some(4), "the \"t\" of \"Short\"");
+        // In the gap between the rows the nearer glyph still wins.
+        let below = t.nearest(100.0, 21.5).and_then(|i| t.line_of.get(i).copied());
+        assert_eq!(below, Some(1), "just above the long row, nearer to it than to the short one");
+        assert_eq!(PageText::default().nearest(0.0, 0.0), None);
+        assert!(t.nearest(f32::NAN, 15.0).is_some(), "a NaN point still answers, never panics");
     }
 
     /// A rectangle that misses every glyph, or is not a number, selects nothing.

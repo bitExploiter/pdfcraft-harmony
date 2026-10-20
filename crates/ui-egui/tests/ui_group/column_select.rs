@@ -82,9 +82,10 @@ fn top_two_rows(h: &Harness<'static, PdfCraftApp>) -> (Pos2, Pos2) {
 fn alt_drag_selects_only_the_text_inside_the_rectangle() {
     let mut h = harness(|_| {});
     let (from, to) = top_two_rows(&h);
-    // A plain drag selects in reading order: everything from "Name" to "12".
+    // A plain drag selects the rows it covers. Reading order, column by column, would take "Pear"
+    // from the row below on its way from "Name" to "12".
     drag(&mut h, from, to, Modifiers::NONE);
-    assert_eq!(text(&h).as_deref(), Some("Name\nApple\nPear\nQty\n12"));
+    assert_eq!(text(&h).as_deref(), Some("Name\tQty\nApple\t12"));
     h.run_steps(60);
     // Alt (Option on macOS) at the start of the drag: only the rectangle, row by row.
     drag(&mut h, from, to, Modifiers::ALT);
@@ -145,4 +146,47 @@ fn alt_drag_with_the_highlighter_marks_only_the_column() {
     let doc = app.session.get(app.views[0].id).unwrap();
     let marks: Vec<(&str, usize)> = doc.info.annotations.iter().map(|a| (a.subtype.as_str(), a.quads.len())).collect();
     assert_eq!(marks, [("Highlight", 4)], "Name, Qty, Apple and 12, each its own quad");
+}
+
+/// A plain drag along one row of a table that reads column by column selects that row, as
+/// Preview does, not the rest of the first column and the top of the second between its ends.
+/// The highlighter marks the same cells.
+#[test]
+fn a_plain_drag_along_one_table_row_selects_only_that_row() {
+    let mut h = harness(|_| {});
+    // From just left of "Apple" to past "12", level with both.
+    let (from, to) = (glyph(&h, 4) - vec2(4.0, 0.0), glyph(&h, 17) + vec2(12.0, 0.0));
+    for (a, b) in [(from, to), (to, from)] {
+        h.key_press(egui::Key::Escape);
+        h.run_steps(60);
+        drag(&mut h, a, b, Modifiers::NONE);
+        assert_eq!(text(&h).as_deref(), Some("Apple\t12"));
+    }
+
+    let mut h = harness(|app| assert!(app.execute("comment.highlight")));
+    // The highlighter starts on text: the centre of "A".
+    let (from, to) = (glyph(&h, 4), glyph(&h, 17) + vec2(12.0, 0.0));
+    drag(&mut h, from, to, Modifiers::NONE);
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    let marks: Vec<(&str, usize)> = doc.info.annotations.iter().map(|a| (a.subtype.as_str(), a.quads.len())).collect();
+    assert_eq!(marks, [("Highlight", 2)], "Apple and 12, each its own quad");
+}
+
+/// A drag down from "Name" that ends in the gap between the columns, level with "Pear", crosses
+/// into the rows: the nearest glyph is still in the first column, but the pointer is not.
+#[test]
+fn a_drag_ending_between_the_columns_selects_the_rows() {
+    let mut h = harness(|_| {});
+    let (from, pear) = (glyph(&h, 0) - vec2(4.0, 0.0), glyph(&h, 12));
+    // A little right of "Pear", well short of "7".
+    let gap = pear + vec2((glyph(&h, 18).x - pear.x) / 4.0, 0.0);
+    drag(&mut h, from, gap, Modifiers::NONE);
+    assert_eq!(text(&h).as_deref(), Some("Name\tQty\nApple\t12\nPear"));
+    // Over the first column, the drag stays in it.
+    h.key_press(egui::Key::Escape);
+    h.run_steps(60);
+    drag(&mut h, from, pear, Modifiers::NONE);
+    assert_eq!(text(&h).as_deref(), Some("Name\nApple\nPear"));
 }

@@ -236,8 +236,10 @@ struct Selection {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Span {
-    /// Reading order, between two glyph indices.
-    Run { anchor: usize, head: usize },
+    /// Reading order, between two glyph indices. `head_x` is where a drag's pointer ended (page
+    /// view space), which may lie well past the head glyph, as in the empty end of a table row;
+    /// `None` when the head came from a click or a command.
+    Run { anchor: usize, head: usize, head_x: Option<f32> },
     /// Column select (#740): the glyphs inside a rectangle in page view space, drawn from the
     /// corner the drag started at (`rect[0..2]`) to the pointer (`rect[2..4]`).
     Column { rect: [f32; 4] },
@@ -245,7 +247,7 @@ enum Span {
 
 impl Selection {
     fn run(page: usize, anchor: usize, head: usize) -> Self {
-        Self { page, span: Span::Run { anchor, head } }
+        Self { page, span: Span::Run { anchor, head, head_x: None } }
     }
 
     fn range(anchor: usize, head: usize) -> Range<usize> {
@@ -255,7 +257,11 @@ impl Selection {
     /// One rectangle per selected piece of a line, in view space (highlighting, markup quads).
     fn rects(&self, text: &PageText) -> Vec<[f32; 4]> {
         match self.span {
-            Span::Run { anchor, head } => text.line_rects(Self::range(anchor, head)),
+            // A drag along table rows selects those rows, not reading order's detour.
+            Span::Run { anchor, head, head_x } => match text.visual_between(anchor, head, head_x) {
+                Some(row) => text.glyph_rects(&row),
+                None => text.line_rects(Self::range(anchor, head)),
+            },
             Span::Column { rect } => text.glyph_rects(&text.glyphs_in(rect)),
         }
     }
@@ -263,7 +269,10 @@ impl Selection {
     /// The selected text, as Copy puts it on the clipboard.
     fn text(&self, text: &PageText) -> String {
         match self.span {
-            Span::Run { anchor, head } => text.text_of(Self::range(anchor, head)),
+            Span::Run { anchor, head, head_x } => match text.visual_between(anchor, head, head_x) {
+                Some(row) => text.column_text(&row),
+                None => text.text_of(Self::range(anchor, head)),
+            },
             Span::Column { rect } => text.column_text(&text.glyphs_in(rect)),
         }
     }
@@ -3367,7 +3376,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                             // After a multi-click the drag extends by its unit (#1685), as in
                             // Acrobat and browsers: whole words or lines, always keeping the one
                             // clicked, which holds the anchor whichever way the drag went.
-                            Span::Run { anchor, head } if clicks >= 2 => {
+                            Span::Run { anchor, head, .. } if clicks >= 2 => {
                                 if let Some(h) = text.nearest(vx, vy)
                                     && let Some((first, last)) = click_unit(&text, clicks, *anchor)
                                 {
@@ -3375,9 +3384,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                                     (*anchor, *head) = if to_first < first { (last, to_first) } else { (first, to_last.max(last)) };
                                 }
                             }
-                            Span::Run { head, .. } => {
+                            Span::Run { head, head_x, .. } => {
                                 if let Some(h) = text.nearest(vx, vy) {
                                     *head = h;
+                                    *head_x = Some(vx).filter(|x| x.is_finite());
                                 }
                             }
                             Span::Column { rect } => {
@@ -3422,7 +3432,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                         // span pages) a click clears the selection.
                         let shift = ui.input(|inp| inp.modifiers.shift);
                         match (view.selection.as_mut().filter(|s| shift && s.page == i).map(|s| &mut s.span), text.nearest(vx, vy)) {
-                            (Some(Span::Run { head, .. }), Some(h)) => *head = h,
+                            (Some(Span::Run { head, head_x, .. }), Some(h)) => {
+                                *head = h;
+                                *head_x = Some(vx).filter(|x| x.is_finite());
+                            }
                             _ => view.selection = None,
                         }
                     }
