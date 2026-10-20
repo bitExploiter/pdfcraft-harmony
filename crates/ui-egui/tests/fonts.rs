@@ -198,7 +198,8 @@ fn system_fallback_covers_telugu() {
 /// always ships Sinhala Sangam MN and Tamil Sangam MN, so there the test never skips.
 #[test]
 fn system_fallback_covers_sinhala_and_tamil() {
-    for (name, text) in [(theme::SYSTEM_SINHALA_FALLBACK, "ශ්‍රී ලංකා ගොනුව"), (theme::SYSTEM_TAMIL_FALLBACK, "தமிழ் கோப்பு")]
+    for (name, text) in
+        [(theme::SYSTEM_SINHALA_FALLBACK, "ශ්‍රී ලංකා ගොනුව"), (theme::SYSTEM_TAMIL_FALLBACK, "தமிழ் கோப்பு"), (theme::SYSTEM_THAANA_FALLBACK, "ދިވެހި ފައިލު")]
     {
         assert!(!theme::font_definitions().font_data.contains_key(name));
         let defs = theme::installed_font_definitions(theme::CjkPreference::Default);
@@ -216,6 +217,35 @@ fn system_fallback_covers_sinhala_and_tamil() {
             assert!(fonts.has_glyphs(&id, text), "{id:?} lacks {text}");
         }
         assert!(layout_widths(&mut fonts, text).iter().all(|w| w.is_finite() && *w > 0.0));
+    }
+}
+
+/// Right-to-left text with marks keeps one glyph per character, so a cursor taken from a click
+/// stays inside the text. epaint emitted a right-to-left run's characters twice and inserted a
+/// dotted circle before a lone mark (vendor/epaint patches): `ރަ އިވަރު`, 9 characters, laid
+/// out as 16 glyphs, and double-clicking near its end panicked in egui's word selection.
+#[test]
+fn right_to_left_text_keeps_one_glyph_per_character() {
+    use egui::epaint::text::{LayoutJob, TextFormat};
+    const TEXTS: [&str; 8] = ["ރަ އިވަރު", "ދިވެހި ބަސް", "ަ", "ރަ ަ", "ރަ\nއިވަރު", "abc ރަ 12", "مَرْحَبًا بالعالم", "שָׁלוֹם עוֹלָם"];
+    // The embedded faces alone (no Thaana glyphs), then with installed fallbacks (MV Boli on Windows).
+    for defs in [theme::font_definitions(), theme::installed_font_definitions(theme::CjkPreference::Default)] {
+        let mut fonts = Fonts::new(TextOptions::default(), defs);
+        for text in TEXTS {
+            let mut job = LayoutJob::default();
+            job.append(text, 0.0, TextFormat { font_id: FontId::proportional(20.0), color: Color32::BLACK, ..Default::default() });
+            let galley = fonts.with_pixels_per_point(1.0).layout_job(job);
+            let chars = text.chars().count();
+            let glyphs: usize = galley.rows.iter().map(|r| r.row.glyphs.len() + usize::from(r.ends_with_newline)).sum();
+            assert_eq!(glyphs, chars, "{text:?}");
+            let size = galley.size();
+            for y in [-2.0, size.y / 2.0, size.y + 2.0] {
+                for x in 0..=(size.x as i32 + 4) {
+                    let at = galley.cursor_from_pos(egui::vec2(x as f32 - 2.0, y)).index.0;
+                    assert!(at <= chars, "{text:?}: a click at ({x}, {y}) gives {at} of {chars}");
+                }
+            }
+        }
     }
 }
 
