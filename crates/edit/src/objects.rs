@@ -92,9 +92,12 @@ pub fn editable_objects(doc: &Document, page: usize) -> Result<Vec<EditableObjec
     if objects.len() > MAX_PAGE_OBJECTS {
         return Err(EditError::Invalid("this page has too many objects to select together".into()));
     }
-    if objects.iter().any(|o| !valid_rect(o.rect)) {
-        return Err(EditError::Invalid("an object has invalid geometry".into()));
-    }
+    // A single degenerate placement — a zero-width box from one undecodable glyph, say — must not
+    // make the whole page unselectable and unmovable. Such an object can't be hit or dragged
+    // anyway, so drop it from the inventory instead of refusing the page. Per-kind indexes come
+    // from the listings above, so dropping one here keeps every other object's index, and
+    // move_objects (which rebuilds this same inventory) stays consistent.
+    objects.retain(|o| valid_rect(o.rect));
     Ok(objects)
 }
 

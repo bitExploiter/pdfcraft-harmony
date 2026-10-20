@@ -3513,6 +3513,60 @@ fn group_moves_of_shared_added_streams_change_only_the_selected_page() {
     assert_ne!(added::list_added(&doc).iter().find(|a| a.page == 0).unwrap().obj, added::list_added(&doc).iter().find(|a| a.page == 1).unwrap().obj);
 }
 
+/// A single zero-geometry placement — here a glyph forced to zero advance, as an undecodable
+/// subset glyph produces in the wild — must not make the whole page refuse selection, listing and
+/// moving. `editable_objects` drops it and keeps the rest; a valid neighbour still moves even
+/// though the junk object stays on the page (the move re-inventories the result).
+#[test]
+fn a_zero_geometry_object_does_not_block_selecting_or_moving_the_page() {
+    let page = stream("", "BT /F1 12 Tf 72 700 Td (Hello) Tj ET BT /F2 12 Tf 240 280 Td (A) Tj ET");
+    let mut doc = build(&[
+        "<< /Type /Catalog /Pages 2 0 R >>",
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>",
+        &page,
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 65 /LastChar 65 /Widths [0] >>",
+    ]);
+    // Precondition: the (A) run really is zero-width, so the test exercises the degenerate path.
+    assert!(
+        text::text_lines(&doc, 0).unwrap().iter().any(|l| (l.rect[2] - l.rect[0]).abs() < 1e-9),
+        "the synthetic (A) run must be zero-width for this regression"
+    );
+    // Listing no longer errors; the zero-width run is excluded, the valid paragraph remains.
+    let objects = editable_objects(&doc, 0).unwrap();
+    assert!(objects.iter().all(|o| o.rect[2] > o.rect[0] && o.rect[3] > o.rect[1]), "every listed object has a real rect: {objects:?}");
+    let hello: Vec<_> = objects.iter().filter(|o| o.text.as_deref() == Some("Hello")).collect();
+    assert_eq!(hello.len(), 1, "the valid paragraph is still selectable: {objects:?}");
+    assert!(objects.iter().all(|o| o.text.as_deref() != Some("A")), "the zero-width run is not offered: {objects:?}");
+    // And the valid paragraph moves, although the junk object is still on the page.
+    move_objects(&mut doc, 0, &[hello[0].target], [15.0, -20.0]).unwrap();
+}
+
+/// A paragraph inside an `/ActualText` marked-content span can still be moved. A rewrite — and
+/// shaped right-to-left text in particular — wraps its show operators in a `/Span <</ActualText …>>
+/// BDC … EMC` scope, and `text_lines` folds that span's `BDC`/`EMC` into the line's operators. The
+/// group move used to require every owned operator to be a movable show (`patches.len() !=
+/// selected.len()`) and refused the move; only the show operators carry glyphs that move.
+#[test]
+fn a_paragraph_in_an_actualtext_span_can_be_moved() {
+    // /ActualText is UTF-16BE "Hello world"; the Tj shows the same via WinAnsi.
+    let actual = "FEFF00480065006C006C006F00200077006F0072006C0064";
+    let doc = text_page(&format!("/Span << /ActualText <{actual}> >> BDC BT /F1 12 Tf 72 700 Td (Hello world) Tj ET EMC"));
+    let mut doc = reopen(&doc);
+    let before = editable_objects(&doc, 0).unwrap();
+    let obj = before.iter().find(|o| o.text.as_deref() == Some("Hello world")).expect("the paragraph");
+    let (target, rect) = (obj.target, obj.rect);
+    move_objects(&mut doc, 0, &[target], [20.0, -15.0]).unwrap();
+    let after = editable_objects(&reopen(&doc), 0).unwrap();
+    let moved = after.iter().find(|o| o.text.as_deref() == Some("Hello world")).expect("the paragraph survives the move");
+    assert!(
+        (moved.rect[0] - (rect[0] + 20.0)).abs() < 1.0 && (moved.rect[1] - (rect[1] - 15.0)).abs() < 1.0,
+        "moved by the offset: {:?} from {rect:?}",
+        moved.rect
+    );
+}
+
 #[test]
 fn group_moves_handle_added_content_under_inherited_graphics_state() {
     let mut doc = text_page("2 0 0 2 10 20 cm BT /F1 12 Tf 40 250 Td (Native) Tj ET");
