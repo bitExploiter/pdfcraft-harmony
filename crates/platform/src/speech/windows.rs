@@ -12,6 +12,7 @@ use windows::{
 };
 use windows_future::{AsyncStatus, IAsyncOperation};
 
+/// Format a WinRT failure for the speech worker without including document text.
 fn error(e: windows::core::Error) -> String {
     format!("Windows speech: {e}")
 }
@@ -27,6 +28,8 @@ pub(super) struct WindowsSpeech {
 }
 
 impl WindowsSpeech {
+    /// Create worker-local WinRT synthesis/playback handles and isolated completion/error callbacks.
+    /// Disable autoplay and global media-key handling; no speech is started by construction.
     pub fn new() -> Result<Self, String> {
         let synthesizer = SpeechSynthesizer::new().map_err(error)?;
         let player = MediaPlayer::new().map_err(error)?;
@@ -62,6 +65,7 @@ impl WindowsSpeech {
 }
 
 impl Backend for WindowsSpeech {
+    /// Return at most 256 installed Windows voices with their identifiers, names and language tags.
     fn voices(&mut self) -> Result<Vec<Voice>, String> {
         let voices = SpeechSynthesizer::AllVoices().map_err(error)?;
         let n = voices.Size().map_err(error)?;
@@ -80,6 +84,8 @@ impl Backend for WindowsSpeech {
             .collect()
     }
 
+    /// Replace the current chunk, select an installed voice/rate and begin plain-text stream synthesis.
+    /// Use a fresh player so callbacks from an earlier chunk cannot complete the new one.
     fn start(&mut self, text: &str, options: &Options) -> Result<(), String> {
         self.stop()?;
         // A fresh player isolates delayed Ended/Failed callbacks from the previous chunk.
@@ -106,11 +112,13 @@ impl Backend for WindowsSpeech {
         Ok(())
     }
 
+    /// Pause MediaPlayer and retain the pause flag while asynchronous synthesis completes.
     fn pause(&mut self) -> Result<(), String> {
         self.player.Pause().map_err(error)?;
         self.paused = true;
         Ok(())
     }
+    /// Clear the pause flag and play the current stream if synthesis has already completed.
     fn resume(&mut self) -> Result<(), String> {
         self.paused = false;
         if self.stream.is_some() {
@@ -118,6 +126,7 @@ impl Backend for WindowsSpeech {
         }
         Ok(())
     }
+    /// Cancel synthesis, detach/close the audio stream and reset per-chunk playback flags.
     fn stop(&mut self) -> Result<(), String> {
         if let Some(op) = self.synthesis.take() {
             let _ = op.Cancel();
@@ -137,6 +146,7 @@ impl Backend for WindowsSpeech {
         Ok(())
     }
 
+    /// Advance completed synthesis into playback and surface WinRT/audio failures to the worker.
     fn finished(&mut self) -> Result<bool, String> {
         if let Some(message) = self.failure.lock().map_err(|_| "Windows audio state is unavailable")?.take() {
             return Err(message);
@@ -163,6 +173,7 @@ impl Backend for WindowsSpeech {
 }
 
 impl Drop for WindowsSpeech {
+    /// Stop playback and close the WinRT player and synthesizer handles.
     fn drop(&mut self) {
         let _ = self.stop();
         let _ = self.player.Close();
@@ -175,6 +186,7 @@ mod tests {
     use super::*;
     use std::time::{Duration, Instant};
 
+    /// Explicitly verify an installed English voice produces audio at all supported rate extremes.
     #[test]
     #[ignore = "explicit native English synthesis check; requires an installed English Windows voice, no audio device"]
     fn windows_speech_synthesizes_english_to_audio() {
@@ -201,6 +213,7 @@ mod tests {
         synthesizer.Close().unwrap();
     }
 
+    /// Explicitly verify muted Windows playback resumes at the same position and Stop releases its stream.
     #[test]
     #[ignore = "explicit native Windows audio check; requires installed voices and MediaPlayer"]
     fn windows_speech_pause_preserves_position_and_stop_releases_stream() {

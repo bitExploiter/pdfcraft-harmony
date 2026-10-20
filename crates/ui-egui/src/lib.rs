@@ -890,6 +890,7 @@ fn rgb_triple(v: &serde_json::Value) -> Option<[f64; 3]> {
 }
 
 impl PdfCraftApp {
+    /// Create the application state with idle services and no automatic speech playback.
     pub fn new() -> Self {
         Self {
             session: Session::new(),
@@ -1895,6 +1896,7 @@ impl PdfCraftApp {
         }
     }
 
+    /// Close an existing tab, stopping speech tied to its document and updating remaining tab state.
     pub fn close_tab(&mut self, index: usize) {
         if index >= self.views.len() {
             return;
@@ -3123,6 +3125,7 @@ impl eframe::App for PdfCraftApp {
         self.process_picked();
     }
 
+    /// Poll background work and compose the application frame, including dialogs and read-aloud controls.
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         i18n::set_current(i18n::Lang::from_pref(&self.language));

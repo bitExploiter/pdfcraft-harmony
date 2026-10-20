@@ -29,26 +29,33 @@ use serde_json::{Value, json};
 // Keep its audio side effects deterministic and silent without excluding any tool or call.
 struct SilentSpeech;
 impl pdfcraft_platform::speech::Backend for SilentSpeech {
+    /// Return no installed voices so hostile-input checks cannot select a real synthesizer.
     fn voices(&mut self) -> Result<Vec<pdfcraft_platform::speech::Voice>, String> {
         Ok(Vec::new())
     }
+    /// Accept test text without producing sound or invoking a native speech engine.
     fn start(&mut self, _: &str, _: &pdfcraft_platform::speech::Options) -> Result<(), String> {
         Ok(())
     }
+    /// Accept pause requests without touching an audio device.
     fn pause(&mut self) -> Result<(), String> {
         Ok(())
     }
+    /// Accept resume requests without touching an audio device.
     fn resume(&mut self) -> Result<(), String> {
         Ok(())
     }
+    /// Accept cancellation without external side effects.
     fn stop(&mut self) -> Result<(), String> {
         Ok(())
     }
+    /// Report immediate completion for the silent hostile-input backend.
     fn finished(&mut self) -> Result<bool, String> {
         Ok(true)
     }
 }
 
+/// Create an automation session whose injected speech backend cannot produce sound.
 fn silent_automation() -> Automation {
     Automation::new().with_speech_player(pdfcraft_platform::speech::Player::with_backend(Box::new(SilentSpeech)))
 }
@@ -218,6 +225,7 @@ fn guarded(a: &mut Automation, tool: &str, args: &Value) -> std::result::Result<
     }
 }
 
+/// Require every registered tool to return normally for malformed types, ranges and paths.
 #[test]
 fn no_tool_panics_on_hostile_arguments() {
     let root = tmp("args");
@@ -255,6 +263,7 @@ fn no_tool_panics_on_hostile_arguments() {
     assert!(failures.is_empty(), "{} tool call(s) panicked; the first is: {}", failures.len(), failures.first().map_or("", String::as_str));
 }
 
+/// Reject tool paths that traverse outside the configured root, including symlink escapes.
 #[test]
 fn no_tool_escapes_the_root() {
     let base = tmp("escape");

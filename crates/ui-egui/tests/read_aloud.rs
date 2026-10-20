@@ -9,12 +9,14 @@ const PDF:&[u8]=b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 
 
 struct Fake(Arc<Mutex<Vec<String>>>);
 impl Backend for Fake {
+    /// Expose deterministic English/Italian voices without querying native services.
     fn voices(&mut self) -> Result<Vec<Voice>, String> {
         Ok(vec![
             Voice { id: "fake".into(), name: "Test voice".into(), language: "en-US".into() },
             Voice { id: "fake-it".into(), name: "Test Italian voice".into(), language: "it-IT".into() },
         ])
     }
+    /// Record synthetic text and the selected voice instead of producing audio.
     fn start(&mut self, text: &str, options: &Options) -> Result<(), String> {
         self.0.lock().unwrap().push(text.into());
         if let Some(voice) = &options.voice {
@@ -22,23 +24,28 @@ impl Backend for Fake {
         }
         Ok(())
     }
+    /// Record the UI pause request for assertions.
     fn pause(&mut self) -> Result<(), String> {
         self.0.lock().unwrap().push("pause".into());
         Ok(())
     }
+    /// Record the UI resume request without replaying text.
     fn resume(&mut self) -> Result<(), String> {
         self.0.lock().unwrap().push("resume".into());
         Ok(())
     }
+    /// Record playback cancellation without touching an audio device.
     fn stop(&mut self) -> Result<(), String> {
         self.0.lock().unwrap().push("stop".into());
         Ok(())
     }
+    /// Keep the fake chunk active until the test explicitly stops it.
     fn finished(&mut self) -> Result<bool, String> {
         Ok(false)
     }
 }
 
+/// Verify interface language does not override the explicitly selected speech voice.
 #[test]
 fn voice_language_is_independent_of_english_or_italian_interface() {
     for (language, voice, button) in [("it", "fake", "Leggi ad alta voce"), ("en", "fake-it", "Read out loud")] {
@@ -64,6 +71,7 @@ fn voice_language_is_independent_of_english_or_italian_interface() {
     }
 }
 
+/// Drive UI frames until the expected speech state appears, with a five-second deadline.
 fn wait(h: &mut Harness<'static, PdfCraftApp>, state: State) {
     let until = Instant::now() + Duration::from_secs(5);
     loop {
@@ -76,6 +84,7 @@ fn wait(h: &mut Harness<'static, PdfCraftApp>, state: State) {
     }
 }
 
+/// Verify dialog playback controls preserve document bytes and closing the source stops speech.
 #[test]
 fn read_aloud_shell_controls_preserve_the_pdf_and_close_stops_audio() {
     let log = Arc::new(Mutex::new(Vec::new()));
@@ -116,6 +125,7 @@ fn read_aloud_shell_controls_preserve_the_pdf_and_close_stops_audio() {
     wait(&mut h, State::Idle);
 }
 
+/// Reject invalid 1-based page ranges before the injected backend is called.
 #[test]
 fn read_aloud_bad_ranges_do_not_start_audio() {
     let log = Arc::new(Mutex::new(Vec::new()));

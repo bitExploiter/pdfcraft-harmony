@@ -7,6 +7,7 @@ use pdfcraft_automation::mcp::McpServer;
 use pdfcraft_automation::{Automation, Content, ToolError, tools};
 use serde_json::{Value, json};
 
+/// Verify read-only text preparation, page/input limits and cancellation without initializing audio.
 #[test]
 fn read_aloud_prepares_bounded_text_without_changing_or_speaking_the_pdf() {
     let dir = workdir("read-aloud-prepare");
@@ -39,6 +40,7 @@ fn read_aloud_prepares_bounded_text_without_changing_or_speaking_the_pdf() {
     assert!(source.extract_cancellable(&std::sync::atomic::AtomicBool::new(true)).unwrap_err().contains("cancelled"));
 }
 
+/// Verify assistive reading remains available on a protected PDF that disallows text copying.
 #[test]
 fn read_aloud_accessibility_reading_is_allowed_when_copying_is_forbidden() {
     let dir = workdir("read-aloud-protected");
@@ -53,6 +55,7 @@ fn read_aloud_accessibility_reading_is_allowed_when_copying_is_forbidden() {
     assert!(!b.session().get(pdfcraft_engine::DocId(re)).unwrap().dirty);
 }
 
+/// Exercise voice/rate forwarding, pause/resume and source invalidation through silent tool calls.
 #[test]
 fn read_aloud_playback_tools_stop_on_edits_and_document_close() {
     use pdfcraft_platform::speech::{Backend, Options, Player, Voice};
@@ -60,33 +63,40 @@ fn read_aloud_playback_tools_stop_on_edits_and_document_close() {
     use std::time::{Duration, Instant};
     struct Fake(Arc<Mutex<Vec<String>>>);
     impl Backend for Fake {
+        /// Expose deterministic English and Italian test voices without querying the operating system.
         fn voices(&mut self) -> std::result::Result<Vec<Voice>, String> {
             Ok(vec![
                 Voice { id: "fake".into(), name: "Test English".into(), language: "en-US".into() },
                 Voice { id: "fake-it".into(), name: "Test Italian".into(), language: "it-IT".into() },
             ])
         }
+        /// Record the requested chunk, voice and rate instead of synthesizing or playing audio.
         fn start(&mut self, text: &str, options: &Options) -> std::result::Result<(), String> {
             self.0.lock().unwrap().push(text.into());
             self.0.lock().unwrap().push(format!("voice={:?}, rate={}", options.voice, options.rate));
             Ok(())
         }
+        /// Record a pause request for later assertions.
         fn pause(&mut self) -> std::result::Result<(), String> {
             self.0.lock().unwrap().push("pause".into());
             Ok(())
         }
+        /// Record a resume request without restarting the current test chunk.
         fn resume(&mut self) -> std::result::Result<(), String> {
             self.0.lock().unwrap().push("resume".into());
             Ok(())
         }
+        /// Record cancellation without accessing an audio device.
         fn stop(&mut self) -> std::result::Result<(), String> {
             self.0.lock().unwrap().push("stop".into());
             Ok(())
         }
+        /// Keep the fake chunk active until a control request or document change stops it.
         fn finished(&mut self) -> std::result::Result<bool, String> {
             Ok(false)
         }
     }
+    /// Poll tool status for at most three seconds until the expected worker state is visible.
     fn wait(a: &mut Automation, state: &str) {
         let until = Instant::now() + Duration::from_secs(3);
         loop {

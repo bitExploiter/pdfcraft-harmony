@@ -110,6 +110,7 @@ impl PdfCraftApp {
         }
     }
 
+    /// Dispatch a command after the outer panic guard, preserving document and dialog-specific handling.
     fn execute_unguarded(&mut self, id: &str) -> bool {
         let Some(spec) = commands::command(id) else { return false };
         if !self.command_enabled(spec) {

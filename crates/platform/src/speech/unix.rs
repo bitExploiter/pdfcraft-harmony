@@ -26,6 +26,7 @@ enum Engine {
 }
 
 impl Engine {
+    /// Parse bounded `say`/`espeak-ng` output into unique, valid installed voice records.
     fn voices(self, text: &str) -> Result<Vec<Voice>, String> {
         if text.len() as u64 > MAX_VOICE_BYTES {
             return Err("the speech engine returned too much voice data".into());
@@ -73,6 +74,7 @@ impl Engine {
         Ok(voices)
     }
 
+    /// Build a voice-list command for the chosen engine without passing document text.
     fn query(self, program: &Path) -> Command {
         let mut command = Command::new(program);
         match self {
@@ -88,6 +90,7 @@ impl Engine {
         command
     }
 
+    /// Build a WAV-synthesis command with stdin text, a single voice argument and the requested rate.
     fn synthesis(self, program: &Path, output: &Path, options: &Options) -> Result<Command, String> {
         options.validate()?;
         let mut command = Command::new(program);
@@ -113,6 +116,7 @@ impl Engine {
     }
 }
 
+/// Accept bounded ASCII language/region identifiers from native voice-list output.
 fn locale_tag(tag: &str) -> bool {
     let primary = tag.split(['-', '_']).next().unwrap_or_default();
     (2..=3).contains(&primary.len())
@@ -120,6 +124,7 @@ fn locale_tag(tag: &str) -> bool {
         && tag.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
+/// Create a new private speech file without replacing an existing path; use mode 0600 on Unix.
 fn private_file(path: &Path) -> Result<File, String> {
     let mut options = OpenOptions::new();
     options.create_new(true).read(true).write(true);
@@ -141,6 +146,7 @@ struct Job {
 }
 
 impl Job {
+    /// Create the speech staging directory with owner-only Unix permissions from the outset.
     fn directory() -> Result<TempDir, String> {
         let mut builder = tempfile::Builder::new();
         builder.prefix("pdfcraft-speech-");
@@ -154,12 +160,14 @@ impl Job {
         builder.tempdir().map_err(|e| format!("could not create private speech folder: {e}"))
     }
 
+    /// Start a speech subprocess with suppressed diagnostics and retain its staging files until reaped.
     fn spawn(mut command: Command, directory: TempDir, output: PathBuf, limit: u64, timeout: Duration) -> Result<Self, String> {
         command.stderr(Stdio::null()); // Never echo PDF text in subprocess diagnostics.
         let child = command.spawn().map_err(|e| format!("could not start the local speech engine: {e}"))?;
         Ok(Self { child: Some(child), directory, output, started: Instant::now(), timeout, limit })
     }
 
+    /// Capture bounded UTF-8 voice output in a private file, enforcing a five-second timeout.
     fn query(command: Command) -> Result<String, String> {
         let directory = Self::directory()?;
         let output = directory.path().join("voices.txt");
@@ -173,6 +181,8 @@ impl Job {
         String::from_utf8(job.bytes()?).map_err(|_| "local voice names are not valid UTF-8".into())
     }
 
+    /// Stage 1–4096 bytes of UTF-8 text with escaped command delimiters and start WAV synthesis.
+    /// Keep input/output private and attach the synthesis timeout and WAV-size budget to the job.
     fn synthesize(engine: Engine, program: &Path, text: &str, options: &Options) -> Result<Self, String> {
         if text.trim().is_empty() || text.len() > 4096 {
             return Err("local synthesis needs 1–4096 bytes of text".into());
@@ -192,6 +202,7 @@ impl Job {
         Self::spawn(command, directory, output, MAX_WAV_BYTES, SYNTHESIS_TIMEOUT)
     }
 
+    /// Check job output size, child exit status and deadline; return true only after successful exit.
     fn poll(&mut self) -> Result<bool, String> {
         if std::fs::metadata(&self.output).is_ok_and(|m| m.len() > self.limit) {
             return Err("local speech output exceeded its size limit".into());
@@ -210,6 +221,7 @@ impl Job {
         Ok(false)
     }
 
+    /// Read the job output with its size budget, rejecting missing files and oversized output.
     fn bytes(&self) -> Result<Vec<u8>, String> {
         let mut bytes = Vec::new();
         File::open(&self.output)
@@ -225,6 +237,7 @@ impl Job {
 }
 
 impl Drop for Job {
+    /// Kill/reap any remaining child before the private staging directory is deleted.
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
@@ -235,6 +248,7 @@ impl Drop for Job {
     }
 }
 
+/// Validate bounded WAV data, channels, sample rate and duration before creating a playback source.
 fn decode(bytes: Vec<u8>) -> Result<Decoder<std::io::Cursor<Vec<u8>>>, String> {
     if bytes.len() as u64 > MAX_WAV_BYTES {
         return Err("local speech output exceeded its size limit".into());
@@ -264,6 +278,7 @@ pub(super) struct UnixSpeech {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 impl UnixSpeech {
+    /// Locate the local synthesis executable without opening an audio device or starting a subprocess.
     pub fn new() -> Result<Self, String> {
         #[cfg(target_os = "macos")]
         let (engine, program) = (Engine::MacSay, PathBuf::from("/usr/bin/say"));
@@ -281,6 +296,7 @@ impl UnixSpeech {
         Ok(Self { engine, program, voices: None, synthesis: None, sink: None, stream: None, failure: Default::default(), paused: false })
     }
 
+    /// Lazily open the default output device and attach decoded audio, respecting a pending pause.
     fn play(&mut self, audio: Decoder<std::io::Cursor<Vec<u8>>>) -> Result<(), String> {
         if self.stream.is_none() {
             let failure = self.failure.clone();
@@ -308,12 +324,14 @@ impl UnixSpeech {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 impl Backend for UnixSpeech {
+    /// Refresh installed local voices and cache the exact identifiers used to validate subsequent starts.
     fn voices(&mut self) -> Result<Vec<Voice>, String> {
         // Reopening the dialog or starting a new request observes voices installed since
         // the last request. Keep that exact list for start's id validation between chunks.
         self.voices = Some(self.engine.voices(&Job::query(self.engine.query(&self.program))?)?);
         Ok(self.voices.as_ref().ok_or("local voices are unavailable")?.clone())
     }
+    /// Validate the cached voice selection, stop the previous chunk and begin cancellable local synthesis.
     fn start(&mut self, text: &str, options: &Options) -> Result<(), String> {
         options.validate()?;
         if options.voice.as_ref().is_some_and(|id| self.voices.as_ref().is_none_or(|v| !v.iter().any(|v| &v.id == id))) {
@@ -323,6 +341,7 @@ impl Backend for UnixSpeech {
         self.synthesis = Some(Job::synthesize(self.engine, &self.program, text, options)?);
         Ok(())
     }
+    /// Remember the paused state during synthesis and pause any existing playback sink.
     fn pause(&mut self) -> Result<(), String> {
         self.paused = true;
         if let Some(sink) = &self.sink {
@@ -330,6 +349,7 @@ impl Backend for UnixSpeech {
         }
         Ok(())
     }
+    /// Clear a pending pause and continue an existing sink from its current position.
     fn resume(&mut self) -> Result<(), String> {
         self.paused = false;
         if let Some(sink) = &self.sink {
@@ -337,6 +357,7 @@ impl Backend for UnixSpeech {
         }
         Ok(())
     }
+    /// Cancel synthesis, stop the sink, release the audio device and clear playback failures.
     fn stop(&mut self) -> Result<(), String> {
         self.synthesis = None;
         if let Some(sink) = self.sink.take() {
@@ -349,6 +370,7 @@ impl Backend for UnixSpeech {
         }
         Ok(())
     }
+    /// Poll synthesis and audio failures, delete staged data before playback and report sink completion.
     fn finished(&mut self) -> Result<bool, String> {
         if let Some(error) = self.failure.lock().map_err(|_| "local audio state is unavailable")?.take() {
             return Err(error);
@@ -367,6 +389,7 @@ impl Backend for UnixSpeech {
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 impl Drop for UnixSpeech {
+    /// Stop synthesis/playback and release the local audio device when the backend is dropped.
     fn drop(&mut self) {
         let _ = self.stop();
     }
@@ -376,6 +399,7 @@ impl Drop for UnixSpeech {
 mod tests {
     use super::*;
 
+    /// Verify voice parsing preserves names with spaces and English/Italian regional language tags.
     #[test]
     fn parses_english_and_italian_voices_with_spaces_and_regions() {
         let mac = Engine::MacSay.voices("Samantha           en_US    # Hello, my name is Samantha.\nDaniel (Enhanced) en_GB # Hello\nAlice it_IT # Ciao\nVoice Without Locale\n").unwrap();
@@ -393,6 +417,7 @@ mod tests {
         assert!(Engine::EspeakNg.voices(&"x".repeat(MAX_VOICE_BYTES as usize + 1)).is_err());
     }
 
+    /// Verify command construction keeps text off argv and forwards each voice/rate as intended.
     #[test]
     fn synthesis_uses_stdin_and_single_voice_arguments_for_both_languages() {
         for (engine, voice) in
@@ -411,6 +436,7 @@ mod tests {
         }
     }
 
+    /// Act as a child-process fixture for voice output, stdin capture, failures and deliberate hangs.
     // A subprocess of this test executable is the fixture: no shell, audio device or engine.
     #[test]
     fn process_fixture() {
@@ -429,12 +455,14 @@ mod tests {
         }
     }
 
+    /// Build a command that re-enters only the process fixture with the requested test action.
     fn fixture(action: &str) -> Command {
         let mut command = Command::new(std::env::current_exe().unwrap());
         command.args(["--exact", "speech::unix::tests::process_fixture", "--nocapture"]).env("PDFCRAFT_TEST_SPEECH_PROCESS", action);
         command
     }
 
+    /// Verify actual staged stdin retains Unicode text and bracket counts without speech-command delimiters.
     #[test]
     fn staged_speech_text_escapes_odd_and_even_bracket_runs() {
         // Inspect the actual synthesis stdin file. The test executable stands in for the
@@ -459,6 +487,7 @@ mod tests {
         }
     }
 
+    /// Verify child failures, hangs and oversized output return errors and clean up private files.
     #[test]
     fn subprocess_query_errors_timeout_and_drop_clean_private_data() {
         let voices = Engine::MacSay.voices(&Job::query(fixture("voices")).unwrap()).unwrap();
@@ -487,6 +516,7 @@ mod tests {
         }
     }
 
+    /// Generate contributor-original one-second mono PCM audio entirely in memory.
     fn wave() -> Vec<u8> {
         // Contributor-original synthetic 1 second mono PCM, generated only in memory.
         let data = 16_000u32;
@@ -507,6 +537,7 @@ mod tests {
         bytes
     }
 
+    /// Verify private-file permissions, exact UTF-8 stdin, WAV decoding and staging cleanup.
     #[test]
     fn utf8_text_is_piped_privately_and_decoded_before_temp_files_are_removed() {
         let directory = Job::directory().unwrap();
@@ -534,6 +565,7 @@ mod tests {
         assert!(decode(b"invalid WAV".to_vec()).is_err());
     }
 
+    /// Exercise Rodio position-preserving controls through an in-memory output iterator.
     #[test]
     fn real_sink_pauses_at_same_position_resumes_and_stops_without_audio_device() {
         let (sink, mut output) = Sink::new();
@@ -563,6 +595,7 @@ mod tests {
         assert!(sink.empty());
     }
 
+    /// Explicitly verify installed English voices generate decodable audio at supported rates.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     #[ignore = "explicit native synthesis check; needs a local English voice, no audio device"]
@@ -570,6 +603,7 @@ mod tests {
         native_synthesis("en", "This is an English PdfCraft speech test.");
     }
 
+    /// Explicitly verify installed Italian voices generate decodable audio at supported rates.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     #[ignore = "explicit native synthesis check; needs a local Italian voice, no audio device"]
@@ -577,6 +611,7 @@ mod tests {
         native_synthesis("it", "Questa è una prova italiana di PdfCraft.");
     }
 
+    /// Select an installed voice and validate non-silent WAV synthesis at 0.5×, 1× and 2× rates.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     fn native_synthesis(language: &str, text: &str) {
         let mut backend = UnixSpeech::new().unwrap();
@@ -599,6 +634,7 @@ mod tests {
         }
     }
 
+    /// Explicitly test muted device playback, pause/resume position and resource release on Stop.
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
     #[ignore = "explicit muted native playback check; requires a local voice and working audio device"]

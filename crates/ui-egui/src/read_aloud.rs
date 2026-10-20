@@ -16,6 +16,7 @@ struct Preparation {
 }
 
 impl Drop for Preparation {
+    /// Signal cancellation when a pending text-preparation handle leaves the UI state.
     fn drop(&mut self) {
         self.cancelled.store(true, Ordering::Relaxed);
     }
@@ -34,6 +35,7 @@ pub struct ReadAloud {
 }
 
 impl Default for ReadAloud {
+    /// Create closed read-aloud controls with an idle player and a one-page default range.
     fn default() -> Self {
         Self {
             open: false,
@@ -50,6 +52,7 @@ impl Default for ReadAloud {
 }
 
 impl PdfCraftApp {
+    /// Open controls at the active page and request local voices without starting playback.
     pub fn open_read_aloud(&mut self) {
         if let Some((i, _)) = self.active_ids() {
             let page = self.views.get(i).map_or(1, |v| v.current.saturating_add(1));
@@ -64,7 +67,8 @@ impl PdfCraftApp {
         }
     }
 
-    /// Pages are 1-based, matching the player dialog and automation tools.
+    /// Prepare a 1-based range of at most 64 pages off the UI thread before queuing audio.
+    /// Reject invalid ranges or concurrent preparation; retain the source snapshot for invalidation.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn start_read_aloud(&mut self, first: usize, last: usize) -> Result<(), String> {
         if self.read_aloud.preparation.is_some() {
@@ -95,11 +99,13 @@ impl PdfCraftApp {
         Ok(())
     }
 
+    /// Return the unsupported-browser error without starting preparation or audio.
     #[cfg(target_arch = "wasm32")]
     pub fn start_read_aloud(&mut self, _first: usize, _last: usize) -> Result<(), String> {
         Err("Read out loud requires the desktop app on Windows, macOS or Linux".into())
     }
 
+    /// Cancel text preparation, request playback Stop and detach the source snapshot.
     pub fn stop_read_aloud(&mut self) {
         if let Some(p) = &self.read_aloud.preparation {
             p.cancelled.store(true, Ordering::Relaxed);
@@ -110,6 +116,7 @@ impl PdfCraftApp {
         self.read_aloud.source = None;
     }
 
+    /// Stop stale-source playback, collect prepared chunks/errors and schedule bounded UI polling.
     pub(crate) fn poll_read_aloud(&mut self, ctx: &egui::Context) {
         if self.read_aloud.source.as_ref().is_some_and(|(id, bytes)| {
             self.active_ids().is_none_or(|(_, active)| active != *id) || self.session.get(*id).is_none_or(|d| !Arc::ptr_eq(bytes, &d.bytes))
@@ -146,6 +153,7 @@ impl PdfCraftApp {
     }
 }
 
+/// Render page/voice/rate controls and asynchronous speech status; playback requires an explicit action.
 pub(crate) fn show(app: &mut PdfCraftApp, ctx: &egui::Context) {
     if !app.read_aloud.open {
         return;

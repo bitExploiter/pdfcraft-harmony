@@ -172,6 +172,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M12, PR #1476 documentation):** Documented the read-aloud API, worker/backend contracts, extraction limits, asynchronous UI/tool calls and test helpers. Runtime behavior and estimates are unchanged.
+
 - **2026-10-20 (M12, PR #1476 review):** Local synthesis separates every bracket so odd and even runs cannot retain embedded speech-command delimiters. A regression inspects staged stdin for both Unix engines; M12 roadmap and physical Linux audio validation notes are consolidated. Estimates unchanged.
 
 - **2026-10-20 (M12, PR #1476 maintenance):** Integrated upstream `22bedbf2`, preserving speech support and current translations. The nightly fuzz job installs the ALSA development files needed to build the CLI audio backend. Validation is scoped to the workflow and affected integration paths; estimates unchanged.

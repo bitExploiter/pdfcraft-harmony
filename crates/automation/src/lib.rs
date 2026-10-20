@@ -130,6 +130,7 @@ impl Default for Automation {
 }
 
 impl Automation {
+    /// Create an empty automation session without starting speech or opening files.
     pub fn new() -> Self {
         Self {
             session: Session::new(),

@@ -48,15 +48,18 @@ impl Document {
 }
 
 impl Source {
+    /// Extract the snapshot into bounded speech chunks without modifying document bytes.
     pub fn extract(&self) -> Result<Plan, String> {
         self.extract_cancellable(&AtomicBool::new(false))
     }
 
+    /// Extract with cooperative cancellation and convert renderer panics into an error.
     pub fn extract_cancellable(&self, cancelled: &AtomicBool) -> Result<Plan, String> {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.extract_inner(cancelled)))
             .unwrap_or_else(|_| Err("text extraction stopped unexpectedly; the document is unchanged".into()))
     }
 
+    /// Read requested pages in order, enforcing text/chunk budgets and reporting empty pages.
     fn extract_inner(&self, cancelled: &AtomicBool) -> Result<Plan, String> {
         let mut renderer = PageRenderer::new(self.bytes.clone(), RenderConfig { password: self.password.clone(), ..Default::default() });
         let mut plan = Plan { chunks: Vec::new(), empty_pages: Vec::new() };
@@ -84,6 +87,8 @@ impl Source {
     }
 }
 
+/// Append UTF-8-safe chunks for a 1-based page, preferring sentence and word boundaries.
+/// Return an error instead of silently dropping text when the chunk budget is exhausted.
 fn split_text(mut text: &str, page: usize, chunks: &mut Vec<Chunk>) -> Result<(), String> {
     while !text.trim().is_empty() {
         text = text.trim_start();
@@ -115,6 +120,7 @@ fn split_text(mut text: &str, page: usize, chunks: &mut Vec<Chunk>) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Verify chunking preserves non-whitespace Unicode content, page numbers and byte limits.
     #[test]
     fn unicode_chunks_preserve_text_and_page_without_splitting_characters() {
         for text in ["hello world. ".repeat(800), "字🌍مرحبا".repeat(800), "x".repeat(5000)] {
@@ -127,6 +133,7 @@ mod tests {
             );
         }
     }
+    /// Verify a full chunk budget rejects additional text instead of truncating the reading plan.
     #[test]
     fn chunk_limit_is_an_error_not_silent_truncation() {
         let mut chunks = vec![Chunk { page: 1, text: "full".into() }; MAX_CHUNKS];

@@ -12,6 +12,7 @@ impl Automation {
         self
     }
 
+    /// Stop playback when its source document closes or its byte snapshot changes.
     pub(crate) fn invalidate_speech(&mut self) -> Result<()> {
         if self.speech_source.as_ref().is_some_and(|(id, bytes)| self.session.get(*id).is_none_or(|d| !Arc::ptr_eq(bytes, &d.bytes))) {
             self.speech.stop().map_err(failed)?;
@@ -20,12 +21,14 @@ impl Automation {
         Ok(())
     }
 
+    /// Extract a bounded reading plan from requested 1-based pages, defaulting to page 1.
     fn speech_plan(&self, a: &Args) -> Result<Plan> {
         let doc = self.doc(a)?;
         let pages = if a.opt_ints("pages")?.is_some() { self.pages(a, "pages")? } else { vec![0] };
         doc.read_aloud_source(&pages).map_err(ToolError::InvalidArgs)?.extract().map_err(failed)
     }
 
+    /// Return extracted chunks and skipped empty pages without starting audio or editing the PDF.
     pub(crate) fn read_aloud_prepare(&self, a: &Args) -> Result<Value> {
         let plan = self.speech_plan(a)?;
         Ok(
@@ -33,6 +36,7 @@ impl Automation {
         )
     }
 
+    /// Validate voice/rate options, prepare text and queue local playback tied to the source snapshot.
     pub(crate) fn read_aloud_start(&mut self, a: &Args) -> Result<Value> {
         let options = Options { voice: a.opt_str("voice")?.map(str::to_owned), rate: a.opt_num("rate")?.unwrap_or(1.0) };
         options.validate().map_err(ToolError::InvalidArgs)?;
@@ -46,6 +50,7 @@ impl Automation {
         Ok(json!({"accepted":true,"chunks":count,"empty_pages":empty_pages,"status_tool":"read_aloud_status"}))
     }
 
+    /// Queue pause/resume/stop; reject unknown actions and detach the source on Stop.
     pub(crate) fn read_aloud_control(&mut self, a: &Args) -> Result<Value> {
         match a.str("action")? {
             "pause" => self.speech.pause(),
@@ -60,15 +65,18 @@ impl Automation {
         Ok(json!({"accepted":true,"status_tool":"read_aloud_status"}))
     }
 
+    /// Report platform support, source document and the latest asynchronous playback state.
     pub(crate) fn read_aloud_status(&self) -> Result<Value> {
         Ok(json!({"supported":Player::supported(),"doc":self.speech_source.as_ref().map(|s|s.0.0),"playback":self.speech.status()}))
     }
 
+    /// Queue local voice discovery without starting speech; results arrive through status polling.
     pub(crate) fn read_aloud_voices(&mut self) -> Result<Value> {
         self.speech.refresh_voices().map_err(failed)?;
         Ok(json!({"accepted":true,"supported":Player::supported(),"status_tool":"read_aloud_status"}))
     }
 
+    /// Wait 1–60 seconds for completion/error; a timeout reports progress without stopping playback.
     pub(crate) fn read_aloud_wait(&self, a: &Args) -> Result<Value> {
         let seconds = a.opt_int("seconds")?.unwrap_or(30);
         let seconds = u64::try_from(seconds)

@@ -3,6 +3,8 @@
 use pdfcraft_platform::speech::{Chunk, Options, Player, State};
 use std::time::{Duration, Instant};
 
+/// List local voices; only `--speak` plays a synthetic English/Italian control probe.
+/// Bound discovery and playback waits, and reject unsupported command-line options.
 fn main() -> Result<(), String> {
     let mut speak = false;
     let mut language = None;

@@ -36,12 +36,15 @@ pub struct Options {
 }
 
 impl Default for Options {
+    /// Use the platform default voice at its normal speaking rate.
     fn default() -> Self {
         Self { voice: None, rate: 1.0 }
     }
 }
 
 impl Options {
+    /// Reject non-finite/out-of-range rates and empty or oversized voice identifiers.
+    /// Voice installation is checked by the worker when playback starts.
     pub fn validate(&self) -> Result<(), String> {
         if !self.rate.is_finite() || !(0.5..=2.0).contains(&self.rate) {
             return Err("speech rate must be from 0.5 to 2.0".into());
@@ -79,10 +82,16 @@ pub struct Status {
 /// thread-bound (CoreAudio); only injected backends need Send to reach that worker.
 /// Implementations must return promptly so Stop/Drop can cancel preparation and playback.
 pub trait Backend {
+    /// List installed voice identifiers, display names and language tags without speaking.
     fn voices(&mut self) -> Result<Vec<Voice>, String>;
+    /// Begin the supplied text chunk with the selected voice and synthesis rate.
+    /// Return promptly so the worker can poll completion and process cancellation.
     fn start(&mut self, text: &str, options: &Options) -> Result<(), String>;
+    /// Suspend the current chunk while preserving its playback position.
     fn pause(&mut self) -> Result<(), String>;
+    /// Continue the paused chunk from its current playback position.
     fn resume(&mut self) -> Result<(), String>;
+    /// Cancel pending synthesis/playback and release resources held by the current chunk.
     fn stop(&mut self) -> Result<(), String>;
     /// True when the current chunk has completely finished playing.
     fn finished(&mut self) -> Result<bool, String>;
@@ -107,12 +116,14 @@ pub struct Player {
 }
 
 impl Default for Player {
+    /// Construct an idle player without initializing its worker or an audio device.
     fn default() -> Self {
         Self::new()
     }
 }
 
 impl Player {
+    /// Construct an idle session player without starting a worker, discovering voices or opening audio.
     pub fn new() -> Self {
         Self {
             sender: None,
@@ -128,14 +139,17 @@ impl Player {
         Self { backend: Some(backend), available: true, ..Self::new() }
     }
 
+    /// Report whether this build targets Windows, macOS or Linux; no device/voice probe is performed.
     pub fn supported() -> bool {
         cfg!(any(windows, target_os = "macos", target_os = "linux"))
     }
 
+    /// Report whether native playback is supported or an injected backend was supplied.
     pub fn available(&self) -> bool {
         self.available
     }
 
+    /// Clone the latest worker snapshot; report an error state if its mutex is poisoned.
     pub fn status(&self) -> Status {
         self.status.lock().map_or_else(
             |_| Status { state: State::Error, error: Some("speech worker state is unavailable".into()), ..Status::default() },
@@ -143,6 +157,7 @@ impl Player {
         )
     }
 
+    /// Lazily start the guarded worker and enqueue a request without blocking on a full queue.
     fn send(&mut self, request: Request) -> Result<(), String> {
         if !self.available {
             return Err("Read out loud requires Windows, macOS or Linux with local speech voices".into());
@@ -169,10 +184,13 @@ impl Player {
         })
     }
 
+    /// Queue installed-voice discovery; results and errors are published through `status`.
     pub fn refresh_voices(&mut self) -> Result<(), String> {
         self.send(Request::Voices)
     }
 
+    /// Queue 1–4096 nonempty chunks, each at most 4096 bytes and at most 1 MiB in total.
+    /// Reject invalid options/text before creating a worker; accepted playback is asynchronous.
     pub fn start(&mut self, chunks: Vec<Chunk>, options: Options) -> Result<(), String> {
         options.validate()?;
         let bytes = chunks.iter().try_fold(0usize, |n, c| n.checked_add(c.text.len())).ok_or("speech text is too large")?;
@@ -193,12 +211,16 @@ impl Player {
         Ok(())
     }
 
+    /// Queue a pause request; poll status to observe the resulting playback state.
     pub fn pause(&mut self) -> Result<(), String> {
         self.send(Request::Pause)
     }
+    /// Queue a resume request without restarting the current chunk.
     pub fn resume(&mut self) -> Result<(), String> {
         self.send(Request::Resume)
     }
+    /// Invalidate queued starts and request cancellation, even when the command queue is full.
+    /// Stopping an uninitialized or already disconnected player is a harmless no-op.
     pub fn stop(&mut self) -> Result<(), String> {
         // No audio has ever been initialized: stopping is a harmless no-op.
         if self.sender.is_none() {
@@ -228,6 +250,7 @@ impl Player {
     }
 }
 
+/// Publish a worker error when the shared status lock remains usable.
 fn fail(status: &Mutex<Status>, message: String) {
     if let Ok(mut s) = status.lock() {
         s.state = State::Error;
@@ -235,6 +258,8 @@ fn fail(status: &Mutex<Status>, message: String) {
     }
 }
 
+/// Own the backend on one worker, sequence chunks and honor generation-based cancellation.
+/// Publish asynchronous state/errors and stop the backend when the command channel disconnects.
 fn run(rx: mpsc::Receiver<Request>, status: &Mutex<Status>, injected: Option<Box<dyn Backend + Send>>, generation: &AtomicU64) {
     let mut backend = match injected.map(|b| Ok(b as Box<dyn Backend>)).unwrap_or_else(native_backend) {
         Ok(b) => b,
@@ -338,16 +363,19 @@ fn run(rx: mpsc::Receiver<Request>, status: &Mutex<Status>, injected: Option<Box
     let _ = backend.stop();
 }
 
+/// Create the WinRT backend on the speech worker thread.
 #[cfg(windows)]
 fn native_backend() -> Result<Box<dyn Backend>, String> {
     Ok(Box::new(windows::WindowsSpeech::new()?))
 }
 
+/// Create the local macOS/Linux backend on the speech worker thread.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn native_backend() -> Result<Box<dyn Backend>, String> {
     Ok(Box::new(unix::UnixSpeech::new()?))
 }
 
+/// Return an explicit unsupported-platform error without initializing audio.
 #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
 fn native_backend() -> Result<Box<dyn Backend>, String> {
     Err("Read out loud requires Windows, macOS or Linux with local speech voices; FreeBSD and web playback are not supported yet".into())
@@ -365,9 +393,11 @@ mod tests {
         fail_start: bool,
     }
     impl Backend for Fake {
+        /// Return the single synthetic voice used by worker-state tests.
         fn voices(&mut self) -> Result<Vec<Voice>, String> {
             Ok(vec![Voice { id: "fake".into(), name: "Test".into(), language: "en".into() }])
         }
+        /// Record a synthetic chunk, or return the injected start failure without producing audio.
         fn start(&mut self, text: &str, _: &Options) -> Result<(), String> {
             if self.fail_start {
                 return Err("synthetic audio failure".into());
@@ -375,22 +405,27 @@ mod tests {
             self.log.lock().unwrap().push(text.into());
             Ok(())
         }
+        /// Record a pause request in the fake backend log.
         fn pause(&mut self) -> Result<(), String> {
             self.log.lock().unwrap().push("pause".into());
             Ok(())
         }
+        /// Record a resume request in the fake backend log.
         fn resume(&mut self) -> Result<(), String> {
             self.log.lock().unwrap().push("resume".into());
             Ok(())
         }
+        /// Record a stop request in the fake backend log.
         fn stop(&mut self) -> Result<(), String> {
             self.log.lock().unwrap().push("stop".into());
             Ok(())
         }
+        /// Consume the fake completion flag so each signal advances at most one chunk.
         fn finished(&mut self) -> Result<bool, String> {
             Ok(self.done.swap(false, Ordering::Relaxed))
         }
     }
+    /// Wait at most three seconds for a worker-state transition in deterministic tests.
     fn wait(player: &Player, state: State) {
         let until = Instant::now() + Duration::from_secs(3);
         while player.status().state != state {
@@ -398,15 +433,18 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
     }
+    /// Build a player with shared fake playback logs, completion flags and optional start failure.
     fn setup(fail_start: bool) -> (Player, Arc<Mutex<Vec<String>>>, Arc<AtomicBool>) {
         let log = Arc::new(Mutex::new(Vec::new()));
         let done = Arc::new(AtomicBool::new(false));
         (Player::with_backend(Box::new(Fake { log: log.clone(), done: done.clone(), fail_start })), log, done)
     }
+    /// Create synthetic text associated with a 1-based source page.
     fn chunk(page: usize, text: &str) -> Chunk {
         Chunk { page, text: text.into() }
     }
 
+    /// Verify lazy initialization, voice discovery, chunk sequencing and position-preserving controls.
     #[test]
     fn speech_is_opt_in_and_pause_resume_preserves_the_current_chunk() {
         let (mut p, log, done) = setup(false);
@@ -437,6 +475,7 @@ mod tests {
         wait(&p, State::Idle);
     }
 
+    /// Verify invalid rates, voices and text budgets fail before any backend call.
     #[test]
     fn bad_input_never_initializes_the_backend() {
         let (mut p, log, _) = setup(false);
@@ -458,6 +497,7 @@ mod tests {
         assert!(log.lock().unwrap().is_empty());
     }
 
+    /// Verify unknown voices and backend start failures reach status as errors without playback.
     #[test]
     fn missing_voice_and_audio_failure_are_reported_without_speech() {
         let (mut p, log, _) = setup(false);
@@ -471,6 +511,7 @@ mod tests {
         assert_eq!(p.status().error.as_deref(), Some("synthetic audio failure"));
     }
 
+    /// Verify dropping a player disconnects its worker and stops active or paused playback.
     #[test]
     fn drop_stops_active_or_paused_audio() {
         for paused in [false, true] {
@@ -491,6 +532,7 @@ mod tests {
         }
     }
 
+    /// Verify generation-based Stop cancels queued starts even when the request queue is saturated.
     #[test]
     fn stop_cancels_queued_starts_even_when_the_queue_is_full() {
         let (mut p, log, _) = setup(false);
