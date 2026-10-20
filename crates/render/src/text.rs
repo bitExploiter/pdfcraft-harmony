@@ -307,8 +307,20 @@ impl PageText {
         let to_x = head_x.unwrap_or((h.rect[0] + h.rect[2]) / 2.0);
         let a_x = (a.rect[0] + a.rect[2]) / 2.0;
         let from = spans.map_or(a_x, |((a0, a1), _)| if to_x >= a_x { a0 } else { a1 });
-        let other_column = self.gutter_between(from, to_x, top, bottom, a.rect[3] - a.rect[1]);
+        let strip = self.gutter_strip(from, to_x, top, bottom, a.rect[3] - a.rect[1]);
+        let other_column = strip.is_some();
         if !strays && (one_row || !other_column) {
+            return None;
+        }
+        // From one column of running text into the next, reading order carries the text on (the
+        // rest of one column, then the start of the next); rows would interleave the columns. One
+        // row shows too little of the columns, so a drag along one looks at the rows around it.
+        let lh = a.rect[3] - a.rect[1];
+        let (near_top, near_bottom) = if one_row { (top - lh * GUTTER_ROWS, bottom + lh * GUTTER_ROWS) } else { (top, bottom) };
+        let strip = if one_row { self.gutter_strip(from, to_x, near_top, near_bottom, lh) } else { strip };
+        if let Some(strip) = strip
+            && self.running_text_beside(strip, from.min(to_x), from.max(to_x), near_top, near_bottom)
+        {
             return None;
         }
         let picked = if one_row {
@@ -383,9 +395,14 @@ impl PageText {
     /// `x0` and `x1`, or past `x1` when the strip reaches it (columns' baselines need not line
     /// up). The gap a justified line leaves between two words has only that line beyond it.
     fn gutter_between(&self, x0: f32, x1: f32, top: f32, bottom: f32, width: f32) -> bool {
+        self.gutter_strip(x0, x1, top, bottom, width).is_some()
+    }
+
+    /// [`Self::gutter_between`]'s gutter, as its left and right edges.
+    fn gutter_strip(&self, x0: f32, x1: f32, top: f32, bottom: f32, width: f32) -> Option<(f32, f32)> {
         let (lo, hi) = (x0.min(x1), x0.max(x1));
         if !(hi - lo >= width && width > 0.0) {
-            return false;
+            return None;
         }
         let centre = |g: &TextGlyph| (g.rect[1] + g.rect[3]) / 2.0;
         // The rows' glyphs as (centre, left, right), top to bottom.
@@ -416,11 +433,50 @@ impl PageText {
         let mut covered = lo;
         for (s0, s1) in spans {
             if s0 - covered >= width && parted(covered, s0) {
-                return true;
+                return Some((covered, s0));
             }
             covered = covered.max(s1);
         }
-        hi - covered >= width && parted(covered, hi)
+        (hi - covered >= width && parted(covered, hi)).then_some((covered, hi))
+    }
+
+    /// Whether the lines between `top` and `bottom` on each side of the gutter `g0..g1` are
+    /// running text: one column a side (no two lines side by side), most of its lines (at least
+    /// half: paragraphs' first and last lines fall short) starting and ending at about the same
+    /// place, at least half as wide as the gutter and [`RUNNING_TEXT_EMS`] line heights wide.
+    /// Table cells, terms and form labels are short or ragged beside a wide gap, or sit several
+    /// to a row. Only the lines ending after `lo` on the left, and starting before `hi`
+    /// (or right after the gutter) on the right, count.
+    fn running_text_beside(&self, (g0, g1): (f32, f32), lo: f32, hi: f32, top: f32, bottom: f32) -> bool {
+        let mut lines: BTreeMap<u32, [f32; 4]> = BTreeMap::new();
+        for (g, &l) in self.glyphs.iter().zip(&self.line_of) {
+            if (top..=bottom).contains(&((g.rect[1] + g.rect[3]) / 2.0)) && !g.text.trim().is_empty() {
+                lines.entry(l).and_modify(|r| union(r, &g.rect)).or_insert(g.rect);
+            }
+        }
+        let gutter = g1 - g0;
+        let column = |side: Vec<[f32; 4]>| {
+            let n = side.len();
+            if n < 2 {
+                return false;
+            }
+            let (x0, x1) = side.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), r| (a.min(r[0]), b.max(r[2])));
+            let w = x1 - x0;
+            let one_a_row = side.iter().enumerate().all(|(k, a)| {
+                side.iter().skip(k + 1).all(|b| {
+                    let (ca, cb) = ((a[1] + a[3]) / 2.0, (b[1] + b[3]) / 2.0);
+                    !((b[1]..=b[3]).contains(&ca) || (a[1]..=a[3]).contains(&cb))
+                })
+            });
+            let starts = side.iter().filter(|r| r[0] <= x0 + w * RUNNING_TEXT_RAG).count();
+            let ends = side.iter().filter(|r| r[2] >= x1 - w * RUNNING_TEXT_RAG).count();
+            let tallest = side.iter().map(|r| r[3] - r[1]).fold(0.0f32, f32::max);
+            one_a_row && w >= gutter * 0.5 && w >= tallest * RUNNING_TEXT_EMS && starts * 2 >= n && ends * 2 >= n
+        };
+        let reach = hi.max(g1 + gutter);
+        let left: Vec<[f32; 4]> = lines.values().filter(|r| r[2] <= g0 && r[2] >= lo).copied().collect();
+        let right: Vec<[f32; 4]> = lines.values().filter(|r| r[0] >= g1 && r[0] <= reach).copied().collect();
+        left.len() <= SIDE_BY_SIDE_LINES && right.len() <= SIDE_BY_SIDE_LINES && column(left) && column(right)
     }
 
     /// The left and right edges of the line glyph `i` is on.
@@ -1163,8 +1219,12 @@ impl Seg {
     }
 }
 
-/// Line heights above and below a point that [`PageText::nearest`] looks over for a gutter.
+/// Line heights above and below a point (or a one-row drag) looked over for a gutter.
 const GUTTER_ROWS: f32 = 4.0;
+/// Running text is at least this many line heights wide; terms, labels and narrow cells are not.
+const RUNNING_TEXT_EMS: f32 = 8.0;
+/// The share of a column's width its running text's lines may fall short of its edges by.
+const RUNNING_TEXT_RAG: f32 = 0.2;
 /// Lines a selection compares pairwise to tell a table from running text.
 const SIDE_BY_SIDE_LINES: usize = 256;
 /// A segment whose box runs on past its last visible glyph by this many line heights of spaces is
@@ -3036,6 +3096,56 @@ mod tests {
         let x = (t.glyphs[last].rect[0] + t.glyphs[last].rect[2]) / 2.0;
         let rows = t.visual_between(first, last, Some(x)).expect("rows");
         assert_eq!(t.column_text(&rows), "Name\tQty\nApple\t12\nPear\t7");
+    }
+
+    /// Two columns of running text: one paragraph fills the left column and runs on at the top of
+    /// the right. A drag from its start to its end, or along the first row from one column into
+    /// the other, keeps reading order (the left column, then the right) instead of interleaving
+    /// the columns by rows.
+    #[test]
+    fn a_drag_across_columns_of_running_text_keeps_reading_order() {
+        let mut v = Vec::new();
+        let left = [
+            "One paragraph starts at the top",
+            "of the left column and runs down",
+            "for a few ordinary lines of text",
+            "until the column ends and then",
+        ];
+        let right = ["it carries on at the top of the", "right column where the reader", "expects it to continue."];
+        for (row, s) in left.into_iter().enumerate() {
+            word(&mut v, s, 10.0, 10.0 + row as f32 * 14.0, 6.0);
+        }
+        for (row, s) in right.into_iter().enumerate() {
+            word(&mut v, s, 240.0, 10.0 + row as f32 * 14.0, 6.0);
+        }
+        let t = layout(v);
+        let last = t.glyphs.len() - 1;
+        let at = |i: usize| Some((t.glyphs[i].rect[0] + t.glyphs[i].rect[2]) / 2.0);
+        assert_eq!(t.visual_between(0, last, at(last)), None, "to the end of the paragraph");
+        let right_start = (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 240.0 && t.glyphs[i].rect[1] == 10.0).expect("\"it\"");
+        assert_eq!(t.visual_between(0, right_start + 1, at(right_start + 1)), None, "along the first row");
+    }
+
+    /// Short terms beside their definitions (a description list) are not running text: a drag
+    /// across them takes the rows.
+    #[test]
+    fn terms_beside_definitions_still_take_the_rows() {
+        let mut v = Vec::new();
+        for (row, (term, def)) in
+            [("PDF/UA", "PDF for accessibility"), ("PDF/A", "PDF for long-term preservation"), ("PDF/E", "PDF for engineering workflows")]
+                .into_iter()
+                .enumerate()
+        {
+            let y = 10.0 + row as f32 * 14.0;
+            word(&mut v, term, 10.0, y, 6.0);
+            word(&mut v, def, 100.0, y, 6.0);
+        }
+        let t = layout(v);
+        let first = 0;
+        let eng = t.find("engineering").into_iter().next().expect("\"engineering\"").start;
+        let x = Some((t.glyphs[eng].rect[0] + t.glyphs[eng].rect[2]) / 2.0);
+        let rows = t.visual_between(first, eng, x).expect("rows");
+        assert_eq!(t.column_text(&rows), "PDF/UA\tPDF for accessibility\nPDF/A\tPDF for long-term preservation\nPDF/E\tPDF for e");
     }
 
     /// Reading order stays the answer on one line, down one column, and where it doesn't leave
