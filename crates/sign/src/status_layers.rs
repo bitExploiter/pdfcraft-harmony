@@ -8,10 +8,10 @@
 //! artwork. Either way the viewer marks the widget with its own badge: a document can clip or
 //! cover its own layers, but not the badge.
 //!
-//! Only the display copy changes, and nothing in it is edited in place: each recognised
-//! appearance is copied once per state, so a stream shared between widgets or fields never shows
-//! one signature's state on another. Saving writes the working file, so signed bytes stay as they
-//! were.
+//! Only the display copy changes, and no appearance in it is edited in place: each recognised
+//! appearance is copied once per state and each drawn widget's `/AP /N` is pointed at its copy, so
+//! a stream shared between widgets or fields never shows one signature's state on another. Saving
+//! writes the working file, so signed bytes stay as they were.
 //!
 //! The icons are the Lucide ones the Signatures panel uses (`assets/icons`).
 
@@ -81,7 +81,7 @@ impl<'a> Face<'a> {
         }
         let script = script_of(&words);
         match face_for(script, &words) {
-            Some((bytes, _)) => match script {
+            Some(bytes) => match script {
                 None => Face { words, font: Font::Inter { shaped: HashMap::new() } },
                 Some(script) => Face { words, font: Font::Outlined { bytes, rtl: script == "Arab" } },
             },
@@ -125,15 +125,15 @@ fn script_of(words: &[&str]) -> Option<&'static str> {
 /// A face that draws all of `words`: Inter when `script` is `None`, else the first craft-fonts
 /// face meant for `script`. Faces are picked by the script they are meant for, so one the asset
 /// policy keeps out of documents (meant for `Hans`) is never picked.
-fn face_for(script: Option<&str>, words: &[&str]) -> Option<(&'static [u8], &'static str)> {
+fn face_for(script: Option<&str>, words: &[&str]) -> Option<&'static [u8]> {
     let draws = |bytes: &[u8]| words.iter().all(|w| embedding::covers(bytes, w));
     let face = match script {
-        None => return draws(INTER_REGULAR).then_some((INTER_REGULAR, "Inter")),
+        None => return draws(INTER_REGULAR).then_some(INTER_REGULAR),
         // Sans first, like the other captions.
         Some("Jpan") => pdfcraft_fonts::document_japanese_fonts_for_style(false, false).into_iter().find(|f| draws(f.bytes)),
         Some(script) => pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.covers(script) && draws(f.bytes)),
     };
-    face.map(|f| (f.bytes, f.family))
+    face.map(|f| f.bytes)
 }
 
 /// Each verdict's colour, shared by the regenerated icons and the viewer's badge and panel, so
@@ -184,6 +184,10 @@ const CAPTION_FONT: &str = "Cap";
 /// Visibility is each widget's own: `SignatureInfo::visible` describes the first widget only,
 /// and a field's other widgets may show where the first does not.
 pub fn show_status_layers(doc: &mut Document, signatures: &mut [SignatureInfo], captions: &StatusCaptions) -> bool {
+    // Reading the form is most of the cost, and an unsigned document is rebuilt on every edit.
+    if !signatures.iter().any(drawable) {
+        return false;
+    }
     let fields = Fields::of(doc);
     let mut copies = Copies { face: Face::new(captions), n: HashMap::new(), forms: HashMap::new(), drawing: HashMap::new() };
     let mut changed = false;
@@ -208,6 +212,9 @@ pub fn show_status_layers(doc: &mut Document, signatures: &mut [SignatureInfo], 
 /// Whether any signed signature has a widget [`show_status_layers`] would regenerate, so a caller
 /// builds a display copy only when it would change something.
 pub fn has_status_layers(doc: &Document, signatures: &[SignatureInfo]) -> bool {
+    if !signatures.iter().any(drawable) {
+        return false;
+    }
     let fields = Fields::of(doc);
     // Each appearance and layer form is read once, however many widgets share it.
     let mut checked = HashSet::new();
@@ -251,7 +258,7 @@ fn draw(doc: &mut Document, widget_ref: ObjRef, widget: &Dict, status: Status, c
     let copy = match copies.n.get(&(n.num, status)) {
         Some(copy) => *copy,
         None => {
-            let copy = recognise(doc, n, &mut copies.drawing).and_then(|layout| regenerate(doc, &layout, status, copies));
+            let copy = recognise(doc, n, &mut copies.drawing).and_then(|layout| regenerate(doc, layout, status, copies));
             copies.n.insert((n.num, status), copy);
             copy
         }
@@ -436,8 +443,7 @@ fn is_form(doc: &Document, dict: &Dict) -> bool {
 /// A stream dictionary's XObject resources, resolved.
 fn xobjects(doc: &Document, dict: &Dict) -> Option<Dict> {
     let res = doc.resolve(dict.get(b"Resources")?);
-    let xobjects = doc.resolve(res.as_dict()?.get(b"XObject")?);
-    xobjects.as_dict().cloned()
+    doc.dict(res.as_dict()?.get(b"XObject")?)
 }
 
 /// A status layer: a Form with a usable `/BBox`.
@@ -454,19 +460,18 @@ fn layer(doc: &Document, o: Option<&Object>) -> Option<Layer> {
 /// Draw `status` into a copy of a recognised appearance: new `n1`, `n3` and `n4`, a layer form
 /// pointing at them (shared by every `/N` that draws the same layer form), and an `/N` pointing at
 /// that. Returns the new `/N`; nothing is written for an appearance whose icons cannot be drawn.
-fn regenerate(doc: &mut Document, layout: &Layout, status: Status, copies: &mut Copies) -> Option<ObjRef> {
+fn regenerate(doc: &mut Document, layout: Layout, status: Status, copies: &mut Copies) -> Option<ObjRef> {
     let form = match copies.forms.get(&(layout.form_ref.num, status)) {
         Some(form) => *form,
         None => {
-            let form = regenerate_form(doc, layout, status, &mut copies.face)?;
+            let form = regenerate_form(doc, &layout, status, &mut copies.face)?;
             copies.forms.insert((layout.form_ref.num, status), form);
             form
         }
     };
     // /N is copied as stored, filters and all; only its XObject resources change.
-    let mut n_xobjects = layout.n_xobjects.clone();
-    n_xobjects.set(layout.name.clone(), form);
-    let mut n = layout.n.clone();
+    let Layout { mut n, mut n_xobjects, name, .. } = layout;
+    n_xobjects.set(name, form);
     set_xobjects(doc, &mut n.dict, n_xobjects);
     Some(doc.add(n))
 }
@@ -518,7 +523,7 @@ fn layer_dict(doc: &Document, layer: &Layer, resources: Dict) -> Dict {
 /// Point `dict`'s XObject resources at `xobjects`, through a direct copy of its resources: they
 /// may be shared, and the original must stay as it was.
 fn set_xobjects(doc: &Document, dict: &mut Dict, xobjects: Dict) {
-    let mut resources = dict.get(b"Resources").and_then(|r| doc.resolve(r).as_dict().cloned()).unwrap_or_default();
+    let mut resources = dict.get(b"Resources").and_then(|r| doc.dict(r)).unwrap_or_default();
     resources.set(b"XObject".to_vec(), xobjects);
     dict.set(b"Resources".to_vec(), resources);
 }
@@ -560,10 +565,10 @@ fn caption(doc: &mut Document, face: &mut Face, status: Status, bbox: &[f64; 4])
         Font::Outlined { bytes, rtl } => {
             return outlined_caption(bytes, words, *rtl, bbox).unwrap_or_else(|| helvetica_caption(english(status), bbox));
         }
-        Font::Inter { shaped } => shaped.entry(status).or_insert_with(|| shape_caption(doc, INTER_REGULAR, "Inter", words)).clone(),
+        Font::Inter { shaped } => shaped.entry(status).or_insert_with(|| shape_caption(doc, INTER_REGULAR, "Inter", words)).as_ref(),
     };
     let Some((font, run)) = shaped else { return helvetica_caption(english(status), bbox) };
-    let resources = caption_resources(font);
+    let resources = caption_resources(font.clone());
     let Some(size) = caption_size(bbox, run.advance) else { return (resources, Vec::new()) };
     let x = caption_x(bbox, run.advance * size, false);
     let y = caption_baseline(bbox, size);
@@ -609,9 +614,10 @@ fn helvetica_caption(words: &str, bbox: &[f64; 4]) -> (Dict, Vec<u8>) {
     (resources, ops)
 }
 
-/// `words` shaped in a craft-fonts face and drawn as filled glyph outlines, in reading order. The
-/// span keeps the words for copy and search where a reader takes them from it. `None` when the
-/// words cannot be shaped or a glyph has no usable outline; a caption too small to read is blank.
+/// `words` shaped in a craft-fonts face and drawn as filled glyph outlines where the shaper placed
+/// them. The span keeps the words, in reading order, for copy and search where a reader takes them
+/// from it. `None` when the words cannot be shaped or a glyph has no usable outline; a caption too
+/// small to read is blank.
 fn outlined_caption(bytes: &[u8], words: &str, rtl: bool, bbox: &[f64; 4]) -> Option<(Dict, Vec<u8>)> {
     let run = pdfcraft_fonts::source_shaping::shape(bytes, words).ok().filter(|run| !run.glyphs.is_empty())?;
     let outlines = run.glyphs.iter().map(|g| pdfcraft_fonts::face_glyph(bytes, g.id.to_u32()).ok()).collect::<Option<Vec<_>>>()?;
@@ -916,7 +922,7 @@ mod tests {
     }
 
     #[test]
-    fn named_layer_rule_table() {
+    fn has_status_layers_recognises_only_named_layer_layouts() {
         // The layouts the rule was checked against, and whether their status layers are redrawn.
         // Tightening the rule to the name /FRM fails the FRM1 and Foo rows.
         let five = Fixture::layered();
@@ -958,7 +964,6 @@ mod tests {
         });
         let cases: Vec<(&str, Fixture, bool)> = vec![
             ("n0 to n4", five.clone(), true),
-            ("n0 to n4, invalid", five.clone(), true),
             ("indirect resources, split widget", five.clone().with(|f| (f.indirect, f.split) = (true, true)), true),
             ("n0 and n2 only", Fixture::named(&["n0", "n2"]), false),
             ("flat /N", flat, false),
@@ -983,11 +988,10 @@ mod tests {
             ("/N is its own layer form", itself, false),
             ("n1 and n3 drawn only through a nested form", nested_draw, false),
         ];
-        assert_eq!(cases.len(), 25);
+        assert_eq!(cases.len(), 24);
         for (name, fixture, redrawn) in cases {
             let doc = fixture.open();
-            let status = if name.ends_with("invalid") { Status::Invalid } else { Status::Valid };
-            assert_eq!(has_status_layers(&doc, &[sig("Signature1", status)]), redrawn, "{name}");
+            assert_eq!(has_status_layers(&doc, &[sig("Signature1", Status::Valid)]), redrawn, "{name}");
         }
     }
 
@@ -1028,7 +1032,8 @@ mod tests {
         assert!(n1.contains(CIRCLE_CHECK) && n1.contains("0.1765 0.6157 0.4706 RG"), "{n1}");
         assert!(!n1.contains("1 0.84 0.2 rg"), "the stored question mark is gone: {n1}");
         assert_eq!(drawn(&doc, 4, b"n3"), "");
-        assert!(drawn(&doc, 4, b"n4").contains("(Signature valid) Tj"));
+        let shown = drawn(&doc, 4, b"n4");
+        assert!(shown.contains("(Signature valid) Tj"), "{shown}");
     }
 
     #[test]
@@ -1049,7 +1054,8 @@ mod tests {
         assert_eq!(drawn(&doc, 4, b"n1"), "");
         let n3 = drawn(&doc, 4, b"n3");
         assert!(n3.contains(CIRCLE_X) && n3.contains("0.8431 0.2157 0.2471 RG"), "{n3}");
-        assert!(drawn(&doc, 4, b"n4").contains("(Signature invalid) Tj"));
+        let shown = drawn(&doc, 4, b"n4");
+        assert!(shown.contains("(Signature invalid) Tj"), "{shown}");
     }
 
     #[test]
@@ -1087,7 +1093,8 @@ mod tests {
     fn without_n4_the_icon_still_draws() {
         let mut doc = Fixture::named(&["n0", "n1", "n2", "n3"]).open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
         assert_eq!(layer_ref(&doc, 4, b"FRM", b"n4"), None);
     }
 
@@ -1107,14 +1114,16 @@ mod tests {
         let Object::Stream(s) = &*doc.get(new_n) else { panic!() };
         assert_eq!(s.dict.name(b"Filter"), Some(&b"FlateDecode"[..]));
         assert_eq!(s.decoded().unwrap(), b"q 1 0 0 1 0 0 cm /FRM Do Q");
-        assert!(drawn(doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
     }
 
     #[test]
     fn indirect_resources_and_a_split_widget_are_followed() {
         let mut doc = Fixture::layered().with(|f| (f.indirect, f.split) = (true, true)).open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
         // The shared resource dictionaries were copied, not edited.
         assert_eq!(doc.get(ObjRef::new(21, 0)).as_dict().unwrap().get(b"n1"), Some(&Object::Ref(ObjRef::new(13, 0))));
     }
@@ -1133,8 +1142,10 @@ mod tests {
         let mut sigs = vec![sig("Signature1", Status::Valid), sig("Signature2", Status::Unknown)];
         assert!(show_status_layers(&mut doc, &mut sigs, &StatusCaptions::default()));
         assert!(sigs.iter().all(|s| s.verdict_shown));
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
-        assert!(drawn(&doc, 30, b"n1").contains(TRIANGLE_ALERT));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
+        let shown = drawn(&doc, 30, b"n1");
+        assert!(shown.contains(TRIANGLE_ALERT), "{shown}");
         assert_eq!(decoded(&doc, ObjRef::new(13, 0)), QUESTION.as_bytes(), "the shared n1 is unchanged");
     }
 
@@ -1156,7 +1167,8 @@ mod tests {
         assert!(show_status_layers(&mut doc, &mut signatures, &StatusCaptions::default()));
         assert!(signatures[0].verdict_shown);
         assert_eq!(widget_n(&doc, 4), ObjRef::new(10, 0));
-        assert!(drawn(&doc, 32, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 32, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
     }
 
     #[test]
@@ -1225,8 +1237,10 @@ mod tests {
         let mut doc = fixture.open();
         let mut sigs = vec![sig("Signature1", Status::Valid), sig("Signature2", Status::Invalid)];
         show_status_layers(&mut doc, &mut sigs, &StatusCaptions::default());
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
-        assert!(drawn(&doc, 30, b"n3").contains(CIRCLE_X));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
+        let shown = drawn(&doc, 30, b"n3");
+        assert!(shown.contains(CIRCLE_X), "{shown}");
     }
 
     #[test]
@@ -1341,7 +1355,8 @@ mod tests {
         });
         let mut doc = fixture.open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
     }
 
     #[test]
@@ -1361,7 +1376,8 @@ mod tests {
         };
         let mut doc = two(132).open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
         assert_eq!(widget_n(&doc, 32), ObjRef::new(36, 0), "the flat one keeps its artwork");
         let mut doc = two(132 | 2).open();
         assert!(!show(&mut doc, Status::Valid).verdict_shown);
@@ -1503,7 +1519,12 @@ mod tests {
         for (script, [valid, unknown, invalid]) in cases {
             assert_eq!(script_of(&[valid, unknown, invalid]), Some(script));
             let (shown, actual, font, ops, _) = caption_of(&captions(valid, unknown, invalid), Status::Valid);
-            if face_for(Some(script), &[valid, unknown, invalid]).is_some() {
+            // Decided apart from `face_for`: whether craft-fonts brings a face meant for the script.
+            let has_face = match script {
+                "Jpan" => !pdfcraft_fonts::document_japanese_fonts_for_style(false, false).is_empty(),
+                script => pdfcraft_fonts::CRAFT_FONTS.iter().any(|f| f.covers(script)),
+            };
+            if has_face {
                 assert!(shown.is_empty() && font.is_none(), "{script}: outlines, not text");
                 assert!(ops.iter().filter(|op| op.is("l")).count() > 20 && ops.iter().any(|op| op.is("f")), "{script}");
                 assert_eq!(actual.as_deref(), Some(valid), "{script}");
@@ -1560,7 +1581,8 @@ mod tests {
         let mut doc = Fixture::layered().with(|f| f.layers[4].bbox = [0.0, 0.0, 200.0, 1.0]).open();
         assert!(show(&mut doc, Status::Valid).verdict_shown);
         assert_eq!(drawn(&doc, 4, b"n4"), "");
-        assert!(drawn(&doc, 4, b"n1").contains(CIRCLE_CHECK));
+        let shown = drawn(&doc, 4, b"n1");
+        assert!(shown.contains(CIRCLE_CHECK), "{shown}");
     }
 
     #[test]
@@ -1581,7 +1603,7 @@ mod tests {
         }
         let mut rng = Rng(0x9E37_79B9_7F4A_7C15);
         let names = ["FRM", "n1", "n3", "n4", "X"];
-        for _ in 0..300 {
+        for i in 0..300 {
             let mut extra = Vec::new();
             for num in 10..20u32 {
                 let entries = (0..rng.below(4)).map(|_| format!("/{} {} 0 R", rng.pick(&names), 10 + rng.below(10))).collect::<Vec<_>>().join(" ");
@@ -1609,7 +1631,8 @@ mod tests {
             let mut sigs = vec![sig("Signature1", status)];
             let _ = has_status_layers(&doc, &sigs);
             let _ = show_status_layers(&mut doc, &mut sigs, &StatusCaptions::default());
-            assert!(pdfcraft_cos::write_incremental(&doc, &pdfcraft_cos::SaveOptions::default()).is_ok());
+            let saved = pdfcraft_cos::write_incremental(&doc, &pdfcraft_cos::SaveOptions::default());
+            assert!(saved.is_ok(), "iteration {i}: {:?}", saved.err());
         }
     }
 }

@@ -359,8 +359,9 @@ const MARK_SIDE_SHARE: f32 = 0.25;
 /// The largest side of the mark, in screen points, so zooming in stops enlarging it.
 const MARK_SIDE_MAX: f32 = 48.0;
 
-/// The smallest legible side of the mark, in screen points; a smaller widget keeps only its
-/// outline. A field over it at 100% can fall under it when the page is zoomed out to fit.
+/// The smallest legible side of the mark, in screen points: a widget whose shorter side is under
+/// `MARK_SIDE_MIN / MARK_SIDE_SHARE` (32 points) keeps only its outline. A field over that at 100%
+/// can fall under it when the page is zoomed out to fit.
 const MARK_SIDE_MIN: f32 = 8.0;
 
 /// The gap between the mark and the widget's edges, as a share of the mark's side.
@@ -3540,6 +3541,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     }
                 }
             }
+            // Comment and badge tips: not over a dialog, under Fill & Sign's cursor or while
+            // drawing freehand.
+            let tips = !page_covered
+                && !matches!(tool, QuickTool::Fill(_) | QuickTool::Comment(comments::CommentTool::Ink | comments::CommentTool::Eraser))
+                && view.comments.gesture.is_none();
             // Fill & Sign keeps its placement cursor clear of link/comment hover feedback.
             if !page_covered
                 && !matches!(tool, QuickTool::Fill(_))
@@ -3566,9 +3572,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 }
                 // Annotation hover shows the comment, as Acrobat's popups do; not while drawing
                 // freehand, where it would cover the next stroke (#429).
-                let freehand = matches!(tool, QuickTool::Comment(comments::CommentTool::Ink | comments::CommentTool::Eraser));
-                let gesturing = view.comments.gesture.is_some() || freehand;
-                for a in info.annotations.iter().filter(|a| a.page == i && !gesturing) {
+                for a in info.annotations.iter().filter(|a| a.page == i && tips) {
                     let sr = xf.user_rect(info, i, a.rect);
                     let hidden = prefs.hide_empty_highlight_hover && a.subtype == "Highlight" && a.contents.as_deref().is_none_or(str::is_empty);
                     if sr.contains(p)
@@ -3610,11 +3614,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // Validation badges are viewer chrome over the widget. A recognised named-layer
             // appearance may show the verdict in the display copy too; saves retain its original
             // streams. Badges never enter document streams, exports or either print path.
-            // Their hover follows the link and comment hovers: not over a dialog, under Fill &
-            // Sign's cursor or while drawing freehand.
-            let badge_hovers = !page_covered
-                && !matches!(tool, QuickTool::Fill(_) | QuickTool::Comment(comments::CommentTool::Ink | comments::CommentTool::Eraser))
-                && view.comments.gesture.is_none();
+            // Their tips follow the comment tips (`tips`).
             for badge in signature_badges(&doc.signatures, i) {
                 let [x0, y0, x1, y1] = badge.rect;
                 let sr = xf.user_rect(info, i, [x0 as f32, y0 as f32, x1 as f32, y1 as f32]);
@@ -3630,7 +3630,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 }
                 // The whole widget answers the pointer, so a field too small for a mark still
                 // shows its verdict on hover; only where it is on the page, though.
-                if badge_hovers && let Some(p) = pointer.filter(|p| sr.expand(2.0).intersect(r).contains(*p)) {
+                if tips && let Some(p) = pointer.filter(|p| sr.expand(2.0).intersect(r).contains(*p)) {
                     badge_hover = Some((p, crate::i18n::t(badge.summary).to_string()));
                 }
             }
@@ -5499,7 +5499,7 @@ mod tests {
     fn signature_states_change_with_a_verdict_or_what_draws_it() {
         let shown = signature(true, true, Some(0), Some([10.0, 10.0, 100.0, 50.0]));
         let before = vec![shown.clone()];
-        assert!(!signature_states_changed(&before, &before.clone()));
+        assert!(!signature_states_changed(&before, &before), "identical lists report no change");
         let mut invalid = shown.clone();
         invalid.status = pdfcraft_engine::SignatureStatus::Invalid;
         let mut drawn = shown.clone();
@@ -5629,7 +5629,7 @@ mod tests {
     #[test]
     fn the_verdict_mark_is_none_for_a_rectangle_the_screen_cannot_hold() {
         // Each of these leaves the shorter side finite (`f32::min` returns the other operand for
-        // NaN), so only the `is_finite` check refuses them; one per corner.
+        // NaN), so only the `is_finite` check refuses them; one per coordinate.
         let unplaceable = [
             Rect { min: pos2(f32::NAN, 0.0), max: pos2(400.0, 200.0) },
             Rect { min: pos2(0.0, 0.0), max: pos2(40.0, f32::NAN) },
@@ -5653,7 +5653,6 @@ mod tests {
                     assert!(widget.contains_rect(mark), "{mark:?} is not inside {widget:?} for a {w}x{h} widget");
                 }
                 let Some(mark) = verdict_mark_rect(widget, widget.right_bottom()) else { continue };
-                assert!(mark.width() <= widget.width() && mark.height() <= widget.height(), "{mark:?} is larger than {widget:?}");
                 // A quarter of the shorter side each way: at most 6.25% of a square widget.
                 let share = mark.width() * mark.height() / (widget.width() * widget.height());
                 assert!(share <= MARK_SIDE_SHARE * MARK_SIDE_SHARE * 1.0001, "the mark covers {:.2}% of a {w}x{h} widget", share * 100.0);

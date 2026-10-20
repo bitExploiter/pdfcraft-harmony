@@ -143,8 +143,8 @@ fn caption_strip(h: &mut Harness<'static, PdfCraftApp>) -> Vec<u8> {
     (y0..y1.min(image.height())).flat_map(|y| (x0..x1.min(image.width())).map(move |x| (x, y))).flat_map(|(x, y)| image.get_pixel(x, y).0).collect()
 }
 
-/// Redraw the open document with `captions`, invalidate the page cache as the language-change
-/// path does, and return the caption's rendered pixels.
+/// Redraw the open document with `captions`, invalidate every view's page cache, and return the
+/// caption's rendered pixels.
 fn redraw_captions(h: &mut Harness<'static, PdfCraftApp>, captions: pdfcraft_engine::sign::StatusCaptions) -> Vec<u8> {
     let app = h.state_mut();
     app.session.set_signature_captions(captions);
@@ -166,25 +166,31 @@ fn hovered(h: &mut Harness<'static, PdfCraftApp>, label: &str) -> usize {
     n
 }
 
+/// The app with `bytes` open in `lang`, the left panel closed, settled.
+fn harness(bytes: Vec<u8>, lang: &'static str) -> Harness<'static, PdfCraftApp> {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", lang).unwrap();
+        app.open_bytes("signed.pdf", None, bytes).expect("opens");
+        app.set_option("left", "closed").unwrap();
+        app
+    });
+    settle(&mut h);
+    h
+}
+
 #[test]
 fn named_layers_follow_trust_and_language_and_keep_the_badge() {
     let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
     let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
     let anchor = id.chain.first().cloned().unwrap_or_else(|| id.certificate.clone());
-    let bytes = signed(&id);
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
-        app.set_option("language", "en").unwrap();
-        app.open_bytes("named.pdf", None, bytes).expect("opens");
-        app.set_option("left", "closed").unwrap();
-        app
-    });
-    settle(&mut h);
+    let mut h = harness(signed(&id), "en");
     let (amber, green) = ([0xE6, 0x86, 0x19], [0x2D, 0x9D, 0x78]);
     let doc_id = h.state().views[0].id;
     // Untrusted: the appearance draws the unknown state, and the badge stays.
     assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Unknown);
-    assert!(in_n1_square(&mut h, amber) > 100, "n1 shows the unknown icon");
+    let unknown = in_n1_square(&mut h, amber);
+    assert!(unknown > 100, "n1 shows the unknown icon: {unknown} amber pixels");
     assert!(
         hovered(&mut h, "Signature validity is unknown") > h.query_all_by_label("Signature validity is unknown").count(),
         "an unknown signature keeps its badge"
@@ -196,21 +202,29 @@ fn named_layers_follow_trust_and_language_and_keep_the_badge() {
     settle(&mut h);
     assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Valid);
     assert_eq!(h.state().views[0].zoom, zoom);
-    assert!(in_n1_square(&mut h, green) > 100 && in_n1_square(&mut h, amber) < 10, "n1 redraws in the valid state");
+    let (valid, unknown) = (in_n1_square(&mut h, green), in_n1_square(&mut h, amber));
+    assert!(valid > 100 && unknown < 10, "n1 redraws in the valid state: {valid} green, {unknown} amber pixels");
     assert!(hovered(&mut h, "Signature is valid") > h.query_all_by_label("Signature is valid").count(), "a valid signature keeps its badge");
-    // Not while a dialog covers the page: tips are drawn above windows.
-    h.state_mut().dialog = Some(pdfcraft_ui_egui::Dialog::About);
-    h.run_steps(2);
-    assert_eq!(hovered(&mut h, "Signature is valid"), h.query_all_by_label("Signature is valid").count(), "no badge tip over a dialog");
-    h.state_mut().dialog = None;
-    h.run_steps(2);
     // The interface language changes the caption, on the page as well as in the document.
     let english = caption_strip(&mut h);
     h.state_mut().set_option("language", "de").unwrap();
     settle(&mut h);
-    assert_ne!(caption_strip(&mut h), english, "the page redraws the caption");
+    // Compared whole, not with assert_ne!: a failure would print both strips, byte by byte.
+    assert!(caption_strip(&mut h) != english, "the page redraws the caption");
     let text = pdfcraft_engine::export::Exporter::new(h.state().session.get(doc_id).unwrap()).text_of(&[0]).unwrap();
     assert!(text.contains("Signatur gültig"), "{text:?}");
+}
+
+#[test]
+fn a_badge_tip_stays_hidden_while_a_dialog_covers_the_page() {
+    // Tips are drawn above windows, so one over a dialog would show through it.
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
+    let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
+    let mut h = harness(signed(&id), "en");
+    h.state_mut().dialog = Some(pdfcraft_ui_egui::Dialog::About);
+    h.run_steps(2);
+    let label = "Signature validity is unknown";
+    assert_eq!(hovered(&mut h, label), h.query_all_by_label(label).count(), "no badge tip over a dialog");
 }
 
 #[test]
@@ -222,15 +236,7 @@ fn arabic_caption_keeps_logical_word_order_on_page_and_in_extracted_text() {
     let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
     let id = pdfcraft_engine::sign::pkcs12::open(&p12, "test").unwrap();
     let anchor = id.chain.first().cloned().unwrap_or_else(|| id.certificate.clone());
-    let bytes = signed(&id);
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
-        app.set_option("language", "ar").unwrap();
-        app.open_bytes("named.pdf", None, bytes).expect("opens");
-        app.set_option("left", "closed").unwrap();
-        app
-    });
-    settle(&mut h);
+    let mut h = harness(signed(&id), "ar");
     h.state_mut().apply_trusted_certificates(vec![anchor]);
     settle(&mut h);
 
@@ -257,8 +263,9 @@ fn arabic_caption_keeps_logical_word_order_on_page_and_in_extracted_text() {
 
     let logical_render = redraw_captions(&mut h, logical);
     let double_reordered_render = redraw_captions(&mut h, display_order);
-    assert_eq!(from_interface, logical_render, "the interface path renders the logical-order caption");
-    assert_ne!(from_interface, double_reordered_render, "display-order input reverses the rendered word order a second time");
+    // Compared whole: assert_eq! would print both strips, byte by byte.
+    assert!(from_interface == logical_render, "the interface path renders the logical-order caption");
+    assert!(from_interface != double_reordered_render, "display-order input reverses the rendered word order a second time");
 }
 
 #[test]
@@ -272,20 +279,14 @@ fn an_edit_on_another_page_that_changes_the_verdict_redraws_the_signature() {
         let reference = b"[<< /Type /SigRef /TransformMethod /DocMDP /TransformParams << /Type /TransformParams /P 1 /V /1.2 >> >>]";
         v.set(b"Reference".to_vec(), pdfcraft_cos::Lexer::new(reference, 0).object().unwrap());
     });
-    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
-        let mut app = PdfCraftApp::new();
-        app.set_option("language", "en").unwrap();
-        app.open_bytes("certified.pdf", None, bytes).expect("opens");
-        app.set_option("left", "closed").unwrap();
-        app
-    });
-    settle(&mut h);
+    let mut h = harness(bytes, "en");
     h.state_mut().apply_trusted_certificates(vec![anchor]);
     settle(&mut h);
     let (green, red) = ([0x2D, 0x9D, 0x78], [0xD7, 0x37, 0x3F]);
     let doc_id = h.state().views[0].id;
     assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Valid);
-    assert!(in_n1_square(&mut h, green) > 100, "page 1 draws the valid state");
+    let valid = in_n1_square(&mut h, green);
+    assert!(valid > 100, "page 1 draws the valid state: {valid} green pixels");
 
     let shape = pdfcraft_engine::Shape::Rectangle { rect: [10.0, 10.0, 50.0, 50.0] };
     let note = pdfcraft_engine::NewAnnotation {
@@ -298,7 +299,8 @@ fn an_edit_on_another_page_that_changes_the_verdict_redraws_the_signature() {
     assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::AddAnnotation(note)));
     settle(&mut h);
     assert_eq!(h.state().session.get(doc_id).unwrap().signatures[0].status, SignatureStatus::Invalid);
-    assert!(in_n1_square(&mut h, red) > 100 && in_n1_square(&mut h, green) < 10, "page 1 redraws in the invalid state");
+    let (invalid, valid) = (in_n1_square(&mut h, red), in_n1_square(&mut h, green));
+    assert!(invalid > 100 && valid < 10, "page 1 redraws in the invalid state: {invalid} red, {valid} green pixels");
 }
 
 #[test]

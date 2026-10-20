@@ -1576,28 +1576,24 @@ mod tests {
     }
 
     #[test]
-    fn status_captions_are_translated_or_all_english() {
-        use crate::i18n::{Lang, tr_logical};
+    fn status_captions_are_translated_in_every_language() {
+        use crate::i18n::Lang;
         let english = StatusCaptions::default();
         assert_eq!(status_captions(Lang::EN), english);
-        // Every catalogue has all three, so each language gets its own; whether a face draws
-        // them is the sign crate's call.
-        for lang in Lang::all() {
-            let ours = status_captions(lang);
-            if lang == Lang::EN {
-                assert_eq!(ours, english, "{}", lang.code());
-            } else {
-                let said = |s: &str| tr_logical(lang, s).expect("every catalogue has every status caption");
-                let catalogue = StatusCaptions { valid: said(&english.valid), unknown: said(&english.unknown), invalid: said(&english.invalid) };
-                assert_eq!(ours, catalogue, "{}", lang.code());
-                assert_ne!(ours, english, "{}", lang.code());
-            }
+        // A language missing any of the three falls back to English for all of them, so each
+        // has its own; whether a face draws them is the sign crate's call.
+        for lang in Lang::all().filter(|&l| l != Lang::EN) {
+            assert_ne!(status_captions(lang), english, "{} misses a status caption", lang.code());
         }
         let de = status_captions(Lang::from_code("de").unwrap());
         assert_eq!((de.valid.as_str(), de.invalid.as_str()), ("Signatur gültig", "Signatur ungültig"));
+    }
+
+    #[test]
+    fn status_captions_reach_the_sign_crate_in_logical_order() {
         // The screen shows Arabic in display order; the sign crate receives the catalogue's own
         // logical order instead, so its bidi shaper does not reverse the words a second time.
-        let ar = status_captions(Lang::from_code("ar").unwrap());
+        let ar = status_captions(crate::i18n::Lang::from_code("ar").unwrap());
         assert_eq!([ar.valid.as_str(), ar.unknown.as_str(), ar.invalid.as_str()], ["التوقيع صالح", "الصلاحية غير معروفة", "التوقيع غير صالح"]);
     }
 

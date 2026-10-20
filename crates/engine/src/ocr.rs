@@ -35,12 +35,16 @@ const ALREADY_ON_PAGE: f32 = 0.5;
 /// is a resolution on paper this size or smaller.
 const SHEET: f32 = 842.0;
 
-/// Whether `page` has text of its own: glyphs, not words drawn as outlines or pictures that only
-/// `/ActualText` names. A stamp drawn that way on a scan still leaves the scan to read; its words
-/// are not read twice, since they count as already on the page.
-pub(crate) fn has_own_text(r: &mut PageRenderer, page: usize) -> bool {
-    let own = TextFilter { painted: true, ..Default::default() };
-    r.filtered_text(page, own).is_ok_and(|t| t.glyphs.iter().any(|g| !g.text.trim().is_empty()))
+/// The text of `page`'s own: its glyphs, without the words drawn as outlines or pictures that only
+/// `/ActualText` names.
+pub(crate) fn own_text(r: &mut PageRenderer, page: usize) -> Result<pdfcraft_render::PageText, String> {
+    r.filtered_text(page, TextFilter { painted: true, ..Default::default() })
+}
+
+/// Whether `page` has text of its own ([`own_text`]). A stamp drawn as outlines on a scan still
+/// leaves the scan to read; its words are not read twice, since they count as already on the page.
+fn has_own_text(r: &mut PageRenderer, page: usize) -> bool {
+    own_text(r, page).is_ok_and(|t| t.glyphs.iter().any(|g| !g.text.trim().is_empty()))
 }
 
 /// How much of `word` the `text` boxes cover, from 0 to 1. Boxes are `[x0, y0, x1, y1]` in page
@@ -124,7 +128,8 @@ impl OcrJob {
             }
             let Some(info) = self.infos.get(page) else { continue };
             let skip = |why: &str| OcrPage { page, words: Vec::new(), already_on_page: 0, skipped: Some(why.into()) };
-            // The boxes of the page's own text (an earlier OCR layer's included), in view space.
+            // The boxes of all text on the page, in view space: an earlier OCR layer's, and words
+            // only /ActualText names, so neither is read again.
             let existing: Vec<[f32; 4]> = r
                 .render(RenderRequest { page, kind: RequestKind::Text, scale: 1.0, ..Default::default() })
                 .text
@@ -288,6 +293,10 @@ mod tests {
         // They still count as on the page, so reading the scan doesn't add them twice.
         let text = r.render(RenderRequest { page: 0, kind: RequestKind::Text, scale: 1.0, ..Default::default() }).text.unwrap();
         assert_eq!(text.plain_text(), "APPROVED");
+    }
+
+    #[test]
+    fn printed_glyphs_count_as_own_text() {
         let mut r = PageRenderer::new(page("BT /F1 12 Tf 20 150 Td (Total) Tj ET"), RenderConfig::default());
         assert!(has_own_text(&mut r, 0));
     }

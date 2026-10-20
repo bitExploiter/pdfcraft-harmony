@@ -4110,11 +4110,9 @@ impl Session {
         // The page shows the original's own artwork again, so nothing counts as drawn, even if
         // the refresh that follows fails.
         if doc.signatures.iter().any(|s| s.verdict_shown) {
-            let mut cleared = doc.signatures.to_vec();
-            for sig in &mut cleared {
+            for sig in Arc::make_mut(&mut doc.signatures) {
                 sig.verdict_shown = false;
             }
-            doc.signatures = Arc::new(cleared);
         }
     }
 
@@ -4936,12 +4934,15 @@ impl Session {
     }
 
     /// Validate `doc`'s signatures against `trust`, and rebuild its display copy and renderer
-    /// with them: the verdicts choose what the copy draws. Viewer caches are invalidated by the
-    /// UI trust path.
+    /// with them: the verdicts choose what the copy draws. An unsigned document has nothing to
+    /// validate and keeps both. Viewer caches are invalidated by the UI trust path.
     fn revalidate(doc: &mut Document, trust: Arc<TrustStore>) {
         doc.trust = trust;
+        if doc.signatures.is_empty() {
+            return;
+        }
         let Some(editor) = doc.editor.as_mut() else { return };
-        let mut signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache) };
+        let mut signatures = signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache);
         doc.display = display_bytes(Some(editor), &doc.bytes, &mut signatures, &doc.captions);
         doc.signatures = Arc::new(signatures);
         doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
@@ -4963,16 +4964,17 @@ impl Session {
     }
 
     /// Draw `doc`'s signature status layers with `captions`: the display copy and renderer are
-    /// rebuilt when it has signatures (working file, generation and dirty unchanged).
+    /// rebuilt when it draws a signature's state (working file, generation and dirty unchanged).
+    /// Whether a state is drawn does not depend on the words: a caption that can't be drawn in
+    /// them is drawn in English.
     fn draw_captions(doc: &mut Document, captions: Arc<StatusCaptions>) {
         doc.captions = captions;
-        let Some(editor) = doc.editor.as_mut() else { return };
-        if doc.signatures.is_empty() {
+        if !doc.signatures.iter().any(|s| s.verdict_shown) {
             return;
         }
-        let mut signatures = doc.signatures.to_vec();
-        doc.display = display_bytes(Some(editor), &doc.bytes, &mut signatures, &doc.captions);
-        doc.signatures = Arc::new(signatures);
+        let Some(editor) = doc.editor.as_mut() else { return };
+        let signatures = Arc::make_mut(&mut doc.signatures);
+        doc.display = display_bytes(Some(editor), &doc.bytes, signatures, &doc.captions);
         doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
     }
 

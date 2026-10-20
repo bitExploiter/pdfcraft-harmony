@@ -3450,13 +3450,15 @@ fn check_named_layer_states(signed: Arc<Vec<u8>>, password: Option<&str>, anchor
     assert!(sig.verdict_shown, "the appearance shows the unknown state");
     let text = exported_text(&s, id);
     assert!(text.contains("Validity unknown") && !text.contains("Not Verified"), "{text:?}");
-    assert!(pixels_near(&displayed_pixels(&s, id), UNKNOWN_AMBER) > 500);
+    let amber = pixels_near(&displayed_pixels(&s, id), UNKNOWN_AMBER);
+    assert!(amber > 500, "{amber} amber pixels");
     s.set_trusted_certificates(vec![anchor.clone()]);
     let doc = s.get(id).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Valid);
     assert!(doc.signatures[0].verdict_shown);
     assert!(!doc.dirty, "trust is not an edit");
-    assert!(exported_text(&s, id).contains("Signature valid"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signature valid"), "{exported}");
     let page = displayed_pixels(&s, id);
     assert!(pixels_near(&page, VALID_GREEN) > 500 && pixels_near(&page, UNKNOWN_AMBER) < 50, "the page redraws for the new state");
     // Saving writes the working file, which never held the drawn state.
@@ -3467,7 +3469,8 @@ fn check_named_layer_states(signed: Arc<Vec<u8>>, password: Option<&str>, anchor
     let tid = t.open("named-saved.pdf", None, saved, password).unwrap();
     let sig = &t.get(tid).unwrap().signatures[0];
     assert!(sig.status == SignatureStatus::Valid && sig.verdict_shown);
-    assert!(exported_text(&t, tid).contains("Signature valid"));
+    let exported = exported_text(&t, tid);
+    assert!(exported.contains("Signature valid"), "{exported}");
 }
 
 #[test]
@@ -3508,8 +3511,10 @@ fn a_tampered_named_layer_signature_shows_the_invalid_state() {
     let id = s.open("tampered.pdf", None, Arc::new(signed), None).unwrap();
     let sig = &s.get(id).unwrap().signatures[0];
     assert!(sig.status == SignatureStatus::Invalid && sig.verdict_shown);
-    assert!(exported_text(&s, id).contains("Signature invalid"));
-    assert!(pixels_near(&displayed_pixels(&s, id), INVALID_RED) > 500);
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signature invalid"), "{exported}");
+    let red = pixels_near(&displayed_pixels(&s, id), INVALID_RED);
+    assert!(red > 500, "{red} red pixels");
 }
 
 /// A trusted named-layer signature.
@@ -3559,9 +3564,11 @@ fn named_layers_show_beside_comments_that_need_appearances() {
     let mut s = Session::new().with_clock(|| 1_800_000_000);
     let id = s.open("commented.pdf", None, signed, None).unwrap();
     s.set_trusted_certificates(vec![anchor]);
-    assert!(!Arc::ptr_eq(&s.get(id).unwrap().display, &s.get(id).unwrap().bytes), "the comment needs a display copy");
+    let shown = pdfcraft_cos::Document::open(s.get(id).unwrap().display.clone()).unwrap();
+    assert!(shown.get(square).as_dict().is_some_and(|d| d.contains(b"AP")), "the comment's appearance is in the same copy");
     assert!(s.get(id).unwrap().signatures[0].verdict_shown);
-    assert!(pixels_near(&displayed_pixels(&s, id), VALID_GREEN) > 500);
+    let green = pixels_near(&displayed_pixels(&s, id), VALID_GREEN);
+    assert!(green > 500, "{green} green pixels");
 }
 
 #[test]
@@ -3570,7 +3577,8 @@ fn a_metadata_edit_keeps_the_regenerated_state() {
     s.apply(id, Edit::SetInfo { key: "Title".into(), value: "Contract".into() }).unwrap();
     let doc = s.get(id).unwrap();
     assert!(doc.signatures[0].verdict_shown, "the page still draws the state");
-    assert!(exported_text(&s, id).contains("Signature valid"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signature valid"), "{exported}");
 }
 
 #[test]
@@ -3594,8 +3602,10 @@ fn a_metadata_edit_that_changes_a_verdict_redraws_it() {
     let doc = s.get(id).unwrap();
     assert_eq!(doc.signatures[0].status, SignatureStatus::Invalid);
     assert!(doc.signatures[0].verdict_shown);
-    assert!(exported_text(&s, id).contains("Signature invalid"));
-    assert!(pixels_near(&displayed_pixels(&s, id), INVALID_RED) > 500);
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signature invalid"), "{exported}");
+    let red = pixels_near(&displayed_pixels(&s, id), INVALID_RED);
+    assert!(red > 500, "{red} red pixels");
 }
 
 #[test]
@@ -3635,7 +3645,8 @@ fn background_open_uses_the_current_trust_at_commit() {
     let id = s.commit_open(prepared);
     let sig = &s.get(id).unwrap().signatures[0];
     assert!(sig.status == SignatureStatus::Valid && sig.verdict_shown);
-    assert!(exported_text(&s, id).contains("Signature valid"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signature valid"), "{exported}");
 }
 
 #[test]
@@ -3654,7 +3665,8 @@ fn background_open_uses_the_current_trust_and_language_at_commit() {
     });
     let id = s.commit_open(prepared);
     assert_eq!(s.get(id).unwrap().signatures[0].status, SignatureStatus::Valid);
-    assert!(exported_text(&s, id).contains("Signatur gültig"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signatur gültig"), "{exported}");
 }
 
 #[test]
@@ -3668,7 +3680,8 @@ fn printing_draws_signature_states_only_where_the_screen_does() {
     cleared[0].verdict_shown = false;
     doc.signatures = Arc::new(cleared);
     let (_, _, printed) = printed_pixels(s.print_pdf(id, &settings).unwrap());
-    assert!(pixels_near(&printed, VALID_GREEN) < 50);
+    let green = pixels_near(&printed, VALID_GREEN);
+    assert!(green < 50, "{green} green pixels");
 }
 
 #[test]
@@ -3700,7 +3713,8 @@ fn background_open_uses_the_current_caption_language_at_commit() {
         invalid: "Signatur ungültig".into(),
     });
     let later = s.commit_open(prepared);
-    assert!(exported_text(&s, later).contains("Signatur gültig"));
+    let exported = exported_text(&s, later);
+    assert!(exported.contains("Signatur gültig"), "{exported}");
     assert!(s.get(later).unwrap().signatures[0].verdict_shown);
     assert!(!s.get(later).unwrap().dirty);
 }
@@ -3714,22 +3728,30 @@ fn caption_language_follows_the_session_captions() {
     let doc = s.get(id).unwrap();
     assert!(!doc.dirty && doc.generation == generation, "captions are not an edit");
     assert!(doc.signatures[0].verdict_shown);
-    assert!(exported_text(&s, id).contains("Signatur gültig"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Signatur gültig"), "{exported}");
     // Documents opened later draw with them too.
     let (signer, _) = test_identity();
     let mut cos = pdfcraft_cos::Document::open(Arc::new(named_layer_signable_fixture())).unwrap();
     let later = s.open("later.pdf", None, Arc::new(sign_prepared(&mut cos, &signer, "D:20261002120000+01'00'")), None).unwrap();
-    assert!(exported_text(&s, later).contains("Signatur gültig"));
+    let exported = exported_text(&s, later);
+    assert!(exported.contains("Signatur gültig"), "{exported}");
+}
+
+#[test]
+fn non_win_ansi_captions_embed_inter_in_the_display_copy_only() {
     // Words WinAnsi cannot encode are drawn in Inter, embedded into the display copy only.
+    let (mut s, id) = trusted_named_layer_session();
     let russian = StatusCaptions {
         valid: "Подпись действительна".into(),
         unknown: "Действительность неизвестна".into(),
         invalid: "Подпись недействительна".into(),
     };
     s.set_signature_captions(russian);
-    assert!(exported_text(&s, id).contains("Подпись действительна"));
+    let exported = exported_text(&s, id);
+    assert!(exported.contains("Подпись действительна"), "{exported}");
     let doc = s.get(id).unwrap();
-    assert!(bytes_has(&doc.display, b"/BaseFont /Inter") && !bytes_has(&doc.bytes, b"/BaseFont /Inter"));
+    assert!(bytes_has(&doc.display, b"/BaseFont /Inter") && !bytes_has(&doc.bytes, b"/BaseFont /Inter"), "Inter goes into the display copy only");
 }
 
 #[test]
@@ -5476,9 +5498,8 @@ fn cli_display_draws_signature_states_as_the_app_does_without_trust() {
     let (id, _) = test_identity();
     let mut doc = pdfcraft_cos::Document::open(Arc::new(named_layer_signable_fixture())).unwrap();
     let signed = Arc::new(sign_prepared(&mut doc, &id, "D:20261002120000+01'00'"));
-    let before = signed.as_ref().clone();
     let display = display_bytes_for(signed.clone(), None);
-    assert_eq!(signed.as_slice(), before.as_slice());
+    assert!(!Arc::ptr_eq(&display, &signed), "the state is drawn into a copy");
     let mut renderer = pdfcraft_render::PageRenderer::new(display, pdfcraft_render::RenderConfig::default());
     let page = renderer.render(pdfcraft_render::RenderRequest { page: 0, scale: 1.0, ..Default::default() });
     assert!(pixels_near(&page.rgba, UNKNOWN_AMBER) > 500, "the unknown state is drawn");
