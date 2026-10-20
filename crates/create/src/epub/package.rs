@@ -137,8 +137,68 @@ pub fn xml_text(bytes: &[u8]) -> String {
     out
 }
 
-/// Parse XML, DTDs allowed (EPUB 2 content documents carry the XHTML DOCTYPE).
+/// How deep elements may nest in a file the parser is given. roxmltree recurses once per level
+/// while it reads (and while it frees the tree), so tens of thousands of nested elements end the
+/// whole process with a stack overflow, which nothing can catch. Real books stay below 50.
+pub const MAX_XML_DEPTH: usize = 512;
+
+/// Whether `text` nests elements deeper than `max`, found by one pass over its tags (quoted
+/// attribute values, comments, CDATA, processing instructions and declarations are skipped).
+pub fn nests_deeper_than(text: &str, max: usize) -> bool {
+    let b = text.as_bytes();
+    let (mut i, mut depth) = (0, 0usize);
+    while let Some(at) = b[i..].iter().position(|&c| c == b'<') {
+        i += at;
+        let rest = &b[i..];
+        let skip_to = |end: &[u8]| rest.windows(end.len()).position(|w| w == end).map(|n| n + end.len()).unwrap_or(rest.len());
+        if rest.starts_with(b"<!--") {
+            i += skip_to(b"-->");
+        } else if rest.starts_with(b"<![CDATA[") {
+            i += skip_to(b"]]>");
+        } else if rest.starts_with(b"<?") {
+            i += skip_to(b"?>");
+        } else if rest.starts_with(b"<!") {
+            i += skip_to(b">");
+        } else {
+            let closing = rest.get(1) == Some(&b'/');
+            let mut quote = None;
+            let mut end = rest.len();
+            for (k, &c) in rest.iter().enumerate().skip(1) {
+                match (quote, c) {
+                    (Some(q), c) if c == q => quote = None,
+                    (Some(_), _) => {}
+                    (None, b'"' | b'\'') => quote = Some(c),
+                    (None, b'>') => {
+                        end = k + 1;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            let empty = !closing && end >= 2 && rest.get(end - 2) == Some(&b'/');
+            if closing {
+                depth = depth.saturating_sub(1);
+            } else if !empty {
+                depth += 1;
+                if depth > max {
+                    return true;
+                }
+            }
+            i += end;
+        }
+        if i >= b.len() {
+            break;
+        }
+    }
+    false
+}
+
+/// Parse XML, DTDs allowed (EPUB 2 content documents carry the XHTML DOCTYPE). A file nested
+/// deeper than MAX_XML_DEPTH is refused as if it were not well-formed.
 pub fn parse(text: &str) -> Result<roxmltree::Document<'_>, roxmltree::Error> {
+    if nests_deeper_than(text, MAX_XML_DEPTH) {
+        return Err(roxmltree::Error::NodesLimitReached);
+    }
     roxmltree::Document::parse_with_options(text, roxmltree::ParsingOptions { allow_dtd: true, nodes_limit: 4_000_000 })
 }
 

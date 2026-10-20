@@ -41,7 +41,8 @@ fn huge_list_start_is_bounded() {
 
 #[test]
 fn deep_nesting_does_not_overflow() {
-    let depth = 100_000;
+    // Past the converter's own cap (256) but inside what the parser accepts (512).
+    let depth = 400;
     let html =
         format!(r#"<html xmlns="http://www.w3.org/1999/xhtml"><body>{}deep words{}</body></html>"#, "<div>".repeat(depth), "</div>".repeat(depth));
     let (b, notes) = blocks(&html);
@@ -51,7 +52,7 @@ fn deep_nesting_does_not_overflow() {
 
 #[test]
 fn deep_contents_list_does_not_overflow() {
-    let depth = 100_000;
+    let depth = 400;
     let nav = format!(
         r#"<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><body><nav epub:type="toc">{}{}</nav></body></html>"#,
         r#"<ol><li><a href="c.xhtml">x</a>"#.repeat(depth),
@@ -130,4 +131,18 @@ fn a_stored_entry_that_understates_its_size_is_refused() {
     bytes[dir + 24..dir + 28].copy_from_slice(&1u32.to_le_bytes());
     let z = zip::Zip::open(&bytes).unwrap();
     assert!(matches!(z.read("big.xhtml"), Err(EpubError::Damaged(m)) if m.contains("larger than the container says")));
+}
+
+#[test]
+fn xml_nested_past_the_parser_limit_is_refused_not_fatal() {
+    // roxmltree recurses per level: 100,000 nested elements overflow the stack and abort.
+    let depth = 100_000;
+    let deep = format!(r#"<html xmlns="http://www.w3.org/1999/xhtml"><body>{}x{}</body></html>"#, "<div>".repeat(depth), "</div>".repeat(depth));
+    assert!(package::parse(&deep).is_err());
+    // An ordinary document, and one at the limit, still parse.
+    let ok = format!("<a>{}x{}</a>", "<b>".repeat(package::MAX_XML_DEPTH - 1), "</b>".repeat(package::MAX_XML_DEPTH - 1));
+    assert!(package::parse(&ok).is_ok());
+    // Self-closing tags, comments, CDATA and quoted '>' do not count as nesting.
+    let flat = format!("<a>{}</a>", r#"<br/><!-- <x><y> --><![CDATA[<z><z>]]><i t="<q><q>"/>"#.repeat(2000));
+    assert!(!package::nests_deeper_than(&flat, 3));
 }
