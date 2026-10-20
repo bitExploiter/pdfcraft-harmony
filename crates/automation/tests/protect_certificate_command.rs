@@ -16,7 +16,7 @@ fn protect_certificate_command_runs_its_tool() {
     let dir = std::env::temp_dir().join(format!("pdfcraft-protect-certificate-command-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    let mut session = Session::new();
+    let session = Session::new();
     let bytes = session.create_blank(200.0, 300.0, 1).unwrap();
     std::fs::write(dir.join("a.pdf"), bytes.as_slice()).unwrap();
     std::fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/rsa-aes.p12"), dir.join("me.p12")).unwrap();
@@ -28,11 +28,8 @@ fn protect_certificate_command_runs_its_tool() {
     assert_eq!(entry["tool"], "doc_protect_certificates", "{entry}");
 
     let result = json_of(
-        a.call(
-            "command_run",
-            &json!({ "id": "protect.certificate", "params": { "doc": doc, "certificates": ["me.p12"], "password": "test" } }),
-        )
-        .expect("the command reaches its tool"),
+        a.call("command_run", &json!({ "id": "protect.certificate", "params": { "doc": doc, "certificates": ["me.p12"], "password": "test" } }))
+            .expect("the command reaches its tool"),
     );
     assert_eq!(result["recipients"].as_array().map(Vec::len), Some(1), "{result}");
     let _ = std::fs::remove_dir_all(&dir);
