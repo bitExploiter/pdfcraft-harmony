@@ -1610,6 +1610,18 @@ fn paint_outline(painter: &egui::Painter, outline: &pdfcraft_engine::CommentOutl
                 painter.add(egui::Shape::convex_polygon(points, fill, Stroke::NONE));
             }
         }
+        O::Text { rect, text, size, color: c } => {
+            // At the page's zoom, wrapped in the box; too small to read at this zoom, left out.
+            let r = Rect::from_two_pos(at([rect[0], rect[1]]), at([rect[2], rect[3]]));
+            let zoom = at([1.0, 0.0]).distance(at([0.0, 0.0]));
+            let px = *size as f32 * zoom;
+            if !(px.is_finite() && px >= 3.0) {
+                return;
+            }
+            let pad = 2.0 * zoom;
+            let galley = painter.layout(text.clone(), egui::FontId::proportional(px.min(400.0)), color(c), (r.width() - 2.0 * pad).max(1.0));
+            painter.with_clip_rect(r.intersect(painter.clip_rect())).galley(r.min + vec2(pad, pad), galley, color(c));
+        }
     }
 }
 

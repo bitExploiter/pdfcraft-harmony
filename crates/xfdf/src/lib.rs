@@ -587,6 +587,9 @@ pub enum Outline {
     Ink { strokes: Vec<Vec<[f64; 2]>>, color: Option<[f64; 3]> },
     /// Text markup: each quad is x1,y1 (upper left), x2,y2 (upper right), x3,y3 (lower left), x4,y4.
     Quads { quads: Vec<[f64; 8]>, color: Option<[f64; 3]> },
+    /// A text box's text, from the top-left of its box (`rect`, which it wraps in), at its font
+    /// `size` in points and in its text colour.
+    Text { rect: [f64; 4], text: String, size: f64, color: Option<[f64; 3]> },
 }
 
 /// Every comment element of an XFDF text, in order (none when it is no XFDF).
@@ -677,15 +680,48 @@ pub fn comment_outlines(text: &str) -> Vec<Outline> {
                     out.push(Outline::Quads { quads, color });
                 }
             }
+            // A Fill & Sign mark: its tick, cross, dot or line, as its appearance draws it.
+            "stamp"
+                if let Some(rect) = rect
+                    && let Some(mark) = node.attribute("icon").and_then(|i| pdfcraft_annot::FillMark::from_name(i.as_bytes())) =>
+            {
+                if mark == pdfcraft_annot::FillMark::Dot {
+                    let r = (rect[2] - rect[0]).min(rect[3] - rect[1]) * 0.3;
+                    let (cx, cy) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
+                    out.push(Outline::Rect { rect: [cx - r, cy - r, cx + r, cy + r], round: true, color });
+                }
+                for points in mark.strokes(rect) {
+                    out.push(Outline::Line { points, color });
+                }
+            }
             _ => {
                 if let Some(rect) = rect {
                     out.push(Outline::Rect { rect, round: tag == "circle", color });
                 }
                 // A callout's leader, from the box to what it points at.
+                let callout = node.attribute("callout").map(csv).filter(|c| c.len() == 4 || c.len() == 6);
                 if tag == "freetext"
-                    && let Some(cl) = node.attribute("callout").map(csv).filter(|c| c.len() == 4 || c.len() == 6)
+                    && let Some(cl) = &callout
                 {
                     out.push(Outline::Line { points: cl.as_chunks::<2>().0.to_vec(), color });
+                }
+                // A text box's text, in its own colour and size, inside the box (a callout's box
+                // is its rect inset by the fringe).
+                if tag == "freetext"
+                    && let Some(rect) = rect
+                    && let Some(text) = node.children().find(|c| c.has_tag_name("contents")).and_then(|c| c.text()).filter(|t| !t.trim().is_empty())
+                {
+                    let mut da = Dict::new();
+                    if let Some(s) = node.children().find(|c| c.has_tag_name("defaultappearance")).and_then(|c| c.text()) {
+                        da.set(b"DA".to_vec(), PdfString::literal(s.as_bytes().to_vec()));
+                    }
+                    let (text_color, size) = pdfcraft_annot::appearance::parse_da(&da);
+                    let fringe = node.attribute("fringe").map(csv).filter(|f| callout.is_some() && f.len() == 4 && f.iter().all(|v| v.is_finite()));
+                    let rect = match fringe.as_deref() {
+                        Some([l, b, r, t]) => [rect[0] + l, rect[1] + b, rect[2] - r, rect[3] - t],
+                        _ => rect,
+                    };
+                    out.push(Outline::Text { rect, text: text.replace("\r\n", "\n").replace('\r', "\n"), size, color: Some(text_color) });
                 }
             }
         }

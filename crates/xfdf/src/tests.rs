@@ -1942,3 +1942,61 @@ fn copies_placed_with_an_offset_move_whole_and_the_text_reports_its_bounds() {
     import_comments(&mut dst, &xfdf, Some(1), Some("q"), Some([f64::NAN, 0.0])).unwrap();
     assert_eq!(summaries(&dst).iter().filter(|s| s.page == 1 && s.subtype == "Text").map(|s| s.rect[0]).next(), Some(b[0]));
 }
+
+/// Fill & Sign marks and text boxes copied: the bundle on the pointer shows the tick, cross, dot
+/// and line themselves (not empty boxes) and a text box's text, and the pasted copies are drawn
+/// with their mark.
+#[test]
+fn copied_marks_and_text_boxes_show_what_they_are_while_placed_and_once_pasted() {
+    use pdfcraft_annot::FillMark;
+    let mut src = blank();
+    let meta = Meta { date: Some("D:20261020120000Z".into()), id: "m".into() };
+    let marks = [FillMark::Check, FillMark::Cross, FillMark::Dot, FillMark::Line];
+    for (k, mark) in marks.into_iter().enumerate() {
+        let shape = Shape::Mark { rect: [100.0 + 40.0 * k as f64, 600.0, 120.0 + 40.0 * k as f64, 620.0], mark };
+        let new = NewAnnotation { page: 0, style: Style::default_for(&shape), shape, contents: String::new(), author: "Ada".into() };
+        add_annotation(&mut src, &new, &meta).unwrap();
+    }
+    let text = Shape::TextBox { rect: [100.0, 400.0, 200.0, 430.0], font_size: 14.0 };
+    let new = NewAnnotation { page: 0, style: Style::default_for(&text), shape: text, contents: "Abnahme\nok".into(), author: "Ada".into() };
+    add_annotation(&mut src, &new, &meta).unwrap();
+    let all: Vec<(usize, usize)> = summaries(&src).iter().filter(|s| s.in_reply_to.is_none()).map(|s| (s.page, s.index)).collect();
+    let xfdf = export_xfdf_comments(&src, &all, "protocol.pdf");
+    let outlines = comment_outlines(&xfdf);
+    // The tick is one stroke, the cross two, the dot a circle, the line one stroke: the strokes
+    // the appearance draws, not the stamps' boxes.
+    let check = FillMark::Check.strokes([100.0, 600.0, 120.0, 620.0]);
+    assert!(outlines.iter().any(|o| matches!(o, Outline::Line { points, .. } if *points == check[0])), "{outlines:?}");
+    assert!(!outlines.iter().any(|o| matches!(o, Outline::Rect { rect, round: false, .. } if *rect == [100.0, 600.0, 120.0, 620.0])), "{outlines:?}");
+    let cross = FillMark::Cross.strokes([140.0, 600.0, 160.0, 620.0]);
+    assert!(cross.iter().all(|s| outlines.iter().any(|o| matches!(o, Outline::Line { points, .. } if points == s))), "{outlines:?}");
+    assert!(
+        outlines
+            .iter()
+            .any(|o| matches!(o, Outline::Rect { rect, round: true, .. } if (rect[0] - 184.0).abs() < 1e-9 && (rect[2] - 196.0).abs() < 1e-9)),
+        "{outlines:?}"
+    );
+    assert!(outlines.iter().any(|o| matches!(o, Outline::Line { points, .. } if *points == vec![[220.0, 610.0], [240.0, 610.0]])), "{outlines:?}");
+    assert!(
+        outlines.iter().any(|o| matches!(o, Outline::Text { text, size, .. } if text == "Abnahme\nok" && (*size - 14.0).abs() < 1e-9)),
+        "the text box shows its text at its size: {outlines:?}"
+    );
+    // Pasted into another document, each mark is drawn with its own strokes.
+    let mut dst = blank();
+    import_comments(&mut dst, &xfdf, Some(1), Some("p"), Some([10.0, -20.0])).unwrap();
+    let page = pdfcraft_model::pages(&dst)[1].obj;
+    let annots =
+        dst.get(page).as_dict().and_then(|p| p.get(b"Annots").cloned()).map(|a| dst.resolve(&a).as_array().cloned().unwrap_or_default()).unwrap();
+    let stamps: Vec<Dict> =
+        annots.iter().filter_map(|a| dst.resolve(a).as_dict().cloned()).filter(|d| d.name(b"Subtype") == Some(b"Stamp".as_slice())).collect();
+    assert_eq!(stamps.len(), 4);
+    for d in &stamps {
+        let ap = d.get(b"AP").map(|a| dst.resolve(a)).and_then(|a| a.as_dict().cloned()).and_then(|a| a.get(b"N").cloned()).expect("an appearance");
+        let normal = dst.resolve(&ap);
+        let Object::Stream(s) = normal.as_ref() else { panic!("no appearance stream") };
+        let content = String::from_utf8_lossy(&s.decoded().unwrap()).into_owned();
+        let drawn =
+            if d.name(b"Name") == Some(b"PCDot".as_slice()) { content.contains(" c\n") || content.contains(" c ") } else { content.contains(" S\n") };
+        assert!(drawn, "{:?}: {content}", d.name(b"Name"));
+    }
+}
