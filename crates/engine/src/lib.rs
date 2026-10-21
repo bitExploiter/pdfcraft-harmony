@@ -389,7 +389,7 @@ pub struct Document {
     /// What field scripts printed or asked for (see [`Session::take_js_output`]).
     js_output: js::JsOutput,
     /// Dynamic XFA forms: what laying the template out produced (pages and fields are
-    /// PdfCraft's; Adobe's viewers draw the form from the XFA packets themselves).
+    /// KreativPdf's; Adobe's viewers draw the form from the XFA packets themselves).
     pub xfa: Option<XfaLayout>,
     /// The parsed template of a laid-out XFA form, for its scripts.
     xfa_template: Option<Arc<pdfcraft_xfa::model::Template>>,
@@ -408,7 +408,7 @@ pub struct Document {
 
 /// Text an edit stored as typed but drew with `?` in place of `ch`, because the font it is drawn
 /// with (a form field's, or the standard fonts for comments) can't draw that character. Acrobat
-/// keeps such text too, drawing it with fonts PdfCraft can't embed yet.
+/// keeps such text too, drawing it with fonts KreativPdf can't embed yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextNotice {
     /// The form field's full name, or `None` for a comment.
@@ -428,7 +428,7 @@ impl std::fmt::Display for TextNotice {
         match (&self.field, self.redrawn_elsewhere) {
             (Some(name), true) => write!(
                 f,
-                "form field {name:?} (page {page}) holds {ch}, which its font can't draw: the value is saved, PdfCraft shows ? in its place, and other PDF viewers redraw the field from the value"
+                "form field {name:?} (page {page}) holds {ch}, which its font can't draw: the value is saved, KreativPdf shows ? in its place, and other PDF viewers redraw the field from the value"
             ),
             (Some(name), false) => write!(
                 f,
@@ -1716,7 +1716,7 @@ pub enum Edit {
     /// Sanitize Document: every category, then a full rewrite on save.
     Sanitize,
     /// An XFA form made an ordinary (static) PDF form: the XFA packets, `/NeedsRendering` and
-    /// PdfCraft's private keys go, the pages as laid out and the fields with their values
+    /// KreativPdf's private keys go, the pages as laid out and the fields with their values
     /// stay, so every viewer shows the same form and none lays it out again. Its scripts no
     /// longer run.
     XfaToStatic,
@@ -1955,7 +1955,7 @@ impl Edit {
             Edit::SetPageBox { pages, which: PageBox::Crop, .. } => plural("Crop page", "Crop pages", pages.len()),
             Edit::SetPageBox { .. } => Label::of("Set page boxes"),
             Edit::SetTransition { .. } => Label::of("Set page transitions"),
-            // The four `/Info` keys PdfCraft itself offers get a wording of their own, so each can
+            // The four `/Info` keys KreativPdf itself offers get a wording of their own, so each can
             // be said in another language; any other key is the document's and goes in as it stands.
             Edit::SetInfo { key, .. } => match key.as_str() {
                 "Title" => Label::of("Change Title"),
@@ -2986,7 +2986,7 @@ pub(crate) fn xfa_redraw(doc: &mut pdfcraft_cos::Document) -> Result<(), String>
     Ok(())
 }
 
-/// A warning for each field whose appearance PdfCraft drew with `?` for a character its font
+/// A warning for each field whose appearance KreativPdf drew with `?` for a character its font
 /// can't draw (laying out an XFA form's own values).
 fn undrawn_field_warnings(doc: &pdfcraft_cos::Document) -> Vec<String> {
     pdfcraft_forms::undrawn_fields(doc)
@@ -3084,7 +3084,7 @@ fn decode_data_file(bytes: &[u8]) -> Option<Result<String, String>> {
 
 /// Take the XFA out of `doc` and note what went with it: the packets, data no field showed,
 /// buttons that did nothing but run scripts, and fields whose value differs from the form's
-/// data (data PdfCraft could not read into them, now lost).
+/// data (data KreativPdf could not read into them, now lost).
 fn strip_xfa(doc: &mut pdfcraft_cos::Document, cx: &mut EditCtx) -> Result<(), EditError> {
     let fields = pdfcraft_forms::fields(doc);
     let data = xfa_field_data(doc);
@@ -3104,7 +3104,7 @@ fn strip_xfa(doc: &mut pdfcraft_cos::Document, cx: &mut EditCtx) -> Result<(), E
     cx.xfa_removed.extend(r.notes());
     if differ > 0 {
         cx.xfa_removed.push(format!(
-            "{differ} field(s) held a value other than the form's XFA data (data PdfCraft could not read into them); the data's version is gone"
+            "{differ} field(s) held a value other than the form's XFA data (data KreativPdf could not read into them); the data's version is gone"
         ));
     }
     Ok(())
@@ -4271,7 +4271,7 @@ impl Session {
         self.write_new(&pdfcraft_create::from_text(title, text, pdfcraft_create::LETTER, 11.0)?)
     }
 
-    /// [`Self::create_from_text`] for a report PdfCraft writes from documents (comment summaries,
+    /// [`Self::create_from_text`] for a report KreativPdf writes from documents (comment summaries,
     /// compare reports), which can quote any language: characters Helvetica can't draw are written
     /// as `[U+XXXX]`, and the report's first line says so, rather than the report being refused.
     fn create_report(&self, title: &str, text: &str) -> Result<Arc<Vec<u8>>, EditError> {

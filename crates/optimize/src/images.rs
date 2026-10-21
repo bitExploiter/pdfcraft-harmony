@@ -160,7 +160,7 @@ pub fn effective_resolutions(doc: &Document, pages: &[ObjRef]) -> HashMap<ObjRef
     walk.out
 }
 
-/// Colour components of a colour space PdfCraft resamples: gray (1) or RGB (3).
+/// Colour components of a colour space KreativPdf resamples: gray (1) or RGB (3).
 pub(crate) fn components(doc: &Document, cs: &Object) -> Option<usize> {
     let cs = doc.resolve(cs);
     match &*cs {

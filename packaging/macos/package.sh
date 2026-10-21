@@ -102,7 +102,7 @@ echo "==> assembling $APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 # Executable and icon carry the display name (CFBundleExecutable / CFBundleIconFile).
 cp "$WORK/bin/pdfcraft" "$APP/Contents/MacOS/PdfCraft"
-cp "$ROOT/assets/app-icon/pdfcraft.icns" "$APP/Contents/Resources/PdfCraft.icns"
+cp "$ROOT/assets/brand/kreativpdf.icns" "$APP/Contents/Resources/PdfCraft.icns"
 # The standard About panel (PdfCraft menu > About PdfCraft) shows Credits.rtf under the version:
 # the website and Discord links the in-app About dialog has (#1287).
 cp "$HERE/Credits.rtf" "$APP/Contents/Resources/Credits.rtf"
@@ -137,8 +137,11 @@ mkdir -p "$STAGE"
 ditto "$APP" "$STAGE/PdfCraft.app"
 ln -s /Applications "$STAGE/Applications"
 # Finder window layout: background, icon size and positions (packaging/macos/dmg/README.md).
-mkdir -p "$STAGE/.background"
-cp "$HERE/dmg/background.tiff" "$STAGE/.background/background.tiff"
+# The background is optional: none ships until KreativPdf has its own (dmg/README.md).
+if [ -f "$HERE/dmg/background.tiff" ]; then
+  mkdir -p "$STAGE/.background"
+  cp "$HERE/dmg/background.tiff" "$STAGE/.background/background.tiff"
+fi
 cp "$HERE/dmg/dmg-layout.DS_Store" "$STAGE/.DS_Store"
 rm -f "$DMG"
 # `hdiutil create -srcfolder` writes the files as they are. `makehybrid -hfs` gave every file a

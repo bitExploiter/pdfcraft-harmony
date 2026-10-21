@@ -9,7 +9,7 @@ let txt = export_data(&doc, Format::Txt);               // or Xml, Csv
 let report = import(&mut doc, &bytes)?;                 // XFDF, FDF, XML, CSV or text, detected
 ```
 
-- **XFDF** (ISO 19444-1): every comment type PdfCraft knows (text, free text, line, square,
+- **XFDF** (ISO 19444-1): every comment type KreativPdf knows (text, free text, line, square,
   circle, polygon, polyline, markup, stamp, caret, ink, attachments, sound, redact) with rect,
   name, author, subject, dates, flags, colours, opacity, width, icon, quads, line ends, ink,
   default appearance, callouts (`callout`, `fringe`, `intent`, `head`), pop-ups and reply threads
@@ -29,6 +29,6 @@ delimiters without changing field identities. Automatic detection of externally 
 tables remains heuristic.
 
 Import replaces comments with the same `/NM` (and drops the replaced comment's pop-up), draws
-appearances PdfCraft can draw, and sets values through the form's own checks (formats,
+appearances KreativPdf can draw, and sets values through the form's own checks (formats,
 validation, recalculation); read-only fields take imported values, as in Acrobat. XML is read
 with `roxmltree`.

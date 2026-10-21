@@ -9,7 +9,7 @@ Comments (annotations), ISO 32000-2 §12.5. Layer L3, depends on `pdfcraft-cos`,
   line and arrow (`Line` with `/LE`), freehand drawing (`Ink`) and text box (`FreeText`).
 - **Appearance streams** (`appearance::build`) generated from the annotation dictionary, so new
   and restyled comments look the same in every viewer. Highlights multiply (`/BM /Multiply`).
-  Note icons are PdfCraft's own drawings. Text boxes use standard Helvetica (WinAnsi), with
+  Note icons are KreativPdf's own drawings. Text boxes use standard Helvetica (WinAnsi), with
   line breaking by approximate Helvetica proportions (no font program is bundled). Text it can't
   draw (in a text box, callout, Fill & Sign text, measurement label or dynamic stamp's by-line;
   `appearance::undrawable_text`) is kept as typed and drawn as `?`, and the comment is marked with
@@ -48,7 +48,7 @@ deterministic; the engine supplies them.
 - Resizing a stamp changes its `/Rect` and preserves its original appearance and resources;
   viewers scale that appearance into the new rectangle. Locked stamps refuse the edit.
 - Picture stamps (a natural-size or explicit-rectangle image, a PDF page, or an image
-  signature) and PdfCraft's rubber stamps counterrotate their appearance on rotated pages, so
+  signature) and KreativPdf's rubber stamps counterrotate their appearance on rotated pages, so
   the picture or label reads upright as the page is displayed. Restyling a picture stamp keeps
   that appearance matrix. The rotation is the page's `/Rotate` at placement.
 

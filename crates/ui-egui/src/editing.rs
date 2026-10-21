@@ -896,6 +896,9 @@ impl PdfCraftApp {
     /// Request a normal application exit, preserving every unsaved document until answered.
     /// Returns false while the existing save/discard/cancel prompt needs a decision.
     pub(crate) fn request_quit(&mut self, ctx: &egui::Context) -> bool {
+        // Remember the windows and their tabs before they merge (forgotten if the quit is
+        // cancelled).
+        self.note_quit_session();
         self.merge_windows();
         if self.first_dirty().is_some() {
             self.close_request = Some(CloseRequest::Quit);
@@ -937,7 +940,9 @@ impl PdfCraftApp {
         }
         // `first_dirty` counts text typed into a field as an unsaved change.
         if !self.allow_quit && self.first_dirty().is_some() {
-            // Every document is asked about in the main window.
+            // Every document is asked about in the main window, once what is open in which
+            // window is remembered.
+            self.note_quit_session();
             self.merge_windows();
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.close_request = Some(CloseRequest::Quit);

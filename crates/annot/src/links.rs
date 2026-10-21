@@ -11,7 +11,7 @@ pub enum LinkAction {
     /// A page of this document (0-based), shown fitting the window (`/Fit`).
     Page(usize),
     Uri(String),
-    /// Something PdfCraft doesn't edit yet (named destination, JavaScript…): kept as is.
+    /// Something KreativPdf doesn't edit yet (named destination, JavaScript…): kept as is.
     Other(String),
 }
 

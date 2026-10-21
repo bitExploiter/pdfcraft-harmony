@@ -635,7 +635,7 @@ fn check_boxes_and_radios_switch_states() {
     let size = field(&all, "size");
     assert_eq!(size.value, ["L"]);
     assert_eq!(size.widgets.iter().map(|w| w.state.clone().unwrap()).collect::<Vec<_>>(), ["Off", "L"]);
-    // The bare check box got PdfCraft's own appearances and kept its other keys.
+    // The bare check box got KreativPdf's own appearances and kept its other keys.
     let bare = field(&all, "bare");
     assert_eq!(bare.value, ["Yes"]);
     assert_eq!(bare.widgets[0].on_state.as_deref(), Some("Yes"));

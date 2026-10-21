@@ -1,4 +1,4 @@
-//! External oracle processes: independent implementations PdfCraft checks its own output against.
+//! External oracle processes: independent implementations KreativPdf checks its own output against.
 //!
 //! An oracle is only worth having when it runs. Before this crate every test that wanted one
 //! probed for it by hand and decided on its own what to do when it was missing, and the common

@@ -4355,7 +4355,7 @@ fn comment_checkmarks_locks_hiding_and_summaries_through_tools() {
 /// value, a button caption, a text box and Fill & Sign text are kept as typed (as Acrobat keeps
 /// them) and the result's `warnings` names the character; a form also asks other viewers to
 /// redraw it. Where the `?` would be permanent the tool refuses: a typed signature, a redaction's
-/// overlay text, a new document from text, and flattening what PdfCraft drew with `?`. A comment
+/// overlay text, a new document from text, and flattening what KreativPdf drew with `?`. A comment
 /// summary that quotes such text writes it as [U+XXXX].
 #[test]
 fn text_the_standard_fonts_cannot_draw_is_never_silent_through_tools() {

@@ -105,7 +105,7 @@ pub fn flatten_fill_sign(doc: &mut Document, pages: &[usize]) -> Result<usize, E
 }
 
 /// The first annotation flattening would turn into page content with `?` in it, before anything
-/// changes: one whose appearance PdfCraft drew with `?` for characters its fonts can't draw
+/// changes: one whose appearance KreativPdf drew with `?` for characters its fonts can't draw
 /// (`pdfcraft_fonts::UNDRAWN_MARK`: a form field's value, a comment's text), or a comment without
 /// an appearance whose text the standard fonts can't draw. Its page (0-based), whether it is a
 /// form field, and the character.

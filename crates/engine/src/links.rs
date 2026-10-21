@@ -1,18 +1,19 @@
-//! Where PdfCraft and the ArtCraft community live on the web, so the CLI, the MCP server and the
-//! README agree.
+//! Where KreativPdf lives on the web, so the CLI, the MCP server and the README agree.
 
 use icu_properties::props::Script;
 use std::path::{Path, PathBuf};
 
-/// The app's name in ArtCraft URLs (`getartcraft.com/apps/{APP}`, `github.com/storytold/{APP}`).
+/// The app's repository name (`github.com/designkreativ/{APP}`).
 pub const APP: &str = "pdfcraft";
 
-pub const DISCORD: &str = "https://discord.gg/artcraft";
-pub const WEBSITE: &str = "https://getartcraft.com";
-pub const APP_PAGE: &str = "https://getartcraft.com/apps/pdfcraft";
-pub const GITHUB: &str = "https://github.com/storytold/pdfcraft";
+/// The source, the releases and where to report a problem.
+pub const GITHUB: &str = "https://github.com/designkreativ/pdfcraft";
+/// The app's page on the web: its repository.
+pub const APP_PAGE: &str = GITHUB;
+/// Where to ask for help or report a problem.
+pub const ISSUES: &str = "https://github.com/designkreativ/pdfcraft/issues";
 
-/// The kinds of address a document may ask PdfCraft to open: web pages and email. Anything
+/// The kinds of address a document may ask KreativPdf to open: web pages and email. Anything
 /// else (`file:`, `javascript:`, `data:`, `smb:`, app handlers such as `ms-settings:`) is refused,
 /// because the operating system would hand it to whichever program claims it (#90, #91).
 pub const DOCUMENT_SCHEMES: &[&str] = &["https", "http", "mailto"];
@@ -66,8 +67,8 @@ fn hides_text(c: char) -> bool {
 }
 
 /// Check an address that came from a document (a link, a button's URI action or a script's
-/// `app.launchURL`) before PdfCraft offers to open it. Returns the address trimmed of
-/// surrounding whitespace. PdfCraft's own links (Help, About, updates) don't come through here.
+/// `app.launchURL`) before KreativPdf offers to open it. Returns the address trimmed of
+/// surrounding whitespace. KreativPdf's own links (Help, About, updates) don't come through here.
 pub fn document_url(raw: &str) -> Result<String, BlockedLink> {
     let url = raw.trim();
     if url.is_empty() {
@@ -233,7 +234,7 @@ const MAIL_DECODE_LAYERS: usize = 8;
 /// argument). The check is repeated after each layer of percent-decoding (KMail decodes names, so
 /// `%61ttach` is `attach`). A word without `=` (`Please attach the invoice`) is fine.
 ///
-/// The address is refused, not stripped of the parameter: PdfCraft never rewrites what a document
+/// The address is refused, not stripped of the parameter: KreativPdf never rewrites what a document
 /// asks to open, and a stripped address could still be read differently by some email app.
 fn check_mail_parameters(rest: &str) -> Result<(), BlockedLink> {
     let mut text = rest.to_string();
@@ -532,10 +533,10 @@ mod tests {
     }
 
     #[test]
-    fn urls_follow_the_artcraft_scheme() {
-        assert_eq!(super::APP_PAGE, format!("{}/apps/{}", super::WEBSITE, super::APP));
-        assert_eq!(super::GITHUB, format!("https://github.com/storytold/{}", super::APP));
-        for url in [super::DISCORD, super::WEBSITE, super::APP_PAGE, super::GITHUB] {
+    fn urls_point_to_the_repository() {
+        assert_eq!(super::GITHUB, format!("https://github.com/designkreativ/{}", super::APP));
+        assert_eq!(super::ISSUES, format!("{}/issues", super::GITHUB));
+        for url in [super::APP_PAGE, super::GITHUB, super::ISSUES] {
             assert!(url.starts_with("https://"), "{url}");
         }
     }

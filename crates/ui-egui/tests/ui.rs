@@ -34,7 +34,7 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, P
 #[test]
 fn home_shows_welcome_and_tools() {
     let h = harness(|_| {});
-    h.get_by_label_contains("Welcome to PdfCraft");
+    h.get_by_label_contains("Welcome to KreativPdf");
     assert!(h.query_all_by_label("Organize pages").count() >= 2, "tool list + home card");
     h.get_by_label("Open file");
 }
@@ -111,7 +111,7 @@ fn home_removes_one_recent_file_or_clears_them_all() {
     h.get_by_label("Clear Recent Files").click();
     h.run_steps(2);
     assert!(h.state().recent.is_empty(), "Clear empties the list");
-    h.get_by_label_contains("Files you open in PdfCraft appear here");
+    h.get_by_label_contains("Files you open in KreativPdf appear here");
     assert!(h.query_by_label("Clear Recent Files").is_none(), "and goes away with nothing left to clear");
 }
 
@@ -136,7 +136,7 @@ fn opening_a_pdf_shows_comments_and_bookmarks() {
     h.get_by_label("Beta section");
 }
 
-/// #1590: side panes the user closed stay closed when PdfCraft restarts and opens another PDF,
+/// #1590: side panes the user closed stay closed when KreativPdf restarts and opens another PDF,
 /// even one with comments and bookmarks, which would otherwise open on the Comments panel.
 #[test]
 fn closed_side_panes_stay_closed_after_a_restart_and_opening_a_pdf() {
@@ -1150,7 +1150,7 @@ fn closing_the_last_active_tab_selects_the_previous_one_then_home() {
         assert!(app.session.get(ids[removed]).is_none());
     }
     assert_eq!(h.state().active, None);
-    h.get_by_label_contains("Welcome to PdfCraft");
+    h.get_by_label_contains("Welcome to KreativPdf");
 }
 
 #[test]
@@ -1320,6 +1320,28 @@ fn dragging_a_tab_moves_it_and_keeps_the_same_document_active() {
     }
 }
 
+/// Dragged well below the strip, a tab tears off: the pointer carries its name and what letting
+/// go does, and letting go opens it in a window of its own. The main window keeps the others.
+#[test]
+fn dragging_a_tab_off_the_strip_opens_it_in_a_new_window() {
+    use egui::accesskit::Role;
+    let mut h = three_tab_harness();
+    let ids: Vec<_> = h.state().views.iter().map(|view| view.id).collect();
+    let to = h.get_by_role_and_label(Role::Tab, "first.pdf").rect().center() + egui::vec2(0.0, 300.0);
+    drag_named_tab(&mut h, "first.pdf", to, false);
+    assert!(h.query_by_label("Release to open in a new window").is_some(), "the preview follows the pointer");
+    assert!(!h.state().has_other_windows(), "nothing moves before letting go");
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(3);
+    assert_eq!(h.state().window_count(), 2);
+    assert_eq!(h.state().views.iter().map(|view| view.id).collect::<Vec<_>>(), ids, "every document stays open");
+    assert!(h.query_by_label("Release to open in a new window").is_none());
+    // Back along the strip, a drag is a move among the tabs again.
+    let to = h.get_by_role_and_label(Role::Tab, "last.pdf").rect().left_center() - egui::vec2(10.0, 0.0);
+    drag_named_tab(&mut h, "middle.pdf", to + egui::vec2(200.0, 0.0), true);
+    assert_eq!(h.state().window_count(), 2, "a drag along the strip opens no window");
+}
+
 /// Regression (#2225): the drop line in front of the first tab sat half a gap outside the
 /// scroll area's clip rect and was never visible.
 #[test]
@@ -1402,4 +1424,27 @@ fn the_edit_tab_turns_on_edit_text_and_images() {
     h.get_by_label("Convert").click();
     h.run_steps(3);
     assert_eq!(h.state().quick_tool, QuickTool::Hand);
+}
+
+/// Preferences' sidebar takes the page of settings to a section and marks it as the one read:
+/// Scripting & Security, far down the page, comes into view, and the sidebar follows.
+#[test]
+fn the_preferences_sidebar_goes_to_a_section() {
+    use egui::accesskit::Role;
+    let mut h = harness(|app| app.set_option("dialog", "preferences").unwrap());
+    h.run_steps(2);
+    // A selected button is a pressed toggle to assistive technology.
+    let selected = |h: &Harness<'static, PdfCraftApp>, label: &str| {
+        h.get_by_role_and_label(Role::Button, label).accesskit_node().toggled().map(|t| t == egui::accesskit::Toggled::True)
+    };
+    assert_eq!(selected(&h, "General & Interface"), Some(true), "the first section is read first");
+    let ok = h.get_by_label("OK").rect();
+    let before = h.get_by_label("Enable Acrobat JavaScript").rect();
+    assert!(before.top() > ok.top(), "Scripting & Security starts below the fold: {before:?}");
+    h.get_by_role_and_label(Role::Button, "Scripting & Security").click();
+    h.run_steps(6);
+    let after = h.get_by_label("Enable Acrobat JavaScript").rect();
+    assert!(after.bottom() < ok.top(), "brought into view: {after:?}");
+    assert_eq!(selected(&h, "Scripting & Security"), Some(true));
+    assert_eq!(selected(&h, "General & Interface"), Some(false));
 }

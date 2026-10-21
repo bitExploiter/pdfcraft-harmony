@@ -7,7 +7,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Greek UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "6eee0b34db6529f26235bfc07fa1fdb9030b8e7b0b10ede271ca9242cb491919"
+sha256 = "14582d237ef60b4763863871a3efb713842cc2647e5f15c11e8bfa227fa5844a"
 
 # ATTRIBUTION.toml: one entry per asset (AGENTS.md §1). The source of truth for provenance and licences.
 # ATTRIBUTION.md is generated from this file: `cargo xtask assets --write`. Checked by `cargo xtask assets` (part of `xtask ci`).
@@ -30,7 +30,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Simplified Chinese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "9870c0fb9f7198155be16adee7f45d36cb9a254af90b545a3ce5b04cbbbf24d4"
+sha256 = "5257f92677f75910eea915c4a2ee4b7a2d826ad8ad9a8efd50f9611054d1396b"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/zh-hant.tsv"
@@ -41,7 +41,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Traditional Chinese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "fc31e40877ce115cfb7033c57dd6acabcae3725b249364387e3fe23e04d94e5e"
+sha256 = "ee764e4cf18d2ab39fcab395a82bebf77afc7ca726518bef1da39a113f07096f"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/cs.tsv"
@@ -52,7 +52,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Czech UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "5de19834f293efaea68cb6b7f51a71d320391f53345f56cfebcd73dab828b665"
+sha256 = "e22ed280e0dfc59500327120ebd9a20cc7863778db4d3bc496c927e0eeb6a3a2"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/pt-br.tsv"
@@ -63,7 +63,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Brazilian Portuguese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "cef0d22341d0722f029c6543fc846fce164331b7ad8f693a6754b7567b9d9e95"
+sha256 = "ca18fd567fe9439d4fc9ad337665ca0ae3c59f41d7d8729044fb69bce31d17e7"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/es.tsv"
@@ -74,7 +74,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Spanish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "c0ca7761cbabd8096bc9af54cdf6b88b3ae0cd8210003db8b3356e2706e44fc8"
+sha256 = "0693c4f2019c44eb5461f9c7c65f6bb5c5c00cb62771e2285334bb39085d6e0a"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/fr.tsv"
@@ -85,7 +85,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "French UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "a8afd51c3296f44b0446d6b06492b1348444b3e3c448a326ad213d18ce7af714"
+sha256 = "8f44a813d10d80e34f4c13471d1cc0b3a5295c72c72386a0db40031811996b21"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/de.tsv"
@@ -96,7 +96,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "German UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "7676a2dfaa7d66e2e9ef608d2d9de7f863557dcecbef6d94bafa981097405e6d"
+sha256 = "c3bfad197c3525aac85a8c09a79de259cc3f8cb4abea3462844b3efa63abd2bb"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/te.tsv"
@@ -107,7 +107,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Telugu UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "9a22996c0308ea5b20ec5e328504cd83cbb560147763faaf0e6987f974844c29"
+sha256 = "ba30ce47c432c32ce855c0154bad8b8478228d9b549970db7594a64ca4c35e83"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/it.tsv"
@@ -118,7 +118,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Italian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "eacc972d65a2d951e94e1a8cf944638e8328f73f6c05759de6059a425f159cd7"
+sha256 = "5771b8602b11815d345897b66fe5c73fd74c1dfb4c515640e2d6e168d71178a4"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/pl.tsv"
@@ -129,7 +129,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Polish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "dfa4aa540cc7d61fa22a27a949e6eec0f78dcc5b883d0e4e004d695e460b95aa"
+sha256 = "5d7959387795d0c055c1e3914235ba3719bb981eaa15aea4a33694a65a561c41"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/ru.tsv"
@@ -140,7 +140,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Russian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "27e02e7bb3d378bceca76988a9dceaa68d974f57cbee962954deca6184cf62aa"
+sha256 = "094b7832f6ba4bdf78613d8d136a7ebecca4fe0c3398ce6f68b311c5e9885f73"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/hu.tsv"
@@ -151,7 +151,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Hungarian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "9675edd36c5ae54d9893fd10c4325aab664941bf714c08fbfeef9134fa42056c"
+sha256 = "80bc7fed3ed9665a5e0fac331d307a8f7f6861946a28691b0987473bc4a886f0"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/bg.tsv"
@@ -162,7 +162,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Bulgarian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "ce18fc96f8516aa917e4a8bcfd290edec13a9800b3d1ee102e4b2a71b8467d2b"
+sha256 = "97ed9cb56f8ba8f126d149f1affe92c97fc04930c2179be6acd5756b0f032b94"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/kk.tsv"
@@ -173,7 +173,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Kazakh UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "286a1e2e051748eb4bcee3906918dc78d0704f8a37bde22dc50d3376d5e75017"
+sha256 = "fcfe5f3e817be0db4f18958041264b25d2f7b0c6f14a6365fc482dc73c09f500"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/ja.tsv"
@@ -184,7 +184,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Japanese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "77593b7497c67f4a79cc31fa43fdd6eae11601dd87c079a8e666b25cdd9117ba"
+sha256 = "7b66f89486e794c705ce080dfa289c9d39985d57c5754caa639da24a8ca34316"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/uk.tsv"
@@ -195,7 +195,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Ukrainian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "d7d93a03f22ab380696f69b20b12104bf30e78c4440b683df63594af716894e2"
+sha256 = "823ff39dd87ebb3c902d0ed0afba4552634f79168e1e825c698c143031c67989"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/ar.tsv"
@@ -206,7 +206,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Arabic UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "889a0d0a9ea53ca0a818c2ba672c053c232d2cca140f8d63127353e6f36505fe"
+sha256 = "9ae7e4b3506f61666781ea7293179ce12cfb97684f091dbb19f1e40959915d49"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/tr.tsv"
@@ -217,7 +217,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Turkish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "bae8b21651ae2a69c71c91b69ba79727254dbfb078c1be312a13383332934927"
+sha256 = "c524587a17810be12ada016a4f54f6bb8a352f2aa7f16d64fb2c0b678b9e132d"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/lt.tsv"
@@ -228,7 +228,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Lithuanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "7fa70f68a9fa24d0b1cac05fe3aaabaeaca9750c57416124bd317a4eda806d5a"
+sha256 = "1b8a2e49117234f7973ada7c0137abf65ae56e844895cfa106b1780416a7febc"
 
 
 [[asset]]
@@ -2712,149 +2712,6 @@ usage = "Showcase PDF (cargo xtask demo-pdf)"
 sha256 = "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6"
 
 [[asset]]
-path = "docs/brand/artcraft-logo-white.png"
-title = "ArtCraft brand: artcraft-logo-white"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "8b86aeb06a12a90ba77a60e0d90329272310e244ee5c1f9b161b391280ca79d8"
-
-[[asset]]
-path = "docs/brand/artcraft-logo-white.svg"
-title = "ArtCraft brand: artcraft-logo-white"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "a3e03dc49f9ad4225b8517d5424309c8d1c864d3996d862190d9cc797d5af427"
-
-[[asset]]
-path = "docs/brand/artcraft-logo.png"
-title = "ArtCraft brand: artcraft-logo"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "08fc6d9d3717e8f13417bac6f9025b50e11d1e0b32e9e000883d2fe0c4a0c67b"
-
-[[asset]]
-path = "docs/brand/artcraft-logo.svg"
-title = "ArtCraft brand: artcraft-logo"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "3188971e1affdf4f6be4fa65f715376a7a305e6aa741ec78b0296c8f934eff08"
-
-[[asset]]
-path = "docs/brand/artcraft-mark-black.png"
-title = "ArtCraft brand: artcraft-mark-black"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "5954cc0306e1b9d7beb47097e2e842157113a39d9aba078b57304902687936a9"
-
-[[asset]]
-path = "docs/brand/artcraft-mark-black.svg"
-title = "ArtCraft brand: artcraft-mark-black"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "570adcb4f7ba8ca0647f97074476bab81d3272988f1cdee52efa21bf026036a4"
-
-[[asset]]
-path = "docs/brand/artcraft-mark.png"
-title = "ArtCraft brand: artcraft-mark"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "9d372157a949c147318561e629b11561c28b7cbc14c84b516a3fe6e84d8fbbad"
-
-[[asset]]
-path = "docs/brand/artcraft-mark.svg"
-title = "ArtCraft brand: artcraft-mark"
-author = "ArtCraft Team"
-source = "ArtCraft Team brand assets (provided by the project owner, 2026-10-01; identical copies in storytold/photocraft)"
-licence = "LicenseRef-Storyteller-Trademark"
-licence_file = "docs/brand/LICENSE-brand.txt"
-kind = "logo"
-usage = "ArtCraft branding next to the community links (About dialog, Help menu, home screen) and in docs. ArtCraft Team trademark, not open source; may be used only unmodified within PdfCraft; forks and modified versions must remove it."
-sha256 = "f87af81b6fa411da8820eed2bfdcc54c0ee9cd453b4e868c64f56c69db142d0e"
-
-[[asset]]
-path = "assets/app-icon/pdfcraft.svg"
-title = "PdfCraft app icon (master vector)"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Master artwork; every other app-icon file is rendered from it (packaging/icons.sh)"
-sha256 = "52b384a10a2a7fdd3145d9822972cfd568ef0cb7312549bd4399addd89d45a6d"
-
-[[asset]]
-path = "assets/app-icon/pdfcraft-small.svg"
-title = "PdfCraft app icon (light vector)"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "README header and assets/app-icon/README.md"
-sha256 = "b036304c11ef5dcad36636d06ca0bf331b51e47650d25d3c916a0e1eabf544c7"
-
-[[asset]]
-path = "assets/app-icon/pdfcraft-1024.png"
-title = "PdfCraft app icon, 1024 px on Apple's icon grid"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Runtime window/Dock icon on macOS (apps/pdfcraft/src/main.rs)"
-sha256 = "da577d3f21fbcf5c739067787a9e683be2b064d76813b5d5fec9074a7a106538"
-
-[[asset]]
-path = "assets/app-icon/pdfcraft.icns"
-title = "PdfCraft app icon (macOS .icns)"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "macOS app bundle icon"
-sha256 = "2425148222873de241d267aba667a8b234ecdd0149f2ca8bb6e79443b743b1e8"
-
-[[asset]]
-path = "assets/app-icon/pdfcraft.ico"
-title = "PdfCraft app icon (Windows .ico, 16-256 px)"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Embedded in pdfcraft.exe by apps/pdfcraft/build.rs (Explorer, taskbar, Start menu, Alt-Tab)"
-sha256 = "56daaaae9ae5389794909570885809adf5e1d9183bef2d9669ed2f9bba3ed6f5"
-
-[[asset]]
 path = "assets/app-icon/pdfcraft-document.svg"
 title = "PdfCraft PDF document icon (master vector)"
 author = "Lucide Icons and Contributors (document outline); PdfCraft contributors (PDF badge, lettering and composition)"
@@ -2875,105 +2732,6 @@ licence_file = "assets/app-icon/LICENSE-document.txt"
 kind = "icon"
 usage = "Embedded in pdfcraft.exe as resource 2; the Windows installer uses it for PdfCraft.Document and Applications/pdfcraft.exe PDF file associations"
 sha256 = "ba3f9128b368fc6d17d376cf62dbdbc22455451c5c8c4779210d7a2a7409b9e6"
-
-[[asset]]
-path = "assets/app-icon/hicolor/16x16/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 16 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "9b77095cbe75dcba6b74a1fdcd4064812850efaf7a12edebefc9ded5eabb49da"
-
-[[asset]]
-path = "assets/app-icon/hicolor/24x24/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 24 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "a4cd466687f6c5cb59eef3fc564bdba1c8f0d9e324754eeebab82f18823efae7"
-
-[[asset]]
-path = "assets/app-icon/hicolor/32x32/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 32 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "e22279013a5ed5c02571e1e4e9bc4cef9aa0847fcb733a285b2916fabd16bf78"
-
-[[asset]]
-path = "assets/app-icon/hicolor/48x48/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 48 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "55daf2d5575f6c4e4c4975c9f1c74231178f1801963a8b19f68dfa9bc50cb22f"
-
-[[asset]]
-path = "assets/app-icon/hicolor/64x64/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 64 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "2975c200f341e247b5fa18f568fb27d390e3fa01e9b2ad37acb48d0e1cc8a124"
-
-[[asset]]
-path = "assets/app-icon/hicolor/128x128/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 128 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "6ef927ca252b40bc9b5d8843d84137334362f8aa1acbb1bf8c15a02affd25b2b"
-
-[[asset]]
-path = "assets/app-icon/hicolor/256x256/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 256 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop); runtime window icon on Windows and Linux (apps/pdfcraft/src/main.rs)"
-sha256 = "cde7ee8c5ee38f9fc40a429fd9e6d99a035bcd321701fce331bb13bac126614d"
-
-[[asset]]
-path = "assets/app-icon/hicolor/512x512/apps/ai.storyteller.pdfcraft.png"
-title = "PdfCraft app icon, 512 px"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "5ede733e93b96f4eb8d94299232cf2f9605fa19b0d913f95fe9828c316a2d066"
-
-[[asset]]
-path = "assets/app-icon/hicolor/scalable/apps/ai.storyteller.pdfcraft.svg"
-title = "PdfCraft app icon (Linux scalable)"
-author = "PdfCraft contributors (drawn by the project owner in ArtCraft; vectorised with craftrules vectorize_tile.py)"
-source = "Contributor-original (see assets/app-icon/README.md)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "icon"
-usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop)"
-sha256 = "52b384a10a2a7fdd3145d9822972cfd568ef0cb7312549bd4399addd89d45a6d"
 
 [[asset]]
 path = "docs/images/pdfcraft-bookmarks.png"
@@ -3084,17 +2842,6 @@ licence_file = "LICENSE-MIT"
 kind = "image"
 usage = "README: split. Shows only PdfCraft UI, Lucide icons and the showcase PDF built from the [[fetched]] OFL fonts"
 sha256 = "bf31e13b563ead564af968c5fae8d1c07b91ee38867d0cf1aae9e0582efc2fe5"
-
-[[asset]]
-path = "docs/images/pdfcraft-tools.png"
-title = "PdfCraft screenshot: All tools"
-author = "PdfCraft contributors (generated by `cargo xtask screenshots`)"
-source = "this repository"
-licence = "MIT OR Apache-2.0"
-licence_file = "LICENSE-MIT"
-kind = "image"
-usage = "README: tool catalogue. Shows PdfCraft UI, Lucide icons, the showcase PDF built from the [[fetched]] OFL fonts, and the ArtCraft mark (Storyteller trademark from docs/brand/, not covered by this licence)"
-sha256 = "61731a921902e285d40826d401f1ef25624dabb8c8ac1f8f0c09c1292a17ee1a"
 
 [[asset]]
 path = "docs/images/pdfcraft-twoup.png"
@@ -3261,29 +3008,6 @@ kind = "font"
 usage = "Fill & Sign typed signatures and initials: the typed name's glyph outlines, drawn as filled paths (the font file itself is not embedded in PDFs)"
 sha256 = "21808625578fe8d8cd10cb684be546dca077b27cd03a53a2f1ec11dc743c924c"
 
-[[asset]]
-path = "packaging/macos/dmg/background.svg"
-title = "PdfCraft macOS DMG window background"
-author = "@XusBadia"
-source = "Original work for this repository, derived from the PdfCraft app icon (assets/app-icon/pdfcraft.svg, referenced via an SVG image element, not copied)"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "image"
-usage = "Finder window of the macOS DMG; rendered to background.tiff by packaging/macos/dmg/generate.py"
-sha256 = "e8b9ea9d5e64b7b741c977543c1693825e77d5c4c579eeb674bf5dcd3764cd8a"
-
-
-[[asset]]
-path = "packaging/macos/dmg/background.tiff"
-title = "PdfCraft macOS DMG window background (rendered)"
-author = "@XusBadia"
-source = "Rendered from packaging/macos/dmg/background.svg by packaging/macos/dmg/generate.py"
-licence = "MIT OR Apache-2.0"
-licence_file = "assets/app-icon/LICENSE.txt"
-kind = "image"
-usage = "1x + 2x HiDPI 16-colour palette TIFF copied into the macOS DMG by packaging/macos/package.sh; includes the app icon and the free LittleCMS built-in sRGB profile"
-sha256 = "f46881724a6621f3686a612a79dbdce4f7dbe9e2025610e44c9a094341334c2c"
-
 [[fetched]]
 file = "text-detection.rten"
 url = "https://ocrs-models.s3-accelerate.amazonaws.com/text-detection.rten"
@@ -3352,7 +3076,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Vietnamese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "95b5fc6d10f7bc8371688772741870448de716fa2dd9af62fdfe4e009d269b45"
+sha256 = "63c9e32be996713a55d6341b6ce6dc3da6a9c89388bfc247944a24e0f74cd6c6"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/sl.tsv"
@@ -3363,7 +3087,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Slovene UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "3ac2b113045b7e399dd6d9ddb7773e5b0874c8b43c2ba4cca5854598a2a7ba92"
+sha256 = "c54e6cc34d158c3f74a5f00bd4feffea09325e834746f405ba7b2c5dd961eed3"
 
 [[asset]]
 
@@ -3376,3 +3100,168 @@ licence_file = "vendor/vello_common/LICENSE-MIT"
 kind = "image"
 usage = "Reference picture of the vendored vello_common probe module, for people only; the build reads probe.rgba, not this file"
 sha256 = "78c59a0cfd2c829909d77006f94e34dac1ae5d1f90e7f10f72e84de541fef697"
+
+[[asset]]
+path = "assets/brand/design-kreativ-logo-dark.png"
+title = "Design Kreativ wordmark (for light backgrounds)"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The About dialog's Part of line on a light theme. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "7e36fee51e473445ec76851e8aed683595f0083a64eb8e02714c98f6a969b338"
+
+[[asset]]
+path = "assets/brand/design-kreativ-logo-light.png"
+title = "Design Kreativ wordmark (for dark backgrounds)"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The About dialog's Part of line on a dark theme. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "5529fcccd584cb5a28c8fa44e66a34e345c8c88a717776bd5648b2208b6d9125"
+
+[[asset]]
+path = "assets/brand/design-kreativ-mark.png"
+title = "Design Kreativ mark"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The About dialog and the tab strip's app icon. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "9638520bdc42652739d5899c0aa6de199a825b2fc52956b07e33a32525183cac"
+
+[[asset]]
+path = "assets/brand/kreativpdf-1024.png"
+title = "KreativPdf app icon, 1024 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The window icon on macOS. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "0b035ca4110955085613fd8425e56c8dd13ae7fb45b53c51523c0deecff18615"
+
+[[asset]]
+path = "assets/brand/kreativpdf-256.png"
+title = "KreativPdf app icon, 256 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The window icon on Windows and Linux. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "fe76e9d0ed3bde951957599cbf463e6397df6b96e9948ec51d34c5585a9a82de"
+
+[[asset]]
+path = "assets/brand/kreativpdf.ico"
+title = "KreativPdf app icon (Windows)"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The Windows executables' and installer's icon. Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "b78f41d4ca402158ab8a5dff3fb7ec772706571d2efd744d04946e456b532ac2"
+
+[[asset]]
+path = "assets/brand/hicolor/16x16/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 16 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "7f337ceba2a02da7cb8b618a155995a614dd8ebe5137de911e57bf67a6068c4b"
+
+[[asset]]
+path = "assets/brand/hicolor/24x24/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 24 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "07c5dfb8a4330c007eaa1648bccf31f26ecfdcf91e1bc795e28a2cadc6f63cb0"
+
+[[asset]]
+path = "assets/brand/hicolor/32x32/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 32 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "b6ed15220a0d3d93d0d58d29b61c152453620c2798c5fbb419b5000052835a5c"
+
+[[asset]]
+path = "assets/brand/hicolor/48x48/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 48 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "a8d49d99a09010494c8314a6ce77396cfa706cf32cc135aadff1dad0a37bcca9"
+
+[[asset]]
+path = "assets/brand/hicolor/64x64/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 64 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "0569b2f5dce4ee7d548c5f10f13b23960094de8478b3ee2981f40babd4542b0a"
+
+[[asset]]
+path = "assets/brand/hicolor/128x128/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 128 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "a3ff8ff2e438eeb5b803d973baa21f886de89307ab78ecc88658d3ccfd5cc733"
+
+[[asset]]
+path = "assets/brand/hicolor/256x256/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 256 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "596575039ae39c323b0b090f1400f3e72e8ecb7bda843f5b3d2d505a9bbc57ba"
+
+[[asset]]
+path = "assets/brand/hicolor/512x512/apps/ai.storyteller.pdfcraft.png"
+title = "KreativPdf app icon, 512 px"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "Linux hicolor theme icon (packaging/linux/ai.storyteller.pdfcraft.desktop). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "9e4e0c9f7b14894c19d0a8f1fef7c26558b04a75f78e69f70bc5cb244181f7ae"
+
+[[asset]]
+path = "assets/brand/kreativpdf.icns"
+title = "KreativPdf app icon (macOS .icns)"
+author = "Design Kreativ"
+source = "Design Kreativ brand assets (provided by the owner, 2026-10-21), resized for the app"
+licence = "LicenseRef-DesignKreativ-Trademark"
+licence_file = "assets/brand/LICENSE-brand.txt"
+kind = "logo"
+usage = "The macOS app bundle icon (packaging/macos/package.sh). Design Kreativ trademark, not open source; see assets/brand/LICENSE-brand.txt."
+sha256 = "f1d9e4041726bc94bdae526aa773961f0431d75b766b51ac9ef04e33c2261cc7"

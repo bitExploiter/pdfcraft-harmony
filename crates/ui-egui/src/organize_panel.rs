@@ -180,7 +180,7 @@ pub(crate) fn panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Availability {
     Ready,
-    /// Not in PdfCraft yet: shown muted, as Acrobat lists it, and says it is planned when hovered.
+    /// Not in KreativPdf yet: shown muted, as Acrobat lists it, and says it is planned when hovered.
     Later,
 }
 

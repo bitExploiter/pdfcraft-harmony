@@ -3,11 +3,11 @@
 //! Without a logger every `log::warn!`/`log::error!` in the workspace (a failed autosave, a page
 //! that would not render, a render worker that could not start, the panic hook's report) vanished.
 //! A launch from a desktop menu has no terminal, so the file is what a bug report can attach:
-//! `<data dir>/logs/pdfcraft.log` (the PdfCraft eframe storage directory, or portable data). Each
+//! `<data dir>/logs/pdfcraft.log` (the KreativPdf eframe storage directory, or portable data). Each
 //! start moves the previous log to `pdfcraft.1.log` (and that one to `.2`), so the log of a run
 //! that crashed survives the next launch.
 //!
-//! Levels: `info` for PdfCraft's own crates, `warn` for everything else (wgpu and naga are
+//! Levels: `info` for KreativPdf's own crates, `warn` for everything else (wgpu and naga are
 //! chatty). `RUST_LOG` replaces that with env_logger-style directives: `debug`,
 //! `warn,pdfcraft_render=trace`, `wgpu_core=info`. A directive ending in `*` matches every target
 //! that starts with it (`pdfcraft*=debug`).

@@ -1,7 +1,7 @@
 //! Export a PDF ▸ Image ▸ Export all images, and Edit ▸ Save image as: the images that pages
 //! use, as files. JPEG images are written unchanged; other images, and JPEG images with
 //! transparency or with CMYK samples a viewer would read inverted, are decoded and written as PNG with their soft mask, stencil mask or colour
-//! key as alpha. Images PdfCraft can't decode yet (JPEG 2000, JBIG2, CCITT, separations) are
+//! key as alpha. Images KreativPdf can't decode yet (JPEG 2000, JBIG2, CCITT, separations) are
 //! reported, never silently left out.
 
 use std::collections::HashSet;

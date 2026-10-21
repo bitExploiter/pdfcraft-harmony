@@ -352,7 +352,7 @@ impl FieldFont {
 }
 
 /// The mark a check box or radio button shows when on (Field Properties ▸ Options ▸ style).
-/// Stored as `/MK /CA`, the ZapfDingbats character Acrobat uses for it; PdfCraft draws the
+/// Stored as `/MK /CA`, the ZapfDingbats character Acrobat uses for it; KreativPdf draws the
 /// mark as paths, so no symbol font is needed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CheckStyle {

@@ -1,6 +1,6 @@
 //! Preferences ▸ Interface size: how large the interface is drawn. `Auto` keeps the display's own
 //! scale and adds the desktop's text scaling (GNOME's "Large Text" or text scaling factor, which
-//! the desktop app reads at launch), so PdfCraft's labels match the other apps' instead of staying
+//! the desktop app reads at launch), so KreativPdf's labels match the other apps' instead of staying
 //! small and showing their pixels on a 1× display. A chosen size is absolute, as PhotoCraft's
 //! Interface ▸ UI Scale is: "100%" is one screen pixel per point whatever scale the display
 //! reports, so a system that reports 200% on a 1080p screen doesn't make "100%" draw at 200%.

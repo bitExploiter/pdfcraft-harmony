@@ -1,4 +1,4 @@
-# PdfCraft showcase PDF
+# KreativPdf showcase PDF
 
 `showcase.html` is the source of a 13-page, US Letter test document for
 viewing and rendering. The PDF is built on your machine and is not committed:

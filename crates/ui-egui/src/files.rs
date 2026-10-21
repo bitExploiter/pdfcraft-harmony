@@ -137,7 +137,7 @@ impl Default for SplitDraft {
     }
 }
 
-/// Acrobat's Split by: number of pages, file size, top-level bookmarks (and PdfCraft's
+/// Acrobat's Split by: number of pages, file size, top-level bookmarks (and KreativPdf's
 /// before-selected-pages).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SplitMode {

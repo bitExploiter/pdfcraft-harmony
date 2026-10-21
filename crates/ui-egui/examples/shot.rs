@@ -1,4 +1,4 @@
-//! Headless screenshot of the real PdfCraft shell (egui_kittest + wgpu, no window needed).
+//! Headless screenshot of the real KreativPdf shell (egui_kittest + wgpu, no window needed).
 //!
 //! ```text
 //! cargo run -p pdfcraft-ui-egui --example shot -- out.png [file.pdf] [--size 1440x900] [--scale 2] [--page 3 --panel pages …]

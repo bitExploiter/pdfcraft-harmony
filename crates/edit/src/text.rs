@@ -1464,7 +1464,7 @@ fn no_fallback_font(text: &str) -> EditError {
     EditError::Invalid(format!(
         "the paragraph's font has no glyph for {ch} (U+{:04X}) and this build has no fallback font for it; \
          choose a font that has it (Load font… or Installed fonts…), or use an official release, which includes \
-         PdfCraft's fallback fonts (to build them in, set CRAFT_FONTS_DIR to a craft-fonts checkout)",
+         KreativPdf's fallback fonts (to build them in, set CRAFT_FONTS_DIR to a craft-fonts checkout)",
         u32::from(ch)
     ))
 }
@@ -1472,7 +1472,7 @@ fn no_fallback_font(text: &str) -> EditError {
 /// This build has no Japanese face to draw replacement text with.
 fn no_japanese_font() -> EditError {
     EditError::Invalid(
-        "this text needs PdfCraft's Japanese fallback font, which this build doesn't include \
+        "this text needs KreativPdf's Japanese fallback font, which this build doesn't include \
          (official releases do; to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout)"
             .into(),
     )
@@ -1486,7 +1486,7 @@ fn fallback_face<'a>(faces: &[&'a CraftFont], chars: &[char], has_glyph: impl Fn
 /// This build has no Hebrew face to draw replacement text with.
 fn no_hebrew_font() -> EditError {
     EditError::Invalid(
-        "this text needs PdfCraft's Hebrew fallback font (Noto Sans Hebrew), which this build doesn't include \
+        "this text needs KreativPdf's Hebrew fallback font (Noto Sans Hebrew), which this build doesn't include \
          (to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout that has it)"
             .into(),
     )

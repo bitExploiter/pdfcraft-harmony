@@ -2,7 +2,7 @@
 //!
 //! Wayland compositors that draw frames for their clients offer `zxdg_decoration_manager_v1`
 //! (KDE, Sway, Hyprland, COSMIC). GNOME doesn't: it leaves the frame to the app, and winit then
-//! drew an imitation of GNOME's. Without that protocol PdfCraft turns winit's frame off and draws
+//! drew an imitation of GNOME's. Without that protocol KreativPdf turns winit's frame off and draws
 //! a header bar like GNOME's own apps (`pdfcraft_ui_egui::window_controls`), with the window
 //! buttons GNOME's `button-layout` names. X11 window managers always draw the frame.
 //!
@@ -43,7 +43,7 @@ fn compositor_leaves_frame_to_app() -> bool {
     let Ok((globals, _queue)) = registry_queue_init::<Registry>(&conn) else { return false };
     let offered = globals.contents().with_list(|list| list.iter().any(|g| g.interface == "zxdg_decoration_manager_v1"));
     if !offered {
-        log::info!("the Wayland compositor draws no window frames; PdfCraft draws its own title bar");
+        log::info!("the Wayland compositor draws no window frames; KreativPdf draws its own title bar");
     }
     !offered
 }

@@ -4,7 +4,7 @@
 fn winit_focuses_the_x11_input_context_it_replaces() {
     // egui allows IME when a text field gains focus and disallows it when the field loses focus.
     // On X11, winit 0.30.13 replaces the window's input context each time and leaves focusing the
-    // new one to the next focus event, which never comes while PdfCraft's window keeps the focus:
+    // new one to the next focus event, which never comes while KreativPdf's window keeps the focus:
     // the input method doesn't follow the field that has it. vendor/winit focuses the replacement
     // once the queued requests are handled (rust-windowing/winit#4727). A re-vendored copy without
     // the patch would silently bring the bug back: re-apply the patch, or drop the copy once a winit

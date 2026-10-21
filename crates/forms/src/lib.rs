@@ -258,7 +258,7 @@ const MAX_LAYER_STATE: usize = 1024;
 
 /// A push button's mouse-up action (`/A`, or `/AA /U`, on the field or its widget).
 fn button_action(doc: &Document, d: &Dict, widgets: &[ObjRef]) -> Option<af::ButtonAction> {
-    // A button PdfCraft generated for an XFA image field (`/PCXfaImage true`, no PDF action):
+    // A button KreativPdf generated for an XFA image field (`/PCXfaImage true`, no PDF action):
     // clicking it picks a picture, as `buttonImportIcon()` does.
     if matches!(d.get(b"PCXfaImage").map(|o| doc.resolve(o)).as_deref(), Some(Object::Bool(true))) {
         return Some(af::ButtonAction::ImportIcon);
@@ -1121,7 +1121,7 @@ fn set_states(doc: &mut Document, f: &Field, on: Option<&str>) -> Result<(), For
             (Some(c), Some(s)) if c == s => s,
             _ => "Off",
         };
-        // A widget without appearances for its states gets PdfCraft's own.
+        // A widget without appearances for its states gets KreativPdf's own.
         let has_ap = doc.get(w.obj).as_dict().and_then(|d| d.get(b"AP").cloned()).is_some();
         if !has_ap {
             let on_name = w.on_state.clone().unwrap_or_else(|| on.unwrap_or("Yes").to_string());
@@ -1243,7 +1243,7 @@ pub fn declares_pdfa(doc: &Document) -> bool {
     }
 }
 
-/// Every field with a widget whose appearance PdfCraft drew with `?` for a character its font
+/// Every field with a widget whose appearance KreativPdf drew with `?` for a character its font
 /// can't hold (`pdfcraft_fonts::UNDRAWN_MARK`): the field's name and that character, once per
 /// field.
 pub fn undrawn_fields(doc: &Document) -> Vec<(String, char)> {

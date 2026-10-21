@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::{Dialog, PdfCraftApp};
 
 const COMMUNITY_LABELS: [&str; 6] =
-    ["Discord", "Join the ArtCraft community", "Join our Discord", "PdfCraft web page", "PdfCraft on GitHub", "ArtCraft website"];
+    ["Discord", "Join the ArtCraft community", "Join our Discord", "KreativPdf web page", "KreativPdf on GitHub", "ArtCraft website"];
 
 fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, PdfCraftApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
@@ -22,7 +22,7 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, P
 #[test]
 fn home_screen_and_top_bar_have_no_community_links() {
     let h = harness(|_| {});
-    h.get_by_label("Welcome to PdfCraft");
+    h.get_by_label("Welcome to KreativPdf");
     h.get_by_label("Keyboard shortcuts");
     for label in COMMUNITY_LABELS {
         assert!(h.query_by_label(label).is_none(), "{label} is on screen");
@@ -37,7 +37,8 @@ fn about_dialog_shows_the_brand_without_links() {
         app.open_bytes("one.pdf", None, pdf.to_vec()).unwrap();
         app.dialog = Some(Dialog::About);
     });
-    assert!(h.query_all_by_label("ArtCraft").count() >= 2, "the mark and the wordmark (alt text)");
+    assert!(h.query_all_by_label("Design Kreativ").count() >= 2, "the mark and the wordmark (alt text)");
+    assert!(h.query_by_label("ArtCraft").is_none(), "no ArtCraft brand");
     for label in COMMUNITY_LABELS {
         assert!(h.query_by_label(label).is_none(), "{label} is in the About dialog");
     }
@@ -73,17 +74,12 @@ fn settled<'a>(h: &'a mut Harness<'static, PdfCraftApp>, label: &'a str) -> egui
     panic!("{label:?} never appeared or never stopped moving");
 }
 
+/// About names the app, its version and its maker, with no credits tabs.
 #[test]
-fn about_dialog_has_contributors_and_models_tabs() {
+fn about_names_the_app_and_its_maker() {
     let mut h = harness(|app| app.dialog = Some(Dialog::About));
-    settled(&mut h, "Contributors").click();
-    // The owner is always in the compiled-in credits (contributors/contributors.json), shown by username.
-    settled(&mut h, "@echelon");
-    settled(&mut h, "Table").click();
-    settled(&mut h, "PRs");
-    settled(&mut h, "Display name").click();
-    settled(&mut h, "Brandon Thomas");
-    settled(&mut h, "Models").click();
-    h.run_steps(4);
-    assert!(h.query_all_by_label("Anthropic").count() >= 1);
+    settled(&mut h, "KreativPdf");
+    settled(&mut h, "Kreativ Tools");
+    assert!(h.query_all_by_label("Design Kreativ").count() >= 2, "its mark and wordmark");
+    assert!(h.query_by_label("Contributors").is_none() && h.query_by_label("Models").is_none());
 }

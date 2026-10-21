@@ -1,4 +1,4 @@
-//! Modal dialogs: Document Properties, Keyboard Shortcuts, About (with the Contributors and Models credits).
+//! Modal dialogs: Document Properties, Keyboard Shortcuts, About.
 
 use egui::{Align, Layout};
 
@@ -83,6 +83,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.set_width(match dialog {
             Dialog::Properties(_) => 640.0,
             Dialog::Print => crate::print_ui::DIALOG_W,
+            Dialog::Preferences => crate::preferences::DIALOG_W,
             Dialog::FieldProps | Dialog::BulkFieldProps => 600.0,
             Dialog::About => 780.0,
             _ => 520.0,
@@ -964,9 +965,8 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 return;
             }
             Dialog::Preferences => {
-                // The settings outgrow a short window: scroll them rather than run off the screen.
-                let max = (ui.ctx().content_rect().height() - 120.0).max(200.0);
-                close = egui::ScrollArea::vertical().max_height(max).show(ui, |ui| crate::js_ui::preferences_body(ui, app, &t)).inner;
+                // Its page of settings scrolls on its own, within the window.
+                close = crate::js_ui::preferences_body(ui, app, &t);
                 return;
             }
             Dialog::RecognizeText => {
@@ -1067,7 +1067,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     ui.label(egui::RichText::new(tl!("Recover unsaved documents?")).font(theme::semibold(18.0)));
                 });
                 ui.add_space(6.0);
-                ui.label(tl!("PdfCraft didn't shut down normally. These documents had changes that were autosaved:"));
+                ui.label(tl!("KreativPdf didn't shut down normally. These documents had changes that were autosaved:"));
                 ui.add_space(8.0);
                 let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
                 egui::Grid::new("recoverable").num_columns(2).spacing([18.0, 6.0]).show(ui, |ui| {
@@ -1138,46 +1138,33 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 });
             }
             Dialog::About => {
-                // Tabs About · Contributors · Models (craftrules standards/contributors.md).
-                let tab_id = egui::Id::new("about_tab");
-                let mut tab = ui.data_mut(|d| d.get_temp::<u8>(tab_id)).unwrap_or(0);
-                ui.horizontal_wrapped(|ui| {
-                    for (i, label) in ["About", "Contributors", "Models"].into_iter().enumerate() {
-                        let i = i as u8;
-                        if widgets::mode_tab(ui, tl!(label), tab == i).clicked() {
-                            tab = i;
-                        }
-                    }
-                });
-                ui.data_mut(|d| d.insert_temp(tab_id, tab));
-                ui.separator();
-                match tab {
-                    1 => crate::credits::contributors_ui(ui),
-                    2 => crate::credits::models_ui(ui),
-                    _ => {
-                        ui.horizontal(|ui| {
-                            widgets::artcraft_mark(ui, 40.0);
-                            ui.vertical(|ui| {
-                                ui.label(egui::RichText::new("PdfCraft").font(theme::semibold(20.0)));
-                                ui.label(crate::i18n::fmt(tl!("Version {v}"), &[("v", &pdfcraft_engine::build_info::version())]));
-                            });
-                        });
-                        ui.add_space(6.0);
-                        ui.label(tl!("A clean-room, open-source PDF application written in Rust. MIT OR Apache-2.0."));
+                ui.horizontal(|ui| {
+                    widgets::brand_mark(ui, 44.0);
+                    ui.add_space(4.0);
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 2.0;
+                        ui.label(egui::RichText::new(crate::brand::APP_NAME).font(theme::semibold(20.0)));
                         ui.label(
-                            egui::RichText::new(
-                                "Rendering: hayro (bootstrap) · UI: egui · Icons: Lucide (ISC) · Fonts: Inter, JetBrains Mono, Dancing Script (OFL)",
-                            )
-                            .color(t.text_muted)
-                            .small(),
+                            egui::RichText::new(crate::i18n::fmt(tl!("Version {v}"), &[("v", &pdfcraft_engine::build_info::version())]))
+                                .color(t.text_muted),
                         );
-                        ui.add_space(12.0);
-                        ui.horizontal(|ui| {
-                            ui.label(egui::RichText::new(tl!("Part of")).color(t.text_muted));
-                            widgets::artcraft_logo(ui, 16.0);
-                        });
-                    }
-                }
+                        ui.label(egui::RichText::new(crate::brand::CATEGORY).small().color(t.accent_text));
+                    });
+                });
+                ui.add_space(8.0);
+                ui.label(tl!("A clean-room, open-source PDF application written in Rust. MIT OR Apache-2.0."));
+                ui.label(
+                    egui::RichText::new(tl!(
+                        "It includes open-source components under their own licences, listed in the NOTICE file installed with it."
+                    ))
+                    .color(t.text_muted)
+                    .small(),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new(tl!("Part of")).color(t.text_muted));
+                    widgets::brand_logo(ui, 18.0);
+                });
             }
         }
         ui.add_space(16.0);

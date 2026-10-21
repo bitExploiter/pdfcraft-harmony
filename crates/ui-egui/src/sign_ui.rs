@@ -22,7 +22,7 @@ pub struct DigitalIdEntry {
     pub issuer: String,
     pub email: String,
     pub expires: String,
-    /// Why the ID can't sign (a Windows store certificate whose key PdfCraft can't use): shown
+    /// Why the ID can't sign (a Windows store certificate whose key KreativPdf can't use): shown
     /// greyed with the reason, and never selectable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unusable: Option<String>,
@@ -1067,9 +1067,9 @@ fn sign_as(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
             ui.label("");
             ui.label(
                 egui::RichText::new(if entry.path.starts_with("windows:") {
-                    tl!("The key is in the Windows certificate store, which may ask to allow PdfCraft to use it.")
+                    tl!("The key is in the Windows certificate store, which may ask to allow KreativPdf to use it.")
                 } else {
-                    tl!("The key is in the macOS Keychain, which may ask to allow PdfCraft to use it.")
+                    tl!("The key is in the macOS Keychain, which may ask to allow KreativPdf to use it.")
                 })
                 .small()
                 .color(t.text_muted),

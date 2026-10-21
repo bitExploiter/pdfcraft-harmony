@@ -393,7 +393,7 @@ pub fn choice_row(ui: &mut egui::Ui, choices: &[(&str, bool)], width: f32) -> Op
     let gap = 6.0;
     let n = choices.len().max(1) as f32;
     let w = ((width - gap * (n - 1.0)) / n).max(40.0);
-    let font = theme::medium(12.5);
+    let font = theme::regular(12.5);
     let mut clicked = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;
@@ -774,24 +774,59 @@ pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
     cancel
 }
 
-/// The ArtCraft wordmark (Storyteller's brand, docs/brand/; not open source), sized to `height`.
-pub fn artcraft_logo(ui: &mut egui::Ui, height: f32) -> Response {
-    let dark = ui.visuals().dark_mode;
-    let (uri, bytes): (&str, &'static [u8]) = if dark {
-        ("bytes://artcraft-logo-white.svg", include_bytes!("../../../docs/brand/artcraft-logo-white.svg"))
-    } else {
-        ("bytes://artcraft-logo.svg", include_bytes!("../../../docs/brand/artcraft-logo.svg"))
-    };
-    ui.add(egui::Image::from_bytes(uri, bytes).max_height(height).alt_text("ArtCraft"))
+/// A brand image compiled into the app (assets/brand/, Design Kreativ's marks; not open source), as
+/// a texture decoded once. `None` unless it is an 8-bit RGBA PNG, as the brand images are.
+fn brand_texture(ctx: &egui::Context, name: &'static str, bytes: &'static [u8]) -> Option<egui::TextureHandle> {
+    let id = egui::Id::new(("brand-texture", name));
+    if let Some(texture) = ctx.data(|d| d.get_temp::<egui::TextureHandle>(id)) {
+        return Some(texture);
+    }
+    let mut reader = png::Decoder::new(std::io::Cursor::new(bytes)).read_info().ok()?;
+    let mut buf = vec![0; reader.output_buffer_size()?];
+    let info = reader.next_frame(&mut buf).ok()?;
+    if info.color_type != png::ColorType::Rgba || info.bit_depth != png::BitDepth::Eight {
+        return None;
+    }
+    let pixels = buf.get(..info.buffer_size())?;
+    let image = egui::ColorImage::from_rgba_unmultiplied([info.width as usize, info.height as usize], pixels);
+    let texture = ctx.load_texture(name, image, egui::TextureOptions::LINEAR);
+    ctx.data_mut(|d| d.insert_temp(id, texture.clone()));
+    Some(texture)
 }
 
-/// The ArtCraft mark (brand blue, works on light and dark), `size` points square.
-pub fn artcraft_mark(ui: &mut egui::Ui, size: f32) -> Response {
-    ui.add(
-        egui::Image::from_bytes("bytes://artcraft-mark.svg", include_bytes!("../../../docs/brand/artcraft-mark.svg"))
-            .fit_to_exact_size(vec2(size, size))
-            .alt_text("ArtCraft"),
-    )
+/// The Design Kreativ wordmark, `height` points tall: the light one on a dark theme.
+pub fn brand_logo(ui: &mut egui::Ui, height: f32) -> Response {
+    let (name, bytes): (&'static str, &'static [u8]) = if ui.visuals().dark_mode {
+        ("design-kreativ-logo-light", include_bytes!("../../../assets/brand/design-kreativ-logo-light.png"))
+    } else {
+        ("design-kreativ-logo-dark", include_bytes!("../../../assets/brand/design-kreativ-logo-dark.png"))
+    };
+    brand_image(ui, name, bytes, height, crate::brand::ORGANISATION)
+}
+
+/// The Design Kreativ mark (the KreativPdf app icon), `size` points square.
+pub fn brand_mark(ui: &mut egui::Ui, size: f32) -> Response {
+    brand_image(ui, "design-kreativ-mark", include_bytes!("../../../assets/brand/design-kreativ-mark.png"), size, crate::brand::ORGANISATION)
+}
+
+/// Paint the Design Kreativ mark in `rect` (the tab strip's app icon).
+pub fn paint_brand_mark(ui: &egui::Ui, rect: Rect) {
+    if let Some(texture) = brand_texture(ui.ctx(), "design-kreativ-mark", include_bytes!("../../../assets/brand/design-kreativ-mark.png")) {
+        ui.painter().image(texture.id(), rect, Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), Color32::WHITE);
+    }
+}
+
+/// A brand image `height` points tall, keeping its proportions; an empty space of that height
+/// when it can't be decoded.
+fn brand_image(ui: &mut egui::Ui, name: &'static str, bytes: &'static [u8], height: f32, alt: &str) -> Response {
+    match brand_texture(ui.ctx(), name, bytes) {
+        Some(texture) => {
+            let [w, h] = texture.size();
+            let width = if h > 0 { height * w as f32 / h as f32 } else { height };
+            ui.add(egui::Image::new((texture.id(), vec2(width, height))).alt_text(alt))
+        }
+        None => ui.allocate_response(vec2(height, height), Sense::hover()),
+    }
 }
 
 /// [`icon_pill`] with a ▾ part at its end that opens a menu of related choices. Returns the

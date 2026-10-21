@@ -1,0 +1,12 @@
+Design Kreativ brand assets: licence
+
+The Design Kreativ name, wordmark and mark, and the KreativPdf app icon (the "Design Kreativ
+Marks"), including every file in this directory in every colour, size and format, are owned by
+Design Kreativ. They are trademarks and are NOT open source. They are not covered by the MIT OR
+Apache-2.0 licence of the code, and nothing in that licence, in NOTICE or in any other file of this
+repository grants any right to them.
+
+They are used here to identify KreativPdf as a product of Design Kreativ. Anyone who copies or
+modifies this repository to make another product must remove them.
+
+Copyright (c) 2026 Design Kreativ. All rights reserved.

@@ -1,5 +1,5 @@
 //! Preferences › Appearance: the appearance mode (follow the system, light or dark) above a light
-//! and a dark theme card, each with a small picture of PdfCraft in that theme.
+//! and a dark theme card, each with a small picture of KreativPdf in that theme.
 
 use egui::{Rect, RichText, pos2, vec2};
 
@@ -27,7 +27,7 @@ fn mode_command(preference: ThemePreference) -> &'static str {
     }
 }
 
-/// A miniature PdfCraft window in `kind`'s colours: title bar and tabs, the tool bar, the page
+/// A miniature KreativPdf window in `kind`'s colours: title bar and tabs, the tool bar, the page
 /// thumbnails, a page on the pasteboard and the right-hand panel.
 fn preview(ui: &mut egui::Ui, kind: ThemeKind, width: f32) {
     let p = Tokens::for_kind(kind);
@@ -114,9 +114,8 @@ fn card(ui: &mut egui::Ui, t: &Tokens, title: &str, active: bool, themes: &[(The
     inner.inner || whole.clicked()
 }
 
-/// The Appearance section of Preferences.
+/// Preferences ▸ Appearance & Theme: the mode, and a card for each theme.
 pub fn preferences_section(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
-    ui.label(RichText::new(tl_ctx!("theme", "Appearance")).font(theme::semibold(13.0)));
     ui.horizontal(|ui| {
         ui.label(tl!("Appearance mode"));
         egui::ComboBox::from_id_salt("appearance-mode").selected_text(tl!(mode_label(app.theme_preference))).show_ui(ui, |ui| {

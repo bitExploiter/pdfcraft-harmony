@@ -258,9 +258,9 @@ fn the_signer_certificate_must_allow_document_signing() {
     let unknown = "1.2.3.4.5.6";
     assert!(problem(&[ext(unknown, &der::octets(&[0]))]).is_some_and(|w| w.message.contains(unknown)));
     assert!(problem(&[der::seq(&[&der::oid(unknown), &der::octets(&der::octets(&[0]))])]).is_none());
-    // Critical extensions PdfCraft knows, or may accept as they are, don't refuse.
+    // Critical extensions KreativPdf knows, or may accept as they are, don't refuse.
     assert!(problem(&[ext("2.5.29.32", &der::seq(&[]))]).is_none());
-    // No extensions at all, and the digital IDs PdfCraft creates, may sign.
+    // No extensions at all, and the digital IDs KreativPdf creates, may sign.
     assert!(issue("Plain", Some(&r), FOREVER, &[]).cert.signing_problem().is_none());
     let key = PrivateKey::generate_p256().unwrap();
     let name = Name::build("Own ID", "", "", "", "US");

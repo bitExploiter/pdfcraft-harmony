@@ -73,7 +73,7 @@ fn buttons_reset_navigate_and_print() {
     assert_eq!(h.state().dialog, Some(Dialog::Print), "this.print() opens the Print dialog");
     h.state_mut().dialog = None;
     h.run_steps(2);
-    // A document's Save named action never writes the file unasked (PdfCraft's XFA buttons
+    // A document's Save named action never writes the file unasked (KreativPdf's XFA buttons
     // use SaveAs, which opens the Save As dialog, as a script's `execMenuItem` does): the
     // reset above made the document dirty, and the click leaves it so.
     let before = std::fs::read(&path).unwrap();

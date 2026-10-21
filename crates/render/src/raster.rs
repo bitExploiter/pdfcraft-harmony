@@ -82,7 +82,7 @@ impl RenderConfig {
 /// A Japanese face from craft-fonts for a CID font of the Adobe-Japan1 collection that the PDF
 /// doesn't embed (`HeiseiMin-W3`, `KozGoPro-Medium`, …). hayro's own substitutes for fonts that
 /// aren't embedded are the Latin standard 14, so such text drew nothing. `None` for every other
-/// font, and when PdfCraft was built without craft-fonts. Only Japanese: the pinned craft-fonts
+/// font, and when KreativPdf was built without craft-fonts. Only Japanese: the pinned craft-fonts
 /// has no other CJK faces, and its later Chinese face is Noto CJK, which AGENTS.md §1.1 rules out.
 fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::Fallback(f) = query else { return None };
@@ -3097,7 +3097,7 @@ trailer << /Root 1 0 R >>
 
     /// A Highlight annotation without an appearance stream (common in older and generated files)
     /// was not drawn at all. Vendored hayro-interpret patch: its /QuadPoints are filled with /C at
-    /// /CA, blended with Multiply, as PdfCraft draws its own highlights (pdfcraft-annot); MuPDF,
+    /// /CA, blended with Multiply, as KreativPdf draws its own highlights (pdfcraft-annot); MuPDF,
     /// Poppler and PDFium draw these fixtures the same way. An /AP still wins, malformed
     /// /QuadPoints or no /C draw nothing, and Hidden, NoView and "Hide all comments" still apply.
     #[test]

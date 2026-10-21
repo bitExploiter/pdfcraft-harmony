@@ -165,7 +165,7 @@ impl RecoveryStore {
 
     /// `Recovery` in the portable data folder in portable mode ([`crate::portable`]), otherwise
     /// the platform's per-user data folder: `~/Library/Application Support/PdfCraft/Recovery`
-    /// (macOS), `%LOCALAPPDATA%\PdfCraft\Recovery` (Windows), or
+    /// (macOS), `%LOCALAPPDATA%\KreativPdf\Recovery` (Windows), or
     /// `$XDG_DATA_HOME/pdfcraft/recovery` / `~/.local/share/pdfcraft/recovery` (others).
     pub fn default_dir() -> Option<PathBuf> {
         if let Some(dir) = crate::portable::data_dir() {

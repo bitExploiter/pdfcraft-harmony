@@ -1,4 +1,4 @@
-//! Action Wizard: the actions (PdfCraft's and your own), running one over files in the
+//! Action Wizard: the actions (KreativPdf's and your own), running one over files in the
 //! background, and creating or editing an action's steps. Your actions are remembered.
 
 use std::sync::{Arc, Mutex};

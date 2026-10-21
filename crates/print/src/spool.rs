@@ -1,5 +1,5 @@
 //! System print spooler supplied by craft-print. PDF composition and permission checks
-//! stay in PdfCraft; these adapters retain the application's print-error surface.
+//! stay in KreativPdf; these adapters retain the application's print-error surface.
 
 pub use craft_print::{
     Duplex, HANDLED_OPTIONS, HAS_PRINTER_PREFERENCES, Job, Printer, PrinterOption, Scaling, lp_args, lpstat_command, parse_lpoptions, parse_lpstat,

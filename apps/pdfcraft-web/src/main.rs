@@ -1,4 +1,4 @@
-//! PdfCraft in the browser. Build: `cd apps/pdfcraft-web && trunk build --release`
+//! KreativPdf in the browser. Build: `cd apps/pdfcraft-web && trunk build --release`
 //! (trunk generates the JS loader; no handwritten JS — plan/execution-plan.md §1).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -41,7 +41,7 @@ fn main() {
                                     }
                                 }
                                 Err(e) => {
-                                    eframe::web_sys::console::error_1(&format!("PdfCraft: could not fetch {url}: {e}").into());
+                                    eframe::web_sys::console::error_1(&format!("KreativPdf: could not fetch {url}: {e}").into());
                                     // Shown in the app too, not only in the console (#173).
                                     if let Ok(mut q) = failed.lock() {
                                         q.push((name, e));
@@ -54,13 +54,13 @@ fn main() {
                     // eframe never raises a close request on a browser reload or tab close, so `guard_quit` never
                     // prompts; ask the browser to confirm instead while a document has unsaved work (#812).
                     warn_before_unload(app.unsaved_flag.clone());
-                    // `?host=parent`: a same-origin page embedding PdfCraft in an iframe (such
+                    // `?host=parent`: a same-origin page embedding KreativPdf in an iframe (such
                     // as the Nextcloud app) passes files in and takes saves back (`host` below).
                     if query_param("host").as_deref() == Some("parent")
                         && let Some(bridge) = host::Bridge::new()
                     {
                         // `?author=`: the host's name for the user signs their comments,
-                        // unless they chose a name in PdfCraft (the web default is "Guest").
+                        // unless they chose a name in KreativPdf (the web default is "Guest").
                         if let Some(author) = query_param("author").map(|a| a.trim().to_string()).filter(|a| !a.is_empty())
                             && app.comment_prefs.author == "Guest"
                         {
@@ -72,7 +72,7 @@ fn main() {
                         bridge.post_ready();
                     } else if query_param("host").as_deref() == Some("parent") {
                         eframe::web_sys::console::warn_1(
-                            &"PdfCraft: ?host=parent needs a framing page on the same origin; saves download instead".into(),
+                            &"KreativPdf: ?host=parent needs a framing page on the same origin; saves download instead".into(),
                         );
                     }
                     Ok(Box::new(app))

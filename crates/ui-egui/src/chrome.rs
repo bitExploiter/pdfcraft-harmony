@@ -207,21 +207,48 @@ pub fn tab_strip(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             }
                         }
                         // Dragging a tab moves it (#1537): a line marks the gap it will land
-                        // in, and releasing the button drops it there.
-                        if let Some((from, released)) = dragged
-                            && let Some(x) = ui.ctx().pointer_latest_pos().map(|p| p.x)
-                        {
-                            let to = drop_index(&slots, from, x);
+                        // in, and releasing the button drops it there. Dragged well off the
+                        // strip, it tears off: released over another window it moves there, and
+                        // anywhere else it opens in a window of its own (desktop only).
+                        if let Some((from, released)) = dragged {
+                            let ctx = ui.ctx().clone();
+                            // Outside the window the pointer can go unseen for a frame: keep the
+                            // last place it was seen.
+                            let seen_id = ui.id().with("tab_drag_seen");
+                            let seen = ctx.pointer_latest_pos();
+                            if let Some(p) = seen {
+                                ctx.data_mut(|d| d.insert_temp(seen_id, p));
+                            }
+                            let at = seen.or_else(|| ctx.data(|d| d.get_temp::<egui::Pos2>(seen_id)));
+                            let torn = cfg!(not(target_arch = "wasm32")) && at.is_none_or(|p| torn_off(full, ctx.content_rect(), p));
                             if released {
-                                if close.is_none()
-                                    && action.is_none()
-                                    && let Some(to) = drop_target(&slots, from, to)
+                                ctx.data_mut(|d| d.remove::<egui::Pos2>(seen_id));
+                                if close.is_some() || action.is_some() {
+                                    // The tab closed, or its menu chose something.
+                                } else if torn {
+                                    if let Some(id) = app.views.get(from).map(|v| v.id) {
+                                        let inner = ctx.input(|i| i.viewport().inner_rect);
+                                        let screen = at.zip(inner).map(|(p, r)| r.min + p.to_vec2());
+                                        action = Some(crate::tab_context::Action::TearOff(id, screen, inner.map(|r| r.size())));
+                                    }
+                                } else if let Some(x) = at.map(|p| p.x)
+                                    && let Some(to) = drop_target(&slots, from, drop_index(&slots, from, x))
                                 {
                                     app.move_tab(from, to);
                                 }
-                            } else {
+                            } else if torn {
+                                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
+                                // The last tab only goes to another window, where this one can't draw.
+                                if let Some(p) = at
+                                    && app.window_tabs().len() > 1
+                                    && let Some(name) = crate::canvas::tab_label(app, from)
+                                {
+                                    tear_off_preview(&ctx, &t, &name, p);
+                                }
+                            } else if let Some(x) = at.map(|p| p.x) {
+                                let to = drop_index(&slots, from, x);
                                 drag_x = Some(x);
-                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                ctx.set_cursor_icon(egui::CursorIcon::Grabbing);
                                 if let Some(marker) = drop_marker(&slots, from, to, ui.spacing().item_spacing.x) {
                                     let span = slots.first().map_or(ui.max_rect().y_range(), |(_, r)| r.y_range());
                                     // In front of the first tab the gap lies outside the scroll area's
@@ -367,7 +394,7 @@ pub fn no_strip(ctx: &egui::Context) {
 fn app_icon(ui: &mut egui::Ui, size: f32) {
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     let icon = Rect::from_center_size(rect.center(), vec2(18.0, 18.0));
-    egui::Image::from_bytes("bytes://pdfcraft-app-icon.svg", include_bytes!("../../../assets/app-icon/pdfcraft-small.svg")).paint_at(ui, icon);
+    widgets::paint_brand_mark(ui, icon);
 }
 
 /// Both theme entry points use the same choices and command path.
@@ -427,6 +454,29 @@ fn tabs_overflow(natural: &[f32], budget: f32, gap: f32, min: f32) -> bool {
 /// How close to either end of a scrolling strip a dragged tab scrolls it, and how far per frame.
 const TAB_DRAG_EDGE: f32 = 24.0;
 const TAB_DRAG_STEP: f32 = 8.0;
+
+/// How far above or below its strip a dragged tab goes before it tears off.
+const TEAR_OFF: f32 = 40.0;
+
+/// Whether a tab dragged to `p` has torn off its strip (`strip`): well above or below it, or out
+/// of the window (`window`, its content in the window's own points).
+fn torn_off(strip: Rect, window: Rect, p: egui::Pos2) -> bool {
+    !window.contains(p) || p.y > strip.bottom() + TEAR_OFF || p.y < strip.top() - TEAR_OFF
+}
+
+/// What follows the pointer while a torn-off tab is dragged in its window: the tab's name and
+/// what releasing it does.
+fn tear_off_preview(ctx: &egui::Context, t: &Tokens, name: &str, p: egui::Pos2) {
+    egui::Area::new(egui::Id::new("tab-tear-off")).order(egui::Order::Tooltip).fixed_pos(p + vec2(14.0, 14.0)).interactable(false).show(ctx, |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add(icons::image("file-text", 14.0, t.text_muted));
+                ui.label(egui::RichText::new(name).font(theme::medium(13.0)).color(t.text));
+            });
+            ui.label(egui::RichText::new(tl!("Release to open in a new window")).font(theme::regular(12.0)).color(t.text_muted));
+        });
+    });
+}
 
 /// Where the tab at `from` lands when dropped with the pointer at `x`: past every other tab
 /// whose centre is left of the pointer. `slots` are the tabs' indices and rects, in order.
@@ -1192,6 +1242,20 @@ mod tab_widths {
     /// Three 100-wide tabs, 4 apart, starting at x = 0.
     fn three_slots() -> Vec<(usize, egui::Rect)> {
         (0..3).map(|i| (i, egui::Rect::from_min_size(egui::pos2(i as f32 * 104.0, 0.0), egui::vec2(100.0, 30.0)))).collect()
+    }
+
+    /// A dragged tab tears off well above or below its strip, or out of the window; along the
+    /// strip, and just off it, it is still being moved among the tabs.
+    #[test]
+    fn a_tab_tears_off_well_off_its_strip_or_out_of_the_window() {
+        use super::torn_off;
+        let window = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 700.0));
+        let strip = egui::Rect::from_min_size(egui::pos2(0.0, 0.0), egui::vec2(1000.0, 40.0));
+        assert!(!torn_off(strip, window, egui::pos2(500.0, 20.0)), "on the strip");
+        assert!(!torn_off(strip, window, egui::pos2(500.0, 79.0)), "just below it");
+        assert!(torn_off(strip, window, egui::pos2(500.0, 81.0)), "well below, over the page");
+        assert!(torn_off(strip, window, egui::pos2(1200.0, 20.0)), "level with it, past the window's edge");
+        assert!(torn_off(strip, window, egui::pos2(500.0, -60.0)), "above the window");
     }
 
     /// A dragged tab lands past every other tab whose centre the pointer has crossed.
