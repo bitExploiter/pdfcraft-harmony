@@ -666,6 +666,44 @@ fn added_text_and_images_are_page_content_that_stays_editable() {
 }
 
 #[test]
+fn added_cyrillic_text_is_drawable_without_craft_fonts() {
+    let mut doc = fixture();
+    let text = AddedText {
+        rect: [72.0, 600.0, 400.0, 700.0], text: "ывыфыв Привет, мир! Ёжик № 123 / Hello".into(), ..AddedText::default()
+    };
+    assert_eq!(first_undrawable(&text), None);
+    add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap();
+    let doc = reopen(&doc);
+    let added = list_added(&doc);
+    let Content::Text(saved) = &added[0].content else { panic!() };
+    assert_eq!(saved.text, text.text);
+}
+
+#[test]
+fn cyrillic_wrapping_and_alignment_use_the_written_glyph_advances() {
+    let word = "Ширина";
+    let size = 20.0;
+    let width = pdfcraft_fonts::shape_cyrillic(word).unwrap().iter().map(|c| c.advance).sum::<f64>() * size;
+    let mut text = AddedText { text: format!("{word} {word}"), size, rect: [10.0, 100.0, 10.0 + width + 0.1, 200.0], ..AddedText::default() };
+    assert_eq!(added::lines(&text), [word, word]);
+    text.text = word.into();
+    assert!((added::text_width(&text) - width).abs() < 0.001);
+    for align in [Align::Center, Align::Right] {
+        let mut doc = fixture();
+        text.align = align;
+        text.rect[2] += 30.0;
+        add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap();
+        let stream = streams(&doc, 0).into_iter().find(|s| s.contains("/PCAr")).unwrap();
+        let x = pdfcraft_content::parse(stream.as_bytes()).ops.iter().find(|op| op.is("Tm")).unwrap().operands[4].as_f64().unwrap();
+        let expected = match align {
+            Align::Center => text.rect[0] + (text.rect[2] - text.rect[0] - width) / 2.0,
+            _ => text.rect[2] - width,
+        };
+        assert!((x - expected).abs() < 0.001, "{align:?}: {x} vs {expected}");
+    }
+}
+
+#[test]
 fn added_arabic_text_is_shaped_in_display_order_and_stays_searchable() {
     let mut doc = fixture();
     let text =

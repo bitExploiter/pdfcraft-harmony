@@ -77,6 +77,30 @@ fn texts(h: &Harness<'static, PdfCraftApp>) -> Vec<String> {
 }
 
 #[test]
+fn typing_cyrillic_text_commits_to_the_page() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(2);
+    let p = at(&h, 40.0, 300.0);
+    click(&mut h, p);
+    let text = "ывыфыв Привет, мир! Ёжик";
+    h.event(egui::Event::Text(text.into()));
+    h.run_steps(3);
+    assert!(h.query_by_label_contains("can't draw").is_none());
+    h.get_by_label("Done adding text").click();
+    h.run_steps(3);
+    assert!(h.state().views[0].content.draft.is_none());
+    assert_eq!(texts(&h), [text]);
+    let id = h.state().views[0].id;
+    let bytes = h.state_mut().session.save_bytes(id).unwrap();
+    let mut reopened = PdfCraftApp::new();
+    reopened.open_bytes("cyrillic.pdf", None, bytes.to_vec()).unwrap();
+    let saved = reopened.session.get(reopened.views[0].id).unwrap();
+    let pdfcraft_engine::AddedContent::Text(saved) = &saved.added()[0].content else { panic!() };
+    assert_eq!(saved.text, text);
+}
+
+#[test]
 fn text_tool_drafts_grow_for_latin_and_arabic() {
     for text in ["Wide words ".repeat(8), "سلام عليكم ".repeat(8)] {
         let mut h = harness();
