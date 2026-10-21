@@ -2471,5 +2471,12 @@ animation effects	Off	Вимкнено
 	pure black stays 100% K or gray 0 instead of a mix	чистий чорний лишається 100% K або сірим 0, а не сумішшю
 	re-encoded in the target space; JPEGs stay JPEG	перекодовуються в цільовий простір; JPEG лишаються JPEG
 	their appearances as well as the page	їхній вигляд, а також сторінка
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
 	Less	Менше
 	Other options	Інші параметри

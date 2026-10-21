@@ -2700,5 +2700,11 @@ theme	Appearance	Išvaizda
 	pure black stays 100% K or gray 0 instead of a mix	gryna juoda lieka 100 % K arba pilka 0, o ne mišinys
 	re-encoded in the target space; JPEGs stay JPEG	perkoduoti tiksliojoje erdvėje; JPEG lieka JPEG
 	their appearances as well as the page	jų išvaizda ir puslapis
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys

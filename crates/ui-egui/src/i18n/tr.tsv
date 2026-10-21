@@ -2445,5 +2445,12 @@ animation effects	Off	Kapalı
 	pure black stays 100% K or gray 0 instead of a mix	saf siyah karışım yerine %100 K veya gri 0 kalır
 	re-encoded in the target space; JPEGs stay JPEG	hedef alanda yeniden kodlanır; JPEG'ler JPEG kalır
 	their appearances as well as the page	görünümleri ve sayfa
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
 	Less	Daha az
 	Other options	Diğer seçenekler

@@ -2449,5 +2449,12 @@ animation effects	Off	オフ
 	pure black stays 100% K or gray 0 instead of a mix	純粋な黒は混色にせず K 100% またはグレー 0 のままにします
 	re-encoded in the target space; JPEGs stay JPEG	変換先の色空間で再エンコード。JPEG は JPEG のまま
 	their appearances as well as the page	ページに加えてその表示
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
 	Less	折りたたむ
 	Other options	その他のオプション

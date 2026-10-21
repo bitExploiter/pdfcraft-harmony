@@ -2447,5 +2447,12 @@ animation effects	Off	Өшірулі
 	pure black stays 100% K or gray 0 instead of a mix	таза қара қоспа емес, 100% K немесе 0 сұр болып қалады
 	re-encoded in the target space; JPEGs stay JPEG	мақсатты кеңістікте қайта кодталады; JPEG JPEG болып қалады
 	their appearances as well as the page	олардың көрінісі және бет
+	Font	Қаріп
+	Bulleted list	Таңбалауыш тізім
+	Numbered list	Нөмірленген тізім
+	Alignment	Туралау
+	Superscript	Жоғарғы индекс
+	Subscript	Төменгі индекс
+	Paragraph spacing	Абзац аралығы
 	Less	Азырақ
 	Other options	Басқа параметрлер

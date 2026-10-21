@@ -2412,5 +2412,12 @@ animation effects	Off	Изключени
 	pure black stays 100% K or gray 0 instead of a mix	чистото черно остава 100% K или сиво 0 вместо смес
 	re-encoded in the target space; JPEGs stay JPEG	прекодирани в целевото пространство; JPEG остават JPEG
 	their appearances as well as the page	техният вид, както и страницата
+	Font	Шрифт
+	Bulleted list	Списък с водещи символи
+	Numbered list	Номериран списък
+	Alignment	Подравняване
+	Superscript	Горен индекс
+	Subscript	Долен индекс
+	Paragraph spacing	Разстояние между абзаците
 	Less	По-малко
 	Other options	Други опции

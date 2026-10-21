@@ -2399,5 +2399,12 @@ animation effects	Off	關
 	pure black stays 100% K or gray 0 instead of a mix	純黑保持為 100% K 或灰階 0,而非混合色
 	re-encoded in the target space; JPEGs stay JPEG	在目標色彩空間中重新編碼;JPEG 仍為 JPEG
 	their appearances as well as the page	連同其外觀和頁面
+	Font	字型
+	Bulleted list	項目符號清單
+	Numbered list	編號清單
+	Alignment	對齊
+	Superscript	上標
+	Subscript	下標
+	Paragraph spacing	段落間距
 	Less	收起
 	Other options	其他選項
