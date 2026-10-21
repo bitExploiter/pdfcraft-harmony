@@ -167,9 +167,8 @@ fn text_with_zero_fill_opacity_is_transparent() {
     assert!(blocks.iter().all(|b| !b.transparent), "half-transparent text still shows");
 }
 
-#[test]
-fn a_first_line_indent_is_measured() {
-    let content = "BT /F1 11 Tf 108 700 Td (Indented first line of a paragraph that is long) Tj -36 -14 Td (second line back at the margin of the text) Tj 0 -14 Td (third line also at the margin of the text) Tj ET";
+/// A 600×800 page drawing `content` with Helvetica as /F1.
+fn text_page(content: &str) -> Document {
     let objs: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".into(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
@@ -189,8 +188,51 @@ fn a_first_line_indent_is_measured() {
         out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
     }
     out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n", objs.len() + 1).as_bytes());
-    let doc = Document::open(Arc::new(out)).unwrap();
-    let blocks = crate::reading_blocks_checked(&doc, 0).unwrap().blocks;
+    Document::open(Arc::new(out)).unwrap()
+}
+
+/// The reading blocks' texts of a page of 11 pt lines, each `(y, text)` at x = 72.
+fn paragraphs(lines: &[(u32, &str)]) -> Vec<String> {
+    let content: String = lines.iter().map(|(y, t)| format!("BT /F1 11 Tf 72 {y} Td ({t}) Tj ET ")).collect();
+    crate::reading_blocks_checked(&text_page(&content), 0).unwrap().blocks.into_iter().map(|b| b.text).collect()
+}
+
+#[test]
+fn a_first_line_indent_is_measured() {
+    let content = "BT /F1 11 Tf 108 700 Td (Indented first line of a paragraph that is long) Tj -36 -14 Td (second line back at the margin of the text) Tj 0 -14 Td (third line also at the margin of the text) Tj ET";
+    let blocks = crate::reading_blocks_checked(&text_page(content), 0).unwrap().blocks;
     assert_eq!(blocks.len(), 1, "{blocks:?}");
     assert!((blocks[0].indent - 36.0).abs() < 0.5, "{}", blocks[0].indent);
+}
+
+#[test]
+fn paragraphs_part_at_the_space_between_them() {
+    // A one-line paragraph, 22 pt above a three-line one set at a 14 pt pitch.
+    let p = paragraphs(&[
+        (700, "A short opening line."),
+        (678, "The next paragraph starts here and"),
+        (664, "runs on over a second line and"),
+        (650, "a third one."),
+    ]);
+    assert_eq!(p, ["A short opening line.", "The next paragraph starts here and runs on over a second line and a third one."]);
+}
+
+#[test]
+fn lines_at_one_pitch_stay_one_paragraph() {
+    let p = paragraphs(&[(700, "One paragraph over"), (686, "three lines at the"), (672, "same pitch, 12 apples.")]);
+    assert_eq!(p.len(), 1, "{p:?}");
+    // Two lines give no pitch to compare with: they stay together.
+    assert_eq!(paragraphs(&[(700, "Two lines that"), (680, "belong together.")]).len(), 1);
+}
+
+#[test]
+fn list_items_are_paragraphs() {
+    let p = paragraphs(&[
+        (700, "Before the trip:"),
+        (686, "\\267 A warm jacket"),
+        (672, "\\267 Walking shoes"),
+        (658, "2. Fill the bottles"),
+        (644, "3\\) Leave the route"),
+    ]);
+    assert_eq!(p.len(), 5, "{p:?}");
 }

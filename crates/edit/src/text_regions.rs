@@ -89,19 +89,20 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
             rows.push(vec![i]);
         }
     }
-    let mut blocks: Vec<TextBlock> = Vec::new();
+    // Rows into paragraphs: each group is one block's rows.
+    let mut groups: Vec<Vec<Vec<usize>>> = Vec::new();
     for row in rows {
         let Some(first) = row.first().and_then(|i| lines.get(*i)) else { continue };
-        let (Some(rect), Some(frame)) = (row_rect(&row, lines), frame_row_rect(&row, lines)) else { continue };
-        let joins = blocks.last().is_some_and(|block| {
-            let Some(prev_row) = block.rows.last() else { return false };
+        let Some(frame) = frame_row_rect(&row, lines) else { continue };
+        let joins = groups.last().is_some_and(|block| {
+            let Some(prev_row) = block.last() else { return false };
             let Some(prev) = prev_row.first().and_then(|i| lines.get(*i)) else { return false };
             let Some(pr) = frame_row_rect(prev_row, lines) else { return false };
             let gap = prev.frame_origin().1 - first.frame_origin().1;
             let tol = prev.size.max(first.size).max(1.0);
             // Reading order (export) also takes a paragraph's first-line indent: its first row
             // starts up to a few ems right of the row under it.
-            let indented = !mixed && block.rows.len() == 1 && pr[0] > frame[0] && pr[0] - frame[0] <= tol * 6.0;
+            let indented = !mixed && block.len() == 1 && pr[0] > frame[0] && pr[0] - frame[0] <= tol * 6.0;
             let aligned = indented
                 || (pr[0] - frame[0]).abs() < tol
                 || ((pr[0] + pr[2] - frame[0] - frame[2]) / 2.0).abs() < tol
@@ -115,59 +116,74 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 && gap > first.size.min(prev.size) * 0.8
                 && gap < first.size.max(prev.size) * 2.5
         });
-        if !joins {
-            blocks.push(TextBlock {
-                text: String::new(),
-                editor_text: String::new(),
-                spans: Vec::new(),
-                rect,
-                base_font: first.base_font.clone(),
-                size: first.size,
-                bold: first.bold,
-                italic: first.italic,
-                color: first.color,
-                rotation: first.rotation(),
-                lines: Vec::new(),
-                rows: Vec::new(),
-                invisible: true,
-                transparent: true,
-                indent: 0.0,
-            });
+        match groups.last_mut() {
+            Some(block) if joins => block.push(row),
+            _ => groups.push(vec![row]),
         }
-        let Some(block) = blocks.last_mut() else { continue };
-        let mut row_text = String::new();
-        if !block.rows.is_empty() {
-            block.editor_text.push('\n');
-        }
-        for &index in &row {
-            let Some(line) = lines.get(index) else { continue };
-            // Some producers position separate words without encoding a space.
-            if let Some(prev) = block.lines.last().filter(|i| row.contains(i)).and_then(|i| lines.get(*i))
-                && !row_text.ends_with(char::is_whitespace)
-                && !line.text.starts_with(char::is_whitespace)
-                && line.frame_rect()[0] - prev.frame_rect()[2] > line.size * 0.12
-            {
-                row_text.push(' ');
-                block.editor_text.push(' ');
+    }
+    if !mixed {
+        groups = groups.into_iter().flat_map(|g| split_paragraphs(g, lines)).collect();
+    }
+    let mut blocks: Vec<TextBlock> = Vec::new();
+    for group in groups {
+        let mut new_block = true;
+        for row in group {
+            let Some(first) = row.first().and_then(|i| lines.get(*i)) else { continue };
+            let Some(rect) = row_rect(&row, lines) else { continue };
+            if std::mem::take(&mut new_block) {
+                blocks.push(TextBlock {
+                    text: String::new(),
+                    editor_text: String::new(),
+                    spans: Vec::new(),
+                    rect,
+                    base_font: first.base_font.clone(),
+                    size: first.size,
+                    bold: first.bold,
+                    italic: first.italic,
+                    color: first.color,
+                    rotation: first.rotation(),
+                    lines: Vec::new(),
+                    rows: Vec::new(),
+                    invisible: true,
+                    transparent: true,
+                    indent: 0.0,
+                });
             }
-            let start = block.editor_text.len();
-            block.editor_text.push_str(&line.text);
-            block.spans.push((start..block.editor_text.len(), index));
-            row_text.push_str(&line.text);
-            block.invisible &= line.origin.state.render_mode == 3;
-            block.transparent &= line.origin.state.transparent;
-            block.lines.push(index);
-        }
-        if !block.text.is_empty() {
-            if block.text.ends_with('-') {
-                block.text.pop();
-            } else {
-                block.text.push(' ');
+            let Some(block) = blocks.last_mut() else { continue };
+            let mut row_text = String::new();
+            if !block.rows.is_empty() {
+                block.editor_text.push('\n');
             }
+            for &index in &row {
+                let Some(line) = lines.get(index) else { continue };
+                // Some producers position separate words without encoding a space.
+                if let Some(prev) = block.lines.last().filter(|i| row.contains(i)).and_then(|i| lines.get(*i))
+                    && !row_text.ends_with(char::is_whitespace)
+                    && !line.text.starts_with(char::is_whitespace)
+                    && line.frame_rect()[0] - prev.frame_rect()[2] > line.size * 0.12
+                {
+                    row_text.push(' ');
+                    block.editor_text.push(' ');
+                }
+                let start = block.editor_text.len();
+                block.editor_text.push_str(&line.text);
+                block.spans.push((start..block.editor_text.len(), index));
+                row_text.push_str(&line.text);
+                block.invisible &= line.origin.state.render_mode == 3;
+                block.transparent &= line.origin.state.transparent;
+                block.lines.push(index);
+            }
+            if !block.text.is_empty() {
+                if block.text.ends_with('-') {
+                    block.text.pop();
+                } else {
+                    block.text.push(' ');
+                }
+            }
+            block.text.push_str(row_text.trim_matches(paragraph_separator));
+            block.rect = union(block.rect, rect);
+            block.rows.push(row);
         }
-        block.text.push_str(row_text.trim_matches(paragraph_separator));
-        block.rect = union(block.rect, rect);
-        block.rows.push(row);
     }
     for block in &mut blocks {
         let lefts: Vec<f64> = block.rows.iter().filter_map(|r| frame_row_rect(r, lines)).map(|r| r[0]).collect();
@@ -177,6 +193,46 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         }
     }
     blocks
+}
+
+/// A run of rows [`group_layout`] joined, split where a new paragraph starts: at a row opening
+/// with a bullet or a list number, and where the space above a row is clearly more than the
+/// group's line pitch (space between paragraphs). Two rows alone give no pitch to compare with.
+fn split_paragraphs(group: Vec<Vec<usize>>, lines: &[TextLine]) -> Vec<Vec<Vec<usize>>> {
+    let first_line = |row: &Vec<usize>| row.first().and_then(|i| lines.get(*i));
+    // Baseline distance from each row to the one before it (none for the first).
+    let gaps: Vec<Option<f64>> = group
+        .iter()
+        .enumerate()
+        .map(|(k, row)| {
+            let prev = first_line(group.get(k.checked_sub(1)?)?)?;
+            let gap = prev.frame_origin().1 - first_line(row)?.frame_origin().1;
+            gap.is_finite().then_some(gap)
+        })
+        .collect();
+    let pitch = if group.len() >= 3 { gaps.iter().flatten().copied().reduce(f64::min) } else { None };
+    let mut out: Vec<Vec<Vec<usize>>> = Vec::new();
+    for (k, row) in group.into_iter().enumerate() {
+        let size = first_line(&row).map_or(0.0, |l| l.size);
+        let spaced = matches!((pitch, gaps.get(k).copied().flatten()), (Some(p), Some(g)) if g > p + (size * 0.25).max(2.0));
+        let listed = first_line(&row).is_some_and(|l| starts_list_item(&l.text));
+        match out.last_mut() {
+            Some(block) if !spaced && !listed => block.push(row),
+            _ => out.push(vec![row]),
+        }
+    }
+    out
+}
+
+/// Does a line open a list item: a bullet, or a number or letter and `.` or `)` before a space?
+fn starts_list_item(text: &str) -> bool {
+    let t = text.trim_start();
+    if t.starts_with(['•', '◦', '▪', '▫', '■', '□', '●', '○', '‣', '⁃', '∙', '·', '\u{f0b7}', '\u{f0a7}']) {
+        return true;
+    }
+    let marker: String = t.chars().take_while(|c| c.is_ascii_digit()).collect();
+    let rest = &t[marker.len()..];
+    !marker.is_empty() && marker.len() <= 3 && (rest.starts_with(". ") || rest.starts_with(") "))
 }
 
 /// Shape in the source or an explicitly registered matching full face. Never use interface fonts.
