@@ -9,9 +9,11 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod pptx;
+mod slides;
 mod zip;
 
 pub use pptx::pptx;
+pub use slides::pptx_positioned;
 pub use zip::Zip;
 
 /// A paragraph of a page.
@@ -28,6 +30,10 @@ pub struct Block {
     pub color: [f64; 3],
     /// Counterclockwise baseline angle in user space (degrees).
     pub rotation: f64,
+    /// Invisible text (rendering mode 3): an OCR layer over a scan, or a selectable layer over
+    /// text drawn as outlines. The flowing writers treat it as text;
+    /// [`pptx_positioned`] shows it only where outlines drew it.
+    pub invisible: bool,
 }
 
 /// An image of a page.
@@ -43,12 +49,31 @@ pub struct Image {
     pub rotation: f64,
 }
 
+/// A filled and/or stroked vector path on a page (rectangles, rules, table borders, chart
+/// bars), flattened to straight segments.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Shape {
+    /// Subpaths, each a list of points `[x, y]` on the displayed page in points (y up).
+    pub paths: Vec<Vec<[f64; 2]>>,
+    /// The subpaths are closed (a fill always closes them).
+    pub closed: bool,
+    /// Fill colour as sRGB components in 0..=1; `None`: not filled.
+    pub fill: Option<[f64; 3]>,
+    /// Stroke colour; `None`: not stroked.
+    pub stroke: Option<[f64; 3]>,
+    /// Stroke width in points.
+    pub line_width: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Page {
     pub width: f64,
     pub height: f64,
     pub blocks: Vec<Block>,
     pub images: Vec<Image>,
+    /// Vector artwork, in paint order. Only [`pptx_positioned`] draws it; the flowing writers
+    /// (Word, HTML, RTF, [`pptx()`]) leave it out.
+    pub shapes: Vec<Shape>,
 }
 
 /// One cell of a detected table. `span` is how many grid columns the cell covers (a header
@@ -895,6 +920,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         Page {
             width: 612.0,
@@ -912,6 +938,7 @@ mod tests {
                 size: [200.0, 150.0],
                 rotation: 0.0,
             }],
+            shapes: Vec::new(),
         }
     }
 
@@ -976,6 +1003,7 @@ mod tests {
             italic: false,
             color: [0.8; 3],
             rotation: 0.0,
+            invisible: false,
         });
         p.images = page().images;
         let xml = part(&docx(&[p], "Invoice"), "word/document.xml");
@@ -1038,6 +1066,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         });
         let xml = part(&docx(&[p.clone()], "Receipt\u{1}"), "word/document.xml");
         assert!(xml.contains(">Total 4.50\tGBP</w:t>"), "{xml}");
@@ -1091,6 +1120,7 @@ mod tests {
             italic: true,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         });
         let r = rtf(&[p]);
         assert!(r.starts_with("{\\rtf1") && r.ends_with('}'));
@@ -1108,6 +1138,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         Page {
             width: 612.0,
@@ -1131,9 +1162,11 @@ mod tests {
                     italic: false,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    invisible: false,
                 },
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         }
     }
 
@@ -1182,7 +1215,16 @@ mod tests {
             .map(|i| {
                 let (row, col) = (i / 2, i / 2 + i % 2);
                 let (x, y) = (10.0 + col as f64 * 20.0, 10_000.0 - row as f64 * 14.0);
-                Block { text: "x".into(), rect: [x, y, x + 8.0, y + 12.0], size: 11.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+                Block {
+                    text: "x".into(),
+                    rect: [x, y, x + 8.0, y + 12.0],
+                    size: 11.0,
+                    bold: false,
+                    italic: false,
+                    color: [0.0; 3],
+                    rotation: 0.0,
+                    invisible: false,
+                }
             })
             .collect();
         let started = std::time::Instant::now();
@@ -1209,11 +1251,13 @@ mod tests {
                             italic: false,
                             color: [0.0; 3],
                             rotation: 0.0,
+                            invisible: false,
                         }
                     })
                 })
                 .collect(),
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let grid_cols = |p: &Page| part(&docx(std::slice::from_ref(p), "Grid"), "word/document.xml").matches("<w:gridCol ").count();
         assert_eq!(grid_cols(&grid(63)), 63, "63 columns is still a table");
@@ -1222,7 +1266,7 @@ mod tests {
     }
 
     fn block(t: &str, x0: f64, y0: f64, x1: f64, y1: f64) -> Block {
-        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0, invisible: false }
     }
 
     /// #2806: a sentence whose link is set in another colour or font runs on as separate blocks
@@ -1248,6 +1292,7 @@ mod tests {
                 block("conducted during a WGP tournament.", 164.3, 502.0, 352.5, 516.6),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let h = html(std::slice::from_ref(&p), "Regulations");
         assert!(!h.contains("<table>"), "running text became a table: {h}");
@@ -1267,7 +1312,7 @@ mod tests {
             blocks.push(block(lead, 72.0, y, 211.0, y + 12.0));
             blocks.push(blue("https://example.org/event", 212.5, y, 360.0, y + 12.0));
         }
-        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new() };
+        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new(), shapes: Vec::new() };
         let h = html(std::slice::from_ref(&p), "Event");
         assert!(!h.contains("<table>"), "sentences became a table: {h}");
         assert_eq!(h.matches("https://example.org/event").count(), 3, "{h}");
@@ -1284,7 +1329,7 @@ mod tests {
             blocks.push(Block { size: 8.0, ..block(sup, 106.0, y + 5.0, 113.0, y + 13.0) });
             blocks.push(block(&format!("{},000", 30 - 5 * n), 300.0, y, 340.0, y + 12.0));
         }
-        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new() };
+        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new(), shapes: Vec::new() };
         let h = html(std::slice::from_ref(&p), "Prizes");
         assert!(h.contains("<table>"), "the prize table was lost: {h}");
         assert!(h.contains("30,000") && h.contains("15,000"), "{h}");
@@ -1300,6 +1345,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         let p = Page {
             width: 612.0,
@@ -1311,6 +1357,7 @@ mod tests {
                 para("Second right block, still a tall flowing paragraph rather than a cell.", 320.0, 400.0),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let h = html(&[p], "Paper");
         assert!(!h.contains("<table>"), "tall two-column text must stay paragraphs: {h}");

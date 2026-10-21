@@ -14,17 +14,17 @@ enum SlideBodyItem<'a> {
 ///
 /// Clamps to PowerPoint's allowed slide dimensions: 1 inch (914,400 EMU = 72 pt)
 /// to 56 inches (51,206,400 EMU = 4032 pt).
-fn emu(pt: f64, default_pt: f64) -> i64 {
+pub(crate) fn emu(pt: f64, default_pt: f64) -> i64 {
     if pt.is_finite() && pt > 0.0 { (pt * 12700.0).round().clamp(914400.0, 51206400.0) as i64 } else { (default_pt * 12700.0).round() as i64 }
 }
 
 /// The largest height one item may take on a slide (about 1,100 inches). Text sizes and image
 /// rectangles come from the PDF, so a hostile size (say 1e300 pt) must not push the running
 /// vertical position past what an `i64` (or a DrawingML coordinate) holds.
-const MAX_ITEM_EMU: i64 = 1_000_000_000;
+pub(crate) const MAX_ITEM_EMU: i64 = 1_000_000_000;
 
 /// Points to EMU for a height or gap, clamped to `0..=MAX_ITEM_EMU` (NaN reads as 0).
-fn height_emu(pt: f64) -> i64 {
+pub(crate) fn height_emu(pt: f64) -> i64 {
     let v = pt * 12700.0;
     // Clamped to 0..=MAX_ITEM_EMU before the cast, so it cannot truncate or wrap.
     if v.is_finite() {
@@ -37,7 +37,7 @@ fn height_emu(pt: f64) -> i64 {
 }
 
 /// A formatted DrawingML text run (`<a:r>`).
-fn run_drawingml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3]) -> String {
+pub(crate) fn run_drawingml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3]) -> String {
     let mut rpr = String::new();
     let sz = if size.is_finite() { (size * 100.0).round().clamp(100.0, 400000.0) as i64 } else { 1200 };
     rpr.push_str(&format!(" sz=\"{sz}\""));
@@ -223,31 +223,49 @@ pub fn pptx(pages: &[Page], title: &str) -> Vec<u8> {
             }
         }
 
-        let slide_xml = format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
+        let slide_xml = slide_xml(&shapes);
+        let rels: Vec<(String, String)> = slide_media_rels
+            .iter()
+            .filter_map(|(r_id, idx)| global_media.get(idx.wrapping_sub(1)).map(|(name, _)| (r_id.clone(), name.clone())))
+            .collect();
+        let slide_rels = slide_rels(&rels);
+
+        slides.push((slide_xml, slide_rels));
+    }
+
+    package(&slides, &global_media, sw, sh, title)
+}
+
+/// A slide part holding `shapes` (DrawingML shape elements, back to front).
+pub(crate) fn slide_xml(shapes: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n\
 <p:sld xmlns:p=\"http://schemas.openxmlformats.org/presentationml/2006/main\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\" \
 xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\"><p:cSld><p:spTree>\
 <p:nvGrpSpPr><p:cNvPr id=\"1\" name=\"\"/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr>\
 <p:grpSpPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"0\" cy=\"0\"/><a:chOff x=\"0\" y=\"0\"/><a:chExt cx=\"0\" cy=\"0\"/></a:xfrm></p:grpSpPr>\
 {shapes}</p:spTree></p:cSld><p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr></p:sld>"
-        );
+    )
+}
 
-        let mut slide_rels = String::from(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+/// A slide's relationships: its layout, and each `(relationship id, media file name)`.
+pub(crate) fn slide_rels(media: &[(String, String)]) -> String {
+    let mut out = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
 <Relationship Id=\"rIdLayout\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/>",
-        );
-        for (r_id, global_idx) in &slide_media_rels {
-            if let Some((name, _)) = global_media.get(*global_idx - 1) {
-                slide_rels.push_str(&format!(
-                    "<Relationship Id=\"{r_id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/{name}\"/>"
-                ));
-            }
-        }
-        slide_rels.push_str("</Relationships>");
-
-        slides.push((slide_xml, slide_rels));
+    );
+    for (r_id, name) in media {
+        out.push_str(&format!(
+            "<Relationship Id=\"{r_id}\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/image\" Target=\"../media/{name}\"/>"
+        ));
     }
+    out.push_str("</Relationships>");
+    out
+}
 
+/// The PresentationML package around `slides` (slide XML and its relationships, in order) and
+/// their `media`, with slides `sw`×`sh` EMU.
+pub(crate) fn package(slides: &[(String, String)], media: &[(String, &Image)], sw: i64, sh: i64, title: &str) -> Vec<u8> {
     let mut types = String::from(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
 <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/><Default Extension=\"xml\" ContentType=\"application/xml\"/>\
@@ -345,7 +363,7 @@ xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" type=\"blank\"
         z.add(&format!("ppt/slides/slide{num}.xml"), s_xml.as_bytes(), true);
         z.add(&format!("ppt/slides/_rels/slide{num}.xml.rels"), s_rels.as_bytes(), true);
     }
-    for (name, im) in &global_media {
+    for (name, im) in media {
         z.add(&format!("ppt/media/{name}"), &im.bytes, false);
     }
     z.finish()
@@ -369,6 +387,7 @@ mod tests {
                     italic: false,
                     color: [0.1, 0.2, 0.3],
                     rotation: 0.0,
+                    invisible: false,
                 },
                 Block {
                     text: "Revenue grew 25% year over year across all regions.".into(),
@@ -378,6 +397,7 @@ mod tests {
                     italic: false,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    invisible: false,
                 },
                 Block {
                     text: "Operational expenses remained flat.".into(),
@@ -387,6 +407,7 @@ mod tests {
                     italic: true,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    invisible: false,
                 },
             ],
             images: vec![Image {
@@ -396,6 +417,7 @@ mod tests {
                 size: [228.0, 150.0],
                 rotation: 0.0,
             }],
+            shapes: Vec::new(),
         }
     }
 
@@ -509,6 +531,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         let table_page = Page {
             width: 612.0,
@@ -522,6 +545,7 @@ mod tests {
                 cell("100%", 200.0, 320.0),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let bytes = pptx(&[sample_page(), table_page], "Two");
         let parts = entries(&bytes);
@@ -609,6 +633,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         let mut blocks = vec![huge("Title", f64::MAX, 500.0)];
         for k in 0..40 {
@@ -619,7 +644,7 @@ mod tests {
         let images = (0..40)
             .map(|k| Image { ext: "png", bytes: vec![0; 4], rect: [0.0, -1e300, 1e-300, 1e300 - k as f64], size: [1.0, 1.0], rotation: 0.0 })
             .collect();
-        let p = Page { width: f64::MAX, height: f64::NAN, blocks, images };
+        let p = Page { width: f64::MAX, height: f64::NAN, blocks, images, ..Page::default() };
         let bytes = pptx(&[p], "Hostile");
         let slide = part(&bytes, "ppt/slides/slide1.xml");
         assert!(slide.contains("Title") && slide.contains("<p:pic>"), "the slide is still written");
@@ -674,6 +699,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
         };
         let p = Page {
             width: 720.0,
@@ -688,6 +714,7 @@ mod tests {
                     italic: false,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    invisible: false,
                 },
                 // Table where one cell has a very large number (e.g. 36 pt callout in the table)
                 cell("Metric", 72.0, 400.0, 100.0, 12.0),
@@ -698,6 +725,7 @@ mod tests {
                 cell("100%", 200.0, 320.0, 100.0, 12.0),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let bytes = pptx(&[p], "Table Check");
         let slide_xml = part(&bytes, "ppt/slides/slide1.xml");
