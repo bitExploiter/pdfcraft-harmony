@@ -8,6 +8,70 @@ pub(crate) fn outside_strip(strip: egui::Rect, viewport: egui::Rect, pointer: eg
 }
 
 impl PdfCraftApp {
+    /// NativeWindows is the settings owner. Synchronize before and after each window's
+    /// sequential event pass, so a later window starts with every earlier change (including
+    /// deletions), rather than merging stale snapshots at exit. Document/view state stays local.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn copy_shared_settings_from(&mut self, source: &Self) {
+        if self.recent != source.recent {
+            self.recent.clone_from(&source.recent);
+        }
+        self.reopen_last_session = source.reopen_last_session;
+        self.reload_changed_files = source.reload_changed_files;
+        self.system_title_bar = source.system_title_bar;
+        self.scroll_speed = source.scroll_speed;
+        self.animation_effects = source.animation_effects;
+        self.default_mode = source.default_mode;
+        self.view_defaults = source.view_defaults;
+        self.units = source.units;
+        if self.language != source.language {
+            self.language.clone_from(&source.language);
+        }
+        self.ui_scale = source.ui_scale;
+        self.flatten_fill_sign_on_save = source.flatten_fill_sign_on_save;
+        self.fill_text_size = source.fill_text_size;
+        if self.signature != source.signature {
+            self.signature.clone_from(&source.signature);
+        }
+        if self.initials != source.initials {
+            self.initials.clone_from(&source.initials);
+        }
+        if self.sign_graphic != source.sign_graphic {
+            self.sign_graphic.clone_from(&source.sign_graphic);
+        }
+        if self.digital_ids != source.digital_ids {
+            self.digital_ids.clone_from(&source.digital_ids);
+        }
+        if self.custom_stamps != source.custom_stamps {
+            self.custom_stamps.clone_from(&source.custom_stamps);
+        }
+        if self.custom_actions != source.custom_actions {
+            self.custom_actions.clone_from(&source.custom_actions);
+        }
+        self.comment_prefs.clone_from(&source.comment_prefs);
+        self.pinned.folders.clone_from(&source.pinned.folders);
+        self.redact_defaults.clone_from(&source.redact_defaults);
+        if self.reading_colors != source.reading_colors {
+            self.set_reading_colors(source.reading_colors);
+        }
+        if self.theme_preference != source.theme_preference || self.theme != source.theme {
+            self.set_theme_preference(source.theme_preference);
+        }
+        // These caches describe the shared egui Context, not an individual window.
+        self.ui_scale_applied = source.ui_scale_applied;
+        self.fonts_cjk = source.fonts_cjk;
+        self.fonts_ready = source.fonts_ready;
+        self.styled = source.styled;
+        let _ = self.session.set_date_format(source.session.date_format());
+        let _ = self.session.set_date_language(source.session.date_language());
+        if self.session.javascript() != source.session.javascript() {
+            self.session.set_javascript(source.session.javascript());
+        }
+        if self.session.trusted_certificates() != source.session.trusted_certificates() {
+            self.apply_trusted_certificates(source.session.trusted_certificates().to_vec());
+        }
+    }
+
     /// Native hosts opt in only when they can keep the detached document alive.
     pub fn can_detach_tab(&self, id: DocId) -> bool {
         self.transfer_ready() && self.detach_request.is_none() && self.session.get(id).is_some() && self.views.iter().any(|v| v.id == id)
@@ -51,6 +115,7 @@ impl PdfCraftApp {
         let Some(new_id) = self.session.transfer_document(id, &mut target.session) else { return false };
         let mut view = self.views.remove(index);
         view.id = new_id;
+        view.restore_transferred_page();
         target.views.insert(at, view);
         target.active = Some(at);
         target.combine_tab.focused = false;
@@ -144,7 +209,9 @@ impl PdfCraftApp {
         child.fonts_cjk = self.fonts_cjk;
         // Every allocation/settings operation precedes removing the original document.
         child.session = self.session.detach_document(id)?;
-        child.views.push(self.views.remove(index));
+        let mut view = self.views.remove(index);
+        view.restore_transferred_page();
+        child.views.push(view);
         child.active = Some(0);
         if let Some(key) = self.recovery_keys.remove(&id) {
             child.recovery_keys.insert(id, key);
@@ -191,6 +258,7 @@ pub struct NativeWindows {
     windows: Vec<Window>,
     next: u64,
     root_hidden: bool,
+    final_session: Option<crate::last_session::LastSession>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -205,7 +273,24 @@ impl NativeWindows {
     /// Enable tear-off for a native application without changing its existing open documents.
     pub fn new(mut root: PdfCraftApp) -> Self {
         root.managed_windows = true;
-        Self { root, windows: Vec::new(), next: 0, root_hidden: false }
+        Self { root, windows: Vec::new(), next: 0, root_hidden: false, final_session: None }
+    }
+
+    fn combined_session(&self) -> crate::last_session::LastSession {
+        let mut all = if self.root_hidden { Default::default() } else { self.root.session_to_save() };
+        for window in &self.windows {
+            let session = window.app.session_to_save();
+            if all.active.is_none() {
+                all.active = session.active;
+            }
+            for file in session.files {
+                if !all.files.iter().any(|f| f.path == file.path) {
+                    all.files.push(file);
+                }
+            }
+        }
+        all.files.truncate(crate::last_session::MAX_FILES);
+        all
     }
 
     fn pair_mut(&mut self, source: egui::ViewportId, target: egui::ViewportId) -> Option<(&mut PdfCraftApp, &mut PdfCraftApp)> {
@@ -288,6 +373,11 @@ impl eframe::App for NativeWindows {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.root.save(storage);
+        if let Ok(mut saved) = serde_json::from_str::<serde_json::Value>(&self.root.persist()) {
+            let session = self.final_session.clone().unwrap_or_else(|| self.combined_session());
+            saved["last_session"] = serde_json::json!(self.root.reopen_last_session.then_some(session));
+            storage.set_string("pdfcraft", saved.to_string());
+        }
     }
 
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
@@ -298,6 +388,7 @@ impl eframe::App for NativeWindows {
         self.root.logic(ctx, frame);
         if self.root_hidden && (!self.root.views.is_empty() || !self.root.pending_opens.is_empty()) {
             self.root_hidden = false;
+            self.final_session = None;
             ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
             ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
@@ -309,6 +400,7 @@ impl eframe::App for NativeWindows {
             self.root.ui(ui, frame);
         }
         for window in &mut self.windows {
+            window.app.copy_shared_settings_from(&self.root);
             window.app.motion.reduced = self.root.motion.reduced;
             let title = window
                 .app
@@ -324,8 +416,13 @@ impl eframe::App for NativeWindows {
                 window.app.logic(&child_ctx, frame);
                 ui.push_id(window.id, |ui| window.app.ui(ui, frame));
             });
+            self.root.copy_shared_settings_from(&window.app);
         }
         self.collect(&ctx);
+        if self.final_session.is_none() && (self.root_hidden || self.root.window_close_ready) && self.windows.iter().all(|w| w.app.window_close_ready)
+        {
+            self.final_session = Some(self.combined_session());
+        }
         self.windows.retain(|w| !w.app.window_close_ready);
         let mut live: Vec<_> = self.windows.iter().map(|w| w.id).collect();
         if !self.root_hidden && !self.root.window_close_ready {
@@ -363,6 +460,88 @@ mod tests {
             app.open_bytes(name, None, bytes.as_ref().clone()).unwrap();
         }
         app
+    }
+
+    #[test]
+    fn window_settings_changes_and_deletions_survive_child_close() {
+        use eframe::App as _;
+        #[derive(Default)]
+        struct Storage(std::collections::HashMap<String, String>);
+        impl eframe::Storage for Storage {
+            fn get_string(&self, key: &str) -> Option<String> {
+                self.0.get(key).cloned()
+            }
+            fn set_string(&mut self, key: &str, value: String) {
+                self.0.insert(key.into(), value);
+            }
+            fn remove_string(&mut self, key: &str) {
+                self.0.remove(key);
+            }
+            fn flush(&mut self) {}
+        }
+        let mut host = NativeWindows::new(app());
+        let mut child = app();
+        child.copy_shared_settings_from(&host.root);
+        child.set_option("language", "fr").unwrap();
+        child.set_option("theme", "dark").unwrap();
+        child.set_option("date-format", "yyyy-mm-dd").unwrap();
+        child.ui_scale = Some(1.25);
+        child.comment_prefs.author = "Synthetic author".into();
+        child.signature = Some(crate::fill_sign::SavedSig::Typed("Test".into()));
+        child.initials = Some(crate::fill_sign::SavedSig::Typed("T".into()));
+        child.recent.push(crate::RecentFile { name: "test.pdf".into(), path: "test.pdf".into(), pages: 1, size: 123 });
+        child.session.set_javascript(false);
+        host.root.copy_shared_settings_from(&child);
+        let mut next = app();
+        next.copy_shared_settings_from(&host.root);
+        assert_eq!(next.language, "fr");
+        assert_eq!(next.ui_scale, Some(1.25));
+        assert_eq!(next.comment_prefs.author, "Synthetic author");
+        assert_eq!(next.signature, child.signature);
+        assert!(!next.session.javascript());
+        next.signature = None;
+        next.initials = None;
+        next.recent.clear();
+        host.root.copy_shared_settings_from(&next);
+        drop(child);
+        let mut storage = Storage::default();
+        host.save(&mut storage);
+        let saved: serde_json::Value = serde_json::from_str(&eframe::Storage::get_string(&storage, "pdfcraft").unwrap()).unwrap();
+        assert_eq!(saved["language"], "fr");
+        assert!(saved["signature_text"].is_null());
+        assert!(saved["initials"].is_null());
+        assert_eq!(saved["recent"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn window_last_session_includes_detached_documents_when_root_is_hidden() {
+        let mut host = NativeWindows::new(app());
+        host.root.reopen_last_session = true;
+        let mut child = app();
+        let id = child.views[0].id;
+        let bytes = child.session.get(id).unwrap().bytes.clone();
+        child.session.mark_saved(id, bytes, Some("detached.pdf".into())).unwrap();
+        child.views[0].current = 2;
+        host.windows.push(Window { id: egui::ViewportId::from_hash_of("child"), app: child, position: None });
+        host.root_hidden = true;
+        let saved = host.combined_session();
+        assert_eq!(saved.files.len(), 1);
+        assert!(saved.files[0].path.ends_with("detached.pdf"));
+        assert_eq!(saved.files[0].page, 2);
+    }
+
+    #[test]
+    fn window_transfers_restore_current_page_without_overwriting_pending_destination() {
+        let mut root = app();
+        root.views[0].current = 2;
+        root.views[0].goto = None;
+        let id = root.views[0].id;
+        assert!(root.request_detach_tab(id, None));
+        let (mut child, _) = root.take_detached_tab().unwrap();
+        assert_eq!(child.views[0].goto, Some((2, 0.0)));
+        child.views[0].goto = Some((1, 42.0));
+        assert!(child.transfer_tab_to(id, &mut root, 0));
+        assert_eq!(root.views[0].goto, Some((1, 42.0)));
     }
 
     #[test]
@@ -525,7 +704,7 @@ mod tests {
         }
         let a = root.active_ids().unwrap().1;
         let b = child.active_ids().unwrap().1;
-        assert_eq!(a, b, "sessions may issue the same local document id");
+        assert_ne!(a, b, "all windows share one document identity namespace");
         assert_ne!(root.recovery_keys.get(&a), child.recovery_keys.get(&b));
         let child_path = dir.join(format!("{}.pdf", child.recovery_keys.get(&b).unwrap()));
         for i in (0..root.views.len()).rev() {
@@ -542,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn window_drop_tab_move_keeps_view_recovery_and_target_order_despite_id_collision() {
+    fn window_drop_tab_move_keeps_identity_view_recovery_and_target_order() {
         let mut source = app();
         let mut target = app();
         source.active = Some(1);
@@ -554,6 +733,7 @@ mod tests {
         let bytes = source.session.get(id).unwrap().bytes.clone();
         assert!(source.transfer_tab_to(id, &mut target, 1));
         let moved = target.views[1].id;
+        assert_eq!(moved, id);
         assert!(!original.contains(&moved));
         assert_eq!(target.views[0].id, original[0]);
         assert_eq!(target.views[2].id, original[1]);

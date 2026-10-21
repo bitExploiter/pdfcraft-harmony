@@ -1189,6 +1189,13 @@ impl DocView {
         self.wheel_boost_y.reset();
     }
 
+    /// A new viewport has no scroll-area state. Preserve any explicit pending destination.
+    pub(crate) fn restore_transferred_page(&mut self) {
+        if self.goto.is_none() {
+            self.go_to_page(self.current);
+        }
+    }
+
     pub fn go_to_page(&mut self, page: usize) {
         let page = page.min(self.page_count.saturating_sub(1));
         if page != self.current {

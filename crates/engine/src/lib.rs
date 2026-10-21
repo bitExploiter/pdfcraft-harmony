@@ -2919,7 +2919,6 @@ impl From<pdfcraft_sign::SignError> for EditError {
 #[derive(Default)]
 pub struct Session {
     docs: Vec<Document>,
-    next_id: u64,
     /// Seconds since the Unix epoch, injected so saves are deterministic in tests.
     clock: Option<fn() -> i64>,
     /// Seconds to add to UTC for local time, read from whoever knows the zone (a browser, say).
@@ -3353,8 +3352,9 @@ impl Session {
 
     /// Register a prepared document. This is the only open step that mutates the session.
     pub fn commit_open(&mut self, prepared: PreparedDocument) -> DocId {
-        self.next_id += 1;
-        let id = DocId(self.next_id);
+        // egui state and native viewports share a process-wide identity namespace.
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = DocId(NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         let mut document = prepared.document;
         document.id = id;
         self.docs.push(document);
@@ -4933,7 +4933,6 @@ impl Session {
         let index = self.docs.iter().position(|d| d.id == id)?;
         Some(Self {
             docs: vec![self.docs.remove(index)],
-            next_id: self.next_id,
             clock: self.clock,
             utc_offset: self.utc_offset,
             trust: self.trust.clone(),
@@ -4943,20 +4942,15 @@ impl Session {
         })
     }
 
-    /// Move a live document to another session, allocating a fresh target-local identity.
-    /// Missing documents or exhausted identities leave both sessions unchanged.
+    /// Move a live document between sessions, preserving its process-unique identity.
+    /// A missing source or an existing target identity leaves both sessions unchanged.
     pub fn transfer_document(&mut self, id: DocId, target: &mut Self) -> Option<DocId> {
         let index = self.docs.iter().position(|d| d.id == id)?;
-        let next = target.next_id.checked_add(1)?;
-        let new_id = DocId(next);
-        if target.get(new_id).is_some() {
+        if target.get(id).is_some() {
             return None;
         }
-        let mut document = self.docs.remove(index);
-        document.id = new_id;
-        target.docs.push(document);
-        target.next_id = next;
-        Some(new_id)
+        target.docs.push(self.docs.remove(index));
+        Some(id)
     }
 
     pub fn close(&mut self, id: DocId) {

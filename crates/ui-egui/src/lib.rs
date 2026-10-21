@@ -477,7 +477,7 @@ impl UnlockPrompt {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RecentFile {
     pub name: String,
     pub path: String,
