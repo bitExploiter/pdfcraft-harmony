@@ -2274,6 +2274,17 @@ animation effects	Off	Выкл
 	The linked PDF opened, but its named destination was not applied.	Связанный PDF открыт, но его именованное назначение не применено.
 	The linked PDF opened, but its page destination was out of range.	Связанный PDF открыт, но страница назначения вне допустимого диапазона.
 	Local cross-PDF links require the desktop app	Локальные ссылки между PDF работают только в настольном приложении
+
+	Read out loud	Читать вслух
+	Voice	Голос
+	Speed	Скорость
+	Pause	Пауза
+	Resume	Продолжить
+	Stop	Остановить
+	Paused	Приостановлено
+	Preparing read-aloud text…	Подготовка текста для чтения…
+	Read out loud requires Windows, macOS or Linux.	Чтение вслух пока доступно только в Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Для сканированных страниц нужен OCR. Порядок чтения соответствует извлечённому тексту страницы.
 	Cut Image	Вырезать изображение
 	Redact Image	Скрыть изображение
 	Create Link…	Создать ссылку…

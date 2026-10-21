@@ -2357,6 +2357,17 @@ animation effects	Off	Kapalı
 	The linked PDF opened, but its named destination was not applied.	Bağlantılı PDF açıldı, ancak adlandırılmış hedefi uygulanmadı.
 	The linked PDF opened, but its page destination was out of range.	Bağlantılı PDF açıldı, ancak sayfa hedefi aralık dışında.
 	Local cross-PDF links require the desktop app	PDF'ler arası yerel bağlantılar masaüstü uygulamasını gerektirir
+
+	Read out loud	Sesli oku
+	Voice	Ses
+	Speed	Hız
+	Pause	Duraklat
+	Resume	Sürdür
+	Stop	Durdur
+	Paused	Duraklatıldı
+	Preparing read-aloud text…	Okunacak metin hazırlanıyor…
+	Read out loud requires Windows, macOS or Linux.	Sesli okuma şu anda Windows / macOS / Linux gerektirir.
+	Scanned pages need OCR. Reading order follows extracted page text.	Taranmış sayfalar OCR gerektirir. Okuma sırası sayfadan çıkarılan metni izler.
 	Cut Image	Resmi Kes
 	Redact Image	Resmi karart
 	Create Link…	Bağlantı oluştur…

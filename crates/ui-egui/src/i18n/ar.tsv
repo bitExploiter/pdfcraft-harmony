@@ -2382,6 +2382,17 @@ animation effects	Off	معطّلة
 	The linked PDF opened, but its named destination was not applied.	فُتح ملف PDF المرتبط، لكن لم تُطبَّق وجهته المسماة.
 	The linked PDF opened, but its page destination was out of range.	فُتح ملف PDF المرتبط، لكن وجهة الصفحة خارج النطاق.
 	Local cross-PDF links require the desktop app	تتطلب الروابط المحلية بين ملفات PDF تطبيق سطح المكتب
+
+	Read out loud	القراءة بصوت عالٍ
+	Voice	الصوت
+	Speed	السرعة
+	Pause	إيقاف مؤقت
+	Resume	استئناف
+	Stop	إيقاف
+	Paused	متوقف مؤقتًا
+	Preparing read-aloud text…	جارٍ إعداد النص للقراءة…
+	Read out loud requires Windows, macOS or Linux.	تتطلب القراءة بصوت عالٍ حاليًا Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	تحتاج الصفحات الممسوحة إلى OCR. يتبع ترتيب القراءة النص المستخرج من الصفحة.
 	Cut Image	قص الصورة
 	Redact Image	حجب الصورة
 	Create Link…	إنشاء رابط…

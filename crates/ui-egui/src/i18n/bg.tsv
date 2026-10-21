@@ -2324,6 +2324,17 @@ animation effects	Off	Изключени
 	The linked PDF opened, but its named destination was not applied.	Свързаният PDF се отвори, но именуваната му цел не беше приложена.
 	The linked PDF opened, but its page destination was out of range.	Свързаният PDF се отвори, но целевата му страница е извън обхвата.
 	Local cross-PDF links require the desktop app	Локалните връзки между PDF файлове изискват настолното приложение
+
+	Read out loud	Четене на глас
+	Voice	Глас
+	Speed	Скорост
+	Pause	Пауза
+	Resume	Продължи
+	Stop	Спри
+	Paused	На пауза
+	Preparing read-aloud text…	Подготовка на текста за четене…
+	Read out loud requires Windows, macOS or Linux.	Четенето на глас засега изисква Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Сканираните страници изискват OCR. Редът на четене следва извлечения текст на страницата.
 	Cut Image	Изрежи изображението
 	Redact Image	Заличи изображението
 	Create Link…	Създай връзка…

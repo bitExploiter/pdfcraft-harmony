@@ -2274,6 +2274,17 @@ animation effects	Off	ఆఫ్
 	Local cross-PDF links require the desktop app	PDFల మధ్య స్థానిక లింక్‌లకు డెస్క్‌టాప్ యాప్ అవసరం
 	The existing action will be preserved.	ఉన్న చర్య అలాగే ఉంచబడుతుంది.
 	This form's scripts are turned off because one ran too long. Reopen the document to run them again.	ఒక స్క్రిప్ట్ చాలా సేపు నడిచినందున ఈ ఫారమ్ స్క్రిప్ట్‌లు ఆపివేయబడ్డాయి. వాటిని మళ్లీ నడపడానికి పత్రాన్ని మళ్లీ తెరవండి.
+
+	Read out loud	బిగ్గరగా చదువు
+	Voice	స్వరం
+	Speed	వేగం
+	Pause	పాజ్
+	Resume	కొనసాగించు
+	Stop	ఆపు
+	Paused	పాజ్ చేయబడింది
+	Preparing read-aloud text…	చదవడానికి వచనాన్ని సిద్ధం చేస్తోంది…
+	Read out loud requires Windows, macOS or Linux.	బిగ్గరగా చదవడానికి ప్రస్తుతం Windows / macOS / Linux అవసరం.
+	Scanned pages need OCR. Reading order follows extracted page text.	స్కాన్ చేసిన పేజీలకు OCR అవసరం. చదివే క్రమం పేజీ నుండి సంగ్రహించిన వచనాన్ని అనుసరిస్తుంది.
 	Cut Image	చిత్రాన్ని కత్తిరించు
 	Redact Image	చిత్రాన్ని రెడాక్ట్ చేయి
 	Create Link…	లింక్ సృష్టించు…

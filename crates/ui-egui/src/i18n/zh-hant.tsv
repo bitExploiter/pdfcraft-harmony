@@ -2235,6 +2235,17 @@ animation effects	Off	關
 	The linked PDF opened, but its page destination was out of range.	已開啟連結的 PDF，但其頁面目的地超出範圍。
 	Local cross-PDF links require the desktop app	PDF 之間的本機連結需要桌面應用程式
 	The existing action will be preserved.	將保留現有動作。
+
+	Read out loud	朗讀
+	Voice	語音
+	Speed	速度
+	Pause	暫停
+	Resume	繼續
+	Stop	停止
+	Paused	已暫停
+	Preparing read-aloud text…	正在準備朗讀文字…
+	Read out loud requires Windows, macOS or Linux.	朗讀功能目前需要Windows / macOS / Linux。
+	Scanned pages need OCR. Reading order follows extracted page text.	掃描頁面需要OCR。朗讀順序依循從頁面擷取的文字。
 	Cut Image	剪下圖片
 	Redact Image	遮蔽圖片
 	Create Link…	建立連結…

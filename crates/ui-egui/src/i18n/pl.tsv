@@ -2341,6 +2341,17 @@ animation effects	Off	Wyłączone
 	Local cross-PDF links require the desktop app	Lokalne łącza między plikami PDF wymagają aplikacji komputerowej
 	The existing action will be preserved.	Istniejąca akcja zostanie zachowana.
 	This form's scripts are turned off because one ran too long. Reopen the document to run them again.	Skrypty tego formularza są wyłączone, ponieważ jeden z nich działał zbyt długo. Otwórz dokument ponownie, aby znów je uruchomić.
+
+	Read out loud	Czytaj na głos
+	Voice	Głos
+	Speed	Szybkość
+	Pause	Wstrzymaj
+	Resume	Wznów
+	Stop	Zatrzymaj
+	Paused	Wstrzymano
+	Preparing read-aloud text…	Przygotowywanie tekstu do czytania…
+	Read out loud requires Windows, macOS or Linux.	Czytanie na głos wymaga obecnie systemu Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Zeskanowane strony wymagają OCR. Kolejność czytania odpowiada tekstowi wyodrębnionemu ze strony.
 	Cut Image	Wytnij obraz
 	Redact Image	Utajnij obraz
 	Create Link…	Utwórz łącze…

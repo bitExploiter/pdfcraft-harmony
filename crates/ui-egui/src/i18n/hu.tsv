@@ -2360,6 +2360,17 @@ animation effects	Off	Ki
 	The linked PDF opened, but its named destination was not applied.	A hivatkozott PDF megnyílt, de a nevesített cél nem lett alkalmazva.
 	The linked PDF opened, but its page destination was out of range.	A hivatkozott PDF megnyílt, de a céloldal a tartományon kívül esik.
 	Local cross-PDF links require the desktop app	A PDF-ek közötti helyi hivatkozásokhoz az asztali alkalmazás szükséges
+
+	Read out loud	Felolvasás
+	Voice	Hang
+	Speed	Sebesség
+	Pause	Szünet
+	Resume	Folytatás
+	Stop	Leállítás
+	Paused	Szüneteltetve
+	Preparing read-aloud text…	A felolvasandó szöveg előkészítése…
+	Read out loud requires Windows, macOS or Linux.	A felolvasáshoz jelenleg Windows / macOS / Linux szükséges.
+	Scanned pages need OCR. Reading order follows extracted page text.	A szkennelt oldalakhoz OCR szükséges. Az olvasási sorrend az oldal kinyert szövegét követi.
 	Cut Image	Kép kivágása
 	Redact Image	Kép kitakarása
 	Create Link…	Hivatkozás létrehozása…

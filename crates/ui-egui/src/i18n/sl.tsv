@@ -2366,6 +2366,17 @@ animation effects	Off	Izklopljeni
 	The linked PDF opened, but its named destination was not applied.	Povezani PDF se je odprl, vendar njegov poimenovani cilj ni bil uporabljen.
 	The linked PDF opened, but its page destination was out of range.	Povezani PDF se je odprl, vendar je ciljna stran zunaj obsega.
 	Local cross-PDF links require the desktop app	Lokalne povezave med PDF-ji zahtevajo namizno aplikacijo
+
+	Read out loud	Beri na glas
+	Voice	Glas
+	Speed	Hitrost
+	Pause	Premor
+	Resume	Nadaljuj
+	Stop	Ustavi
+	Paused	Začasno ustavljeno
+	Preparing read-aloud text…	Priprava besedila za branje…
+	Read out loud requires Windows, macOS or Linux.	Branje na glas trenutno zahteva Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Skenirane strani zahtevajo OCR. Vrstni red branja sledi besedilu, izvlečenemu s strani.
 	Cut Image	Izreži sliko
 	Redact Image	Počrni sliko
 	Create Link…	Ustvari povezavo…

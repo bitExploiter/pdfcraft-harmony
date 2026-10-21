@@ -2435,6 +2435,17 @@ animation effects	Off	Vypnuto
 	The linked PDF opened, but its named destination was not applied.	Odkazovaný PDF se otevřel, ale jeho pojmenovaný cíl nebyl použit.
 	The linked PDF opened, but its page destination was out of range.	Odkazovaný PDF se otevřel, ale cílová stránka je mimo rozsah.
 	Local cross-PDF links require the desktop app	Místní odkazy mezi soubory PDF vyžadují desktopovou aplikaci
+
+	Read out loud	Číst nahlas
+	Voice	Hlas
+	Speed	Rychlost
+	Pause	Pozastavit
+	Resume	Pokračovat
+	Stop	Zastavit
+	Paused	Pozastaveno
+	Preparing read-aloud text…	Příprava textu ke čtení…
+	Read out loud requires Windows, macOS or Linux.	Čtení nahlas nyní vyžaduje Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Naskenované stránky vyžadují OCR. Pořadí čtení odpovídá textu získanému ze stránky.
 	Cut Image	Vyjmout obrázek
 	Redact Image	Začernit obrázek
 	Create Link…	Vytvořit odkaz…

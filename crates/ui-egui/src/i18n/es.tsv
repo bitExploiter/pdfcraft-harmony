@@ -2501,6 +2501,17 @@ animation effects	Off	Desactivados
 	The linked PDF opened, but its page destination was out of range.	El PDF vinculado se abrió, pero su página de destino está fuera de rango.
 	Local cross-PDF links require the desktop app	Los enlaces locales entre PDF requieren la aplicación de escritorio
 	The existing action will be preserved.	Se conservará la acción existente.
+
+	Read out loud	Leer en voz alta
+	Voice	Voz
+	Speed	Velocidad
+	Pause	Pausa
+	Resume	Reanudar
+	Stop	Detener
+	Paused	En pausa
+	Preparing read-aloud text…	Preparando el texto para leer…
+	Read out loud requires Windows, macOS or Linux.	La lectura en voz alta requiere Windows / macOS / Linux actualmente.
+	Scanned pages need OCR. Reading order follows extracted page text.	Las páginas escaneadas necesitan OCR. El orden de lectura sigue el texto extraído de la página.
 	Cut Image	Cortar imagen
 	Redact Image	Censurar imagen
 	Create Link…	Crear enlace…

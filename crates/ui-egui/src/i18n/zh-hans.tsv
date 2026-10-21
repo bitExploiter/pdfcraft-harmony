@@ -2325,6 +2325,17 @@ animation effects	Off	关
 	The linked PDF opened, but its named destination was not applied.	已打开链接的 PDF，但未应用其命名目标。
 	The linked PDF opened, but its page destination was out of range.	已打开链接的 PDF，但其页面目标超出范围。
 	Local cross-PDF links require the desktop app	PDF 之间的本地链接需要桌面应用
+
+	Read out loud	朗读
+	Voice	语音
+	Speed	速度
+	Pause	暂停
+	Resume	继续
+	Stop	停止
+	Paused	已暂停
+	Preparing read-aloud text…	正在准备朗读文本…
+	Read out loud requires Windows, macOS or Linux.	朗读功能目前需要Windows / macOS / Linux。
+	Scanned pages need OCR. Reading order follows extracted page text.	扫描页面需要OCR。朗读顺序遵循从页面提取的文本。
 	Cut Image	剪切图像
 	Redact Image	密文图像
 	Create Link…	创建链接…

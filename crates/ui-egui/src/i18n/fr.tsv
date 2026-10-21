@@ -2361,6 +2361,17 @@ animation effects	Off	Désactivés
 	The linked PDF opened, but its named destination was not applied.	Le PDF lié s'est ouvert, mais sa destination nommée n'a pas été appliquée.
 	The linked PDF opened, but its page destination was out of range.	Le PDF lié s'est ouvert, mais sa page de destination est hors limites.
 	Local cross-PDF links require the desktop app	Les liens locaux entre PDF nécessitent l'application de bureau
+
+	Read out loud	Lire à voix haute
+	Voice	Voix
+	Speed	Vitesse
+	Pause	Pause
+	Resume	Reprendre
+	Stop	Arrêter
+	Paused	En pause
+	Preparing read-aloud text…	Préparation du texte à lire…
+	Read out loud requires Windows, macOS or Linux.	La lecture à voix haute nécessite actuellement Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Les pages numérisées nécessitent un OCR. L'ordre de lecture suit le texte extrait de la page.
 	Cut Image	Couper l'image
 	Redact Image	Biffer l'image
 	Create Link…	Créer un lien…

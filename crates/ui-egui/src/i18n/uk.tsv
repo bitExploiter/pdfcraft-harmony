@@ -2383,6 +2383,17 @@ animation effects	Off	Вимкнено
 	The linked PDF opened, but its named destination was not applied.	Пов’язаний PDF відкрито, але його іменоване призначення не застосовано.
 	The linked PDF opened, but its page destination was out of range.	Пов’язаний PDF відкрито, але сторінка призначення поза межами діапазону.
 	Local cross-PDF links require the desktop app	Локальні посилання між PDF працюють лише в настільному застосунку
+
+	Read out loud	Читати вголос
+	Voice	Голос
+	Speed	Швидкість
+	Pause	Пауза
+	Resume	Продовжити
+	Stop	Зупинити
+	Paused	Призупинено
+	Preparing read-aloud text…	Підготовка тексту для читання…
+	Read out loud requires Windows, macOS or Linux.	Читання вголос наразі потребує Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Скановані сторінки потребують OCR. Порядок читання відповідає витягнутому тексту сторінки.
 	Cut Image	Вирізати зображення
 	Redact Image	Вилучити вміст зображення
 	Create Link…	Створити посилання…

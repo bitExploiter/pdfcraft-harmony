@@ -2361,6 +2361,17 @@ animation effects	Off	オフ
 	The linked PDF opened, but its named destination was not applied.	リンク先の PDF を開きましたが、名前付き移動先は適用されませんでした。
 	The linked PDF opened, but its page destination was out of range.	リンク先の PDF を開きましたが、移動先のページが範囲外です。
 	Local cross-PDF links require the desktop app	PDF 間のローカルリンクにはデスクトップアプリが必要です
+
+	Read out loud	読み上げ
+	Voice	音声
+	Speed	速度
+	Pause	一時停止
+	Resume	再開
+	Stop	停止
+	Paused	一時停止中
+	Preparing read-aloud text…	読み上げるテキストを準備中…
+	Read out loud requires Windows, macOS or Linux.	読み上げは現在Windows / macOS / Linuxでのみ利用できます。
+	Scanned pages need OCR. Reading order follows extracted page text.	スキャンしたページにはOCRが必要です。読み上げ順序はページから抽出したテキストに従います。
 	Cut Image	画像を切り取り
 	Redact Image	画像を墨消し
 	Create Link…	リンクを作成…

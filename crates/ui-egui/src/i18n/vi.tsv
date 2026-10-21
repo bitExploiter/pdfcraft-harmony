@@ -2687,3 +2687,15 @@ key	Space	Space
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
+
+# AI-assisted additions for the feature integration with main; native review welcome.
+	Pause	Tạm dừng
+	Paused	Đã tạm dừng
+	Preparing read-aloud text…	Đang chuẩn bị văn bản để đọc thành tiếng…
+	Read out loud	Đọc thành tiếng
+	Read out loud requires Windows, macOS or Linux.	Tính năng Đọc thành tiếng yêu cầu Windows, macOS hoặc Linux.
+	Resume	Tiếp tục
+	Scanned pages need OCR. Reading order follows extracted page text.	Các trang quét cần OCR. Thứ tự đọc theo văn bản được trích xuất từ trang.
+	Speed	Tốc độ
+	Stop	Dừng
+	Voice	Giọng đọc

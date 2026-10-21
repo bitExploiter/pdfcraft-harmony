@@ -1,5 +1,6 @@
 # Where PdfCraft falls short of Acrobat Pro
 
+> **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M12: physical Linux English/Italian speech, native device controls, CLI/MCP and desktop checks passed; poor voice naturalness reported; physical macOS playback remains open. Estimates unchanged.) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (gap 12: reading order is scored, not just word F1) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (gap 14: Vietnamese catalog shipped; Hindi/Indonesian/Korean and Arabic RTL remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -205,9 +206,10 @@ update the numbers.
 
 - **Missing:** apply auto-tag proposals to marked content and a valid parent tree, tag fields
   into structure trees with unusual layouts (only a direct Document root with a direct
-  ParentTree Nums array is extended),
-  visual Tags, Order and Content panels, Reading Order tool, table editor, Make Accessible action,
-  Read Out Loud; full keyboard operation of PdfCraft itself and a screen-reader audit.
+  ParentTree Nums array is extended), visual Tags, Order and Content panels, Reading Order tool,
+  table editor, Make Accessible action, Read Out Loud on FreeBSD/web and physical macOS audio
+  validation (Windows playback and physical Linux English/Italian controls are verified; voice
+  naturalness remains limited); full keyboard operation of PdfCraft itself and a screen-reader audit.
 - **Evidence:** all 32 checker rules, figure alt text, tag property and sibling order edits, and
   a bounded auto-tag preview exist. Apply writes valid structure and parent-tree links for
   text-only files; it refuses mixed content and existing tags;
@@ -347,7 +349,7 @@ update the numbers.
 ### 20. Scanners, GPU page rendering, pen pressure, Read Out Loud
 
 - **Missing:** TWAIN/WIA/ICA/SANE scanning; GPU-accelerated page rendering (pages are rasterized on
-  the CPU and uploaded); pressure-sensitive ink; platform text-to-speech.
+  the CPU and uploaded); pressure-sensitive ink; text-to-speech on FreeBSD/web and physical macOS audio validation. Windows voices, macOS say and Linux espeak-ng support pause/resume and bounded page/range reading; physical Linux English/Italian playback and GUI/CLI/MCP controls are verified, with poor voice naturalness reported. Semantic tag-tree ordering and richer reading controls remain open.
 - **Estimate:** 25–50 h; scanners need hardware. **Doc:** [hardware-parity.md](hardware-parity.md).
 
 ### 21. Compare: no side-by-side view or filters
@@ -382,6 +384,8 @@ update the numbers.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-13 | minor | M12: physical Linux English/Italian speech, native device controls, CLI/MCP and desktop checks passed; poor voice naturalness reported; physical macOS playback remains open. Estimates unchanged. |
+| 2026-10-12 | minor | Read out loud remains partial: Windows native playback plus macOS say and Linux espeak-ng candidates, with English/Italian voices and same-position pause/resume. Native physical macOS/Linux audio validation, FreeBSD/web and semantic tag-tree ordering remain open. Estimates unchanged. |
 | 2026-10-15 | minor | Gap 12: the text oracle scores reading order as well as word F1, which is a bag of words and cannot see order; the first measurement separated 18 improvements from 6 regressions in a change F1 called unchanged on 26 of 29 files. Estimates unchanged. |
 | 2026-10-14 | minor | M1: raw-deflate fallback preserves decoding-limit errors in strict and tolerant decoding; synthetic filter and COS stream regressions. Estimates unchanged. |
 | 2026-10-15 | patch | Gap 24: record localization and installers as partial (unusable Chinese, Telugu and Arabic; unsigned Linux packages) |

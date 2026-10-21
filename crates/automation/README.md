@@ -187,6 +187,9 @@ undoable and survive saving/reopening. `image_hit` shares the UI's curve and hol
 The bounds, limits and font requirements are in [existing-text editing](../../docs/editing-existing-text.md)
 and [image editing](../../docs/editing-images.md).
 
+## Read out loud
+
+Read-aloud preparation is read-only assistive extraction. Playback through local Windows, macOS and Linux voices is explicit and asynchronous; status, voices, pause/resume/stop and a bounded CLI wait are available through the shared tool table. Playback ends with the session. See [Read out loud](../../docs/read-aloud.md) for limits and an executable CLI script example.
 ## Opening local GoToR links
 
 `link_open {doc, page, index, password?}` follows a local PDF link using `link_list`

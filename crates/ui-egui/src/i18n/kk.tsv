@@ -2359,6 +2359,17 @@ animation effects	Off	Өшірулі
 	The linked PDF opened, but its named destination was not applied.	Байланысты PDF ашылды, бірақ оның аталған мақсаты қолданылмады.
 	The linked PDF opened, but its page destination was out of range.	Байланысты PDF ашылды, бірақ оның мақсатты беті ауқымнан тыс.
 	Local cross-PDF links require the desktop app	PDF файлдары арасындағы жергілікті сілтемелер үшін жұмыс үстелі қолданбасы қажет
+
+	Read out loud	Дауыстап оқу
+	Voice	Дауыс
+	Speed	Жылдамдық
+	Pause	Кідірту
+	Resume	Жалғастыру
+	Stop	Тоқтату
+	Paused	Кідіртілді
+	Preparing read-aloud text…	Оқылатын мәтін дайындалуда…
+	Read out loud requires Windows, macOS or Linux.	Дауыстап оқу үшін әзірге Windows / macOS / Linux қажет.
+	Scanned pages need OCR. Reading order follows extracted page text.	Сканерленген беттерге OCR қажет. Оқу реті беттен алынған мәтінге сәйкес келеді.
 	Cut Image	Суретті кесу
 	Redact Image	Суретті жасыру
 	Create Link…	Сілтеме жасау…

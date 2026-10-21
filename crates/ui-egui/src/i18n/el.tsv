@@ -2371,6 +2371,17 @@ animation effects	Off	Ανενεργά
 	Local cross-PDF links require the desktop app	Οι τοπικοί σύνδεσμοι μεταξύ PDF απαιτούν την εφαρμογή υπολογιστή
 	The existing action will be preserved.	Η υπάρχουσα ενέργεια θα διατηρηθεί.
 	This form's scripts are turned off because one ran too long. Reopen the document to run them again.	Τα σενάρια αυτής της φόρμας είναι απενεργοποιημένα, επειδή ένα από αυτά εκτελούνταν για πολύ ώρα. Ανοίξτε ξανά το έγγραφο για να εκτελεστούν ξανά.
+
+	Read out loud	Ανάγνωση φωναχτά
+	Voice	Φωνή
+	Speed	Ταχύτητα
+	Pause	Παύση
+	Resume	Συνέχιση
+	Stop	Διακοπή
+	Paused	Σε παύση
+	Preparing read-aloud text…	Προετοιμασία κειμένου για ανάγνωση…
+	Read out loud requires Windows, macOS or Linux.	Η ανάγνωση φωναχτά απαιτεί προς το παρόν Windows / macOS / Linux.
+	Scanned pages need OCR. Reading order follows extracted page text.	Οι σαρωμένες σελίδες χρειάζονται OCR. Η σειρά ανάγνωσης ακολουθεί το εξαγόμενο κείμενο της σελίδας.
 	Cut Image	Αποκοπή εικόνας
 	Redact Image	Απόκρυψη ευαίσθητου περιεχομένου εικόνας
 	Create Link…	Δημιουργία συνδέσμου…
