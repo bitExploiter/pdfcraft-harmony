@@ -698,11 +698,12 @@ impl PdfCraftApp {
         // Buttons also own keyboard focus for Tab/Enter activation, but they must not
         // suppress document shortcuts. Text editors retain their own undo/redo handling.
         let typing = ctx.text_edit_focused();
-        // A form field's editor is open on the page: its text isn't in the document until
-        // committed. (Not egui's keyboard focus: an Escape in this frame has already cleared that,
-        // while the field has yet to see the Escape and discard its draft.)
+        // A form field's editor is open on the page, or a comment card's note in the Comments
+        // panel: its text isn't in the document until committed. (Not egui's keyboard focus: an
+        // Escape in this frame has already cleared that, while the editor has yet to see the
+        // Escape and discard its draft.)
         let active = self.active_ids();
-        let form_typing = active.and_then(|(i, _)| self.views.get(i)).is_some_and(|v| v.forms.focus.is_some());
+        let form_typing = active.and_then(|(i, _)| self.views.get(i)).is_some_and(|v| v.forms.focus.is_some() || v.comments.editing.is_some());
         let mut specs: Vec<&CommandSpec> = COMMANDS.iter().filter(|c| c.shortcut.is_some()).collect();
         specs.sort_by_key(|c| std::cmp::Reverse(c.shortcut.map(|s| s.modifier_count()).unwrap_or(0)));
         for spec in specs {
@@ -727,9 +728,9 @@ impl PdfCraftApp {
             }
             if ctx.input_mut(|i| i.consume_shortcut(&KeyboardShortcut::new(m, key))) {
                 if form_typing {
-                    // A form field has the keyboard: let it take this frame's typing (and
-                    // Escape) first, so ⌘S saves what's on screen (#166). Runs next frame, for
-                    // this document only.
+                    // A form field or comment card has the keyboard: let it take this frame's
+                    // typing (and Escape) first, so ⌘S saves what's on screen (#166). Runs next
+                    // frame, for this document only.
                     self.deferred_commands.push((spec.id, active.map(|(_, id)| id)));
                     ctx.request_repaint();
                 } else if spec.id == "file.close" && active.is_none() && crate::commands::mac_shortcuts(ctx) && !cfg!(target_arch = "wasm32") {
