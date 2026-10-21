@@ -505,12 +505,17 @@ pub(super) fn rewrite_styled_block(
     };
     let mut calibration = HashMap::new();
     for (index, source) in lines.iter().enumerate() {
-        if let Some(m) = metrics.get(&source.font) {
+        let font_name = metrics
+            .get(&source.font)
+            .filter(|m| source_encodes(m, &source.text))
+            .map(|_| &source.font)
+            .or_else(|| chars.iter().find(|c| c.1 == index && c.0 != '\n').map(|c| &c.2));
+        if let Some((font_name, m)) = font_name.and_then(|name| metrics.get(name).filter(|m| source_encodes(m, &source.text)).map(|m| (name, m))) {
             let nominal = source_width(
                 m,
                 &source.text,
                 source.origin.state.font.as_ref().map_or(1.0, |(_, s)| *s),
-                space_of(&source.font, m),
+                space_of(font_name, m),
                 source.origin.state.char_spacing,
                 source.origin.state.word_spacing,
             ) * source.origin.state.scale
