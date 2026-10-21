@@ -713,11 +713,12 @@ fn column(page: &Page) -> Option<[f64; 4]> {
     c
 }
 
-fn section(page: &Page) -> String {
+/// A page's Word margins `(top, right, bottom, left)` in twips: where its text is, when that
+/// leaves a sensible page (at least ¼ inch, at most a third of the page on each side), else an
+/// eighth of the page up to an inch. The section and the width pictures fit both use these.
+fn margins(page: &Page) -> (i64, i64, i64, i64) {
     let (pw, ph) = word_page_size(page);
     let (mx, my) = ((pw / 8).min(1440), (ph / 8).min(1440));
-    // Margins where the text is, when that leaves a sensible page: at least ¼ inch, at most a
-    // third of the page on each side.
     let (mut top, mut right, mut bottom, mut left) = (my, mx, my, mx);
     if let Some([x0, y0, x1, y1]) = column(page) {
         let fits = |m: f64, of: i64| m.is_finite() && m * 20.0 >= 360.0 && m * 20.0 <= of as f64 / 3.0;
@@ -729,6 +730,12 @@ fn section(page: &Page) -> String {
             (top, bottom) = ((t * 20.0).round() as i64, ((b.min(t * 2.0)) * 20.0).round() as i64);
         }
     }
+    (top, right, bottom, left)
+}
+
+fn section(page: &Page) -> String {
+    let (pw, ph) = word_page_size(page);
+    let (top, right, bottom, left) = margins(page);
     format!(
         "<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{pw}\" w:h=\"{ph}\"/><w:pgMar w:top=\"{top}\" w:right=\"{right}\" w:bottom=\"{bottom}\" w:left=\"{left}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/></w:sectPr>",
         top / 2,
@@ -857,7 +864,8 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
     let mut shape_id = 0usize;
     for (page_index, page) in pages.iter().enumerate() {
         let (pw, _) = word_page_size(page);
-        let text_w = (pw - 2 * (pw / 8).min(1440)) as f64 / 20.0;
+        let (_, right, _, left) = margins(page);
+        let text_w = (pw - left - right).max(20) as f64 / 20.0;
         if positioned(page) {
             body.push_str(&positioned_page(page, &mut media, &mut shape_id));
             after_table = false;
@@ -1265,6 +1273,17 @@ mod tests {
         let start = xml[..at].rfind("<w:p>").unwrap_or(0);
         let end = xml[at..].find("</w:p>").map_or(xml.len(), |e| at + e);
         &xml[start..end]
+    }
+
+    #[test]
+    fn a_wide_picture_fits_a_narrow_text_column() {
+        // Text from 150 to 450 pt on a 612 pt page: Word's column is 300 pt wide.
+        let mut p = layout_page();
+        p.blocks = vec![block("A narrow column of text", 150.0, 700.0, 450.0, 712.0)];
+        p.images = vec![Image { ext: "png", bytes: vec![0; 8], rect: [72.0, 300.0, 540.0, 500.0], size: [468.0, 200.0], rotation: 0.0 }];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let cx: i64 = xml.split("<wp:extent cx=\"").nth(1).and_then(|r| r.split('"').next()).and_then(|v| v.parse().ok()).expect("a picture");
+        assert!(cx <= 300 * 12700, "{cx}: {xml}");
     }
 
     fn piece(t: &str, rect: [f64; 4], lines: usize) -> Block {
