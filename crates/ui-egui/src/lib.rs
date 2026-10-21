@@ -52,6 +52,7 @@ mod create_ui;
 mod credits;
 mod crop;
 mod drag_pointer;
+pub mod epub_name;
 mod export_ui;
 mod js_ui;
 mod marks_ui;

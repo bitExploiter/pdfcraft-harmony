@@ -317,7 +317,7 @@ impl PdfCraftApp {
                         .set_file_name(format!("{stem}.epub"));
                     self.ask_one(crate::pickers::Ask::Save(dialog), None, move |app, path: std::path::PathBuf| {
                         let dir = path.parent().map(std::path::Path::to_path_buf).unwrap_or_default();
-                        let stem = path.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or(stem);
+                        let stem = crate::epub_name::epub_stem(&path, &stem);
                         start(app, dir, stem, false);
                     });
                 }
