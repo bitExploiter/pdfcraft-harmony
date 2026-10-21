@@ -535,26 +535,43 @@ impl TextDevice {
         if held.is_empty() {
             return;
         }
-        // Per sequence number: the element it belongs to, and whether it drew glyphs.
-        let mut sequence_of = vec![(usize::MAX, false); self.held_sequences];
-        for (k, h) in held.iter().enumerate() {
+        // Per sequence number: whether it drew glyphs.
+        let mut drew_glyphs = vec![false; self.held_sequences];
+        for h in &held {
             for (_, order, drawn) in &h.sequences {
-                if let Some(entry) = sequence_of.get_mut(*order) {
-                    *entry = (k, !drawn.is_empty());
+                if let Some(entry) = drew_glyphs.get_mut(*order) {
+                    *entry = !drawn.is_empty();
                 }
             }
         }
-        // No glyph of the page, or of another element's sequence, drawn between the element's.
-        let contiguous = |k: usize, sequences: &[(usize, usize, Vec<Drawn>)]| {
+        // Per sequence number: how many sequences numbered below it drew glyphs, so that each
+        // element's range is counted once rather than scanned (a page can interleave many).
+        let mut drew_before = Vec::with_capacity(drew_glyphs.len().saturating_add(1));
+        let mut drew = 0usize;
+        drew_before.push(drew);
+        for &d in &drew_glyphs {
+            drew = drew.saturating_add(usize::from(d));
+            drew_before.push(drew);
+        }
+        // No glyph of the page, or of another element's sequence, drawn between the element's:
+        // the sequences that drew in its range are its own (its orders increase, so all of them
+        // lie in the range).
+        let contiguous = |sequences: &[(usize, usize, Vec<Drawn>)]| {
             let (Some(first), Some(last)) = (sequences.first(), sequences.last()) else { return true };
-            sequences.iter().all(|(slot, _, _)| *slot == first.0)
-                && sequence_of.get(first.1..=last.1).is_some_and(|between| between.iter().all(|&(owner, drew)| owner == k || !drew))
+            let own_drew = sequences.iter().filter(|(_, _, drawn)| !drawn.is_empty()).count();
+            let in_range = last
+                .1
+                .checked_add(1)
+                .and_then(|end| drew_before.get(end))
+                .zip(drew_before.get(first.1))
+                .and_then(|(end, start)| end.checked_sub(*start));
+            sequences.iter().all(|(slot, _, _)| *slot == first.0) && in_range == Some(own_drew)
         };
         let own = |drawn: Vec<Drawn>| Placed::Own(drawn.into_iter().filter(|d| !d.2.text.chars().all(|c| c.is_control())).collect());
         let mut placed: Vec<(usize, usize, Placed)> = Vec::new();
-        for (k, Held { text, sequences, filtered }) in held.into_iter().enumerate() {
+        for Held { text, sequences, filtered } in held {
             let all: Vec<Drawn> = sequences.iter().flat_map(|(_, _, drawn)| drawn.iter().cloned()).collect();
-            let replacement = if filtered || !contiguous(k, &sequences) { None } else { merge(&all, text.clone()) };
+            let replacement = if filtered || !contiguous(&sequences) { None } else { merge(&all, text.clone()) };
             match (replacement, sequences.first()) {
                 (Some(glyph), Some(&(slot, order, _))) => {
                     let originals = all.iter().filter(|d| !d.2.text.chars().all(|c| c.is_control())).map(|d| (d.2.text.clone(), d.2.rect)).collect();
@@ -2241,6 +2258,41 @@ mod tests {
 
         // No EMC: the sequence ends with the page.
         assert_eq!(run("/Span <</MCID 0>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (ab) Tj ET", "<< /Nums [0 [10 0 R]] >>", elements(&[(0, "XY")])), "XY");
+    }
+
+    /// Elements whose sequences nest inside each other's ranges, as a crafted page can draw them,
+    /// are checked against one count of the page's sequences rather than each scanning its range:
+    /// with the ranges scanned, this page took time in its elements times its sequences (10 s
+    /// here against under 1 s).
+    #[test]
+    fn structure_replacement_text_checks_nested_elements_in_one_pass() {
+        // An element draws a word first. Then element k (of n) owns sequences k and 2n-1-k, so
+        // each range holds the inner elements'; between them another element repeats an empty
+        // sequence m times (an MCID may be drawn more than once), which every range holds too.
+        // Nothing in the ranges draws, so a scan of them would read each one to the end.
+        let (n, m) = (30_000usize, 1_000_000usize);
+        let mut content = String::with_capacity((2 * n + m) * 32);
+        content.push_str(&format!("/Span <</MCID {}>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (ok) Tj ET EMC ", 2 * n));
+        for k in 0..n {
+            content.push_str(&format!("/Span <</MCID {k}>> BDC EMC "));
+        }
+        content.push_str(&format!("/Span <</MCID {}>> BDC EMC ", 2 * n + 1).repeat(m));
+        for k in (0..n).rev() {
+            content.push_str(&format!("/Span <</MCID {}>> BDC EMC ", 2 * n - 1 - k));
+        }
+        let owners = (0..n).chain((0..n).rev()).chain([n, n + 1]);
+        let tree: String = owners.map(|k| format!("{} 0 R ", 10 + k)).collect();
+        let tree = format!("<< /Nums [0 [{tree}]] >>");
+        let mut objects: Vec<(u32, String)> = (0..n)
+            .map(|k| (10 + k as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K [{k} {}] /ActualText (E{k}) >>", 2 * n - 1 - k)))
+            .collect();
+        objects.push((10 + n as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K {} /ActualText (OK) >>", 2 * n)));
+        objects.push((11 + n as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K {} /ActualText (F) >>", 2 * n + 1)));
+        let objects: Vec<(u32, &str)> = objects.iter().map(|(n, o)| (*n, o.as_str())).collect();
+        let pdf = tagged(&content, "", &tree, &objects);
+        let started = std::time::Instant::now();
+        assert_eq!(marked_text(&pdf, 0).plain_text(), "OK");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
     }
 
     /// #3660: an annotation's appearance has MCIDs of its own too.
