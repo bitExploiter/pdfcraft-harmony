@@ -74,6 +74,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 && (prev.frame_origin().1 - line.frame_origin().1).abs() < prev.size.min(line.size) * 0.2
                 && gap >= -prev.size.min(line.size) * 0.2
                 && gap < prev.size.max(line.size) * 1.5
+                && !prev.ops.iter().any(|op| line.ops.contains(op))
                 // Separate same-style text objects that merely touch or overlap, with no space
                 // between them, are separate labels (for example a paragraph dragged against
                 // another, #594). Style runs and words separated by a space or gap still join.
@@ -819,8 +820,7 @@ pub(super) fn rewrite_styled_block(
         };
     }
     block_ops.push(Op::new("Q", vec![]));
-    let mut drop = coincident_ops(lines, &members);
-    drop.extend(members.iter().flat_map(|l| l.ops.iter().copied()));
+    let (drop, mut partial_patches) = drop_and_patch(&lines[..source_count], &members, &ops);
     let start = lead.ops.first().copied().unwrap_or(o.bt_op);
     let split = ops
         .get(o.bt_op..start)
@@ -836,7 +836,25 @@ pub(super) fn rewrite_styled_block(
         block_ops.push(Op::new("Tm", o.tlm.iter().map(|v| n(*v)).collect()));
     }
     let at = if split { start } else { o.bt_op };
-    let data = splice(&pieces, &ops, |i| (if i == at { std::mem::take(&mut block_ops) } else { Vec::new() }, !drop.contains(&i)));
+    let data = splice(&pieces, &ops, |i| {
+        let mut insert = Vec::new();
+        let keep = if let Some(patched) = partial_patches.remove(&i) {
+            insert.push(patched);
+            false
+        } else {
+            !drop.contains(&i)
+        };
+        if i == at {
+            if split {
+                insert.extend(std::mem::take(&mut block_ops));
+            } else {
+                let mut b = std::mem::take(&mut block_ops);
+                b.extend(insert);
+                insert = b;
+            }
+        }
+        (insert, keep)
+    });
     let contents = rewritten_contents(doc, &streams, data);
     res.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(p.obj, |d| {
