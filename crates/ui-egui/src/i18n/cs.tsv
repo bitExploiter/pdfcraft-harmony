@@ -2508,3 +2508,15 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+	Show in the tab strip	Zobrazit v liště karet
+	A logo or name at the left of the tabs, where a title bar would show one: PdfCraft's own, or your company's.	Logo nebo název vlevo od karet, kde by je zobrazil záhlaví okna: vlastní PdfCraft, nebo vaší firmy.
+	Nothing	Nic
+	Logo	Logo
+	Logo and name	Logo a název
+	PdfCraft's own	Vlastní PdfCraft
+	Choose…	Vybrat…
+	A PNG or SVG file. It is read from this place each time PdfCraft starts.	Soubor PNG nebo SVG. Načítá se z tohoto místa při každém spuštění PdfCraft.
+	Choose a logo	Vyberte logo
+	Reset	Resetovat
+	This file can't be used as the logo: its path isn't valid UTF-8, so it couldn't be saved with the settings.	Tento soubor nelze použít jako logo: jeho cesta není platné UTF-8, takže by se nedala uložit s nastavením.
+	This file can't be used as the logo: it's larger than {max} MB.	Tento soubor nelze použít jako logo: je větší než {max} MB.

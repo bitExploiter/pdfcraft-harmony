@@ -2448,3 +2448,15 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	Show in the tab strip	Mostrar na barra de abas
+	A logo or name at the left of the tabs, where a title bar would show one: PdfCraft's own, or your company's.	Um logotipo ou nome à esquerda das abas, onde uma barra de título o mostraria: o do PdfCraft ou o da sua empresa.
+	Nothing	Nada
+	Logo	Logotipo
+	Logo and name	Logotipo e nome
+	PdfCraft's own	O do PdfCraft
+	Choose…	Escolher…
+	A PNG or SVG file. It is read from this place each time PdfCraft starts.	Um arquivo PNG ou SVG. Ele é lido deste local sempre que o PdfCraft é iniciado.
+	Choose a logo	Escolha um logotipo
+	Reset	Redefinir
+	This file can't be used as the logo: its path isn't valid UTF-8, so it couldn't be saved with the settings.	Este arquivo não pode ser usado como logotipo: o caminho dele não é UTF-8 válido, então não poderia ser salvo com as configurações.
+	This file can't be used as the logo: it's larger than {max} MB.	Este arquivo não pode ser usado como logotipo: ele tem mais de {max} MB.

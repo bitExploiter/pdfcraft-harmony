@@ -2687,3 +2687,14 @@ key	Space	Space
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
+	Show in the tab strip	Hiện trên thanh thẻ
+	A logo or name at the left of the tabs, where a title bar would show one: PdfCraft's own, or your company's.	Một logo hoặc tên ở bên trái các thẻ, nơi thanh tiêu đề thường hiển thị: của PdfCraft hoặc của công ty bạn.
+	Nothing	Không có gì
+	Logo	Logo
+	Logo and name	Logo và tên
+	PdfCraft's own	Của PdfCraft
+	A PNG or SVG file. It is read from this place each time PdfCraft starts.	Một tệp PNG hoặc SVG. Tệp được đọc từ vị trí này mỗi lần PdfCraft khởi động.
+	Choose a logo	Chọn một logo
+	Reset	Đặt lại
+	This file can't be used as the logo: its path isn't valid UTF-8, so it couldn't be saved with the settings.	Không thể dùng tệp này làm logo: đường dẫn của nó không phải UTF-8 hợp lệ, nên không thể lưu cùng với cài đặt.
+	This file can't be used as the logo: it's larger than {max} MB.	Không thể dùng tệp này làm logo: tệp lớn hơn {max} MB.

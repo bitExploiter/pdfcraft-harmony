@@ -1447,6 +1447,8 @@ mod tests {
         // Spelled the same in Czech: product and format names, abbreviations, key caps, words
         // Czech shares with English, and templates with no English words.
         const KEEP_AS_IS: &[&str] = &[
+            // The tab strip's logo: the same loanword in this language.
+            "Logo",
             "OK",
             "PDF/A…",
             "Microsoft Word (.docx)",
@@ -1559,6 +1561,8 @@ mod tests {
             assert!(has(tr_lang, spec.label), "Turkish lacks the {menu} menu label {:?} ({})", spec.label, spec.id);
         }
         const KEEP_AS_IS: &[&str] = &[
+            // The tab strip's logo: the same loanword in this language.
+            "Logo",
             "OK",
             "PDF/A…",
             "Microsoft Word (.docx)",
@@ -2566,6 +2570,8 @@ mod tests {
         let vi = Lang::from_code("vi").expect("vi registered");
         // Authoritative allowlist for intentional English-identical Vietnamese rows.
         const KEEP_AS_IS: &[&str] = &[
+            // The tab strip's logo: the same loanword in this language.
+            "Logo",
             "OK",
             "Digital ID",
             "ZIP",
