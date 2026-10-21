@@ -2448,5 +2448,12 @@ animation effects	Off	Ki
 	The trim box is kept where it is, so the printed page cuts the same.	A vágókeret a helyén marad, így a nyomtatott oldal ugyanúgy vágható.
 	Printer marks added	Nyomdai jelek hozzáadva
 	printer marks	nyomdai jelek
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások
