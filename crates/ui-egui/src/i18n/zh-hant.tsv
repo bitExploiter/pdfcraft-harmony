@@ -9,6 +9,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	選單
+	Quit	結束
 	File	檔案
 	Edit	編輯
 	Pages	頁面

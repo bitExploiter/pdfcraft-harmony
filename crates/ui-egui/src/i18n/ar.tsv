@@ -21,6 +21,7 @@
 # spaces and a colon at either end of an entry stay at that end, next to what the code appends.
 
 	Menu	القائمة
+	Quit	إنهاء
 	File	ملف
 	Edit	تحرير
 	Pages	الصفحات

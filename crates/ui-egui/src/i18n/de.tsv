@@ -10,6 +10,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Menü
+	Quit	Beenden
 	File	Datei
 	Edit	Bearbeiten
 	Pages	Seiten

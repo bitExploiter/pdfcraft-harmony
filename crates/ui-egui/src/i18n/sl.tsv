@@ -9,6 +9,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Meni
+	Quit	Izhod
 	File	Datoteka
 	Edit	Urejanje
 	Pages	Strani

@@ -16,6 +16,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Menu
+	Quit	Zakończ
 	File	Plik
 	Edit	Edycja
 	Pages	Strony

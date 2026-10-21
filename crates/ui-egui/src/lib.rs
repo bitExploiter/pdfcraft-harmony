@@ -93,6 +93,8 @@ mod icon_data;
 pub mod icons;
 pub mod last_session;
 pub mod motion;
+#[cfg(any(target_os = "macos", test))]
+mod native_menu;
 mod page_selection_ui;
 mod pageboxes;
 mod palette;
@@ -616,6 +618,8 @@ pub struct PdfCraftApp {
     pub unsaved_flag: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// Requests from the operating system, polled every frame (macOS Apple events).
     pub os_events: Option<OsEventsFn>,
+    #[cfg(target_os = "macos")]
+    native_menu_events: Option<std::sync::mpsc::Receiver<String>>,
     /// Save delivers to the embedding page instead of downloading (web, see [`HostSaveFn`]).
     pub host_save: Option<HostSaveFn>,
     /// Reports unsaved work to the embedding page (web, see [`HostDirtyFn`]).
@@ -965,6 +969,8 @@ impl PdfCraftApp {
             failed_inbox: Default::default(),
             unsaved_flag: Default::default(),
             os_events: None,
+            #[cfg(target_os = "macos")]
+            native_menu_events: None,
             host_save: None,
             host_dirty: None,
             close_request: None,
@@ -2936,6 +2942,8 @@ impl eframe::App for PdfCraftApp {
     /// would keep the place the pointer entered at: tell it where the pointer really is, so the
     /// page grid can show (and use) the gap under it.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        #[cfg(target_os = "macos")]
+        self.native_menu_input(ctx, raw);
         // Before egui reads this frame's wheel input.
         self.scroll_speed.apply(ctx, raw);
         if raw.hovered_files.is_empty() && raw.dropped_files.is_empty() {
@@ -3115,6 +3123,8 @@ impl eframe::App for PdfCraftApp {
         self.process_file_requests();
         #[cfg(not(target_arch = "wasm32"))]
         self.process_picked();
+        #[cfg(target_os = "macos")]
+        self.sync_native_menus(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -3205,6 +3215,8 @@ impl eframe::App for PdfCraftApp {
 
 impl PdfCraftApp {
     fn finish_render_frame(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        self.sync_native_menus(ctx);
         // The Combine grid's thumbnails, whichever tab shows (renders under way still finish).
         self.combine_thumbs_frame(ctx);
         // Retire hidden documents before admitting the visible document's textures, so the

@@ -1742,8 +1742,8 @@ milestone = "M4"
 status = "shipped"
 commands = []
 tools = []
-evidence = ["crates/ui-egui/tests/commands.rs::the_pages_menu_comes_from_the_registry"]
-notes = ""
+evidence = ["crates/ui-egui/tests/commands.rs::the_pages_menu_comes_from_the_registry", "crates/ui-egui/src/native_menu.rs::native_menus_include_every_registry_menu_and_view_choice", "crates/ui-egui/src/native_menu.rs::native_page_edit_undo_save_and_reopen_use_existing_actions", "crates/ui-egui/src/native_menu.rs::native_save_commits_the_focused_form_editor_before_writing", "crates/ui-egui/src/native_menu.rs::native_menu_control_uses_the_same_adapter_and_rejects_bad_actions"]
+notes = "macOS also exposes File/Edit/Pages/View/Help in the native menu bar, including live recent files, undo labels, enablement, page display, theme and side panels. Menu shortcuts enter the existing text/form-aware input path. Quit still asks about unsaved work. The opt-in UI control channel inspects installed native items with ui.native_menus and activates them with ui.native_menu; other platforms keep the in-window menus."
 
 [[feature]]
 id = "view.about-dialog"

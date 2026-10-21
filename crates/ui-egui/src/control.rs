@@ -28,6 +28,8 @@
 //!   comments, selecting text, moving comments). `ui.state` reports `pages_on_screen` to aim at.
 //! - `ui.type {text}`, `ui.key {key, modifiers?}`: keyboard input to the focused widget / app.
 //! - `ui.command {id}`: run a registry command (as the menu would). `ui.commands` lists them.
+//! - `ui.native_menus {}`: inspect the installed macOS menu bar (including enabled/check states).
+//! - `ui.native_menu {id}`: choose a macOS menu item through the same input/command adapter.
 //! - `ui.set {key, value}`: view options (`--page`, `--zoom`, …), plus persistent preferences.
 //!   `select` accepts physical page numbers and ranges such as `1,12,16-18`; blank clears the
 //!   explicit selection. This is the same bounded parser as the Organize Pages field; invalid
@@ -179,6 +181,12 @@ pub fn attach(ctx: &egui::Context) -> (Control, ControlClient) {
 
 /// What a request needs from the app (implemented by `PdfCraftApp`).
 pub(crate) trait Host {
+    fn native_menus(&self) -> Reply {
+        Err("Native menu inspection requires macOS".into())
+    }
+    fn native_menu(&mut self, _ctx: &egui::Context, _id: &str) -> Result<Vec<egui::Event>, String> {
+        Err("Native menu activation requires macOS".into())
+    }
     fn state(&self) -> Value;
     fn command(&mut self, id: &str) -> Reply;
     fn dock(&mut self, reset: bool, params: &Value) -> Reply;
@@ -283,6 +291,15 @@ impl Control {
                 Ok(Handled::Now(Ok(state)))
             }
             "ui.commands" => Ok(Handled::Now(Ok(host.commands()))),
+            "ui.native_menus" => {
+                only_params(p, method, &[])?;
+                Ok(Handled::Now(host.native_menus()))
+            }
+            "ui.native_menu" => {
+                only_params(p, method, &["id"])?;
+                let events = host.native_menu(ctx, str_param("id")?)?;
+                Ok(Handled::AfterFrames(self.inject(vec![events]), json!({"activated": true})))
+            }
             "ui.dock" | "ui.dock.reset" => Ok(Handled::Now(host.dock(method == "ui.dock.reset", p))),
             "ui.command" if str_param("id")? == "ui.dock" => Ok(Handled::Now(host.dock(false, p.get("params").unwrap_or(p)))),
             "ui.command" => Ok(Handled::Now(host.command(str_param("id")?))),
@@ -356,7 +373,7 @@ impl Control {
                 Ok(Handled::Screenshot(region))
             }
             other => Err(format!(
-                "unknown method {other:?} (ui.state, ui.inspect, ui.click, ui.focus, ui.resize, ui.quit, ui.move, ui.drag, ui.type, ui.key, ui.command, ui.commands, ui.set, ui.open, ui.screenshot)"
+                "unknown method {other:?} (ui.state, ui.inspect, ui.click, ui.focus, ui.resize, ui.quit, ui.move, ui.drag, ui.type, ui.key, ui.command, ui.commands, ui.native_menus, ui.native_menu, ui.set, ui.open, ui.screenshot)"
             )),
         })();
         r.unwrap_or_else(|e| Handled::Now(Err(e)))
@@ -644,6 +661,16 @@ fn screenshot_png(image: &egui::ColorImage, region: Option<egui::Rect>, ppp: f32
 }
 
 impl Host for crate::PdfCraftApp {
+    #[cfg(target_os = "macos")]
+    fn native_menus(&self) -> Reply {
+        self.inspect_native_menus()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn native_menu(&mut self, ctx: &egui::Context, id: &str) -> Result<Vec<egui::Event>, String> {
+        self.activate_native_menu(ctx, id)
+    }
+
     fn dock(&mut self, reset: bool, params: &Value) -> Reply {
         crate::docking::command(self, reset, params)
     }
