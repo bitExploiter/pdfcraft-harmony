@@ -149,6 +149,75 @@ pub struct TextEditLayout {
     pub source_rect: [f64; 4],
     pub draft_rect: Option<[f64; 4]>,
     pub overflow: bool,
+    /// The rows Apply writes, top to bottom, so an editor can show the draft as it will be saved.
+    /// Empty when the text is unchanged, and when the rows can't be told apart reliably: a turned
+    /// paragraph, visual-order text, or rows that don't read back as the draft.
+    pub rows: Vec<DraftRow>,
+}
+
+/// One row of a rewritten draft, as it reads back from the written page.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DraftRow {
+    /// The draft's text on this row (a byte range, from its first to its last non-blank character).
+    pub text: std::ops::Range<usize>,
+    /// The baseline, and the row's left and right edges, in user space.
+    pub baseline: f64,
+    pub left: f64,
+    pub right: f64,
+    /// Where each word is drawn: the draft text it shows (a byte range) and its left and right
+    /// edges in user space, left to right. Empty when a run's words can't be matched to its text.
+    pub words: Vec<(std::ops::Range<usize>, f64, f64)>,
+}
+
+/// The rewritten lines grouped into rows by baseline, top to bottom, and matched to `text` in
+/// order, ignoring blanks (a gap between runs reads back as a space, or as none). `None` when a
+/// row's characters aren't the draft's next ones.
+fn draft_rows(text: &str, lines: &[&TextLine]) -> Option<Vec<DraftRow>> {
+    let mut rows: Vec<(f64, f64, Vec<&TextLine>)> = Vec::new();
+    for line in lines {
+        let base = line.baseline()[1];
+        match rows.iter_mut().find(|(b, size, _)| (b - base).abs() < size.min(line.size).max(0.01) * 0.3) {
+            Some(row) => {
+                row.1 = row.1.max(line.size);
+                row.2.push(line);
+            }
+            None => rows.push((base, line.size, vec![line])),
+        }
+    }
+    rows.sort_by(|a, b| b.0.total_cmp(&a.0));
+    let mut chars = text.char_indices().filter(|(_, c)| !c.is_whitespace()).peekable();
+    let mut out = Vec::with_capacity(rows.len());
+    for (baseline, _, mut row) in rows {
+        row.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+        let mut range: Option<std::ops::Range<usize>> = None;
+        let mut words = Vec::new();
+        let mut placed = true;
+        for line in &row {
+            // A line's ink has a box per word it draws, left to right.
+            let matched = line.text.split_whitespace().count() == line.ink.len();
+            placed &= matched;
+            for (word, ink) in line.text.split_whitespace().zip(line.ink.iter().map(Some).chain(std::iter::repeat(None))) {
+                let mut span: Option<std::ops::Range<usize>> = None;
+                for c in word.chars() {
+                    let (at, d) = chars.next()?;
+                    if c != d {
+                        return None;
+                    }
+                    let end = at + d.len_utf8();
+                    span = Some(span.map_or(at..end, |r| r.start..end));
+                }
+                let span = span?;
+                range = Some(range.map_or(span.clone(), |r| r.start..span.end));
+                if let (true, Some(ink)) = (matched, ink) {
+                    words.push((span, ink[0], ink[2]));
+                }
+            }
+        }
+        let text = range?;
+        let (left, right) = row.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, r), line| (l.min(line.rect[0]), r.max(line.rect[2])));
+        out.push(DraftRow { text, baseline, left, right, words: if placed { words } else { Vec::new() } });
+    }
+    chars.peek().is_none().then_some(out)
 }
 
 pub fn text_edit_layout(doc: &Document, page: usize, block: usize, text: &str, style: &BlockStyle) -> Result<TextEditLayout, EditError> {
@@ -158,7 +227,7 @@ pub fn text_edit_layout(doc: &Document, page: usize, block: usize, text: &str, s
     let original = group_blocks(&lines);
     let source = original.get(block).ok_or(EditError::Invalid("text block does not exist".into()))?;
     if text == source.editor_text && *style == BlockStyle::default() {
-        return Ok(TextEditLayout { source_rect: source.rect, draft_rect: Some(source.rect), overflow: false });
+        return Ok(TextEditLayout { source_rect: source.rect, draft_rect: Some(source.rect), overflow: false, rows: Vec::new() });
     }
     // Subtract the untouched runs by value, rather than by operator offsets: a rewrite may
     // split BT/ET or add font resources. A multiset also handles coincident repeated text.
@@ -173,18 +242,27 @@ pub fn text_edit_layout(doc: &Document, page: usize, block: usize, text: &str, s
     let mut draft = doc.clone();
     rewrite_block_from(&mut draft, page, lines, block, Some(text), style, MAX_TYPE3_GLYPHS)?;
     let mut rect: Option<[f64; 4]> = None;
-    for line in text_lines(&draft, page)? {
-        if let Some(count) = untouched.get_mut(&key(&line))
+    let written = text_lines(&draft, page)?;
+    let mut drafted = Vec::new();
+    for line in &written {
+        if let Some(count) = untouched.get_mut(&key(line))
             && *count > 0
         {
             *count -= 1;
             continue;
         }
         rect = Some(rect.map_or(line.rect, |r| [r[0].min(line.rect[0]), r[1].min(line.rect[1]), r[2].max(line.rect[2]), r[3].max(line.rect[3])]));
+        drafted.push(line);
     }
     let overflow = rect
         .is_some_and(|r| r[0] < source.rect[0] - 0.5 || r[1] < source.rect[1] - 0.5 || r[2] > source.rect[2] + 0.5 || r[3] > source.rect[3] + 0.5);
-    Ok(TextEditLayout { source_rect: source.rect, draft_rect: rect, overflow })
+    // Rows by baseline need an upright paragraph, and characters in reading order.
+    let rows = if source.rotation.abs() < 0.01 && !drafted.iter().any(|l| l.visual_order) {
+        draft_rows(text, &drafted).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    Ok(TextEditLayout { source_rect: source.rect, draft_rect: rect, overflow, rows })
 }
 
 /// Text and graphics state captured for rewriting.

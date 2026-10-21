@@ -32,6 +32,8 @@ pub(crate) struct TextBackground {
     received: Option<u64>,
     draft_key: Option<(String, pdfcraft_engine::BlockStyle)>,
     draft_rect: Option<[f64; 4]>,
+    /// The engine's layout of one draft of the open paragraph, by its text and style.
+    draft_layout: Option<(String, pdfcraft_engine::BlockStyle, Option<Arc<pdfcraft_engine::TextEditLayout>>)>,
 }
 
 impl TextBackground {
@@ -64,7 +66,7 @@ impl TextBackground {
         if let Some(ed) = editor {
             let draft_key = (ed.text.clone(), ed.style());
             if self.draft_key.as_ref() != Some(&draft_key) {
-                self.draft_rect = doc.text_edit_layout(ed.page, ed.block, &ed.text, &draft_key.1).ok().and_then(|layout| layout.draft_rect);
+                self.draft_rect = self.layout_for(doc, ed, &ed.text).and_then(|layout| layout.draft_rect);
                 self.draft_key = Some(draft_key);
             }
         }
@@ -99,6 +101,22 @@ impl TextBackground {
         if self.received != Some(tag) {
             ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
+    }
+
+    /// The engine's layout of `text` in the open paragraph: the same rewrite Apply runs, measured
+    /// once per text and style. The editor asks for it in the frame the text changes, so its rows
+    /// follow every keystroke at once; its frame takes the same layout.
+    pub fn layout_for(&mut self, doc: &pdfcraft_engine::Document, ed: &LineEditor, text: &str) -> Option<Arc<pdfcraft_engine::TextEditLayout>> {
+        let style = ed.style();
+        if let Some((cached, cached_style, layout)) = &self.draft_layout
+            && cached == text
+            && *cached_style == style
+        {
+            return layout.clone();
+        }
+        let layout = doc.text_edit_layout(ed.page, ed.block, text, &style).ok().map(Arc::new);
+        self.draft_layout = Some((text.to_owned(), style, layout.clone()));
+        layout
     }
 
     pub fn ready(&self, page: usize, block: usize) -> bool {
@@ -1241,13 +1259,155 @@ fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32
     job
 }
 
+/// `row` cut before each glyph index in `cuts` (ascending, inside the row): each piece starts at
+/// x = 0 and keeps its glyphs' meshes; only the last ends where the row did (at a newline or not).
+/// `None` when the row's mesh holds more than its glyphs (a background or underline).
+fn split_row(placed: &egui::epaint::text::PlacedRow, cuts: &[usize]) -> Option<Vec<egui::epaint::text::PlacedRow>> {
+    let row = &placed.row;
+    let vertices = row.visuals.mesh.vertices.len();
+    if row.visuals.glyph_index_start != 0 || row.visuals.glyph_vertex_range != (0..vertices) {
+        return None;
+    }
+    let at = |glyph: usize| row.glyphs.get(glyph).map_or(vertices, |g| g.first_vertex as usize);
+    let bounds: Vec<usize> = std::iter::once(0).chain(cuts.iter().copied()).chain(std::iter::once(row.glyphs.len())).collect();
+    let mut pieces = Vec::with_capacity(bounds.len() - 1);
+    for (n, pair) in bounds.windows(2).enumerate() {
+        let (a, b) = (pair[0], pair[1]);
+        let (v0, v1) = (at(a), at(b));
+        let x0 = if a == 0 { 0.0 } else { row.glyphs.get(a).map_or(0.0, |g| g.pos.x) };
+        let x1 = row.glyphs.get(b).map_or(row.size.x, |g| g.pos.x);
+        let mut piece = (**row).clone();
+        piece.glyphs = row.glyphs.get(a..b)?.to_vec();
+        for glyph in &mut piece.glyphs {
+            glyph.pos.x -= x0;
+            glyph.first_vertex = glyph.first_vertex.saturating_sub(v0 as u32);
+        }
+        let mesh = &row.visuals.mesh;
+        piece.visuals.mesh.vertices =
+            mesh.vertices.get(v0..v1)?.iter().map(|v| egui::epaint::Vertex { pos: egui::pos2(v.pos.x - x0, v.pos.y), ..*v }).collect();
+        piece.visuals.mesh.indices = Vec::new();
+        for triangle in mesh.indices.as_chunks::<3>().0 {
+            if triangle.iter().all(|i| (v0..v1).contains(&(*i as usize))) {
+                piece.visuals.mesh.indices.extend(triangle.iter().map(|i| i - v0 as u32));
+            } else if triangle.iter().any(|i| (v0..v1).contains(&(*i as usize))) {
+                return None;
+            }
+        }
+        piece.visuals.glyph_vertex_range = 0..(v1 - v0);
+        piece.size.x = (x1 - x0).max(0.0);
+        let last = n + 2 == bounds.len();
+        pieces.push(egui::epaint::text::PlacedRow { pos: placed.pos, row: Arc::new(piece), ends_with_newline: last && placed.ends_with_newline });
+    }
+    Some(pieces)
+}
+
+/// The galley's rows (one per paragraph, not wrapped) broken where the engine's `rows` begin,
+/// each with the engine row it shows. A blank paragraph (just typed with Enter, say) writes no
+/// row and keeps its own. `None` when the engine's rows don't fall one or more to each other
+/// paragraph, so the caller keeps egui's layout.
+fn rows_as_written(
+    galley: &egui::Galley,
+    text: &str,
+    rows: &[pdfcraft_engine::DraftRow],
+) -> Option<Vec<(egui::epaint::text::PlacedRow, Option<usize>, usize)>> {
+    let starts: Vec<usize> = rows.iter().map(|r| text.get(..r.text.start).map(|s| s.chars().count())).collect::<Option<_>>()?;
+    let mut out = Vec::with_capacity(rows.len());
+    let (mut at, mut next) = (0usize, 0usize);
+    for placed in &galley.rows {
+        let end = at + placed.row.glyphs.len();
+        let mine = starts.get(next..).map_or(0, |s| s.iter().take_while(|s| **s < end).count());
+        if mine == 0 {
+            if !placed.row.glyphs.iter().all(|g| g.chr.is_whitespace()) {
+                return None;
+            }
+            out.push((placed.clone(), None, at));
+        } else {
+            if starts.get(next).is_none_or(|s| *s < at) {
+                return None;
+            }
+            let cuts: Vec<usize> = starts.get(next + 1..next + mine)?.iter().map(|s| s - at).collect();
+            let firsts = std::iter::once(at).chain(cuts.iter().map(|c| at + c));
+            out.extend(split_row(placed, &cuts)?.into_iter().zip(next..).zip(firsts).map(|((row, i), first)| (row, Some(i), first)));
+        }
+        next += mine;
+        at = end + usize::from(placed.ends_with_newline);
+    }
+    (next == rows.len()).then_some(out)
+}
+
+/// Moves the words of `row` (whose first glyph is the text's char `first`) to where the engine's
+/// `engine` row draws them, relative to its left edge: each word's glyphs are spread from the
+/// word's left edge to its right one, and the blanks between words fill the gaps, so the caret
+/// and the selection follow. A row whose words don't map onto its glyphs is left as it is.
+fn place_words(row: &mut egui::epaint::text::Row, text: &str, first: usize, engine: &pdfcraft_engine::DraftRow, scale: f32) {
+    let char_at = |byte: usize| text.get(..byte).map(|s| s.chars().count());
+    let mut spans: Vec<(usize, usize, f32, f32)> = Vec::with_capacity(engine.words.len());
+    for (range, x0, x1) in &engine.words {
+        let (Some(a), Some(b)) = (char_at(range.start), char_at(range.end)) else { return };
+        let (Some(a), Some(b)) = (a.checked_sub(first), b.checked_sub(first)) else { return };
+        if a >= b || b > row.glyphs.len() || spans.last().is_some_and(|(_, last_b, ..)| a < *last_b) {
+            return;
+        }
+        spans.push((a, b, (x0 - engine.left) as f32 * scale, (x1 - engine.left) as f32 * scale));
+    }
+    for &(a, b, left, right) in &spans {
+        let (Some(start), Some(end)) = (row.glyphs.get(a), row.glyphs.get(b - 1)) else { return };
+        let (from, to) = (start.pos.x, end.pos.x + end.advance_width);
+        let k = if to - from > 0.01 { (right - left) / (to - from) } else { 1.0 };
+        for glyph in row.glyphs.get_mut(a..b).into_iter().flatten() {
+            let x = left + (glyph.pos.x - from) * k;
+            let dx = x - glyph.pos.x;
+            glyph.pos.x = x;
+            glyph.advance_width *= k;
+            if !glyph.uv_rect.is_nothing() {
+                for vertex in row.visuals.mesh.vertices.iter_mut().skip(glyph.first_vertex as usize).take(4) {
+                    vertex.pos.x += dx;
+                }
+            }
+        }
+    }
+    // Blanks run from the glyph before them to the glyph after them.
+    let mut end = 0.0_f32;
+    for i in 0..row.glyphs.len() {
+        let in_word = spans.iter().any(|&(a, b, ..)| (a..b).contains(&i));
+        if !in_word {
+            let next = (i + 1..row.glyphs.len()).find(|j| spans.iter().any(|&(a, b, ..)| (a..b).contains(j)));
+            let until = next.and_then(|j| row.glyphs.get(j)).map(|g| g.pos.x);
+            if let Some(glyph) = row.glyphs.get_mut(i) {
+                glyph.pos.x = end;
+                if let Some(until) = until {
+                    // Shared between the blanks up to the next word.
+                    let blanks = (i..next.unwrap_or(i + 1)).count().max(1) as f32;
+                    glyph.advance_width = ((until - end) / blanks).max(0.0);
+                }
+            }
+        }
+        if let Some(glyph) = row.glyphs.get(i) {
+            end = glyph.pos.x + glyph.advance_width;
+        }
+    }
+    row.size.x = end;
+}
+
 /// Align the editable galley's baselines to the source rows instead of egui's interface
-/// leading. Glyphs, meshes, caret and selection receive the same transform.
-fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> Arc<egui::Galley> {
+/// leading. Glyphs, meshes, caret and selection receive the same transform. With the engine's
+/// `rows` for this text, the rows break where Apply breaks them and sit on its baselines, from
+/// its left edges.
+fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32, rows: &[pdfcraft_engine::DraftRow]) -> Arc<egui::Galley> {
     let mut job = editor_job(ui, ed, text, scale, width);
+    if !rows.is_empty() {
+        job.wrap.max_width = f32::INFINITY;
+    }
     let centered = job.halign == egui::Align::Center;
     job.halign = egui::Align::LEFT;
     let mut galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    let written = if rows.is_empty() { None } else { rows_as_written(&galley, text, rows) };
+    if written.is_none() && !rows.is_empty() {
+        // The engine's rows didn't fit this text: lay it out as before.
+        let mut job = editor_job(ui, ed, text, scale, width);
+        job.halign = egui::Align::LEFT;
+        galley = ui.fonts_mut(|fonts| fonts.layout_job(job));
+    }
     let Some((block, lines)) = &ed.source else { return galley };
     let sources: Vec<_> = block
         .rows
@@ -1274,14 +1434,30 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
         sources.windows(2).map(|r| (r[0].0 - r[1].0).abs()).rfind(|v| *v > 0.0).unwrap_or(fallback)
     };
     let g = Arc::make_mut(&mut galley);
+    if let Some(written) = &written {
+        g.rows = written.iter().map(|(row, ..)| row.clone()).collect();
+    }
+    // A blank row the engine doesn't write sits one of its rows' spacing below the row above it.
+    let written_leading = rows.windows(2).map(|r| r[0].baseline - r[1].baseline).find(|v| *v > 0.0).unwrap_or(leading);
+    let mut above: Option<f64> = None;
     let mut bounds = Rect::NOTHING;
     let mut meshes = Rect::NOTHING;
     for (index, placed) in g.rows.iter_mut().enumerate() {
         let (last_baseline, last_rect) = sources.last().copied().unwrap_or((first_baseline, first_rect));
-        let (baseline, source_rect) = sources
+        let (mut baseline, source_rect) = sources
             .get(index)
             .copied()
             .unwrap_or((last_baseline - index.saturating_add(1).saturating_sub(sources.len()) as f64 * leading, last_rect));
+        // The engine row this one shows: `Some(None)` for a blank row it doesn't write.
+        let draft = written.as_ref().map(|w| w.get(index).and_then(|(_, i, _)| *i).and_then(|i| rows.get(i)));
+        match draft {
+            Some(Some(row)) => baseline = row.baseline,
+            Some(None) => baseline = above.map_or(rows.first().map_or(baseline, |r| r.baseline), |b| b - written_leading),
+            None => {}
+        }
+        above = Some(baseline);
+        // A blank row starts where the paragraph's first written row does.
+        let draft = draft.and_then(|d| d.or(rows.first()));
         let changed_size = ed.look.size != ed.look0.size;
         let ratio = if changed_size { ed.look.size / ed.look0.size.max(0.01) } else { 1.0 };
         let ascent = (source_rect[3] - sources.get(index).map_or(last_baseline, |s| s.0)) as f32 * scale * ratio as f32;
@@ -1289,7 +1465,17 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
         let base_y = (block.rect[3] - baseline) as f32 * scale;
         let row = Arc::make_mut(&mut placed.row);
         placed.pos.y = base_y - ascent;
-        placed.pos.x = if centered { (width - row.size.x) / 2.0 } else { (source_rect[0] - block.rect[0]) as f32 * scale };
+        placed.pos.x = match draft {
+            Some(draft) => (draft.left - block.rect[0]) as f32 * scale,
+            None if centered => (width - row.size.x) / 2.0,
+            None => (source_rect[0] - block.rect[0]) as f32 * scale,
+        };
+        // Each word where the engine draws it, as wide as it draws it.
+        if let (Some(Some(engine)), Some((_, _, first))) =
+            (written.as_ref().map(|w| w.get(index).and_then(|(_, i, _)| *i).and_then(|i| rows.get(i))), written.as_ref().and_then(|w| w.get(index)))
+        {
+            place_words(row, text, *first, engine, scale);
+        }
         for glyph in &mut row.glyphs {
             let dy = ascent - glyph.pos.y;
             glyph.pos.y = ascent;
@@ -1313,7 +1499,7 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
 }
 
 /// The inline editor; returns the edit once the text is applied.
-pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -> Option<Edit> {
+pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, doc: &pdfcraft_engine::Document) -> Option<Edit> {
     // Clicks outside the document (the Format text panel) keep the paragraph open.
     let outside = ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| !view.viewport_rect().contains(p));
     let page = view.line_editor.as_ref()?.page;
@@ -1327,6 +1513,7 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
         .is_some_and(|ed| view.text_background.ready(ed.page, ed.block) && !ed.source.as_ref().is_some_and(|(b, _)| b.invisible));
     let draft_rect = view.text_background.draft_rect.map(|r| xf.user_rect(info, page, r.map(|v| v as f32)));
     let ed = view.line_editor.as_mut()?;
+    let background = &mut view.text_background;
     if hold {
         ed.focus = true;
     }
@@ -1366,7 +1553,8 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                 ed.rect.width().max(1.0)
             };
             ui.set_width(width);
-            let measured = editor_galley(ui, ed, &ed.text, scale, width);
+            let layout = background.layout_for(doc, ed, &ed.text);
+            let measured = editor_galley(ui, ed, &ed.text, scale, width, layout.as_ref().map_or(&[], |l| &l.rows));
             ed.overflow = ed.has_changes() && (measured.rect.width() > ed.rect.width() + 1.5 || measured.rect.height() > ed.rect.height() + 1.5);
             let visible = Rect::from_min_size(ed.rect.min, measured.rect.size().max(egui::vec2(1.0, 1.0)));
             // Unsupported source programs use an interface fallback whose glyph advances
@@ -1396,8 +1584,10 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     if background_ready { if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE } } else { caret_color_on(fill) };
                 let rows = 1;
                 let snapshot = ed.clone();
-                let mut layouter =
-                    |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| editor_galley(ui, &snapshot, text.as_str(), scale, wrap_width);
+                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                    let layout = background.layout_for(doc, &snapshot, text.as_str());
+                    editor_galley(ui, &snapshot, text.as_str(), scale, wrap_width, layout.as_ref().map_or(&[], |l| &l.rows))
+                };
                 let output = egui::TextEdit::multiline(&mut ed.text)
                     .id(egui::Id::new("edit-text-line-input"))
                     .font(font.clone())

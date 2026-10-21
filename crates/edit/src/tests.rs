@@ -5218,3 +5218,55 @@ fn a_clipping_copy_on_the_same_baseline_is_refused() {
     assert!(matches!(&block, Err(EditError::Invalid(m)) if m.contains("clipping path")), "{block:?}");
     assert_eq!(text::text_lines(&doc, 0).unwrap().len(), 2, "refused means untouched");
 }
+
+/// The rows `text_edit_layout` reports are the rows Apply writes: the same characters on each
+/// row, on the same baseline, from the same left edge.
+#[test]
+fn draft_rows_are_the_rows_apply_writes() {
+    let wrapped = "BT /F1 12 Tf 72 700 Td (A heading that will wrap when it grows) Tj ET";
+    let paragraph = "BT /F1 12 Tf 14 TL 72 700 Td (The first row of a paragraph) Tj T* (and its second row here.) Tj ET";
+    let cases: Vec<(Document, usize, String)> = vec![
+        (text_page(wrapped), 0, "A heading that will wrap when it grows far past the page margin on the right side of this page".into()),
+        (text_page(paragraph), 0, "The first row of a paragraph\nand its second row here, with a good many more words added so it wraps".into()),
+        (text_page(paragraph), 0, "The first row\nsecond".into()),
+    ];
+    let (mixed, title) = {
+        let doc = mixed_region_page();
+        let title = text::text_blocks(&doc, 0).unwrap()[0].editor_text.replace("last", "a much longer last row");
+        (doc, title)
+    };
+    let cases = cases.into_iter().chain(std::iter::once((mixed, 0, title)));
+    for (doc, block, draft) in cases {
+        let layout = text::text_edit_layout(&doc, 0, block, &draft, &text::BlockStyle::default()).unwrap();
+        assert!(!layout.rows.is_empty(), "rows for {draft:?}");
+        let mut applied = doc.clone();
+        text::replace_block(&mut applied, 0, block, &draft).unwrap();
+        let applied = reopen(&applied);
+        let lines = text::text_lines(&applied, 0).unwrap();
+        let written = text::text_blocks(&applied, 0)
+            .unwrap()
+            .into_iter()
+            .find(|b| b.editor_text.split_whitespace().eq(draft.split_whitespace()))
+            .expect("the draft is one block");
+        assert_eq!(layout.rows.len(), written.rows.len(), "{draft:?}: {:?}", layout.rows);
+        for (row, saved) in layout.rows.iter().zip(&written.rows) {
+            let saved: Vec<&text::TextLine> = saved.iter().map(|i| &lines[*i]).collect();
+            let text: String = saved.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" ");
+            assert!(draft[row.text.clone()].split_whitespace().eq(text.split_whitespace()), "{:?} is not {text:?}", &draft[row.text.clone()]);
+            assert!((row.baseline - saved[0].baseline()[1]).abs() < 0.01, "{draft:?}: baseline {} vs {}", row.baseline, saved[0].baseline()[1]);
+            let left = saved.iter().map(|l| l.rect[0]).fold(f64::INFINITY, f64::min);
+            assert!((row.left - left).abs() < 0.01, "{draft:?}: left {} vs {left}", row.left);
+            // Its words, as the page draws them.
+            let ink: Vec<[f64; 4]> = saved.iter().flat_map(|l| l.ink.iter().copied()).collect();
+            assert_eq!(row.words.len(), ink.len(), "{draft:?}: {:?}", row.words);
+            for ((range, x0, x1), ink) in row.words.iter().zip(&ink) {
+                assert!(!draft[range.clone()].contains(char::is_whitespace), "{:?}", &draft[range.clone()]);
+                assert!((x0 - ink[0]).abs() < 0.01 && (x1 - ink[2]).abs() < 0.01, "{:?}: {x0}..{x1} vs {ink:?}", &draft[range.clone()]);
+            }
+        }
+    }
+    // Unchanged text has none; the source rows are the rows.
+    let doc = text_page(paragraph);
+    let same = text::text_blocks(&doc, 0).unwrap()[0].editor_text.clone();
+    assert!(text::text_edit_layout(&doc, 0, 0, &same, &text::BlockStyle::default()).unwrap().rows.is_empty());
+}
