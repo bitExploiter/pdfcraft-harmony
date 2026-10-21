@@ -73,8 +73,8 @@ pub struct TextDraft {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Grab {
     Move,
-    /// Which corner: (left, top) in screen terms.
-    Corner(bool, bool),
+    /// Which corner: (left, top, alt) in screen terms. When `alt` is true, resize from center.
+    Corner(bool, bool, bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -260,16 +260,28 @@ fn handles(r: Rect) -> [(Pos2, bool, bool); 4] {
     [(r.left_top(), true, true), (r.right_top(), false, true), (r.left_bottom(), true, false), (r.right_bottom(), false, false)]
 }
 
-/// The rect while moving or resizing (images keep their proportions).
-fn dragged(r: Rect, grab: Grab, d: egui::Vec2, keep_aspect: bool) -> Rect {
+/// The rect while moving or resizing (images keep their proportions). When `alt` is true,
+/// the corner resize is anchored at the center (both corners move symmetrically).
+fn dragged(r: Rect, grab: Grab, d: egui::Vec2, keep_aspect: bool, alt: bool) -> Rect {
     match grab {
         Grab::Move => r.translate(d),
-        Grab::Corner(left, top) => {
+        Grab::Corner(left, top, _) => {
             let (mut dx, mut dy) = (if left { -d.x } else { d.x }, if top { -d.y } else { d.y });
-            if keep_aspect && r.width() > 0.0 && r.height() > 0.0 {
+            if alt {
+                // Both sides move, so the size changes twice as fast as the pointer.
+                dx *= 2.0;
+                dy *= 2.0;
+            }
+            let proportional = keep_aspect && r.width() > 0.0 && r.height() > 0.0;
+            if proportional {
                 let k = ((r.width() + dx) / r.width()).max((r.height() + dy) / r.height()).max(0.05);
                 dx = r.width() * k - r.width();
                 dy = r.height() * k - r.height();
+            }
+            if alt {
+                // A proportional size is already positive (k >= 0.05); a free one is kept from collapsing.
+                let size = egui::vec2(r.width() + dx, r.height() + dy);
+                return Rect::from_center_size(r.center(), if proportional { size } else { size.max(egui::vec2(4.0, 4.0)) });
             }
             let mut out = r;
             if left {
@@ -334,7 +346,11 @@ pub(crate) fn page_input(
                 && (end - start).length() >= 1.0
             {
                 let keep = matches!(a.content, AddedContent::Image(_));
-                let r = dragged(screen_rect(xf, info, page, a.content.rect()), grab, end - start, keep);
+                let alt = match grab {
+                    Grab::Corner(_, _, a) => a,
+                    _ => false,
+                };
+                let r = dragged(screen_rect(xf, info, page, a.content.rect()), grab, end - start, keep, alt);
                 let (p0, p1) = (to_display(xf, info, page, r.left_bottom()), to_display(xf, info, page, r.right_top()));
                 let mut rect = [p0[0], p0[1], p1[0], p1[1]];
                 if let AddedContent::Text(t) = &a.content
@@ -390,8 +406,9 @@ pub(crate) fn page_input(
     }
     if resp.drag_started() {
         let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(p);
+        let alt = ui.input(|i| i.modifiers.alt);
         if let Some((_, left, top)) = selected_rect.and_then(|r| handles(r).into_iter().find(|(c, ..)| c.distance(origin) <= 6.0)) {
-            cv.grab = Some((page, Grab::Corner(left, top), origin));
+            cv.grab = Some((page, Grab::Corner(left, top, alt), origin));
             consumed = true;
         } else if let Some((i, _)) = items.iter().rev().find(|(_, a)| screen_rect(xf, info, page, a.content.rect()).expand(2.0).contains(origin)) {
             cv.selected = Some((page, *i));
@@ -445,7 +462,11 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, xf: &PageXform,
             && let (Some((gp, g, start)), Some(p)) = (cv.grab, pointer)
             && gp == page
         {
-            r = dragged(r, g, p - start, matches!(a.content, AddedContent::Image(_)));
+            let alt = match g {
+                Grab::Corner(_, _, a) => a,
+                _ => false,
+            };
+            r = dragged(r, g, p - start, matches!(a.content, AddedContent::Image(_)), alt);
         }
         if selected {
             painter.rect_stroke(r.expand(1.0), CornerRadius::ZERO, Stroke::new(1.5, SELECT_BLUE), egui::StrokeKind::Outside);
@@ -934,6 +955,24 @@ mod tests {
         h.get_by_label(tooltip).click();
         h.run();
         h.state().clone().expect("the button updates the image")
+    }
+
+    #[test]
+    fn alt_corner_drags_resize_from_the_centre_and_images_keep_their_proportions() {
+        let r = Rect::from_min_max(egui::pos2(100.0, 100.0), egui::pos2(196.0, 132.0));
+        for (left, top) in [(true, true), (false, true), (true, false), (false, false)] {
+            let out_dir = egui::vec2(if left { -1.0 } else { 1.0 }, if top { -1.0 } else { 1.0 });
+            // Text and other content stretch freely, but around the centre.
+            let out = dragged(r, Grab::Corner(left, top, true), out_dir * egui::vec2(24.0, 16.0), false, true);
+            assert!((out.center() - r.center()).length() < 0.001);
+            assert!((out.size() - egui::vec2(144.0, 64.0)).length() < 0.001);
+            // Images keep their proportions with Alt too.
+            for d in [egui::vec2(24.0, 0.0), egui::vec2(0.0, 16.0), egui::vec2(-200.0, -200.0)] {
+                let out = dragged(r, Grab::Corner(left, top, true), out_dir * d, true, true);
+                assert!((out.center() - r.center()).length() < 0.001);
+                assert!((out.width() / out.height() - 3.0).abs() < 0.001);
+            }
+        }
     }
 
     #[test]

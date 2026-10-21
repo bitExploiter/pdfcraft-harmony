@@ -125,7 +125,8 @@ enum Grab {
     Select(Pos2),
     Move,
     /// Resizing by a corner: (moves left edge, moves top edge) in screen terms.
-    Corner(bool, bool),
+    /// When `alt` is true, the resize is anchored at the rectangle's center.
+    Corner(bool, bool, bool),
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -189,13 +190,13 @@ fn handles(r: Rect) -> [(Pos2, bool, bool); 4] {
 }
 
 /// The rect while a move or resize is in progress. With `shift` held a corner keeps the field's
-/// proportions, as it does for comments and stamps.
-fn dragged(r: Rect, grab: Grab, delta: egui::Vec2, shift: bool) -> Rect {
+/// proportions, as it does for comments and stamps. With `alt` held a corner resizes from the center.
+fn dragged(r: Rect, grab: Grab, delta: egui::Vec2, shift: bool, alt: bool) -> Rect {
     match grab {
         Grab::Move => r.translate(delta),
-        Grab::Corner(left, top) => {
+        Grab::Corner(left, top, _) => {
             let handle = (if left { -1 } else { 1 }, if top { -1 } else { 1 });
-            comments::resized(r, handle, delta, comments::corner_ratio(r, None, shift))
+            comments::resized(r, handle, delta, comments::corner_ratio(r, None, shift), alt)
         }
         Grab::Draw(_) | Grab::Select(_) => r,
     }
@@ -288,7 +289,8 @@ pub(crate) fn page_input(
                     let delta = end - start;
                     if delta.length() >= 1.0 {
                         let shift = ui.input(|i| i.modifiers.shift);
-                        let r = dragged(screen_rect(xf, info, page, w.rect), grab, delta, shift);
+                        let alt = ui.input(|i| i.modifiers.alt);
+                        let r = dragged(screen_rect(xf, info, page, w.rect), grab, delta, shift, alt);
                         let rect = user_rect(xf, info, page, r);
                         view.pending_edit =
                             Some(Edit::SetFieldProps { name, props: Box::new(FieldProps { rect: Some((wi, rect)), ..Default::default() }) });
@@ -358,8 +360,9 @@ pub(crate) fn page_input(
     }
     if resp.drag_started() {
         let origin = ui.input(|i| i.pointer.press_origin()).unwrap_or(p);
+        let alt = ui.input(|i| i.modifiers.alt);
         if let Some((_, left, top)) = selected_rect.and_then(|r| handles(r).into_iter().find(|(c, ..)| c.distance(origin) <= 6.0)) {
-            prep.grab = Some((page, Grab::Corner(left, top), origin));
+            prep.grab = Some((page, Grab::Corner(left, top, alt), origin));
             out.consumed = true;
         } else if let Some((f, wi)) = form.iter().find_map(|f| {
             f.widgets
@@ -514,7 +517,12 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, xf: &PageXform,
             let selected = prep.selected.as_ref().is_some_and(|(n, i)| n == &f.name && *i == wi);
             let also = prep.also.iter().any(|(n, i)| n == &f.name && *i == wi);
             if selected && let (Some((_, g, start)), Some(p)) = (grab, pointer) {
-                r = dragged(r, g, p - start, ui.input(|i| i.modifiers.shift));
+                let shift = ui.input(|i| i.modifiers.shift);
+                let alt = match g {
+                    Grab::Corner(_, _, a) => a,
+                    _ => false,
+                };
+                r = dragged(r, g, p - start, shift, alt);
             }
             painter.rect_filled(r, CornerRadius::ZERO, FIELD_FILL);
             painter.rect_stroke(
@@ -1591,16 +1599,16 @@ mod tests {
     #[test]
     fn corner_drags_stretch_freely_and_keep_proportions_with_shift() {
         let r = Rect::from_min_max(pos2(100.0, 100.0), pos2(196.0, 132.0));
-        let free = dragged(r, Grab::Corner(false, false), vec2(24.0, 0.0), false);
+        let free = dragged(r, Grab::Corner(false, false, false), vec2(24.0, 0.0), false, false);
         assert_eq!(free, Rect::from_min_max(pos2(100.0, 100.0), pos2(220.0, 132.0)));
         for (left, top) in [(true, true), (false, true), (true, false), (false, false)] {
             let d = vec2(if left { -48.0 } else { 48.0 }, 0.0);
-            let out = dragged(r, Grab::Corner(left, top), d, true);
+            let out = dragged(r, Grab::Corner(left, top, false), d, true, false);
             assert!((out.width() / out.height() - 3.0).abs() < 0.001, "{left} {top}: {out:?}");
             // The opposite corner stays put.
             assert_eq!(if left { out.max.x } else { out.min.x }, if left { r.max.x } else { r.min.x });
             assert_eq!(if top { out.max.y } else { out.min.y }, if top { r.max.y } else { r.min.y });
         }
-        assert_eq!(dragged(r, Grab::Move, vec2(5.0, 6.0), true), r.translate(vec2(5.0, 6.0)));
+        assert_eq!(dragged(r, Grab::Move, vec2(5.0, 6.0), true, false), r.translate(vec2(5.0, 6.0)));
     }
 }

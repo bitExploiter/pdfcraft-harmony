@@ -384,7 +384,9 @@ pub enum Gesture {
     /// Moving a comment, from the press position on screen.
     Move { page: usize, index: usize, from: Pos2 },
     /// Resizing a comment by one of its handles: (dx, dy) ∈ {-1, 0, 1}² says which sides move.
-    Resize { page: usize, index: usize, handle: (i8, i8), from: Pos2, aspect_ratio: Option<f32> },
+    /// When `alt` is true, the resize is anchored at the rectangle's center (both the dragged
+    /// corner and the opposite corner move symmetrically), as in Acrobat's Alt-drag.
+    Resize { page: usize, index: usize, handle: (i8, i8), from: Pos2, aspect_ratio: Option<f32>, alt: bool },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -638,12 +640,14 @@ impl PageCx<'_> {
 
     /// The same geometry drives the live image, its handles, and the edit on release.
     /// `shift` is whether Shift is held now: it keeps the box's proportions from a corner.
+    /// `alt` is whether Alt is held now: it resizes from the center (both corners move).
     pub(crate) fn adjusted_rect(
         &self,
         a: &Annotation,
         gesture: Option<&Gesture>,
         pointer: Option<Pos2>,
         shift: bool,
+        alt: bool,
         pending: Option<&Edit>,
     ) -> Rect {
         let r = self.screen_rect(a);
@@ -663,8 +667,12 @@ impl PageCx<'_> {
         }
         match (gesture, pointer) {
             (Some(Gesture::Move { page, index, from }), Some(p)) if (*page, *index) == (self.page, a.index) => r.translate(p - *from),
-            (Some(Gesture::Resize { page, index, handle, from, aspect_ratio }), Some(p)) if (*page, *index) == (self.page, a.index) => {
-                resized(r, *handle, p - *from, corner_ratio(r, *aspect_ratio, shift))
+            (Some(Gesture::Resize { page, index, handle, from, aspect_ratio, alt: gesture_alt }), Some(p))
+                if (*page, *index) == (self.page, a.index) =>
+            {
+                // Use the gesture's captured alt, or the current modifier state as fallback.
+                let alt = *gesture_alt || alt;
+                resized(r, *handle, p - *from, corner_ratio(r, *aspect_ratio, shift), alt)
             }
             _ => r,
         }
@@ -703,10 +711,25 @@ pub(crate) fn corner_ratio(r: Rect, fixed: Option<f32>, shift: bool) -> Option<f
     fixed.or_else(|| (shift && r.width() > 0.0 && r.height() > 0.0).then(|| r.width() / r.height()))
 }
 
-pub(crate) fn resized(r: Rect, (hx, hy): (i8, i8), d: egui::Vec2, aspect_ratio: Option<f32>) -> Rect {
+pub(crate) fn resized(r: Rect, (hx, hy): (i8, i8), d: egui::Vec2, aspect_ratio: Option<f32>, alt: bool) -> Rect {
+    let ratio = aspect_ratio.filter(|v| v.is_finite() && *v > 0.0);
+    // When Alt is held, resize from the center: both the dragged corner and the opposite
+    // corner move symmetrically. This is Acrobat's Alt-drag behavior. A corner with a ratio
+    // (Shift, or a box with its own proportions) still keeps it, now around the center.
+    if alt {
+        let mut half = vec2((r.width() / 2.0 + f32::from(hx) * d.x).max(2.0), (r.height() / 2.0 + f32::from(hy) * d.y).max(2.0));
+        if hx != 0
+            && hy != 0
+            && let Some(ratio) = ratio
+        {
+            let half_w = half.x.max(half.y * ratio).max(2.0 * ratio);
+            half = vec2(half_w, half_w / ratio);
+        }
+        return Rect::from_center_size(r.center(), half * 2.0);
+    }
     if hx != 0
         && hy != 0
-        && let Some(ratio) = aspect_ratio.filter(|v| v.is_finite() && *v > 0.0)
+        && let Some(ratio) = ratio
     {
         // As in content_ui, the larger requested dimension drives proportional corner resizing.
         // Keep the opposite corner fixed and prevent crossing it from flipping the image.
@@ -1082,7 +1105,8 @@ fn select_input(
                 let r = cx.screen_rect(a);
                 (a.fill_sign && a.subtype == "Ink" && r.height() > 0.0).then(|| r.width() / r.height())
             });
-            cv.gesture = Some(Gesture::Resize { page: cx.page, index: a.index, handle: h, from: o, aspect_ratio });
+            let alt = ui.input(|i| i.modifiers.alt);
+            cv.gesture = Some(Gesture::Resize { page: cx.page, index: a.index, handle: h, from: o, aspect_ratio, alt });
             consumed = true;
         } else if let Some(a) = cx.hit(o)
             && !is_markup(&a.subtype)
@@ -1110,12 +1134,12 @@ fn select_input(
                     view.pending_edit = Some(Edit::MoveAnnotation { page, index, dx, dy });
                 }
             }
-            Some(Gesture::Resize { page, index, handle, from, aspect_ratio }) if page == cx.page => {
+            Some(Gesture::Resize { page, index, handle, from, aspect_ratio, alt }) if page == cx.page => {
                 cv.gesture = None;
                 if let Some(a) = cx.get(index) {
                     let from_rect = cx.screen_rect(a);
                     let shift = ui.input(|i| i.modifiers.shift);
-                    let r = resized(from_rect, handle, p - from, corner_ratio(from_rect, aspect_ratio, shift));
+                    let r = resized(from_rect, handle, p - from, corner_ratio(from_rect, aspect_ratio, shift), alt);
                     let rect = cx.rect_to_user(r);
                     if r.width() >= 4.0 && r.height() >= 4.0 {
                         view.pending_edit = Some(Edit::ResizeAnnotation { page, index, rect });
@@ -1232,7 +1256,8 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
             return paint_gesture(painter, cx, view);
         }
         let shift = ui.input(|i| i.modifiers.shift);
-        let r = cx.adjusted_rect(a, cv.gesture.as_ref(), pointer, shift, view.pending_edit.as_ref()).expand(2.0);
+        let alt = ui.input(|i| i.modifiers.alt);
+        let r = cx.adjusted_rect(a, cv.gesture.as_ref(), pointer, shift, alt, view.pending_edit.as_ref()).expand(2.0);
         painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, SELECT_BLUE), egui::StrokeKind::Middle);
         if cx.allowed && resizable(a) {
             for h in HANDLES {
@@ -2112,7 +2137,7 @@ mod tests {
         let flat = Rect::from_min_max(pos2(100.0, 100.0), pos2(196.0, 100.0));
         assert_eq!(corner_ratio(flat, None, true), None);
         // Dragging a corner with Shift held scales the box instead of stretching it.
-        let out = resized(r, (1, 1), vec2(48.0, 0.0), corner_ratio(r, None, true));
+        let out = resized(r, (1, 1), vec2(48.0, 0.0), corner_ratio(r, None, true), false);
         assert_eq!(out.min, r.min);
         assert!((out.width() / out.height() - 3.0).abs() < 0.001);
     }
@@ -2122,20 +2147,53 @@ mod tests {
         let r = Rect::from_min_max(pos2(100.0, 100.0), pos2(196.0, 132.0));
         for (hx, hy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
             for (dx, dy) in [(24.0, 0.0), (0.0, 16.0), (-48.0, -20.0), (-200.0, -200.0)] {
-                let out = resized(r, (hx, hy), vec2(f32::from(hx) * dx, f32::from(hy) * dy), Some(3.0));
+                let out = resized(r, (hx, hy), vec2(f32::from(hx) * dx, f32::from(hy) * dy), Some(3.0), false);
                 assert_eq!(handle_pos(out, (-hx, -hy)), handle_pos(r, (-hx, -hy)));
                 assert!((out.width() / out.height() - 3.0).abs() < 0.001);
                 assert!(out.width() >= 4.0 && out.height() >= 4.0);
             }
         }
         for handle in [(0, -1), (1, 0), (0, 1), (-1, 0)] {
-            let out = resized(r, handle, vec2(24.0, 16.0), Some(3.0));
-            assert_eq!(out, resized(r, handle, vec2(24.0, 16.0), None));
+            let out = resized(r, handle, vec2(24.0, 16.0), Some(3.0), false);
+            assert_eq!(out, resized(r, handle, vec2(24.0, 16.0), None, false));
             assert_eq!(if handle.0 == 0 { out.width() } else { out.height() }, if handle.0 == 0 { r.width() } else { r.height() });
         }
         // Ordinary comment corners keep their existing independent width/height behavior.
-        let free = resized(r, (1, 1), vec2(24.0, 0.0), None);
+        let free = resized(r, (1, 1), vec2(24.0, 0.0), None, false);
         assert_eq!(free.size(), vec2(120.0, 32.0));
+    }
+
+    #[test]
+    fn alt_drag_from_center_resizes_symmetrically() {
+        let r = Rect::from_min_max(pos2(100.0, 100.0), pos2(196.0, 132.0));
+        let center = r.center();
+        // Drag bottom-right corner outward with Alt: both corners move symmetrically.
+        let out = resized(r, (1, 1), vec2(24.0, 16.0), None, true);
+        assert_eq!(out.center(), center);
+        assert!((out.width() - (r.width() + 48.0)).abs() < 0.001);
+        assert!((out.height() - (r.height() + 32.0)).abs() < 0.001);
+        // Drag top-left corner outward with Alt: both corners move symmetrically.
+        let out = resized(r, (-1, -1), vec2(-24.0, -16.0), None, true);
+        assert_eq!(out.center(), center);
+        assert!((out.width() - (r.width() + 48.0)).abs() < 0.001);
+        assert!((out.height() - (r.height() + 32.0)).abs() < 0.001);
+        // Alt + Shift together: Alt keeps the center, Shift keeps the proportions, from every corner.
+        for (hx, hy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+            for (dx, dy) in [(24.0, 0.0), (0.0, 16.0), (-48.0, -20.0), (-200.0, -200.0)] {
+                let out = resized(r, (hx, hy), vec2(f32::from(hx) * dx, f32::from(hy) * dy), corner_ratio(r, None, true), true);
+                assert!((out.center() - center).length() < 0.001);
+                assert!((out.width() / out.height() - 3.0).abs() < 0.001);
+                assert!(out.width() >= 4.0 && out.height() >= 4.0);
+            }
+        }
+        // Shift + Alt grows by the larger requested dimension, as without Alt.
+        let out = resized(r, (1, 1), vec2(48.0, 0.0), Some(3.0), true);
+        assert!((out.width() - (r.width() + 96.0)).abs() < 0.001);
+        // Edge handles with Alt: only the dragged edge pair moves symmetrically.
+        let out = resized(r, (0, -1), vec2(0.0, -20.0), None, true);
+        assert_eq!(out.center(), center);
+        assert!((out.height() - (r.height() + 40.0)).abs() < 0.001);
+        assert_eq!(out.width(), r.width());
     }
 
     #[test]
