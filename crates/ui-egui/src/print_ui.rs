@@ -802,13 +802,20 @@ pub(crate) fn body(
     labels: &[String],
     thumb: &mut dyn FnMut(usize) -> Option<egui::TextureId>,
 ) -> (bool, bool) {
-    ui.set_width(820.0);
+    let viewport = ui.ctx().content_rect();
+    let width = (viewport.width() - 64.0).clamp(1.0, 820.0);
+    let height = (viewport.height() - 64.0).clamp(1.0, 880.0);
+    ui.set_width(width);
+    // Give the scroll area a stable parent size instead of growing the remembered
+    // modal a row per frame, which also moves buttons between press and release.
+    ui.set_height(height);
     ui.label(egui::RichText::new(tl!("Print")).font(theme::semibold(18.0)));
     ui.add_space(8.0);
     let settings = d.settings(sizes.len(), labels);
     let sheets = settings.as_ref().ok().and_then(|s| print::layout(sizes, s).ok()).unwrap_or_default();
     d.sheet = d.sheet.min(sheets.len().saturating_sub(1));
-    ui.horizontal_top(|ui| {
+    let contents = |ui: &mut egui::Ui| {
+        ui.horizontal_top(|ui| {
         // Settings.
         ui.vertical(|ui| {
             ui.set_width(470.0);
@@ -1224,10 +1231,19 @@ pub(crate) fn body(
                 }
             }
         });
-    });
+    })
+    };
+    // Keep actions outside the scrolling settings/preview. Work in logical points so
+    // Windows display scaling and resizing both leave the footer on screen.
+    egui::ScrollArea::both()
+        .id_salt("print-settings")
+        .max_width(width)
+        .max_height((height - 96.0).max(1.0))
+        .auto_shrink([false, false])
+        .show(ui, contents);
     ui.add_space(12.0);
     let (mut go, mut cancel) = (false, false);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+    ui.allocate_ui_with_layout(vec2(width, ui.spacing().interact_size.y), egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let looking = still_looking(d);
         let label = if d.printer.is_some() || looking { tl!("Print") } else { tl!("Save as PDF") };
         if ui.add_enabled_ui(settings.is_ok() && !sheets.is_empty() && !looking, |ui| widgets::pill_button(ui, label, true)).inner.clicked() {

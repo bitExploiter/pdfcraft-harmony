@@ -426,3 +426,53 @@ fn an_empty_printer_list_says_none_were_found() {
     h.get_by_label_contains("No printers were found");
     assert!(!h.get_by_role_and_label(Role::Button, "Save as PDF").accesskit_node().is_disabled());
 }
+
+/// 1920×1080 at Windows 150% provides at most 1280×720 logical points. A taskbar,
+/// window decorations or a smaller window reduce that further.
+#[test]
+fn print_actions_stay_visible_at_high_dpi_and_after_resizing() {
+    for (size, scale) in [(egui::vec2(1280.0, 680.0), 1.5), (egui::vec2(800.0, 500.0), 1.5)] {
+        let mut h = Harness::builder().with_size(size).with_pixels_per_point(scale).build_eframe(|_| {
+            let mut app = PdfCraftApp::new();
+            app.set_option("language", "en").unwrap();
+            app.open_bytes("form.pdf", None, include_bytes!("data/form.pdf").to_vec()).unwrap();
+            app
+        });
+        h.run_steps(4);
+        assert!(h.state_mut().execute("print.dialog"));
+        h.state_mut().print_draft.printer = Some("Test printer".into());
+        h.run_steps(4);
+        for label in ["Print", "Cancel"] {
+            let bounds = h.get_by_role_and_label(Role::Button, label).rect();
+            assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(bounds), "{label} at {scale}x: {bounds:?}, viewport {size:?}");
+        }
+        let card = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("dialog").with("card"))).unwrap();
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, size).contains_rect(card), "the entire card fits: {card:?}");
+        // Changing the viewport while the modal is open must also clamp the card.
+        let smaller = egui::vec2(640.0, 400.0);
+        h.set_size(smaller);
+        h.run_steps(4);
+        for label in ["Print", "Cancel"] {
+            let bounds = h.get_by_role_and_label(Role::Button, label).rect();
+            assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, smaller).contains_rect(bounds), "{label} after resize: {bounds:?}");
+        }
+        let card = h.ctx.data(|d| d.get_temp::<egui::Rect>(egui::Id::new("dialog").with("card"))).unwrap();
+        assert!(egui::Rect::from_min_size(egui::Pos2::ZERO, smaller).contains_rect(card), "the whole card fits after resize: {card:?}");
+        let out = std::env::temp_dir().join(format!("pdfcraft-small-print-{}-{}.pdf", std::process::id(), size.x as u32));
+        h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+        h.state_mut().print_draft.printer = None;
+        h.run_steps(2);
+        h.get_by_role_and_label(Role::Button, "Save as PDF").click();
+        h.run_steps(3);
+        assert_eq!(h.state().dialog, None, "the primary action works without scrolling");
+        assert!(std::fs::metadata(&out).unwrap().len() > 0);
+        std::fs::remove_file(out).unwrap();
+        // Isolate the new dialog from the saved-file notification overlay.
+        h.state_mut().toast = None;
+        assert!(h.state_mut().execute("print.dialog"));
+        h.run_steps(3);
+        h.get_by_role_and_label(Role::Button, "Cancel").click();
+        h.run_steps(2);
+        assert_eq!(h.state().dialog, None, "Cancel is clickable without scrolling");
+    }
+}
