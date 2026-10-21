@@ -2434,3 +2434,20 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	元のPDFを抽出…
+	Opened from a CAdES signature envelope — read-only.	CAdES署名エンベロープから開いています — 読み取り専用。
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} が {time} に署名しました。内容は署名されたものと一致しています。署名者の信頼性は確認されていません。
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} が {time} に署名しました。内容は署名されたものと一致していません。署名者の信頼性は確認されていません。
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致しています。署名者の信頼性は確認されていません。
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致していません。署名者の信頼性は確認されていません。
+	CAdES signature envelope	CAdES署名エンベロープ
+	This document is not inside a CAdES envelope	この文書はCAdES署名エンベロープの内部にありません。
+	Integrity	整合性
+	Matches what was signed	署名されたものと一致しています
+	Does not match what was signed	署名されたものと一致していません
+	Signers	署名者の数
+	{signers} signers; details of the first are shown	署名者は {signers} 人です。先頭の署名者の詳細を表示しています。
+	Quirks	特記事項
+	Couldn't extract the original PDF: {e}	元のPDFを抽出できませんでした: {e}

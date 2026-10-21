@@ -2432,3 +2432,20 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Түпнұсқа PDF файлын шығарып алу…
+	Opened from a CAdES signature envelope — read-only.	CAdES қолтаңба конвертінен ашылды — тек оқуға арналған.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} {time} уақытында қол қойған; мазмұн қол қойылған нәрсеге сәйкес келеді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} {time} уақытында қол қойған; мазмұн қол қойылған нәрсеге сәйкес келмейді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} қол қойған; мазмұн қол қойылған нәрсеге сәйкес келеді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} қол қойған; мазмұн қол қойылған нәрсеге сәйкес келмейді; қол қоюшының сенімділігі тексерілмеген.
+	CAdES signature envelope	CAdES қолтаңба конверті
+	This document is not inside a CAdES envelope	Бұл құжат CAdES қолтаңба конвертінің ішінде емес.
+	Integrity	Тұтастық
+	Matches what was signed	Қол қойылған нәрсеге сәйкес келеді
+	Does not match what was signed	Қол қойылған нәрсеге сәйкес келмейді
+	Signers	Қол қоюшылар
+	{signers} signers; details of the first are shown	Қол қоюшылар саны: {signers}; біріншісінің мәліметтері көрсетілген
+	Quirks	Ерекшеліктер
+	Couldn't extract the original PDF: {e}	Түпнұсқа PDF файлын шығарып алу мүмкін болмады: {e}

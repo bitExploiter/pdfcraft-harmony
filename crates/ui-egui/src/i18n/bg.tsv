@@ -2397,3 +2397,20 @@ animation effects	Off	Изключени
 	Make properties default	Задаване като свойства по подразбиране
 	Pages selected	Избрани страници
 	Page properties	Свойства на страницата
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Извлечи оригиналния PDF…
+	Opened from a CAdES signature envelope — read-only.	Отворено от плик с подпис CAdES — само за четене.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Подписано от {signer} на {time}; съдържанието съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Подписано от {signer} на {time}; съдържанието не съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Подписано от {signer}; съдържанието съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Подписано от {signer}; съдържанието не съответства на подписаното; доверието към подписалия не е проверено.
+	CAdES signature envelope	Плик с подпис CAdES
+	This document is not inside a CAdES envelope	Този документ не е вътре в плик с подпис CAdES.
+	Integrity	Цялостност
+	Matches what was signed	Съответства на подписаното
+	Does not match what was signed	Не съответства на подписаното
+	Signers	Подписали
+	{signers} signers; details of the first are shown	Подписали: {signers}; показани са подробностите за първия
+	Quirks	Особености
+	Couldn't extract the original PDF: {e}	Не успя да се извлече оригиналният PDF: {e}

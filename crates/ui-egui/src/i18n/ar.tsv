@@ -2711,3 +2711,20 @@ certificate	Version	الإصدار
 	Make properties default	جعل الخصائص افتراضية
 	Pages selected	الصفحات المحددة
 	Page properties	خصائص الصفحة
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	استخراج ملف PDF الأصلي…
+	Opened from a CAdES signature envelope — read-only.	فُتح من مغلف توقيع CAdES — للقراءة فقط.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	وقّعه {signer} في {time}؛ المحتوى يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	وقّعه {signer} في {time}؛ المحتوى لا يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	وقّعه {signer}؛ المحتوى يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	وقّعه {signer}؛ المحتوى لا يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	CAdES signature envelope	مغلف توقيع CAdES
+	This document is not inside a CAdES envelope	هذا المستند ليس داخل مغلف توقيع CAdES.
+	Integrity	السلامة
+	Matches what was signed	يطابق ما تم توقيعه
+	Does not match what was signed	لا يطابق ما تم توقيعه
+	Signers	الموقِّعون
+	{signers} signers; details of the first are shown	عدد الموقِّعين {signers}؛ تظهر تفاصيل الأول منهم
+	Quirks	ملاحظات خاصة
+	Couldn't extract the original PDF: {e}	تعذّر استخراج ملف PDF الأصلي: {e}

@@ -2430,3 +2430,20 @@ animation effects	Off	Kapalı
 	Make properties default	Özellikleri varsayılan yap
 	Pages selected	Seçilen sayfalar
 	Page properties	Sayfa özellikleri
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Özgün PDF'yi ayıkla…
+	Opened from a CAdES signature envelope — read-only.	CAdES imza zarfından açıldı — salt okunur.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} tarafından {time} tarihinde imzalandı; içerik imzalananla eşleşiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} tarafından {time} tarihinde imzalandı; içerik imzalananla eşleşmiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşmiyor; imzalayanın güveni denetlenmedi.
+	CAdES signature envelope	CAdES imza zarfı
+	This document is not inside a CAdES envelope	Bu belge bir CAdES imza zarfının içinde değil.
+	Integrity	Bütünlük
+	Matches what was signed	İmzalananla eşleşiyor
+	Does not match what was signed	İmzalananla eşleşmiyor
+	Signers	İmzalayanlar
+	{signers} signers; details of the first are shown	İmzalayan sayısı: {signers}; ilkinin ayrıntıları gösteriliyor
+	Quirks	Özel durumlar
+	Couldn't extract the original PDF: {e}	Özgün PDF ayıklanamadı: {e}

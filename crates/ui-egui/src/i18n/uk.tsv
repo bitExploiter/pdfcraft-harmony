@@ -2456,3 +2456,20 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Видобути початковий PDF…
+	Opened from a CAdES signature envelope — read-only.	Відкрито з конверта підпису CAdES — лише для читання.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Підписано {signer} {time}; вміст відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Підписано {signer} {time}; вміст не відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Підписано {signer}; вміст відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Підписано {signer}; вміст не відповідає підписаному; довіру до підписувача не перевірено.
+	CAdES signature envelope	Конверт підпису CAdES
+	This document is not inside a CAdES envelope	Цей документ не всередині конверта підпису CAdES.
+	Integrity	Цілісність
+	Matches what was signed	Відповідає підписаному
+	Does not match what was signed	Не відповідає підписаному
+	Signers	Підписувачі
+	{signers} signers; details of the first are shown	Підписувачів: {signers}; показано відомості про першого
+	Quirks	Особливості
+	Couldn't extract the original PDF: {e}	Не вдалося видобути початковий PDF: {e}

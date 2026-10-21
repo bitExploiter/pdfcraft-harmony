@@ -2398,3 +2398,20 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	提取原始 PDF…
+	Opened from a CAdES signature envelope — read-only.	从 CAdES 签名信封打开 — 只读。
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	由 {signer} 签名于 {time}；内容与所签内容一致；未检查签名者的可信度。
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	由 {signer} 签名于 {time}；内容与所签内容不一致；未检查签名者的可信度。
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	由 {signer} 签名；内容与所签内容一致；未检查签名者的可信度。
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	由 {signer} 签名；内容与所签内容不一致；未检查签名者的可信度。
+	CAdES signature envelope	CAdES 签名信封
+	This document is not inside a CAdES envelope	此文档不在 CAdES 签名信封内。
+	Integrity	完整性
+	Matches what was signed	与所签内容一致
+	Does not match what was signed	与所签内容不一致
+	Signers	签名者数量
+	{signers} signers; details of the first are shown	共 {signers} 个签名者；显示第一个的详细信息
+	Quirks	特例
+	Couldn't extract the original PDF: {e}	无法提取原始 PDF：{e}

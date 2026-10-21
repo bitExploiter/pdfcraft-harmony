@@ -2440,3 +2440,20 @@ animation effects	Off	Ανενεργά
 	Make properties default	Ορισμός ιδιοτήτων ως προεπιλογή
 	Pages selected	Επιλεγμένες σελίδες
 	Page properties	Ιδιότητες σελίδας
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Εξαγωγή του αρχικού PDF…
+	Opened from a CAdES signature envelope — read-only.	Άνοιξε από φάκελο υπογραφής CAdES — μόνο για ανάγνωση.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer} στις {time}· το περιεχόμενο αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer} στις {time}· το περιεχόμενο δεν αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer}· το περιεχόμενο αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Υπογράφηκε από {signer}· το περιεχόμενο δεν αντιστοιχεί σε αυτό που υπογράφηκε· η εμπιστοσύνη του υπογράφοντος δεν ελέγχθηκε.
+	CAdES signature envelope	Φάκελος υπογραφής CAdES
+	This document is not inside a CAdES envelope	Αυτό το έγγραφο δεν βρίσκεται μέσα σε φάκελο υπογραφίας CAdES.
+	Integrity	Ακεραιότητα
+	Matches what was signed	Αντιστοιχεί σε αυτό που υπογράφηκε
+	Does not match what was signed	Δεν αντιστοιχεί σε αυτό που υπογράφηκε
+	Signers	Υπογράφοντες
+	{signers} signers; details of the first are shown	{signers} υπογράφοντες· εμφανίζονται οι λεπτομέρειες του πρώτου
+	Quirks	Ιδιαιτερότητες
+	Couldn't extract the original PDF: {e}	Δεν ήταν δυνατή η εξαγωγή του αρχικού PDF: {e}

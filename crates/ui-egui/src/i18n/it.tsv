@@ -2646,3 +2646,20 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Estrai il PDF originale…
+	Opened from a CAdES signature envelope — read-only.	Aperto da una busta di firma CAdES — sola lettura.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Firmato da {signer} il {time}; il contenuto corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Firmato da {signer} il {time}; il contenuto non corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto non corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	CAdES signature envelope	Busta di firma CAdES
+	This document is not inside a CAdES envelope	Questo documento non è all'interno di una busta di firma CAdES.
+	Integrity	Integrità
+	Matches what was signed	Corrisponde a quanto firmato
+	Does not match what was signed	Non corrisponde a quanto firmato
+	Signers	Firmatari
+	{signers} signers; details of the first are shown	{signers} firmatari; sono mostrati i dettagli del primo
+	Quirks	Particolarità
+	Couldn't extract the original PDF: {e}	Impossibile estrarre il PDF originale: {e}

@@ -2439,3 +2439,20 @@ animation effects	Off	Izklopljeni
 	Make properties default	Nastavi lastnosti kot privzete
 	Pages selected	Izbrane strani
 	Page properties	Lastnosti strani
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Izvleci izvorni PDF…
+	Opened from a CAdES signature envelope — read-only.	Odprto iz ovoja podpisa CAdES — samo za branje.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Podpisano: {signer} {time}; vsebina se ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Podpisano: {signer} {time}; vsebina se ne ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ne ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	CAdES signature envelope	Ovoj podpisa CAdES
+	This document is not inside a CAdES envelope	Ta dokument ni znotraj ovoja podpisa CAdES.
+	Integrity	Celovitost
+	Matches what was signed	Se ujema s podpisanim
+	Does not match what was signed	Se ne ujema s podpisanim
+	Signers	Podpisniki
+	{signers} signers; details of the first are shown	Podpisnikov: {signers}; prikazane so podrobnosti prvega
+	Quirks	Posebnosti
+	Couldn't extract the original PDF: {e}	Izvornega PDF-ja ni bilo mogoče izvleči: {e}

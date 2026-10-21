@@ -2687,3 +2687,21 @@ key	Space	Space
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
+
+# CAdES signature envelopes (issue #1449). AI-assisted additions (2026-10-19),
+# not separately native-reviewed.
+	Extract the original PDF…	Trích xuất PDF gốc…
+	Opened from a CAdES signature envelope — read-only.	Được mở từ phong bì ký CAdES — chỉ đọc.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Do {signer} ký vào {time}; nội dung khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Do {signer} ký vào {time}; nội dung không khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Do {signer} ký; nội dung khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Do {signer} ký; nội dung không khớp với nội dung đã ký; độ tin cậy của người ký chưa được kiểm tra.
+	CAdES signature envelope	Phong bì ký CAdES
+	This document is not inside a CAdES envelope	Tài liệu này không nằm trong phong bì ký CAdES.
+	Integrity	Toàn vẹn
+	Matches what was signed	Khớp với nội dung đã ký
+	Does not match what was signed	Không khớp với nội dung đã ký
+	Signers	Người ký
+	{signers} signers; details of the first are shown	{signers} người ký; hiển thị chi tiết của người đầu tiên
+	Quirks	Điểm đặc biệt
+	Couldn't extract the original PDF: {e}	Không thể trích xuất PDF gốc: {e}

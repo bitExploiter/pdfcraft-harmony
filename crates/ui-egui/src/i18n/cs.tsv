@@ -2508,3 +2508,20 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Extrahovat původní PDF…
+	Opened from a CAdES signature envelope — read-only.	Otevřeno z obálky podpisu CAdES — pouze pro čtení.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Podepsal {signer} dne {time}; obsah odpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Podepsal {signer} dne {time}; obsah neodpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podepsal {signer}; obsah odpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podepsal {signer}; obsah neodpovídá podepsanému; důvěryhodnost podepisujícího nebyla ověřena.
+	CAdES signature envelope	Obálka podpisu CAdES
+	This document is not inside a CAdES envelope	Tento dokument není uvnitř obálky podpisu CAdES.
+	Integrity	Integrita
+	Matches what was signed	Odpovídá podepsanému
+	Does not match what was signed	Neodpovídá podepsanému
+	Signers	Podepsali
+	{signers} signers; details of the first are shown	Podepsali: {signers}; zobrazují se podrobnosti prvního
+	Quirks	Zvláštnosti
+	Couldn't extract the original PDF: {e}	Původní PDF nelze extrahovat: {e}

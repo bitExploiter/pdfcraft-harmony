@@ -2433,3 +2433,20 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Eredeti PDF kinyerése…
+	Opened from a CAdES signature envelope — read-only.	CAdES aláírás-borítékból megnyitva — csak olvasható.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Aláírta: {signer}, {time}; a tartalom megegyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Aláírta: {signer}, {time}; a tartalom nem egyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom megegyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom nem egyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	CAdES signature envelope	CAdES aláírás-boríték
+	This document is not inside a CAdES envelope	Ez a dokumentum nem CAdES aláírás-borítékban van.
+	Integrity	Integritás
+	Matches what was signed	Megegyezik az aláírttal
+	Does not match what was signed	Nem egyezik az aláírttal
+	Signers	Aláírók
+	{signers} signers; details of the first are shown	{signers} aláíró; az első részletei jelennek meg
+	Quirks	Sajátosságok
+	Couldn't extract the original PDF: {e}	Az eredeti PDF-et nem sikerült kinyerni: {e}

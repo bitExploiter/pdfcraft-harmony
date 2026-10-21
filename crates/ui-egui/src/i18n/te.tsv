@@ -2343,3 +2343,20 @@ animation effects	Off	ఆఫ్
 	Make properties default	లక్షణాలను డిఫాల్ట్‌గా చేయి
 	Pages selected	ఎంచుకున్న పేజీలు
 	Page properties	పేజీ లక్షణాలు
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	అసలైన PDF ను వేరు తీయి…
+	Opened from a CAdES signature envelope — read-only.	CAdES సంతక లకోట నుండి తెరవబడింది — చదవడానికి మాత్రమే.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} {time} నాటికి సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలుతుంది; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} {time} నాటికి సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలడు; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలుతుంది; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలడు; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	CAdES signature envelope	CAdES సంతక లకోట
+	This document is not inside a CAdES envelope	ఈ పత్రం CAdES సంతక లకోట లోపల లేదు.
+	Integrity	సమగ్రత
+	Matches what was signed	సంతకం చేసిన దానికి సరిపోలుతుంది
+	Does not match what was signed	సంతకం చేసిన దానికి సరిపోలడు
+	Signers	సంతకదారులు
+	{signers} signers; details of the first are shown	{signers} మంది సంతకదారులు; మొదటి వారి వివరాలు చూపబడ్డాయి
+	Quirks	ప్రత్యేకతలు
+	Couldn't extract the original PDF: {e}	అసలైన PDF ను వేరు తీయలేకపోయింది: {e}

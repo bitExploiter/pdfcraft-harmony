@@ -2435,3 +2435,20 @@ animation effects	Off	Aus
 	Make properties default	Eigenschaften als Standard festlegen
 	Pages selected	Ausgewählte Seiten
 	Page properties	Seiteneigenschaften
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Original-PDF extrahieren…
+	Opened from a CAdES signature envelope — read-only.	Aus einem CAdES-Signaturumschlag geöffnet — schreibgeschützt.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Signiert von {signer} am {time}; der Inhalt stimmt mit dem Signierten überein; die Vertrauenswürdigkeit des Unterzeichners wurde nicht geprüft.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Signiert von {signer} am {time}; der Inhalt stimmt nicht mit dem Signierten überein; die Vertrauenswürdigkeit des Unterzeichners wurde nicht geprüft.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Signiert von {signer}; der Inhalt stimmt mit dem Signierten überein; die Vertrauenswürdigkeit des Unterzeichners wurde nicht geprüft.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Signiert von {signer}; der Inhalt stimmt nicht mit dem Signierten überein; die Vertrauenswürdigkeit des Unterzeichners wurde nicht geprüft.
+	CAdES signature envelope	CAdES-Signaturumschlag
+	This document is not inside a CAdES envelope	Dieses Dokument liegt nicht in einem CAdES-Signaturumschlag.
+	Integrity	Integrität
+	Matches what was signed	Stimmt mit dem Signierten überein
+	Does not match what was signed	Stimmt nicht mit dem Signierten überein
+	Signers	Unterzeichner
+	{signers} signers; details of the first are shown	{signers} Unterzeichner; die Details des ersten werden angezeigt
+	Quirks	Besonderheiten
+	Couldn't extract the original PDF: {e}	Original-PDF konnte nicht extrahiert werden: {e}

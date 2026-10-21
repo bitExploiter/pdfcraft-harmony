@@ -2685,3 +2685,20 @@ key	Space	Tarpas
 	The password must have at least 6 characters.	Slaptažodį turi sudaryti bent 6 simboliai.
 	This file changed on disk. Reload it to see the new version; your unsaved changes will be lost.	Šis failas diske pasikeitė. Įkelkite jį iš naujo, kad pamatytumėte naują versiją; neįrašyti pakeitimai bus prarasti.
 theme	Appearance	Išvaizda
+
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Išskirti originalų PDF…
+	Opened from a CAdES signature envelope — read-only.	Atverta iš CAdES parašo voko — tik skaityti.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Pasirašė {signer} {time}; turinys atitinka tai, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Pasirašė {signer} {time}; turinys neatitinka to, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys atitinka tai, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys neatitinka to, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	CAdES signature envelope	CAdES parašo vokas
+	This document is not inside a CAdES envelope	Šis dokumentas nėra CAdES parašo voko viduje.
+	Integrity	Vientisumas
+	Matches what was signed	Atitinka tai, kas buvo pasirašyta
+	Does not match what was signed	Neatitinka to, kas buvo pasirašyta
+	Signers	Pasirašiusieji
+	{signers} signers; details of the first are shown	Pasirašiusiųjų: {signers}; rodoma pirmojo išsami informacija
+	Quirks	Ypatumai
+	Couldn't extract the original PDF: {e}	Nepavyko išskirti originalaus PDF: {e}

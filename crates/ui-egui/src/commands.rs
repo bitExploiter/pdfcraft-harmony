@@ -139,6 +139,7 @@ impl PdfCraftApp {
                     }
                 }
                 commands::Needs::Unlock if self.active.is_some() => tl!("This document has no restrictions to lift").to_string(),
+                commands::Needs::Envelope if self.active.is_some() => tl!("This document is not inside a CAdES envelope").to_string(),
                 commands::Needs::Assembly | commands::Needs::Modification | commands::Needs::Annotate if self.active.is_some() => {
                     tl!("The document's security settings don't allow this change").to_string()
                 }
@@ -181,6 +182,7 @@ impl PdfCraftApp {
             "file.close_all" => self.close_all(),
             "file.revert" => self.dialog = Some(Dialog::Revert),
             "file.properties" => self.dialog = Some(Dialog::Properties(PropsTab::Description)),
+            "file.extract_original" => self.extract_original(),
             "file.word_count" => self.dialog = Some(Dialog::WordCount),
             "protect.properties" => self.dialog = Some(Dialog::Properties(PropsTab::Security)),
             // A restricted document's security changes once its permissions password is entered.
@@ -689,6 +691,21 @@ impl PdfCraftApp {
             self.active = Some(next);
         } else {
             self.open_combine_tab();
+        }
+    }
+
+    /// Extract the original PDF from a CAdES envelope document as a new, editable copy and
+    /// switch the view to it, as opening a file does (`file.extract_original` and the notice
+    /// bar's Extract button).
+    pub(crate) fn extract_original(&mut self) {
+        let Some((_, id)) = self.active_ids() else { return };
+        match self.session.extract_original(id) {
+            Ok(new) => {
+                let Some(doc) = self.session.get(new) else { return };
+                self.views.push(crate::DocView::new(new, &doc.info, self.view_defaults));
+                self.active = Some(self.views.len() - 1);
+            }
+            Err(e) => self.notify_fmt("Couldn't extract the original PDF: {e}", &[("e", &e)]),
         }
     }
 
