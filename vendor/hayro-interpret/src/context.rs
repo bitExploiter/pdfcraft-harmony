@@ -200,7 +200,10 @@ impl<'a> Context<'a> {
         };
         // PdfCraft patch: apply viewer layer toggles.
         for (num, generation, visible) in settings.ocg_overrides.iter() {
-            ocg_state.set_active(hayro_syntax::object::ObjectIdentifier::new(*num, *generation), *visible);
+            ocg_state.set_active(
+                hayro_syntax::object::ObjectIdentifier::new(*num, *generation),
+                *visible,
+            );
         }
 
         Self {

@@ -1,4 +1,3 @@
-use crate::{BlendMode, FillRule};
 use crate::color::ColorSpace;
 use crate::context::Context;
 use crate::convert::{convert_line_cap, convert_line_join};
@@ -15,6 +14,8 @@ use crate::util::{OptionLog, RectExt};
 use crate::x_object::{
     FormXObject, ImageXObject, XObject, draw_form_xobject, draw_image_xobject, draw_xobject,
 };
+use crate::{BlendMode, FillRule};
+use hayro_syntax::MAX_DECODED_STREAM;
 use hayro_syntax::content::TypedIter;
 use hayro_syntax::content::ops::TypedInstruction;
 use hayro_syntax::object::dict::keys::{
@@ -22,7 +23,6 @@ use hayro_syntax::object::dict::keys::{
 };
 use hayro_syntax::object::{Array, Dict, Object, Rect, Stream, dict_or_stream};
 use hayro_syntax::page::{ContentReader, Page, Resources};
-use hayro_syntax::MAX_DECODED_STREAM;
 use kurbo::{Affine, BezPath, Point, Shape};
 use smallvec::smallvec;
 use std::sync::Arc;
@@ -188,7 +188,12 @@ pub fn interpret_page<'a>(
             }
             // PdfCraft patch: "Hide all comments" keeps widgets and links.
             if context.settings.hide_comments
-                && !matches!(annot.get::<hayro_syntax::object::Name<'_>>(SUBTYPE).as_deref(), Some(b"Widget" | b"Link"))
+                && !matches!(
+                    annot
+                        .get::<hayro_syntax::object::Name<'_>>(SUBTYPE)
+                        .as_deref(),
+                    Some(b"Widget" | b"Link")
+                )
             {
                 continue;
             }
@@ -273,7 +278,11 @@ pub fn interpret_page<'a>(
                 draw_form_xobject(resources, &apx, context, device);
                 context.pop_root_transform();
                 context.restore_state(device);
-            } else if annot.get::<hayro_syntax::object::Name<'_>>(SUBTYPE).as_deref() == Some(b"Highlight") {
+            } else if annot
+                .get::<hayro_syntax::object::Name<'_>>(SUBTYPE)
+                .as_deref()
+                == Some(b"Highlight")
+            {
                 // PdfCraft patch: a Highlight without a usable normal appearance was not drawn.
                 draw_highlight_without_appearance(&annot, context, device);
             }
@@ -283,9 +292,9 @@ pub fn interpret_page<'a>(
 }
 
 /// PdfCraft patch: the normal appearance of a Highlight annotation that has none (ISO 32000-2
-/// §12.5.6.10), drawn as PdfCraft draws its own highlights (pdfcraft-annot): each /QuadPoints
+/// §12.5.6.10), drawn as `PdfCraft` draws its own highlights (pdfcraft-annot): each `/QuadPoints`
 /// quadrilateral filled with /C at /CA opacity, blended with Multiply so the marked-up content
-/// stays legible. /QuadPoints that aren't groups of eight numbers, or a /C that isn't a gray, RGB
+/// stays legible. `/QuadPoints` that aren't groups of eight numbers, or a /C that isn't a gray, RGB
 /// or CMYK colour (absent or empty means transparent), draw nothing.
 fn draw_highlight_without_appearance<'a>(
     annot: &Dict<'a>,
@@ -347,7 +356,12 @@ fn interpret_window<'a>(
 ) {
     while let Some(op) = ops.next() {
         // PdfCraft patch: stop when the caller cancelled (see `InterpreterSettings::cancelled`).
-        if context.settings.cancelled.as_ref().is_some_and(|c| c.load(Ordering::Relaxed)) {
+        if context
+            .settings
+            .cancelled
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Relaxed))
+        {
             break;
         }
         match op {

@@ -140,7 +140,12 @@ impl<'a> SoftMask<'a> {
         let cache_key = hash128(&(
             dict.cache_key(),
             root_transform.cache_key(),
-            [bbox.x0.to_bits(), bbox.y0.to_bits(), bbox.x1.to_bits(), bbox.y1.to_bits()],
+            [
+                bbox.x0.to_bits(),
+                bbox.y0.to_bits(),
+                bbox.x1.to_bits(),
+                bbox.y1.to_bits(),
+            ],
             resources_key,
             nesting_depth,
         ));

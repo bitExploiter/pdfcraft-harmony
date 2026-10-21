@@ -225,7 +225,9 @@ impl<'a> Type3Glyph<'a> {
 
     /// PdfCraft patch: the advance width in glyph space (1000 units per em), from `/Widths`.
     pub fn advance_width(&self) -> Option<f32> {
-        u8::try_from(self.char_code).ok().map(|c| self.font.glyph_width(c))
+        u8::try_from(self.char_code)
+            .ok()
+            .map(|c| self.font.glyph_width(c))
     }
 }
 
@@ -448,8 +450,8 @@ impl Encoding {
     /// PdfCraft patch: the glyph name an Annex D.2 *alias code* reads as when the glyph is taken
     /// as text rather than looked up in a font program; `None` for every other code.
     ///
-    /// Annex D.2 gives WinAnsiEncoding codes 0xA0 and 0xAD the glyph names `space` and `hyphen`,
-    /// the same names it gives 0x20 and 0x2D, and MacRomanEncoding 0xCA `space`. The tables above
+    /// Annex D.2 gives `WinAnsiEncoding` codes 0xA0 and 0xAD the glyph names `space` and `hyphen`,
+    /// the same names it gives 0x20 and 0x2D, and `MacRomanEncoding` 0xCA `space`. The tables above
     /// call them `nbspace` and `sfthyphen`, whose Adobe Glyph List values U+00A0 and U+00AD are
     /// *formatting* characters, so extraction hid ink the reader can see: a soft hyphen is
     /// invisible, and text that drew one matched no search and no redaction pattern -- one corpus

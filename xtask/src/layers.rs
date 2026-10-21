@@ -43,6 +43,7 @@ pub const TABLE: &[(&str, Class)] = &[
     ("fonts", Class::Layer(2)),
     ("ops", Class::Layer(2)),
     // L3 core services
+    ("hayro-interpret", Class::Layer(3)),
     ("render", Class::Layer(3)),
     ("text", Class::Layer(3)),
     ("annot", Class::Layer(3)),

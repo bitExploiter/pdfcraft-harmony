@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "apps/*", "xtask"]
+members = ["crates/*", "apps/*", "xtask", "vendor/hayro-interpret"]
 exclude = ["vendor"]
 default-members = ["crates/*", "apps/pdfcraft", "apps/pdfcraft-cli", "xtask"]
 
@@ -87,11 +87,16 @@ dbg_macro = "warn"
 todo = "warn"
 
 # `"*"` matches every non-workspace package: crates.io dependencies and the
-# vendored crates under `vendor/` (excluded from the workspace). Our own crates
+# vendored crates outside the workspace. Our own crates
 # keep full debug info. Dependencies keep only line tables, so backtraces still
 # show file and line, but debug info for the whole dependency graph stays out of
 # every test binary (each UI test binary had a 500-600 MB PDB on Windows, #454).
 [profile.dev.package."*"]
+opt-level = 2
+debug = "line-tables-only"
+
+# Preserve the interpreter's existing dependency profile as a workspace member.
+[profile.dev.package.hayro-interpret]
 opt-level = 2
 debug = "line-tables-only"
 

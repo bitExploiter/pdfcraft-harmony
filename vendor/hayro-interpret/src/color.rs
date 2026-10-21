@@ -27,7 +27,7 @@ std::thread_local! {
     static TINT_TRANSFORM_RUNS: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 
-/// PdfCraft patch (34): how many colours this thread has run through a Separation or DeviceN
+/// PdfCraft patch (34): how many colours this thread has run through a Separation or `DeviceN`
 /// tint transform, for diagnostics and tests. An image converted through patch (28)'s lookup
 /// table runs it once per possible sample value, not once per pixel. Per thread, so a caller
 /// counting its own render is not disturbed by renders on other threads.
@@ -370,7 +370,7 @@ impl ToRgb for ColorSpace {
                 }
             }
             ColorSpaceType::DeviceGray => {
-                for (gray, output) in input.iter().zip(output.chunks_exact_mut(3)) {
+                for (gray, output) in input.iter().zip(output.as_chunks_mut::<3>().0) {
                     let gray = f32_to_u8(*gray);
                     output.copy_from_slice(&[gray, gray, gray]);
                 }
@@ -415,7 +415,7 @@ impl ToRgb for ColorSpace {
         match self.0.as_ref() {
             ColorSpaceType::DeviceCmyk => CMYK_TRANSFORM.convert_u8(input, output),
             ColorSpaceType::DeviceGray => {
-                for (input, output) in input.iter().zip(output.chunks_exact_mut(3)) {
+                for (input, output) in input.iter().zip(output.as_chunks_mut::<3>().0) {
                     output.copy_from_slice(&[*input, *input, *input]);
                 }
 
@@ -472,7 +472,7 @@ impl CalGray {
 
 impl ToRgb for CalGray {
     fn convert_f32(&self, input: &[f32], output: &mut [u8], _: bool) -> Option<()> {
-        for (input, output) in input.iter().copied().zip(output.chunks_exact_mut(3)) {
+        for (input, output) in input.iter().copied().zip(output.as_chunks_mut::<3>().0) {
             let g = self.gamma;
             let (_xw, yw, _zw) = {
                 let wp = self.white_point;
@@ -629,7 +629,12 @@ impl CalRgb {
 
 impl ToRgb for CalRgb {
     fn convert_f32(&self, input: &[f32], output: &mut [u8], _: bool) -> Option<()> {
-        for (input, output) in input.chunks_exact(3).zip(output.chunks_exact_mut(3)) {
+        for (input, output) in input
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<3>().0)
+        {
             let input = [
                 input[0].clamp(0.0, 1.0),
                 input[1].clamp(0.0, 1.0),
@@ -698,17 +703,21 @@ impl Lab {
     }
 
     /// Bradford adaptation scales cone responses, so both white points must
-    /// be expressed in LMS before taking their ratios. CalRGB's separate
+    /// be expressed in LMS before taking their ratios. `CalRGB`'s separate
     /// flat-white/black-point pipeline retains its existing normalization.
     fn adapt_to_d65(white_point: &[f32; 3], xyz: &[f32; 3]) -> [f32; 3] {
         let source_lms = CalRgb::matrix_product(&CalRgb::BRADFORD_SCALE_MATRIX, white_point);
         // A malformed but positive XYZ white can still yield a zero or
         // overflowing cone response. Leave it unadapted rather than divide by
         // zero or propagate a non-finite scale.
-        if source_lms.iter().any(|v| !v.is_finite() || v.abs() <= f32::EPSILON) {
+        if source_lms
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() <= f32::EPSILON)
+        {
             return *xyz;
         }
-        let destination_lms = CalRgb::matrix_product(&CalRgb::BRADFORD_SCALE_MATRIX, &CalRgb::D65_WHITEPOINT);
+        let destination_lms =
+            CalRgb::matrix_product(&CalRgb::BRADFORD_SCALE_MATRIX, &CalRgb::D65_WHITEPOINT);
         let lms = CalRgb::matrix_product(&CalRgb::BRADFORD_SCALE_MATRIX, xyz);
         let adapted = [
             lms[0] * destination_lms[0] / source_lms[0],
@@ -736,7 +745,12 @@ impl ToRgb for Lab {
         let white_point = self.usable_white_point();
         let [xw, yw, zw] = white_point;
 
-        for (input, output) in input.chunks_exact(3).zip(output.chunks_exact_mut(3)) {
+        for (input, output) in input
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .zip(output.as_chunks_mut::<3>().0)
+        {
             // PdfCraft patch: `manual_scale` means the components arrive
             // normalised to [0, 1] (an `/Indexed` palette over Lab looks its
             // bytes up as `byte / 255`). Map them linearly onto L* 0..100 and
@@ -1062,7 +1076,9 @@ impl ToRgb for ICCProfile {
         if self.is_lab() {
             // moxcms expects normalized values.
             let scaled = input
-                .chunks_exact(3)
+                .as_chunks::<3>()
+                .0
+                .iter()
                 .flat_map(|i| {
                     [
                         i[0] * (1.0 / 100.0),

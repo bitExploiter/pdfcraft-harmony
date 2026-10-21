@@ -249,7 +249,10 @@ impl Type0Font {
                     let mut chars = s.chars();
                     let character = chars.next()?;
                     let selector = chars.next().filter(|c| is_variation_selector(*c))?;
-                    chars.next().is_none().then_some((character, Some(selector)))
+                    chars
+                        .next()
+                        .is_none()
+                        .then_some((character, Some(selector)))
                 }
             })?;
 
@@ -260,7 +263,8 @@ impl Type0Font {
                 // glyph for the character, as when a form isn't supported (Unicode FAQ on
                 // variation sequences).
                 if let Some(selector) = selector
-                    && let Some(MapVariant::Variant(glyph)) = charmap.map_variant(character, selector)
+                    && let Some(MapVariant::Variant(glyph)) =
+                        charmap.map_variant(character, selector)
                 {
                     return Some(glyph);
                 }
@@ -484,11 +488,10 @@ impl FontType {
         } else if let Some(cff) = CffFontBlob::new(data.clone()) {
             // It's a CFF font.
             Self::Cff(cff)
-        } else if let Some(t1) = Type1FontBlob::new(data) {
+        } else {
+            let t1 = Type1FontBlob::new(data)?;
             // It's a Type1 (PFB) font.
             Self::Type1(t1)
-        } else {
-            return None;
         };
 
         Some(parsed)
@@ -518,7 +521,7 @@ impl CidToGIdMap {
             let mut forward = HashMap::new();
             let mut inverse = HashMap::new();
 
-            for (cid, gid) in decoded.chunks_exact(2).enumerate() {
+            for (cid, gid) in decoded.as_chunks::<2>().0.iter().enumerate() {
                 let gid = GlyphId::new(u16::from_be_bytes([gid[0], gid[1]]) as u32);
 
                 forward.insert(cid as u16, gid);
