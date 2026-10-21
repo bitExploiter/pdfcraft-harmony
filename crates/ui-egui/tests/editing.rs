@@ -2735,6 +2735,97 @@ fn switching_straight_to_another_box_applies_the_open_paragraph() {
     assert_eq!(ed.text, "Bottom");
 }
 
+/// The rows an editor shows, and those its paragraph has once applied: each row's text, baseline
+/// and left edge on screen.
+type ScreenRows = Vec<(String, f32, f32)>;
+
+/// Opens the paragraph at `at`, types `text` into it and applies it.
+fn editor_and_saved_rows(bytes: Vec<u8>, at: (f32, f32), text: &str) -> (ScreenRows, ScreenRows) {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("rows.pdf", None, bytes).expect("opens");
+        app
+    });
+    h.run_steps(4);
+    assert!(h.state_mut().execute("edit.edit_text"));
+    h.run_steps(2);
+    let page = h.state().views[0].page_screen_rect(0).expect("on screen");
+    let k = page.width() / 300.0;
+    click_at(&mut h, egui::pos2(page.left() + at.0 * k, page.top() + (300.0 - at.1) * k));
+    h.state_mut().views[0].line_editor.as_mut().expect("the paragraph opens").text = text.into();
+    h.run_steps(3);
+    let editor: ScreenRows = h
+        .output()
+        .shapes
+        .iter()
+        .find_map(|shape| match &shape.shape {
+            egui::Shape::Text(t) if t.galley.text() == text => Some(
+                t.galley
+                    .rows
+                    .iter()
+                    .filter_map(|r| {
+                        let g = r.row.glyphs.iter().find(|g| !g.chr.is_whitespace())?;
+                        let row: String = r.row.glyphs.iter().map(|g| g.chr).collect();
+                        Some((row.trim().to_string(), t.pos.y + r.pos.y + g.pos.y, t.pos.x + r.pos.x + g.pos.x))
+                    })
+                    .collect(),
+            ),
+            _ => None,
+        })
+        .expect("the editor draws the draft");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    h.run_steps(3);
+    let s = h.state();
+    let doc = s.session.get(s.views[0].id).unwrap();
+    let lines = doc.text_lines(0);
+    let block =
+        doc.text_blocks(0).into_iter().find(|b| b.editor_text.split_whitespace().eq(text.split_whitespace())).expect("applied as one paragraph");
+    let saved: ScreenRows = block
+        .rows
+        .iter()
+        .map(|row| {
+            let row: Vec<_> = row.iter().map(|i| &lines[*i]).collect();
+            let text: Vec<&str> = row.iter().map(|l| l.text.trim()).collect();
+            let left = row.iter().map(|l| l.rect[0]).fold(f64::INFINITY, f64::min);
+            (text.join(" "), page.top() + (300.0 - row[0].baseline()[1] as f32) * k, page.left() + left as f32 * k)
+        })
+        .collect();
+    (editor, saved)
+}
+
+/// The editor shows a draft in the rows Apply writes: the same words on each row, on the same
+/// baseline and from the same left edge. It used to wrap with egui's own rules and fonts, and
+/// to place rows past the source by its own leading, so the text moved on Apply.
+#[test]
+fn the_editor_shows_the_rows_apply_writes() {
+    let paragraph = source_font_fixture_with_text(
+        "BT /F1 12 Tf 14 TL 20 220 Td (The first row of a short paragraph) Tj T* (and its second row of text here.) Tj ET",
+    );
+    let heading = source_font_fixture_with_text("BT /F1 16 Tf 20 220 Td (A single heading row) Tj ET");
+    for (bytes, at, text) in [
+        (
+            paragraph,
+            (25.0, 224.0),
+            "The first row of a short paragraph\nand its second row of text here, now with a good many more words added so that it wraps onto rows of its own",
+        ),
+        (heading.clone(), (25.0, 225.0), "A single heading row\nand a second row typed under it"),
+        // Enter just pressed: the blank row writes nothing, and the rows above stay as written.
+        (heading, (25.0, 225.0), "A single heading row\nand a second row typed under it\n"),
+    ] {
+        let (editor, saved) = editor_and_saved_rows(bytes, at, text);
+        assert_eq!(
+            editor.iter().map(|r| r.0.split_whitespace().collect::<Vec<_>>().join(" ")).collect::<Vec<_>>(),
+            saved.iter().map(|r| r.0.split_whitespace().collect::<Vec<_>>().join(" ")).collect::<Vec<_>>(),
+            "{text:?}: the editor's rows are the saved rows"
+        );
+        for (e, s) in editor.iter().zip(&saved) {
+            assert!((e.1 - s.1).abs() <= 1.0, "{:?}: baseline {} on screen, saved at {}", e.0, e.1, s.1);
+            assert!((e.2 - s.2).abs() <= 1.0, "{:?}: left edge {} on screen, saved at {}", e.0, e.2, s.2);
+        }
+    }
+}
+
 #[test]
 fn editing_existing_text_in_place() {
     let mut h = harness(1, |_| {});
