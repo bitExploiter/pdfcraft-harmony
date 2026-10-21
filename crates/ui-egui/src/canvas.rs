@@ -3977,9 +3977,12 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     if let Some(done) = app.views[index].marquee_done.take() {
         app.finish_marquee(index, done);
     }
-    // The copied area and its menu belong to Snapshot: another tool puts them away.
+    // The copied area and its menu belong to Snapshot: another tool puts them away. The tool is
+    // the app's, not the tab's, so every tab's area goes, not only the one on screen.
     if tool != QuickTool::Snapshot {
-        app.views[index].area_pick = None;
+        for v in &mut app.views {
+            v.area_pick = None;
+        }
     }
     if let Some(choice) = app.views[index].area_choice.take()
         && let Some((page, area)) = app.views[index].area_pick
