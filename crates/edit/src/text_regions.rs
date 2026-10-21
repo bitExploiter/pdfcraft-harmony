@@ -71,7 +71,17 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
             scanned
                 && (mixed || same_style(prev, line))
                 && same_plane(prev, line)
-                && (prev.frame_origin().1 - line.frame_origin().1).abs() < prev.size.min(line.size) * 0.2
+                && if mixed && invisible(prev) && invisible(line) {
+                    // OCR fonts fit each word's ink box. Their synthetic baselines differ for
+                    // words with descenders; require substantial vertical overlap instead.
+                    let a = prev.frame_rect();
+                    let b = line.frame_rect();
+                    let overlap = a[3].min(b[3]) - a[1].max(b[1]);
+                    let height = (a[3] - a[1]).min(b[3] - b[1]);
+                    height > 0.0 && overlap > height * 0.5
+                } else {
+                    (prev.frame_origin().1 - line.frame_origin().1).abs() < prev.size.min(line.size) * 0.2
+                }
                 && gap >= -prev.size.min(line.size) * 0.2
                 && gap < prev.size.max(line.size) * 1.5
                 // Separate same-style text objects that merely touch or overlap, with no space
@@ -366,6 +376,30 @@ pub(super) fn rewrite_styled_block(
             metrics.insert(line.font.clone(), Metrics::from_dict(doc, &font));
         }
     }
+    // Empty Type 3 char procedures are searchable placeholders, not usable visible glyphs.
+    // Inspect only small, bounded programs; arbitrary Type 3 artwork stays untouched.
+    let blank_fonts: std::collections::HashSet<String> = fonts
+        .iter()
+        .take(256)
+        .filter_map(|(name, object)| {
+            let font = doc.dict(object)?;
+            if font.name(b"Subtype") != Some(b"Type3") {
+                return None;
+            }
+            let procs = font.get(b"CharProcs").and_then(|p| doc.dict(p))?;
+            if procs.is_empty() || procs.len() > 256 {
+                return None;
+            }
+            let blank = procs.iter().all(|(_, object)| {
+                let resolved = doc.resolve(object);
+                let Object::Stream(stream) = &*resolved else { return false };
+                let Ok(data) = stream.decoded_within(4096) else { return false };
+                let ops = parse(&data).ops;
+                !ops.is_empty() && ops.iter().all(|op| op.is("d0") || op.is("d1"))
+            });
+            blank.then(|| String::from_utf8_lossy(name).into_owned())
+        })
+        .collect();
     if [style.size, style.line_spacing, style.char_spacing, style.scale, style.width].iter().flatten().any(|v| !v.is_finite())
         || style.color.is_some_and(|c| c.iter().any(|v| !v.is_finite()))
     {
@@ -402,10 +436,12 @@ pub(super) fn rewrite_styled_block(
                     return Err(EditError::Invalid(format!("the selected font resource {resource} cannot show U+{:04X}", u32::from(ch))));
                 }
                 resource.clone()
-            } else if metrics.get(&source.font).is_some_and(|m| source_encodes(m, &s)) {
+            } else if !(invisible(source) && blank_fonts.contains(&source.font)) && metrics.get(&source.font).is_some_and(|m| source_encodes(m, &s)) {
                 source.font.clone()
-            } else if let Some((name, _)) = metrics.iter().find(|(_, m)| {
-                pdfcraft_fonts::embedding::face_key(&m.base_font) == pdfcraft_fonts::embedding::face_key(&source.base_font) && source_encodes(m, &s)
+            } else if let Some((name, _)) = metrics.iter().find(|(name, m)| {
+                !(invisible(source) && blank_fonts.contains(*name))
+                    && pdfcraft_fonts::embedding::face_key(&m.base_font) == pdfcraft_fonts::embedding::face_key(&source.base_font)
+                    && source_encodes(m, &s)
             }) {
                 name.clone()
             } else if let Some(face) =
@@ -489,6 +525,10 @@ pub(super) fn rewrite_styled_block(
     };
     // A source run may carry TJ kerning/justification that is absent from its text state.
     // Keep its measured advance when rebuilding the run instead of making it wrap on entry.
+    let mut replacement_resources = HashMap::new();
+    for (_, index, resource) in &chars {
+        replacement_resources.entry(*index).or_insert(resource);
+    }
     // Each font's space width, worked out once: when a font can't show a space, finding one
     // reads every font on the page, and doing that for every character of a paragraph made each
     // keystroke in a long paragraph take half a second (#2616).
@@ -505,18 +545,26 @@ pub(super) fn rewrite_styled_block(
     };
     let mut calibration = HashMap::new();
     for (index, source) in lines.iter().enumerate() {
-        if let Some(m) = metrics.get(&source.font) {
+        // OCR's empty Type 3 glyphs have synthetic advances. Calibrate the visible
+        // replacement face against the source word's measured width, not those advances.
+        let resource = if invisible(source) { replacement_resources.get(&index).copied().unwrap_or(&source.font) } else { &source.font };
+        if let Some(m) = metrics.get(resource) {
             let nominal = source_width(
                 m,
                 &source.text,
                 source.origin.state.font.as_ref().map_or(1.0, |(_, s)| *s),
-                space_of(&source.font, m),
+                space_of(resource, m),
                 source.origin.state.char_spacing,
                 source.origin.state.word_spacing,
             ) * source.origin.state.scale
                 * across(source);
             let changed_face = style.resource.is_some() || overrides.get(&index).is_some_and(|r| r.family.is_some() || r.resource.is_some());
-            let factor = if nominal > 0.0 && !changed_face { ((source.rect[2] - source.rect[0]) / nominal).clamp(0.5, 2.0) } else { 1.0 };
+            let factor = if nominal.is_finite() && nominal > 0.0 && !changed_face {
+                let ratio = (source.rect[2] - source.rect[0]) / nominal;
+                if invisible(source) { ratio.clamp(0.01, 100.0) } else { ratio.clamp(0.5, 2.0) }
+            } else {
+                1.0
+            };
             calibration.insert(index, factor);
         }
     }

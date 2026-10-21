@@ -2281,6 +2281,22 @@ key	Space	Spazio
 	Panels	Pannelli
 	Resize panels	Ridimensiona pannelli
 	Resize panel window	Ridimensiona finestra pannello
+	Scan and text recognition	Scansione e riconoscimento del testo
+	Searchable Image	Immagine ricercabile
+	Corrected scan	Scansione corretta
+	Scan correction	Correzione scansione
+	Automatically rotate sideways and upside-down pages	Ruota automaticamente le pagine laterali o capovolte
+	Straighten skewed scans	Raddrizza le scansioni inclinate
+	Add searchable text	Aggiungi testo ricercabile
+	Uncertain orientations are left unchanged. Deskew fits the full image inside the page.	Gli orientamenti incerti restano invariati. Il raddrizzamento mantiene l’intera immagine nella pagina.
+	Correct scans	Correggi scansioni
+	Scan processing cancelled	Elaborazione scansioni annullata
+	; 1 page skipped	; 1 pagina saltata
+	; {n} pages skipped	; {n} pagine saltate
+	; corrected {n} pages	; {n} pagine corrette
+	Crop scanner borders to the paper edge	Ritaglia i bordi della scansione fino al foglio
+	Safety margin (pt)	Margine di sicurezza (pt)
+	Only clear paper edges are cropped. Indistinguishable white borders are kept.	Vengono ritagliati solo i bordi riconoscibili del foglio. I bordi bianchi indistinguibili vengono mantenuti.
 
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	Pagina PDF: {size}
@@ -2391,6 +2407,7 @@ animation effects	Off	Disattivati
 	This document is trying to open a local file:	Questo documento sta tentando di aprire un file locale:
 	Move tag earlier	Sposta tag prima
 	Move tag later	Sposta tag dopo
+	Straighten scanned page	Raddrizza pagina scansionata
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Stai visualizzando la versione firmata di “{from}” (revisione {rev}). È un'istantanea: le modifiche qui non influiscono sull'originale.

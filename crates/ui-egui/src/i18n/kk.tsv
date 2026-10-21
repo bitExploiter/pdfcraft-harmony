@@ -2381,6 +2381,24 @@ animation effects	Off	Өшірулі
 	Move tag earlier	Тегті ертерек жылжыту
 	Move tag later	Тегті кейінірек жылжыту
 
+# Scan correction and multilingual OCR (#1012).
+	Scan and text recognition	Сканерлеу және мәтінді тану
+	Searchable Image	Іздеуге болатын сурет
+	Corrected scan	Түзетілген скан
+	Scan correction	Сканды түзету
+	Automatically rotate sideways and upside-down pages	Бүйіріне немесе төңкеріліп сканерленген беттерді автоматты түрде бұру
+	Straighten skewed scans	Қиғаш скандарды түзету
+	Add searchable text	Іздеуге болатын мәтінді қосу
+	Uncertain orientations are left unchanged. Deskew fits the full image inside the page.	Бағыт анық болмаса, ол өзгеріссіз қалады. Қиғаштықты түзету бүкіл суретті бетке сыйғызады.
+	Correct scans	Скандарды түзету
+	Scan processing cancelled	Сканды өңдеу тоқтатылды
+	; 1 page skipped	; 1 бет өткізіліп жіберілді
+	; {n} pages skipped	; {n} бет өткізіліп жіберілді
+	; corrected {n} pages	; {n} бет түзетілді
+	Crop scanner borders to the paper edge	Сканерленген суретті қағаз шетіне дейін қию
+	Safety margin (pt)	Қорғаныш жиегі (пт)
+	Only clear paper edges are cropped. Indistinguishable white borders are kept.	Тек анық қағаз шеттері қиылады. Ажыратылмайтын ақ жиектер сақталады.
+	Straighten scanned page	Сканерленген бетті түзету
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Сіз „{from}“ құжатының қол қойылған нұсқасын ({rev} нұсқа) қарап отырсыз. Бұл сақталған көшірме: мұндағы өзгерістер түпнұсқаға әсер етпейді.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Сіз „{from}“ құжатының {rev} нұсқасын қарап отырсыз. Бұл сақталған көшірме: мұндағы өзгерістер түпнұсқаға әсер етпейді.

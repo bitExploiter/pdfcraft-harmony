@@ -2684,6 +2684,24 @@ key	Space	Space
 	“{name}” changed on disk after it was opened or last saved. Saving now replaces that newer version with this one.	“{name}” đã thay đổi trên đĩa sau khi được mở hoặc lưu lần cuối. Lưu lúc này sẽ thay thế phiên bản mới hơn đó bằng phiên bản này.
 @id	file.word_count	Đếm từ…
 
+# PR #1012 OCR additions; native-speaker review pending.
+	; 1 page skipped	; đã bỏ qua 1 trang
+	; corrected {n} pages	; đã chỉnh sửa {n} trang
+	; {n} pages skipped	; đã bỏ qua {n} trang
+	Add searchable text	Thêm văn bản có thể tìm kiếm
+	Automatically rotate sideways and upside-down pages	Tự động xoay các trang nằm ngang hoặc bị lật ngược
+	Correct scans	Chỉnh sửa bản quét
+	Corrected scan	Bản quét đã chỉnh sửa
+	Crop scanner borders to the paper edge	Cắt bỏ viền bản quét theo mép giấy
+	Only clear paper edges are cropped. Indistinguishable white borders are kept.	Chỉ cắt khi xác định rõ mép giấy. Các viền trắng không thể phân biệt sẽ được giữ nguyên.
+	Safety margin (pt)	Lề an toàn (pt)
+	Scan and text recognition	Quét và nhận dạng văn bản
+	Scan correction	Chỉnh sửa bản quét
+	Scan processing cancelled	Đã hủy xử lý bản quét
+	Searchable Image	Ảnh có thể tìm kiếm
+	Straighten scanned page	Căn thẳng trang đã quét
+	Straighten skewed scans	Căn thẳng các bản quét bị nghiêng
+	Uncertain orientations are left unchanged. Deskew fits the full image inside the page.	Giữ nguyên hướng nếu không xác định chắc chắn. Khi căn thẳng, toàn bộ ảnh được đặt vừa trong trang.
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
