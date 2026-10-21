@@ -3915,8 +3915,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let cropped = view.pending_edit.as_ref().is_some_and(|e| matches!(e, pdfcraft_engine::Edit::SetPageBox { .. }));
     let mut tool = app.quick_tool;
     comments::keys(ui.ctx(), view, &mut tool, allowed);
-    if preparing {
-        crate::prepare::keys(ui.ctx(), view);
+    // Not behind a dialog: ⌘V or Delete there acted on the fields under it.
+    if preparing && unobstructed {
+        crate::prepare::keys(ui.ctx(), view, &form);
     }
     if editing_content {
         crate::content_ui::keys(ui.ctx(), view);

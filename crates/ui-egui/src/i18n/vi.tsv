@@ -2014,6 +2014,8 @@ comment menu	Edit	Sửa
 	Drag to draw the area where the signature should appear.	Kéo để vẽ vùng nơi chữ ký sẽ xuất hiện.
 	Dropdown Properties	Thuộc tính danh sách thả xuống
 	Duplicate field	Nhân bản trường
+	Paste field	Dán trường
+	Paste fields	Dán các trường
 	Duplicate page	Nhân bản trang
 	Each field needs a tooltip that says what to enter. Add one in Field Properties > General > Tooltip.	Mỗi trường cần có chú giải công cụ nói rõ cần nhập gì. Hãy thêm trong Thuộc tính trường > Chung > Chú giải công cụ.
 	Edit comment	Chỉnh sửa bình luận

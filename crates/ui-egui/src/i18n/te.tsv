@@ -1846,6 +1846,8 @@ action wizard	Start	ప్రారంభించు
 	Change field properties	ఫీల్డ్ లక్షణాలను మార్చు
 	Delete field	ఫీల్డ్‌ను తొలగించు
 	Duplicate field	ఫీల్డ్‌ను నకలు చేయి
+	Paste field	ఫీల్డ్‌ను అతికించు
+	Paste fields	ఫీల్డ్‌లను అతికించు
 	Set tab order	ట్యాబ్ క్రమాన్ని సెట్ చేయి
 	Change initial view	ప్రారంభ వీక్షణను మార్చు
 	Set alternate text	ప్రత్యామ్నాయ టెక్స్ట్‌ను సెట్ చేయి
