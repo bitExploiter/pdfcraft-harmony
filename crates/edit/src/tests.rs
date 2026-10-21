@@ -5218,3 +5218,29 @@ fn a_clipping_copy_on_the_same_baseline_is_refused() {
     assert!(matches!(&block, Err(EditError::Invalid(m)) if m.contains("clipping path")), "{block:?}");
     assert_eq!(text::text_lines(&doc, 0).unwrap().len(), 2, "refused means untouched");
 }
+
+#[test]
+fn turkish_text_round_trips_through_added_text_watermarks_and_paragraph_edits() {
+    let mut doc = text_page("BT /F1 12 Tf 72 700 Td (Hello world) Tj ET");
+    text::replace_block(&mut doc, 0, 0, "Pijamalı hasta, yağız şoföre çabucak güvendi. İSTANBUL IĞDIR").unwrap();
+    let idx = add_content(
+        &mut doc,
+        0,
+        &Content::Text(AddedText {
+            rect: [72.0, 560.0, 372.0, 600.0],
+            text: "GÜVENLİ İMZA & ŞİFRE".into(),
+            bold: true,
+            size: 14.0,
+            ..AddedText::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(idx, 0);
+    add_watermark(&mut doc, &[0], &Watermark { text: "ÖRNEK BELGE — İŞLENMİŞTİR".into(), ..Watermark::default() }, false).unwrap();
+    let reopened = reopen(&doc);
+    let blocks = text::text_blocks(&reopened, 0).unwrap();
+    assert!(blocks.iter().any(|b| b.text.contains("Pijamalı hasta, yağız şoföre çabucak güvendi. İSTANBUL IĞDIR")), "{blocks:?}");
+    let lines = text::text_lines(&reopened, 0).unwrap();
+    assert!(lines.iter().any(|l| l.text == "GÜVENLİ İMZA & ŞİFRE"), "{lines:?}");
+    assert!(lines.iter().any(|l| l.text == "ÖRNEK BELGE — İŞLENMİŞTİR"), "{lines:?}");
+}

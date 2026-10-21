@@ -806,11 +806,19 @@ impl Metrics {
         }
         match self.std14 {
             // A font with no /Widths is one of the standard 14; use its published metrics.
+            // When /Encoding or /Differences maps a code to a known character, measure that
+            // character's glyph rather than whatever WinAnsiEncoding has at the raw byte.
             // Codes the font's encoding leaves undefined fall back to /MissingWidth.
-            Some(f) => match u8::try_from(code).map(|c| f.width(c)).unwrap_or(0.0) {
-                0.0 => self.default * self.scale,
-                w => w / 1000.0,
-            },
+            Some(f) => {
+                let b = (!matches!(f, crate::Std14::Symbol | crate::Std14::ZapfDingbats))
+                    .then(|| self.unicode.encoding.get(&code).and_then(|t| only_char(t)).and_then(crate::win_ansi_byte))
+                    .flatten()
+                    .or_else(|| u8::try_from(code).ok());
+                match b.map(|c| f.width(c)).unwrap_or(0.0) {
+                    0.0 => self.default * self.scale,
+                    w => w / 1000.0,
+                }
+            }
             None => self.default * self.scale,
         }
     }

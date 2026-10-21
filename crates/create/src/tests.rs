@@ -1181,3 +1181,18 @@ fn a_jpeg_with_an_exif_orientation_becomes_an_upright_page() {
     let img = image_of(&doc, 1);
     assert_eq!((img.int(b"Width"), img.int(b"Height")), (Some(60), Some(20)));
 }
+
+#[test]
+fn turkish_text_creates_a_pdf_whose_text_extracts_cleanly() {
+    let turkish = "Pijamalı hasta, yağız şoföre çabucak güvendi.\nPİJAMALI HASTA, YAĞIZ ŞOFÖRE ÇABUCAK GÜVENDİ.";
+    let doc = reopen(&from_text("Türkçe", turkish, (612.0, 792.0), 11.0).unwrap());
+    let page = &pages(&doc)[0];
+    let res = doc.resolve(page.get(b"Resources").unwrap()).as_dict().cloned().unwrap();
+    let fonts = doc.resolve(res.get(b"Font").unwrap()).as_dict().cloned().unwrap();
+    let f1 = doc.resolve(fonts.get(b"F1").unwrap()).as_dict().cloned().unwrap();
+    let m = pdfcraft_fonts::pdf::Metrics::from_dict(&doc, &f1);
+    for line in turkish.lines() {
+        let encoded = pdfcraft_fonts::win_ansi(line);
+        assert_eq!(m.decode(&encoded), line);
+    }
+}

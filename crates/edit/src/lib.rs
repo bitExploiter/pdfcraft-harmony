@@ -304,11 +304,16 @@ fn add_resources(doc: &mut Document, page: &pdfcraft_model::Page, opacity: Optio
         if name != b"PCHelv" && !content.is_some_and(|c| c.windows(name.len() + 1).any(|w| w[0] == b'/' && &w[1..] == name)) {
             continue;
         }
+        let has_turkish = content.is_some_and(pdfcraft_fonts::has_turkish_bytes)
+            || fonts
+                .get(name)
+                .and_then(|f| doc.resolve(f).as_dict().and_then(|d| d.get(b"Encoding")).map(|e| doc.resolve(e).as_dict().is_some()))
+                .unwrap_or(false);
         let mut font = Dict::new();
         font.set(b"Type".to_vec(), Object::name("Font"));
         font.set(b"Subtype".to_vec(), Object::name("Type1"));
         font.set(b"BaseFont".to_vec(), Object::name(base));
-        font.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
+        font.set(b"Encoding".to_vec(), if has_turkish { pdfcraft_fonts::turkish_encoding() } else { Object::name("WinAnsiEncoding") });
         fonts.set(name.to_vec(), Object::Dict(font));
     }
     res.set(b"Font".to_vec(), Object::Dict(fonts));
@@ -676,7 +681,7 @@ pub fn add_header_footer(doc: &mut Document, pages: &[usize], hf: &HeaderFooter,
         let mut content = begin(MarkKind::HeaderFooter, "Header", page.view_matrix(doc)).into_bytes();
         content.extend(body);
         content.extend_from_slice(END.as_bytes());
-        add_resources(doc, page, None, None)?;
+        add_resources(doc, page, None, Some(&content))?;
         let page = &page_list(doc)[i];
         place(doc, page, MarkKind::HeaderFooter, content, false)?;
     }
@@ -749,7 +754,7 @@ pub fn add_watermark(doc: &mut Document, pages: &[usize], wm: &Watermark, replac
         }
         content.extend_from_slice(b"ET\n");
         content.extend_from_slice(END.as_bytes());
-        add_resources(doc, &page, Some(opacity), None)?;
+        add_resources(doc, &page, Some(opacity), Some(&content))?;
         let page = &page_list(doc)[i];
         place(doc, page, MarkKind::Watermark, content, wm.behind)?;
     }

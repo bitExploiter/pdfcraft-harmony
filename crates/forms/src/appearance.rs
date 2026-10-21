@@ -220,12 +220,12 @@ fn dr_font(doc: &Document, name: &str) -> Option<(Object, FontText)> {
     Some((entry, FontText::Simple(Box::new(Metrics::from_dict(doc, fd)))))
 }
 
-fn helvetica() -> Object {
+fn helvetica(turkish: bool) -> Object {
     let mut f = Dict::new();
     f.set(b"Type".to_vec(), Object::name("Font"));
     f.set(b"Subtype".to_vec(), Object::name("Type1"));
     f.set(b"BaseFont".to_vec(), Object::name("Helvetica"));
-    f.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
+    f.set(b"Encoding".to_vec(), if turkish { pdfcraft_fonts::turkish_encoding() } else { Object::name("WinAnsiEncoding") });
     Object::Dict(f)
 }
 
@@ -454,9 +454,14 @@ pub fn field_appearance_drawn(doc: &Document, f: &Field, w: &Widget, values: &[S
             enc.can_encode(&text)
         }
     };
+    let turkish = if f.kind == FieldKind::List {
+        f.options.iter().any(|(_, display)| pdfcraft_fonts::has_turkish(display))
+    } else {
+        pdfcraft_fonts::has_turkish(&text)
+    };
     let (font_name, font_obj, enc) = match dr_font(doc, &da.font).filter(|(_, enc)| can_show(enc)) {
         Some((o, enc)) => (da.font.clone(), o, enc),
-        None => ("Helv".to_string(), helvetica(), FontText::WinAnsi),
+        None => ("Helv".to_string(), helvetica(turkish), FontText::WinAnsi),
     };
     let width_of = |text: &str, size: f64| enc.width(text, size);
     let (mut c, bw) = frame(doc, &wd, width, height);

@@ -2277,3 +2277,17 @@ fn document_scripts_read_each_name_tree_node_once() {
     ]);
     assert_eq!(document_scripts_named(&doc), [("init".to_string(), "var ready = true;".to_string())]);
 }
+
+#[test]
+fn turkish_field_values_and_button_captions_draw_without_undrawn_marks() {
+    let mut doc = one_page();
+    add_field(&mut doc, 0, [72.0, 700.0, 272.0, 724.0], &NewField::Text { multiline: false }, Some("sehir")).unwrap();
+    set_value(&mut doc, "sehir", &FieldValue::Text("İstanbul — Iğdır, Şırnak, Gümüşhane".into())).unwrap();
+    add_field(&mut doc, 0, [72.0, 650.0, 172.0, 674.0], &NewField::Button { caption: "GÖNDER / İMZALA".into() }, Some("gonder")).unwrap();
+    let all = fields(&doc);
+    for name in ["sehir", "gonder"] {
+        let w = &field(&all, name).widgets[0];
+        let d = doc.get(w.obj).as_dict().cloned().unwrap();
+        assert_eq!(pdfcraft_fonts::undrawn_mark(&d), None, "{name}");
+    }
+}

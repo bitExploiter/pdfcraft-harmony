@@ -2176,8 +2176,32 @@ impl Interp<'_> {
                 Val::Str(s.chars().skip(len.saturating_sub(k)).collect())
             }
             "len" => Val::Num(self.arg_str(args, 0)?.chars().count() as f64),
-            "lower" => Val::Str(self.arg_str(args, 0)?.to_lowercase()),
-            "upper" => Val::Str(self.arg_str(args, 0)?.to_uppercase()),
+            "lower" => {
+                let s = self.arg_str(args, 0)?;
+                let turkish = s.chars().any(|c| matches!(c, 'Ğ' | 'ğ' | 'İ' | 'ı' | 'Ş' | 'ş'));
+                Val::Str(
+                    s.chars()
+                        .flat_map(|c| match c {
+                            'İ' => 'i'.to_lowercase(),
+                            'I' if turkish => 'ı'.to_lowercase(),
+                            _ => c.to_lowercase(),
+                        })
+                        .collect(),
+                )
+            }
+            "upper" => {
+                let s = self.arg_str(args, 0)?;
+                let turkish = s.chars().any(|c| matches!(c, 'Ğ' | 'ğ' | 'İ' | 'ı' | 'Ş' | 'ş'));
+                Val::Str(
+                    s.chars()
+                        .flat_map(|c| match c {
+                            'i' if turkish => 'İ'.to_uppercase(),
+                            'ı' => 'I'.to_uppercase(),
+                            _ => c.to_uppercase(),
+                        })
+                        .collect(),
+                )
+            }
             "ltrim" => Val::Str(self.arg_str(args, 0)?.trim_start().to_string()),
             "rtrim" => Val::Str(self.arg_str(args, 0)?.trim_end().to_string()),
             "space" => {

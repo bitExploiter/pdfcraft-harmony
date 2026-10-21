@@ -804,7 +804,7 @@ fn button_appearance(doc: &Document, w: &Widget) -> (Stream, Option<char>) {
     font.set(b"Type".to_vec(), Object::name("Font"));
     font.set(b"Subtype".to_vec(), Object::name("Type1"));
     font.set(b"BaseFont".to_vec(), Object::name("Helvetica"));
-    font.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
+    font.set(b"Encoding".to_vec(), pdfcraft_fonts::standard_encoding(&caption));
     let mut fonts = Dict::new();
     fonts.set(b"Helv".to_vec(), Object::Dict(font));
     let mut res = Dict::new();

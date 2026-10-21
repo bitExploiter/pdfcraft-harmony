@@ -809,8 +809,13 @@ fn printx(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue>
     let src: Vec<char> = text(&arg(args, 1), ctx)?.chars().collect();
     let (mut out, mut j, mut case) = (String::new(), 0, 0);
     let mut i = 0;
+    let turkish = src.iter().any(|c| matches!(c, 'Ğ' | 'ğ' | 'İ' | 'ı' | 'Ş' | 'ş'));
     let push = |out: &mut String, c: char, case: i32| match case {
+        1 if turkish && c == 'i' => out.push('İ'),
+        1 if c == 'ı' => out.push('I'),
         1 => out.extend(c.to_uppercase()),
+        -1 if c == 'İ' => out.push('i'),
+        -1 if turkish && c == 'I' => out.push('ı'),
         -1 => out.extend(c.to_lowercase()),
         _ => out.push(c),
     };

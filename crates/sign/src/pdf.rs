@@ -2180,11 +2180,12 @@ fn appearance(doc: &mut Document, rect: [f64; 4], name: &str, cert: &Certificate
     d.set(b"Type".to_vec(), Object::name("XObject"));
     d.set(b"Subtype".to_vec(), Object::name("Form"));
     d.set(b"BBox".to_vec(), Object::Array([0.0, 0.0, w, h].iter().map(|x| Object::Real(*x)).collect()));
+    let turkish = (a.name && opts.graphic.is_none() && pdfcraft_fonts::has_turkish(name)) || lines.iter().any(|l| pdfcraft_fonts::has_turkish(l));
     let mut font = Dict::new();
     font.set(b"Type".to_vec(), Object::name("Font"));
     font.set(b"Subtype".to_vec(), Object::name("Type1"));
     font.set(b"BaseFont".to_vec(), Object::name("Helvetica"));
-    font.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
+    font.set(b"Encoding".to_vec(), if turkish { pdfcraft_fonts::turkish_encoding() } else { Object::name("WinAnsiEncoding") });
     let mut fonts = Dict::new();
     fonts.set(b"Helv".to_vec(), Object::Dict(font));
     let mut res = Dict::new();
