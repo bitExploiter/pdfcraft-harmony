@@ -123,6 +123,7 @@
 	Next page	Келесі бет
 	Previous page	Алдыңғы бет
 	Current page — type a page number or label (such as iv) and press Enter	Ағымдағы бет — бет нөмірін немесе белгісін (мысалы, iv) теріңіз де, Enter пернесін басыңыз
+	Zoom — type a percentage and press Enter	Масштаб — пайызды енгізіп, Enter пернесін басыңыз
 	Welcome to PdfCraft	PdfCraft-ге қош келдіңіз
 	An open-source PDF workbench — local, private, and scriptable.	Ашық бастапқы кодты PDF жұмыс орны — жергілікті, жеке әрі скрипттерді қолдайтын.
 	Join the ArtCraft community	ArtCraft қауымдастығына қосылыңыз
@@ -1634,6 +1635,7 @@
 	Couldn't use {name}: {e}	{name} файлын пайдалану мүмкін болмады: {e}
 	Couldn't extract pages: {e}	Беттерді шығарып алу мүмкін болмады: {e}
 	Couldn't write {name}: {e}	{name} файлына жазу мүмкін болмады: {e}
+	the name is not a plain file name	атау қарапайым файл атауы емес
 	Wrote 1 file to {dir}	1 файл {dir} ішіне жазылды
 	Wrote {n} files to {dir}	{n} файл {dir} ішіне жазылды
 	No pages match those choices	Ешбір бет бұл таңдауларға сәйкес келмейді
@@ -2326,6 +2328,7 @@ animation effects	Off	Өшірулі
 	no unused output name	бос шығыс атауы жоқ
 	no output folder was chosen	шығыс қалтасы таңдалмады
 @plural	Downloaded {n} PDF|Downloaded {n} PDFs	{n} PDF жүктелді|{n} PDF жүктелді
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	{n} есептеу енді жаңа атауды пайдаланады.|{n} есептеу енді жаңа атауды пайдаланады.
 @plural	{n} field name collides with earlier files and will be renamed: {list}|{n} field names collide with earlier files and will be renamed: {list}	{n} өріс атауы алдыңғы файлдармен қайшы келеді және қайта аталады: {list}|{n} өріс атауы алдыңғы файлдармен қайшы келеді және қайта аталады: {list}
 	Scan	Сканерлеу
 	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	Ақ қағаз парағына қол қойып, оны жарық әрі біркелкі жарықта суретке түсіріңіз (жарқылды қосыңыз). Суретті таңдаңыз немесе осында тастаңыз: PdfCraft қолтаңбаны тауып, қағазды алып тастайды.
@@ -2430,3 +2433,12 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+	Font	Қаріп
+	Bulleted list	Таңбалауыш тізім
+	Numbered list	Нөмірленген тізім
+	Alignment	Туралау
+	Superscript	Жоғарғы индекс
+	Subscript	Төменгі индекс
+	Paragraph spacing	Абзац аралығы
+	Less	Азырақ
+	Other options	Басқа параметрлер

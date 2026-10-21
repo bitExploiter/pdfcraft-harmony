@@ -87,6 +87,108 @@ fn ap(doc: &Document, w: &Widget) -> String {
     String::from_utf8_lossy(&s.decoded().unwrap()).into_owned()
 }
 
+#[test]
+fn button_caption_preserves_other_widgets_and_shared_dictionaries() {
+    for indirect_caption in [false, true] {
+        let mut doc = one_page();
+        let a = add_field(&mut doc, 0, [40.0, 600.0, 200.0, 630.0], &NewField::Button { caption: "Original".into() }, Some("first")).unwrap();
+        let b = add_field(&mut doc, 0, [40.0, 500.0, 200.0, 530.0], &NewField::Button { caption: "Original".into() }, Some("second")).unwrap();
+        let all = fields(&doc);
+        let (first, second) = (field(&all, &a).obj, field(&all, &b).obj);
+        let mut parent = Dict::new();
+        parent.set(b"FT".to_vec(), Object::name("Btn"));
+        parent.set(b"Ff".to_vec(), Object::Int(flags::PUSH_BUTTON as i64));
+        parent.set(b"T".to_vec(), PdfString::text("clear_button"));
+        parent.set(b"Kids".to_vec(), Object::Array(vec![Object::Ref(first), Object::Ref(second)]));
+        let mut action = Dict::new();
+        action.set(b"S".to_vec(), Object::name("ResetForm"));
+        parent.set(b"A".to_vec(), Object::Dict(action.clone()));
+        let parent = doc.add(parent);
+        let mut mk = Dict::new();
+        let ca = Object::String(PdfString::text("Original"));
+        let ca = if indirect_caption { Object::Ref(doc.add(ca)) } else { ca };
+        mk.set(b"CA".to_vec(), ca);
+        mk.set(b"TP".to_vec(), Object::Int(0));
+        mk.set(b"R".to_vec(), Object::Int(90));
+        mk.set(b"VendorNote".to_vec(), PdfString::text("kept"));
+        let mk = doc.add(mk);
+        let mut shared_ap = doc.get(first).as_dict().unwrap().get(b"AP").unwrap().as_dict().unwrap().clone();
+        let normal = shared_ap.get(b"N").unwrap().clone();
+        shared_ap.set(b"R".to_vec(), normal.clone());
+        shared_ap.set(b"D".to_vec(), normal);
+        shared_ap.set(b"VendorAP".to_vec(), PdfString::text("kept"));
+        let shared_ap = doc.add(shared_ap);
+        for widget in [first, second] {
+            doc.update_dict(widget, |d| {
+                for key in [b"FT".as_slice(), b"Ff", b"T"] {
+                    d.remove(key);
+                }
+                d.set(b"Parent".to_vec(), Object::Ref(parent));
+                d.set(b"MK".to_vec(), Object::Ref(mk));
+                d.set(b"AP".to_vec(), Object::Ref(shared_ap));
+            })
+            .unwrap();
+        }
+        let af = doc.get(doc.root().unwrap()).as_dict().unwrap().reference(b"AcroForm").unwrap();
+        doc.update_dict(af, |d| d.set(b"Fields".to_vec(), Object::Array(vec![Object::Ref(parent)]))).unwrap();
+        let original = pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap();
+        let original = Document::open(Arc::new(original)).unwrap();
+        // Full saves can renumber objects: reacquire references from the reopened model.
+        let f = field(&fields(&original), "clear_button").clone();
+        let first = f.widgets[0].obj;
+        let mk = original.get(first).as_dict().unwrap().reference(b"MK").unwrap();
+        for full in [false, true] {
+            let mut doc = original.clone();
+            let untouched = doc.get(first).clone();
+            let shared_mk = doc.get(mk).clone();
+            assert_eq!(field(&fields(&doc), "clear_button").widgets[1].caption.as_deref(), Some("Original"));
+            set_props(&mut doc, "clear_button", &FieldProps { caption: Some((1, "Clear Form".into())), ..Default::default() }).unwrap();
+            assert_eq!(doc.get(first), untouched, "the other widget and all its appearances are untouched");
+            assert_eq!(doc.get(mk), shared_mk, "shared MK is not patched in place");
+            let bytes = if full {
+                pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap()
+            } else {
+                let bytes = write_incremental(&doc, &SaveOptions::default()).unwrap();
+                assert!(bytes.starts_with(original.bytes().as_slice()));
+                assert!(bytes.len() > original.bytes().len());
+                bytes
+            };
+            let doc = Document::open(Arc::new(bytes)).unwrap();
+            let f = field(&fields(&doc), "clear_button").clone();
+            assert_eq!(f.widgets.iter().map(|w| w.caption.as_deref()).collect::<Vec<_>>(), [Some("Original"), Some("Clear Form")]);
+            assert_eq!(f.button, Some(af::ButtonAction::Reset { fields: Vec::new(), exclude: false }));
+            assert_eq!(doc.get(f.obj).as_dict().unwrap().get(b"A"), Some(&Object::Dict(action.clone())));
+            let w = doc.get(f.widgets[1].obj);
+            let mk = w.as_dict().unwrap().get(b"MK").unwrap().as_dict().unwrap();
+            assert_eq!(mk.get(b"VendorNote").unwrap().as_string().unwrap().to_text(), "kept");
+            assert_eq!(mk.get(b"R").unwrap().as_int(), Some(90));
+            assert_eq!(mk.get(b"TP").unwrap().as_int(), Some(0));
+            let apd = w.as_dict().unwrap().get(b"AP").unwrap().as_dict().unwrap();
+            assert!(apd.contains(b"VendorAP"));
+            assert!(!apd.contains(b"R") && !apd.contains(b"D"), "stale hover/pressed text must not survive");
+            assert!(ap(&doc, &f.widgets[1]).contains("(Clear Form) Tj"));
+        }
+    }
+}
+
+#[test]
+fn button_caption_rejects_wrong_type_and_index_before_mutation() {
+    let mut doc = fixture();
+    for (name, wi) in [("name", 0), ("agree", 0), ("go", usize::MAX)] {
+        let before = pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap();
+        let props = FieldProps { caption: Some((wi, "Clear Form".into())), name: Some("renamed".into()), ..Default::default() };
+        assert!(set_props(&mut doc, name, &props).is_err());
+        assert_eq!(pdfcraft_cos::write_full(&doc, &SaveOptions::default()).unwrap(), before);
+    }
+    set_props(&mut doc, "go", &FieldProps { caption: Some((0, "提交".into())), ..Default::default() }).unwrap();
+    assert_eq!(field(&fields(&doc), "go").widgets[0].caption.as_deref(), Some("提交"));
+    assert_eq!(undrawn_fields(&doc), [("go".to_string(), '提')]);
+    set_props(&mut doc, "go", &FieldProps { caption: Some((0, String::new())), ..Default::default() }).unwrap();
+    assert_eq!(field(&fields(&doc), "go").widgets[0].caption.as_deref(), Some(""));
+    assert!(undrawn_fields(&doc).is_empty());
+    assert!(!ap(&doc, &field(&fields(&doc), "go").widgets[0]).contains(" Tj"));
+}
+
 /// Read the drawn strings together with the appearance's actual font after saving and reopening.
 fn appearance_text(doc: &Document, w: &Widget, font_name: &[u8]) -> (Object, Vec<Vec<u8>>) {
     let widget = doc.get(w.obj);
@@ -946,6 +1048,84 @@ fn formats_validation_and_calculations_run_like_acrobat() {
     assert_eq!(field(&fields(&doc), "Price").actions.format, Format::None);
 }
 
+/// Renaming a field renames it in the calculations that read it: a sum dropped it, notation
+/// read it as 0 and a script read a field that no longer existed.
+#[test]
+fn renaming_a_field_renames_it_in_the_calculations_that_read_it() {
+    use crate::af::{CalcOp, Calculate};
+    let mut doc = one_page();
+    let text = NewField::Text { multiline: false };
+    for (i, name) in ["a", "b", "sum", "product", "script"].into_iter().enumerate() {
+        let y = 700.0 - 40.0 * i as f64;
+        add_field(&mut doc, 0, [50.0, y, 250.0, y + 20.0], &text, Some(name)).unwrap();
+    }
+    let calculate = |c: Calculate| FieldProps { calculate: Some(c), ..FieldProps::default() };
+    set_props(&mut doc, "sum", &calculate(Calculate::Simple { op: CalcOp::Sum, fields: vec!["a".into(), "b".into()] })).unwrap();
+    set_props(&mut doc, "product", &calculate(Calculate::Notation("a * b + ab".into()))).unwrap();
+    set_field_script(&mut doc, "script", "calculate", Some("event.value = getField(\"a\").value + getField(\"b\").value;")).unwrap();
+    set_props(&mut doc, "a", &FieldProps { name: Some("qty".into()), ..FieldProps::default() }).unwrap();
+    let check = |doc: &Document| {
+        let all = fields(doc);
+        assert_eq!(field(&all, "sum").actions.calculate, Calculate::Simple { op: CalcOp::Sum, fields: vec!["qty".into(), "b".into()] });
+        assert_eq!(field(&all, "product").actions.calculate, Calculate::Notation("qty * b + ab".into()));
+        let script = field(&all, "script").actions.scripts.calculate.clone();
+        assert_eq!(script.as_deref(), Some("event.value = getField(\"qty\").value + getField(\"b\").value;"));
+    };
+    check(&doc);
+    let mut doc = reopen(&doc);
+    check(&doc);
+    set_value(&mut doc, "qty", &FieldValue::Text("10".into())).unwrap();
+    set_value(&mut doc, "b", &FieldValue::Text("2".into())).unwrap();
+    let all = fields(&doc);
+    assert_eq!((field(&all, "sum").value.clone(), field(&all, "product").value.clone()), (vec!["12".to_string()], vec!["20".to_string()]));
+}
+
+/// The rename reaches a script stored as a stream, an indirect action and the only widget's
+/// actions; it leaves a script that isn't UTF-8 as it is, and a name another field still has.
+#[test]
+fn a_rename_reaches_every_stored_form_of_a_calculation() {
+    let widget = |name: &str, y: u32, rest: &str| {
+        format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [50 {y} 250 {}] /P 3 0 R {rest} >>", y + 20)
+    };
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+        "<< /Type /Page /Parent 2 0 R /Annots [5 0 R 6 0 R 7 0 R 11 0 R 12 0 R 13 0 R 15 0 R] >>".into(),
+        "<< /Fields [5 0 R 6 0 R 7 0 R 11 0 R 12 0 R 13 0 R 14 0 R] /DA (/Helv 0 Tf 0 g) >>".into(),
+        widget("a", 700, ""),
+        widget("stream", 660, "/AA << /C 8 0 R >>"),
+        widget("bytes", 620, "/AA << /C << /S /JavaScript /JS 10 0 R >> >>"),
+        "<< /S /JavaScript /JS 9 0 R >>".into(),
+        "<< /Length 34 >>\nstream\nevent.value = getField(\"a\").value;\nendstream".into(),
+        "<< /Length 85 /Filter /ASCIIHexDecode >>\nstream\n2F2A20FF202A2F206576656E742E76616C7565203D206765744669656C6428226122292E76616C75653B>\nendstream".into(),
+        widget("dup", 580, ""),
+        widget("dup", 540, ""),
+        widget("both", 500, "/AA << /C << /S /JavaScript /JS (AFSimple_Calculate\\(\"SUM\", new Array\\(\"dup\", \"a\"\\)\\);) >> >>"),
+        "<< /FT /Tx /T (kid) /Kids [15 0 R] >>".into(),
+        "<< /Type /Annot /Subtype /Widget /Parent 14 0 R /Rect [50 460 250 480] /P 3 0 R /AA << /C << /S /JavaScript /JS (event.value = getField\\('a'\\).value;) >> >> >>".into(),
+    ];
+    let mut doc = document(&objs);
+    let calc = |doc: &Document, name: &str| {
+        let all = fields(doc);
+        let f = field(&all, name);
+        (f.actions.calculate.clone(), f.actions.scripts.calculate.clone().unwrap_or_default())
+    };
+    assert!(calc(&doc, "stream").1.contains("getField(\"a\")"), "{:?}", calc(&doc, "stream"));
+    set_props(&mut doc, "a", &FieldProps { name: Some("qty".into()), ..FieldProps::default() }).unwrap();
+    let doc = reopen(&doc);
+    assert_eq!(calc(&doc, "stream").1, "event.value = getField(\"qty\").value;");
+    assert_eq!(calc(&doc, "kid").1, "event.value = getField(\"qty\").value;");
+    assert!(calc(&doc, "bytes").1.contains("getField(\"a\")"), "a script that isn't UTF-8 is not written back");
+    assert_eq!(calc(&doc, "both").0, af::Calculate::Simple { op: af::CalcOp::Sum, fields: vec!["dup".into(), "qty".into()] });
+    let mut doc = doc;
+    set_props(&mut doc, "dup", &FieldProps { name: Some("dup2".into()), ..FieldProps::default() }).unwrap();
+    assert_eq!(
+        calc(&doc, "both").0,
+        af::Calculate::Simple { op: af::CalcOp::Sum, fields: vec!["dup".into(), "qty".into()] },
+        "the other dup keeps the name"
+    );
+}
+
 #[test]
 fn new_text_fields_fit_their_box() {
     // #1888: a fixed 12 pt was clipped in a short box. New text and date fields take Acrobat's
@@ -1409,6 +1589,54 @@ fn detection_finds_blanks_rules_boxes_and_names_them() {
     // An existing field there: nothing new.
     let again = detect(&words, &shapes, &found.iter().map(|c| c.rect).collect::<Vec<_>>(), &[]);
     assert!(again.is_empty(), "{again:?}");
+}
+
+#[test]
+fn detection_makes_a_row_of_touching_cells_one_comb_field() {
+    use crate::detect::*;
+    let w = |t: &str, x0: f64, y0: f64, x1: f64| Word { text: t.into(), rect: [x0, y0, x1, y0 + 10.0] };
+    let words = vec![
+        w("Postcode", 40.0, 205.0, 85.0),
+        w("A", 88.0, 205.0, 95.0),
+        w("Postcode", 40.0, 105.0, 85.0),
+        w("B", 88.0, 105.0, 95.0),
+        w("Yes", 70.0, 41.0, 90.0),
+    ];
+    let row = |n: usize, x: f64, y: f64, cw: f64, ch: f64| (0..n).map(move |i| [x + i as f64 * cw, y, x + (i + 1) as f64 * cw, y + ch]);
+    // 18 x 22 cells (too tall for a check box), 16 x 20 cells (each one check-box sized) drawn
+    // right to left, and a lone square.
+    let mut boxes: Vec<[f64; 4]> = row(5, 120.0, 200.0, 18.0, 22.0).collect();
+    boxes.extend(row(10, 120.0, 100.0, 16.0, 20.0).rev());
+    boxes.push([50.0, 40.0, 62.0, 52.0]);
+    let found = detect(&words, &Shapes { boxes, rules: Vec::new() }, &[], &[]);
+    let got: Vec<(&str, &Kind, [f64; 4])> = found.iter().map(|c| (c.name.as_str(), &c.kind, c.rect)).collect();
+    assert_eq!(
+        got,
+        [
+            ("Postcode A", &Kind::Comb { cells: 5 }, [120.0, 200.0, 210.0, 222.0]),
+            ("Postcode B", &Kind::Comb { cells: 10 }, [120.0, 100.0, 280.0, 120.0]),
+            ("Yes", &Kind::CheckBox, [50.0, 40.0, 62.0, 52.0]),
+        ],
+        "{found:?}"
+    );
+    // Squares with a gap between them stay check boxes, and so do touching squares of
+    // different sizes.
+    let apart = Shapes {
+        boxes: vec![[50.0, 40.0, 62.0, 52.0], [66.0, 40.0, 78.0, 52.0], [80.0, 40.0, 92.0, 52.0], [92.0, 40.0, 102.0, 52.0]],
+        rules: Vec::new(),
+    };
+    let kinds: Vec<Kind> = detect(&[], &apart, &[], &[]).into_iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, [Kind::CheckBox, Kind::CheckBox, Kind::CheckBox, Kind::CheckBox]);
+    // An empty table of cells wider than tall (an attendance sheet) is not a comb.
+    let grid = |cw: f64, ch: f64| {
+        (0..3).flat_map(move |r| {
+            (0..3).map(move |c| [100.0 + c as f64 * cw, 300.0 + r as f64 * ch, 100.0 + (c + 1) as f64 * cw, 300.0 + (r + 1) as f64 * ch])
+        })
+    };
+    for (cw, ch) in [(24.0, 18.0), (28.0, 20.0)] {
+        let table = detect(&[], &Shapes { boxes: grid(cw, ch).collect(), rules: Vec::new() }, &[], &[]);
+        assert!(table.is_empty(), "{cw} x {ch}: {table:?}");
+    }
 }
 
 #[test]
@@ -2020,6 +2248,29 @@ fn page_shapes_accepts_rectangle_closure_and_paint_variants() {
         let shapes = detection_test_shapes(content.as_bytes());
         assert_eq!(shapes.boxes, [[50.0, 100.0, 170.0, 140.0]], "{end}");
         assert!(shapes.rules.is_empty(), "rectangle edges must not become extra fields: {end}");
+    }
+}
+
+/// #2942: a cell drawn with a point in the middle of each vertical side (the French 2042 form's
+/// letter cells), or on every side, is the rectangle it looks like. A point that turns back
+/// along a side is not on the way between its neighbours, so such a path is still not a box.
+#[test]
+fn page_shapes_reads_rectangles_with_points_along_their_sides() {
+    for content in [
+        "100 100 m 111.1 100 l 111.1 107.35 l 111.1 114.7 l 100 114.7 l 100 107.35 l h f",
+        "100 100 m 105 100 l 111.1 100 l 111.1 107.35 l 111.1 114.7 l 105 114.7 l 100 114.7 l 100 107.35 l h S",
+        "100 107.35 m 100 100 l 111.1 100 l 111.1 114.7 l 100 114.7 l h f",
+    ] {
+        let shapes = detection_test_shapes(content.as_bytes());
+        assert_eq!(shapes.boxes, [[100.0, 100.0, 111.1, 114.7]], "{content}");
+    }
+    for content in [
+        // Out past the corner and back: a spike, not a side.
+        "100 100 m 130 100 l 111.1 100 l 111.1 114.7 l 100 114.7 l h S",
+        // A sixth point off the sides.
+        "100 100 m 111.1 100 l 115 107 l 111.1 114.7 l 100 114.7 l 100 107.35 l h S",
+    ] {
+        assert!(detection_test_shapes(content.as_bytes()).boxes.is_empty(), "{content}");
     }
 }
 

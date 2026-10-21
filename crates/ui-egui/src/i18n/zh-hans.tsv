@@ -1130,6 +1130,7 @@
 	Next page	下一页
 	Previous page	上一页
 	Current page — type a page number or label (such as iv) and press Enter	当前页 — 输入页码或标签（如 iv）后按 Enter
+	Zoom — type a percentage and press Enter	缩放 — 输入百分比并按 Enter
 	Open a PDF ({key})	打开 PDF ({key})
 	Dark gray theme	深灰色主题
 	Light theme	浅色主题
@@ -1671,6 +1672,7 @@
 	Couldn't use {name}: {e}	无法使用{name}：{e}
 	Couldn't extract pages: {e}	无法提取页面：{e}
 	Couldn't write {name}: {e}	无法写入{name}：{e}
+	the name is not a plain file name	名称不是单纯的文件名
 	Wrote 1 file to {dir}	已将 1 个文件写入{dir}
 	Wrote {n} files to {dir}	已将{n}个文件写入{dir}
 	No pages match those choices	所选条件没有匹配的页面
@@ -2303,6 +2305,7 @@ animation effects	Off	关
 	no unused output name	没有可用的输出文件名
 	no output folder was chosen	未选择输出文件夹
 @plural	Downloaded {n} PDF|Downloaded {n} PDFs	已下载 {n} 个 PDF
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	{n} 个计算已改用新名称。
 	Scan	扫描
 	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	在白纸上签名，并在明亮、均匀的光线下拍照（使用闪光灯）。选择照片或将其拖放到此处：PdfCraft 会找到签名并去除纸张背景。
 	Choose photo…	选择照片…
@@ -2396,3 +2399,12 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+	Font	字体
+	Bulleted list	项目符号列表
+	Numbered list	编号列表
+	Alignment	对齐
+	Superscript	上标
+	Subscript	下标
+	Paragraph spacing	段落间距
+	Less	收起
+	Other options	其他选项

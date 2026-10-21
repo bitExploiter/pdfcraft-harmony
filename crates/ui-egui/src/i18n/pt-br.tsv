@@ -1067,6 +1067,7 @@
 	Next page	Próxima página
 	Previous page	Página anterior
 	Current page — type a page number or label (such as iv) and press Enter	Página atual — digite o número da página ou rótulo (como iv) e pressione Enter
+	Zoom — type a percentage and press Enter	Zoom — digite uma porcentagem e pressione Enter
 	Open a PDF ({key})	Abrir um PDF ({key})
 	Dark gray theme	Tema cinza escuro
 	Light theme	Tema claro
@@ -1538,6 +1539,7 @@
 	Couldn't use {name}: {e}	Não foi possível usar {name}: {e}
 	Couldn't extract pages: {e}	Não foi possível extrair páginas: {e}
 	Couldn't write {name}: {e}	Não foi possível gravar {name}: {e}
+	the name is not a plain file name	o nome não é um nome de arquivo simples
 	Wrote 1 file to {dir}	1 arquivo gravado em {dir}
 	Wrote {n} files to {dir}	{n} arquivos gravados em {dir}
 	No pages match those choices	Nenhuma página corresponde a essas opções
@@ -2353,6 +2355,7 @@ animation effects	Off	Desativados
 	no unused output name	nenhum nome de saída disponível
 	no output folder was chosen	nenhuma pasta de saída foi escolhida
 @plural	Downloaded {n} PDF|Downloaded {n} PDFs	{n} PDF baixado|{n} PDFs baixados
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	{n} cálculo agora usa o novo nome.|{n} cálculos agora usam o novo nome.
 	Scan	Digitalizar
 	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	Assine uma folha de papel branco e tire uma foto dela com luz forte e uniforme (use o flash). Escolha a foto ou solte-a aqui: o PdfCraft encontra a assinatura e remove o papel.
 	Choose photo…	Escolher foto…
@@ -2446,3 +2449,12 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
+	Less	Menos
+	Other options	Outras opções

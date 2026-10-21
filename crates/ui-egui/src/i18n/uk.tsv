@@ -160,6 +160,7 @@
 	Next page	Наступна сторінка
 	Previous page	Попередня сторінка
 	Current page — type a page number or label (such as iv) and press Enter	Поточна сторінка — введіть номер або позначку сторінки (наприклад iv) і натисніть Enter
+	Zoom — type a percentage and press Enter	Масштаб — введіть відсоток і натисніть Enter
 	Welcome to PdfCraft	Вітаємо в PdfCraft
 	An open-source PDF workbench — local, private, and scriptable.	Відкритий інструментарій для PDF — локальний, приватний і з підтримкою сценаріїв.
 	Join the ArtCraft community	Приєднатися до спільноти ArtCraft
@@ -1701,6 +1702,7 @@
 	Couldn't use {name}: {e}	Не вдалося використати {name}: {e}
 	Couldn't extract pages: {e}	Не вдалося видобути сторінки: {e}
 	Couldn't write {name}: {e}	Не вдалося записати {name}: {e}
+	the name is not a plain file name	назва не є простою назвою файлу
 	Wrote 1 file to {dir}	Записано 1 файл у {dir}
 	Wrote {n} files to {dir}	Записано файлів ({n}) у {dir}
 	No pages match those choices	Жодна сторінка не відповідає вибраним параметрам
@@ -2361,6 +2363,7 @@ animation effects	Off	Вимкнено
 	no unused output name	немає вільної назви для вихідного файлу
 	no output folder was chosen	не вибрано теку для виводу
 @plural	Downloaded {n} PDF|Downloaded {n} PDFs	Завантажено {n} PDF-файл|Завантажено {n} PDF-файли|Завантажено {n} PDF-файлів
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	{n} обчислення тепер використовує нову назву.|{n} обчислення тепер використовують нову назву.|{n} обчислень тепер використовують нову назву.
 	Scan	Сканувати
 	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	Розпишіться на аркуші білого паперу та сфотографуйте його за яскравого рівномірного освітлення (зі спалахом). Виберіть фото або перетягніть його сюди: PdfCraft знайде підпис і прибере папір.
 	Choose photo…	Вибрати фото…
@@ -2454,3 +2457,12 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
+	Less	Менше
+	Other options	Інші параметри

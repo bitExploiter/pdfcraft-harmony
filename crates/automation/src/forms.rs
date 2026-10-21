@@ -233,6 +233,19 @@ impl Automation {
                     o.insert("unsupported_scripts".into(), json!(f.actions.unsupported));
                 }
                 match f.kind {
+                    FormFieldKind::PushButton => {
+                        o.insert("caption".into(), json!(w.and_then(|w| w.caption.as_deref()).unwrap_or_default()));
+                        o.insert(
+                            "captions".into(),
+                            json!(
+                                f.widgets
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(i, w)| { json!({"widget": i.saturating_add(1), "caption": w.caption.as_deref().unwrap_or_default()}) })
+                                    .collect::<Vec<_>>()
+                            ),
+                        );
+                    }
                     FormFieldKind::Radio => {
                         o.insert("options".into(), json!((0..f.widgets.len()).filter_map(|i| f.export_of(i)).collect::<Vec<_>>()));
                     }
@@ -327,6 +340,9 @@ impl Automation {
     }
 
     pub(crate) fn form_set_props(&mut self, a: &Args) -> Result<Value> {
+        if a.get("widget").is_some() && a.get("caption").is_none() {
+            return Err(bad("widget requires caption"));
+        }
         let single = a.opt_str("field")?;
         let bulk = a.get("fields").is_some();
         if single.is_some() == bulk {
@@ -344,7 +360,7 @@ impl Automation {
                     return Err(bad(format!("field {name:?} is listed more than once")));
                 }
             }
-            for key in ["name", "rect", "rotation"] {
+            for key in ["name", "rect", "rotation", "caption", "widget"] {
                 if a.get(key).is_some() {
                     return Err(bad(format!("{key} applies to one field; use field instead of fields")));
                 }
@@ -370,11 +386,23 @@ impl Automation {
         } else {
             edits.pop().ok_or_else(|| bad("give a field name"))?
         };
+        // A rename also renames the field in the formulas that read it.
+        let before = if a.get("name").is_some() { Some(self.doc(a)?.form.clone()) } else { None };
         let mut out = self.apply(a, edit)?;
         if bulk {
             out["fields"] = json!(names);
         } else {
             out["field"] = json!(new_name);
+        }
+        if let Some(before) = before {
+            let after = &self.doc(a)?.form;
+            // The renamed field itself, found by object: the name stored can differ from the
+            // argument (trimmed, kept under its parent's prefix).
+            let own =
+                names.first().and_then(|n| before.iter().find(|f| &f.name == n)).and_then(|f| after.iter().find(|g| g.obj == f.obj)).map(|g| &g.name);
+            let mut updated = pdfcraft_engine::form_calculations_changed(&before, after);
+            updated.retain(|f| Some(f) != own);
+            out["formulas_updated"] = json!(updated);
         }
         Ok(out)
     }
@@ -398,6 +426,15 @@ impl Automation {
             rect,
             name: a.opt_str("name")?.map(str::to_owned),
             tooltip: a.opt_str("tooltip")?.map(str::to_owned),
+            caption: a
+                .opt_str("caption")?
+                .map(|caption| -> Result<_> {
+                    let wi = a.opt_int("widget")?.unwrap_or(1);
+                    let wi =
+                        usize::try_from(wi).ok().and_then(|wi| wi.checked_sub(1)).ok_or_else(|| bad("widget must be a positive 1-based index"))?;
+                    Ok((wi, caption.to_owned()))
+                })
+                .transpose()?,
             read_only: a.opt_bool("read_only")?,
             required: a.opt_bool("required")?,
             multiline: a.opt_bool("multiline")?,

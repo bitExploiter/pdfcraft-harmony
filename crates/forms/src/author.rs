@@ -63,6 +63,9 @@ impl NewField {
 pub struct FieldProps {
     pub name: Option<String>,
     pub tooltip: Option<String>,
+    /// Normal push-button label (`/MK /CA`) of one widget (0-based index).
+    /// An empty string clears the label; other widgets and icon layouts are preserved.
+    pub caption: Option<(usize, String)>,
     pub read_only: Option<bool>,
     pub required: Option<bool>,
     pub multiline: Option<bool>,
@@ -657,6 +660,7 @@ pub fn add_field(doc: &mut Document, page: usize, rect: [f64; 4], kind: &NewFiel
                 locked: false,
                 hidden: false,
                 rotation: 0,
+                caption: None,
                 list: None,
             };
             let ap = appearance::check_box_states(doc, &w, FieldKind::Radio, export);
@@ -677,9 +681,16 @@ pub fn add_field(doc: &mut Document, page: usize, rect: [f64; 4], kind: &NewFiel
 /// (`pdfcraft_fonts::UNDRAWN_MARK`) and other viewers are asked to redraw the form (see
 /// `ask_viewers_to_redraw`), as when a value is set.
 pub fn redraw_field(doc: &mut Document, name: &str) -> Result<(), FormError> {
+    redraw_widgets(doc, name, None)
+}
+
+fn redraw_widgets(doc: &mut Document, name: &str, only: Option<usize>) -> Result<(), FormError> {
     let f = fields(doc).into_iter().find(|f| f.name == name).ok_or_else(|| FormError::NoSuchField(name.into()))?;
     let mut undrawn = false;
-    for w in &f.widgets {
+    for (index, w) in f.widgets.iter().enumerate() {
+        if only.is_some_and(|only| only != index) {
+            continue;
+        }
         let mut missing = None;
         let ap = match f.kind {
             FieldKind::Text | FieldKind::Combo | FieldKind::List => {
@@ -861,6 +872,15 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
     }
     let all = fields(doc);
     let f = all.iter().find(|f| f.name == name).ok_or_else(|| FormError::NoSuchField(name.into()))?.clone();
+    // Refuse a wrong type/index before any other requested property is written.
+    if let Some((wi, _)) = &props.caption {
+        if f.kind != FieldKind::PushButton {
+            return invalid("only push buttons have a caption");
+        }
+        if f.widgets.get(*wi).is_none() {
+            return invalid(format!("{name} has no widget {}", wi.saturating_add(1)));
+        }
+    }
     // Validated before anything is written, so a refused rotation leaves the document unchanged.
     // `Some(Some(rect))`: the widget's axis changes and it gets the swapped rectangle.
     let mut rotated_rect: Option<Option<[f64; 4]>> = None;
@@ -907,6 +927,10 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
         let prefix = f.name.rsplit_once('.').map(|(p, _)| format!("{p}.")).unwrap_or_default();
         new_name = format!("{prefix}{n}");
         doc.update_dict(f.obj, |d| d.set(b"T".to_vec(), PdfString::text(n)))?;
+        // Calculations read the field by its new name, unless another field keeps the old one.
+        if all.iter().filter(|x| x.name == f.name).count() == 1 {
+            rename_in_calculations(doc, &all, &f.name, &new_name)?;
+        }
     }
     // The new default appearance when the size or the look changes.
     let size = props.font_size.unwrap_or_else(|| crate::appearance::parse_da(&f.da).size);
@@ -1178,11 +1202,54 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
             }
         })?;
     }
-    redraw_field(doc, &new_name)?;
+    if let Some((wi, caption)) = &props.caption
+        && let Some(w) = f.widgets.get(*wi)
+    {
+        // Copy an indirect/shared MK before patching it; colours, icons, rotation and
+        // unknown entries belong to this widget, and other owners keep their old label.
+        let mut mk = doc.get(w.obj).as_dict().and_then(|d| d.get(b"MK").map(|m| doc.resolve(m).as_dict().cloned())).flatten().unwrap_or_default();
+        mk.set(b"CA".to_vec(), PdfString::text(caption));
+        doc.update_dict(w.obj, |d| d.set(b"MK".to_vec(), Object::Dict(mk)))?;
+    }
+    // A label-only edit must not replace another widget's custom appearances.
+    let only = props.caption.as_ref().filter(|_| *props == (FieldProps { caption: props.caption.clone(), ..Default::default() })).map(|(wi, _)| *wi);
+    redraw_widgets(doc, &new_name, only)?;
     if props.calculate.is_some() {
         crate::recalculate(doc)?;
     }
     Ok(new_name)
+}
+
+/// Name field `old` `new` in each field's Calculate script that reads it
+/// ([`crate::af::rename_in_calculation`]).
+fn rename_in_calculations(doc: &mut Document, all: &[Field], old: &str, new: &str) -> Result<(), FormError> {
+    let aa_of =
+        |doc: &Document, r: ObjRef| doc.get(r).as_dict().and_then(|d| d.get(b"AA").map(|a| doc.resolve(a))).and_then(|a| a.as_dict().cloned());
+    for f in all {
+        // The script is the field's, or its only widget's when the field has none, as
+        // `actions_of` reads it.
+        let only_widget = || match f.widgets.as_slice() {
+            [w] => aa_of(doc, w.obj).map(|aa| (w.obj, aa)),
+            _ => None,
+        };
+        let Some((owner, mut aa)) = aa_of(doc, f.obj).map(|aa| (f.obj, aa)).or_else(only_widget) else { continue };
+        let Some(mut action) = aa.get(b"C").and_then(|a| doc.resolve(a).as_dict().cloned()) else { continue };
+        let js = match action.get(b"JS").map(|js| doc.resolve(js)).as_deref() {
+            Some(Object::String(s)) => s.to_text(),
+            // A stream that isn't UTF-8 reads with replacement characters, which must not be
+            // written back in place of what it holds.
+            Some(Object::Stream(s)) => match s.decoded().ok().and_then(|b| String::from_utf8(b).ok()) {
+                Some(js) => js,
+                None => continue,
+            },
+            _ => continue,
+        };
+        let Some(js) = crate::af::rename_in_calculation(&js, old, new) else { continue };
+        action.set(b"JS".to_vec(), PdfString::text(&js));
+        aa.set(b"C".to_vec(), Object::Dict(action));
+        doc.update_dict(owner, |d| d.set(b"AA".to_vec(), Object::Dict(aa)))?;
+    }
+    Ok(())
 }
 
 /// Delete a field: its widgets leave their pages and the field leaves the form.

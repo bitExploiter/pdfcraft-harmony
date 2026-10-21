@@ -162,6 +162,7 @@
 	Next page	次のページ
 	Previous page	前のページ
 	Current page — type a page number or label (such as iv) and press Enter	現在のページ：ページ番号またはラベル（例：iv）を入力して Enter
+	Zoom — type a percentage and press Enter	ズーム — パーセンテージを入力して Enter キーを押します
 	Welcome to PdfCraft	PdfCraft へようこそ
 	An open-source PDF workbench — local, private, and scriptable.	ローカルで処理し、プライバシーを守る、スクリプト対応のオープンソース PDF ツール。
 	Join the ArtCraft community	ArtCraft コミュニティに参加
@@ -1713,6 +1714,7 @@
 	Couldn't use {name}: {e}	{name} を使用できませんでした: {e}
 	Couldn't extract pages: {e}	ページを抽出できませんでした: {e}
 	Couldn't write {name}: {e}	{name} に書き込めませんでした: {e}
+	the name is not a plain file name	名前が単独のファイル名ではありません
 	Wrote 1 file to {dir}	{dir} に 1 ファイルを書き込みました
 	Wrote {n} files to {dir}	{dir} に {n} ファイルを書き込みました
 	No pages match those choices	条件に一致するページはありません
@@ -2339,6 +2341,7 @@ animation effects	Off	オフ
 	no unused output name	使用可能な出力名がありません
 	no output folder was chosen	出力フォルダーが選択されていません
 @plural	Downloaded {n} PDF|Downloaded {n} PDFs	{n} 個の PDF をダウンロードしました
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	{n} 件の計算式を新しい名前に更新しました。
 	Scan	スキャン
 	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	白い紙に署名し、明るく均一な光の下で写真を撮ってください（フラッシュを使用）。写真を選択するか、ここにドロップしてください。PdfCraft が署名を見つけ、紙の部分を取り除きます。
 	Choose photo…	写真を選択…
@@ -2432,3 +2435,12 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
+	Less	折りたたむ
+	Other options	その他のオプション
