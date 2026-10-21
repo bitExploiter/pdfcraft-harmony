@@ -368,6 +368,19 @@ impl PageText {
         if same && !self.side_by_side(&picked) {
             return None;
         }
+        // Across columns, nearly every row of a table has cells side by side; a column of running
+        // text beside a sidebar or a figure caption has many rows with nothing beside them. Rows
+        // would interleave the two, so reading order is kept.
+        if other_column && !one_row {
+            // The whole rows of the band, not just the glyphs picked: the bottom row is cut off at
+            // the pointer and may show a single cell.
+            let band: Vec<usize> =
+                (0..self.glyphs.len()).filter(|&i| self.glyphs.get(i).is_some_and(|g| (top..=bottom).contains(&centre(g)))).collect();
+            let (multi, rows) = self.cell_rows(&band);
+            if (multi as f32) < rows as f32 * ROW_CELLS {
+                return None;
+            }
+        }
         (!picked.is_empty()).then_some(picked)
     }
 
@@ -393,6 +406,39 @@ impl PageText {
                 (b[1]..=b[3]).contains(&ca) && (a[1]..=a[3]).contains(&cb)
             })
         })
+    }
+
+    /// The visual rows of the visible glyphs `glyphs` (by vertical position, whichever lines they
+    /// belong to), as how many have two or more cells (a gap of [`CELL_GAP`] line heights between
+    /// glyphs) and how many there are. A statement row written as one long line with wide gaps
+    /// counts as cells, as a table row of separate lines does.
+    fn cell_rows(&self, glyphs: &[usize]) -> (usize, usize) {
+        let mut ink: Vec<(f32, f32, f32, f32)> = glyphs
+            .iter()
+            .filter_map(|&i| self.glyphs.get(i))
+            .filter(|g| !g.text.trim().is_empty())
+            .map(|g| ((g.rect[1] + g.rect[3]) / 2.0, g.rect[0], g.rect[2], g.rect[3] - g.rect[1]))
+            .collect();
+        ink.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let (mut rows, mut multi) = (0usize, 0usize);
+        let mut start = 0;
+        while start < ink.len() {
+            // A row runs while the centres stay within 0.6 line heights of the row's first glyph.
+            let (cy0, h0) = (ink[start].0, ink[start].3.max(0.1));
+            let end = start + ink[start..].iter().take_while(|g| (g.0 - cy0).abs() <= h0 * 0.6).count().max(1);
+            let mut row: Vec<(f32, f32)> = ink[start..end].iter().map(|g| (g.1, g.2)).collect();
+            row.sort_by(|a, b| a.0.total_cmp(&b.0));
+            let mut reach = f32::NEG_INFINITY;
+            let gap = row.iter().any(|&(x0, x1)| {
+                let wide = reach.is_finite() && x0 - reach > h0 * CELL_GAP;
+                reach = reach.max(x1);
+                wide
+            });
+            rows += 1;
+            multi += usize::from(gap);
+            start = end;
+        }
+        (multi, rows)
     }
 
     /// Whether a column gutter lies between `x0` and `x1` (either order) in the rows whose
@@ -1228,6 +1274,12 @@ impl Seg {
 
 /// Line heights above and below a point (or a one-row drag) looked over for a gutter.
 const GUTTER_ROWS: f32 = 4.0;
+/// The share of a row selection's visual rows that must have cells side by side for the rows to be
+/// a table's: a column of running text beside a sidebar has such cells on only some of its rows.
+const ROW_CELLS: f32 = 0.75;
+/// A gap of this many line heights between two glyphs of a row parts two cells (a word gap is
+/// about a third of a line height).
+const CELL_GAP: f32 = 2.0;
 /// Running text is at least this many line heights wide; terms, labels and narrow cells are not.
 const RUNNING_TEXT_EMS: f32 = 8.0;
 /// The share of a column's width its running text's lines may fall short of its edges by.
@@ -3131,6 +3183,27 @@ mod tests {
         assert_eq!(t.visual_between(0, last, at(last)), None, "to the end of the paragraph");
         let right_start = (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 240.0 && t.glyphs[i].rect[1] == 10.0).expect("\"it\"");
         assert_eq!(t.visual_between(0, right_start + 1, at(right_start + 1)), None, "along the first row");
+    }
+
+    /// A column of running text beside a short sidebar (not a table: most of its rows have nothing
+    /// beside them): a drag from the bottom of the text up to the top of the sidebar keeps reading
+    /// order, the text to its end and then the sidebar's first line, not every row between.
+    #[test]
+    fn a_sidebar_beside_running_text_is_not_a_table() {
+        let mut v = Vec::new();
+        for row in 0..10 {
+            word(&mut v, "Some running text of a longer line", 10.0, 10.0 + row as f32 * 12.0, 6.0);
+        }
+        for (row, s) in ["Dates", "3 May: fair", "4 May: open day"].into_iter().enumerate() {
+            word(&mut v, s, 260.0, 10.0 + row as f32 * 20.0, 6.0);
+        }
+        let t = layout(v);
+        let last_line_start =
+            (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 10.0 && t.glyphs[i].rect[1] == 10.0 + 9.0 * 12.0).expect("last line start");
+        let dates = (0..t.glyphs.len()).find(|&i| t.glyphs[i].rect[0] == 260.0 && t.glyphs[i].rect[1] == 10.0).expect("\"Dates\"");
+        let x = Some((t.glyphs[dates].rect[0] + t.glyphs[dates].rect[2]) / 2.0);
+        assert_eq!(t.visual_between(last_line_start, dates + 3, x), None, "from the last prose line up to the sidebar");
+        assert_eq!(t.visual_between(dates + 3, last_line_start, x), None, "and back");
     }
 
     /// Short terms beside their definitions (a description list) are not running text: a drag
