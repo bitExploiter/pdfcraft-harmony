@@ -40,6 +40,10 @@ pub struct Block {
     pub lines: usize,
     /// How far its first line starts right of the others (points; negative: a hanging indent).
     pub indent: f64,
+    /// The text of each visual line, when it had more than one; empty otherwise. Slides keep these
+    /// breaks ([`pptx_positioned`]): a list drawn without bullet characters looks like one
+    /// paragraph, and only the line breaks tell its items apart.
+    pub rows: Vec<String>,
 }
 
 /// An image of a page.
@@ -647,8 +651,9 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
             "position:absolute;margin-left:{x:.3}pt;margin-top:{y:.3}pt;width:{w:.3}pt;height:{h:.3}pt;rotation:{rotation:.3};z-index:{z};mso-position-horizontal-relative:page;mso-position-vertical-relative:page"
         );
         s.push_str(&format!(
-            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent><w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p></w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
-            shape_id, run_xml(&b.text, b.size, b.bold, b.italic, b.color, &b.font)
+            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent>{}</w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
+            shape_id,
+            box_paragraphs(b)
         ));
     }
     for im in &page.images {
@@ -680,6 +685,16 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
     }
     s.push_str("</w:p>");
     s
+}
+
+/// A floating text box's paragraphs: one per line the page drew, as on slides (a list without
+/// bullet characters keeps its items apart), or the block as one.
+fn box_paragraphs(b: &Block) -> String {
+    let para = |text: &str| {
+        format!("<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p>", run_xml(text, b.size, b.bold, b.italic, b.color, &b.font))
+    };
+    let rows: Vec<&str> = b.rows.iter().map(String::as_str).filter(|r| !r.is_empty()).collect();
+    if rows.len() < 2 { para(&b.text) } else { rows.iter().map(|r| para(r)).collect() }
 }
 
 fn word_page_size(page: &Page) -> (i64, i64) {
@@ -1026,6 +1041,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         Page {
             width: 612.0,
@@ -1112,6 +1128,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         });
         p.images = page().images;
         let xml = part(&docx(&[p], "Invoice"), "word/document.xml");
@@ -1159,6 +1176,7 @@ mod tests {
             font: "Times New Roman".into(),
             lines,
             indent: 0.0,
+            rows: Vec::new(),
         };
         Page {
             width: 612.0,
@@ -1185,6 +1203,18 @@ mod tests {
         let start = xml[..at].rfind("<w:p>").unwrap_or(0);
         let end = xml[at..].find("</w:p>").map_or(xml.len(), |e| at + e);
         &xml[start..end]
+    }
+
+    #[test]
+    fn a_positioned_text_box_keeps_its_lines() {
+        // Turned text puts the page in floating shapes; a list without bullets keeps its lines.
+        let rows = ["Ship the app", "Reach more users", "Keep replies fast"];
+        let mut p = layout_page();
+        p.blocks = vec![Block { rotation: 90.0, lines: 3, rows: rows.map(String::from).to_vec(), ..p.blocks[1].clone() }];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let boxed = xml.split("<w:txbxContent>").nth(1).and_then(|t| t.split("</w:txbxContent>").next()).unwrap_or("");
+        assert_eq!(boxed.matches("<w:p>").count(), 3, "{xml}");
+        assert!(rows.iter().all(|r| boxed.contains(&format!(">{r}</w:t>"))), "{boxed}");
     }
 
     #[test]
@@ -1264,6 +1294,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         });
         let xml = part(&docx(&[p.clone()], "Receipt\u{1}"), "word/document.xml");
         assert!(xml.contains(">Total 4.50\tGBP</w:t>"), "{xml}");
@@ -1321,6 +1352,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         });
         let r = rtf(&[p]);
         assert!(r.starts_with("{\\rtf1") && r.ends_with('}'));
@@ -1342,6 +1374,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         Page {
             width: 612.0,
@@ -1369,6 +1402,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 },
             ],
             images: Vec::new(),
@@ -1433,6 +1467,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 }
             })
             .collect();
@@ -1464,6 +1499,7 @@ mod tests {
                             font: String::new(),
                             lines: 1,
                             indent: 0.0,
+                            rows: Vec::new(),
                         }
                     })
                 })
@@ -1490,6 +1526,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         }
     }
 
@@ -1573,6 +1610,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         let p = Page {
             width: 612.0,

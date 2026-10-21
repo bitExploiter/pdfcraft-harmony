@@ -245,6 +245,7 @@ pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usiz
                         font: family(&b.base_font),
                         lines: b.rows.len().max(1),
                         indent: b.indent,
+                        rows: if b.rows.len() > 1 { b.editor_text.split('\n').map(|r| r.trim().to_string()).collect() } else { Vec::new() },
                     }
                 })
                 .collect();

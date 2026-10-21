@@ -116,10 +116,9 @@ fn text_box(id: usize, b: &Block, page_h: f64, ink: Ink) -> String {
     format!(
         "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"TextBox {id}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>\
 <p:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
-<p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/><a:p>{}{}</a:p></p:txBody></p:sp>",
+<p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/>{}</p:txBody></p:sp>",
         xfrm(pos(left), pos(page_h - top), len(w), len(h), turned),
-        if b.lines >= 2 && b.indent.is_finite() && b.indent.abs() > 2.0 { format!("<a:pPr indent=\"{}\"/>", pos(b.indent)) } else { String::new() },
-        run(b, ink)
+        paragraphs(b, ink)
     )
 }
 
@@ -132,12 +131,32 @@ enum Ink {
     Hidden,
 }
 
-fn run(b: &Block, ink: Ink) -> String {
+/// A text box's paragraphs: one per line the page drew (so a list without bullet characters
+/// keeps its items apart, and the box looks as the page did), or the block as one paragraph.
+fn paragraphs(b: &Block, ink: Ink) -> String {
+    let indent =
+        if b.lines >= 2 && b.indent.is_finite() && b.indent.abs() > 2.0 { format!("<a:pPr indent=\"{}\"/>", pos(b.indent)) } else { String::new() };
+    let rows: Vec<&str> = b.rows.iter().map(String::as_str).filter(|r| !r.is_empty()).collect();
+    if rows.len() < 2 {
+        return format!("<a:p>{indent}{}</a:p>", run(b, &b.text, ink));
+    }
+    // The first line's indent (or, hanging, the others') as that paragraph's left margin.
+    let shift = if b.indent.is_finite() && b.indent.abs() > 2.0 { b.indent } else { 0.0 };
+    rows.iter()
+        .enumerate()
+        .map(|(k, r)| {
+            let margin = if (k == 0) == (shift > 0.0) && shift != 0.0 { format!("<a:pPr marL=\"{}\"/>", pos(shift.abs())) } else { String::new() };
+            format!("<a:p>{margin}{}</a:p>", run(b, r, ink))
+        })
+        .collect()
+}
+
+fn run(b: &Block, text: &str, ink: Ink) -> String {
     match ink {
-        Ink::Own => run_drawingml(&b.text, b.size, b.bold, b.italic, b.color),
-        Ink::Outlines(c) => run_drawingml(&b.text, b.size, b.bold, b.italic, c),
+        Ink::Own => run_drawingml(text, b.size, b.bold, b.italic, b.color),
+        Ink::Outlines(c) => run_drawingml(text, b.size, b.bold, b.italic, c),
         Ink::Hidden => {
-            let shown = run_drawingml(&b.text, b.size, b.bold, b.italic, [0.0; 3]);
+            let shown = run_drawingml(text, b.size, b.bold, b.italic, [0.0; 3]);
             // Fully transparent text: found by search and copy, invisible over the scan's words.
             let fill = "<a:solidFill><a:srgbClr val=\"000000\"><a:alpha val=\"0\"/></a:srgbClr></a:solidFill>";
             match shown.find("</a:rPr>") {
@@ -253,6 +272,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         }
     }
 
@@ -335,6 +355,27 @@ mod tests {
         p.blocks = vec![Block { indent: 24.0, lines: 3, ..block("A paragraph of three lines", [72.0, 300.0, 400.0, 345.0], 12.0) }];
         let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
         assert!(slide.contains(&format!("<a:pPr indent=\"{}\"/>", 24 * EMU)), "{slide}");
+    }
+
+    #[test]
+    fn each_line_of_a_text_box_is_a_paragraph() {
+        // A list drawn without bullet characters: the lines keep their breaks.
+        let mut p = page();
+        let rows = ["Ship the app in October", "Reach ten thousand users", "Keep replies under a day"];
+        p.blocks = vec![Block { lines: 3, rows: rows.map(String::from).to_vec(), ..block(&rows.join(" "), [72.0, 300.0, 400.0, 345.0], 12.0) }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert_eq!(slide.matches("<a:p>").count(), 3, "{slide}");
+        assert!(rows.iter().all(|r| slide.contains(&format!(">{r}</a:t>"))), "{slide}");
+        // A first-line indent stays on the first line.
+        let mut p = page();
+        p.blocks = vec![Block {
+            lines: 3,
+            indent: 24.0,
+            rows: rows.map(String::from).to_vec(),
+            ..block(&rows.join(" "), [72.0, 300.0, 400.0, 345.0], 12.0)
+        }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert_eq!(slide.matches(&format!("<a:pPr marL=\"{}\"/>", 24 * EMU)).count(), 1, "{slide}");
     }
 
     #[test]

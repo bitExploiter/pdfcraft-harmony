@@ -391,6 +391,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 },
                 Block {
                     text: "Revenue grew 25% year over year across all regions.".into(),
@@ -404,6 +405,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 },
                 Block {
                     text: "Operational expenses remained flat.".into(),
@@ -417,6 +419,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 },
             ],
             images: vec![Image {
@@ -544,6 +547,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         let table_page = Page {
             width: 612.0,
@@ -649,6 +653,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         let mut blocks = vec![huge("Title", f64::MAX, 500.0)];
         for k in 0..40 {
@@ -718,6 +723,7 @@ mod tests {
             font: String::new(),
             lines: 1,
             indent: 0.0,
+            rows: Vec::new(),
         };
         let p = Page {
             width: 720.0,
@@ -736,6 +742,7 @@ mod tests {
                     font: String::new(),
                     lines: 1,
                     indent: 0.0,
+                    rows: Vec::new(),
                 },
                 // Table where one cell has a very large number (e.g. 36 pt callout in the table)
                 cell("Metric", 72.0, 400.0, 100.0, 12.0),
