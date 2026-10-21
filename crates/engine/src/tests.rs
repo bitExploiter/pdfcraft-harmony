@@ -1894,6 +1894,7 @@ fn multiselect_choice_indices_stay_sorted_through_engine_save_and_reopen() {
             rect: [20.0, 180.0, 180.0, 240.0],
             kind: NewField::List { options: vec!["Cheese".into(), "Ham".into(), "Olives".into()], multi: true },
             name: Some("toppings".into()),
+            look: None,
         },
     )
     .unwrap();
@@ -1916,7 +1917,7 @@ fn multiselect_choice_indices_stay_sorted_through_engine_save_and_reopen() {
 fn preparing_a_form_adds_renames_and_deletes_fields() {
     let (mut s, id) = session_with(1);
     assert!(s.get(id).unwrap().form.is_empty());
-    let add = |kind: NewField, y: f64| Edit::AddField { page: 0, rect: [20.0, y, 180.0, y + 22.0], kind, name: None };
+    let add = |kind: NewField, y: f64| Edit::AddField { page: 0, rect: [20.0, y, 180.0, y + 22.0], kind, name: None, look: None };
     s.apply(id, add(NewField::Text { multiline: false }, 250.0)).unwrap();
     s.apply(id, add(NewField::CheckBox, 200.0)).unwrap();
     s.apply(id, add(NewField::Text { multiline: false }, 150.0)).unwrap();
@@ -2481,8 +2482,17 @@ fn flattening_fill_and_sign_keeps_other_comments_fields_and_undoes() {
     s.apply(id, fill_item(Shape::TextMarkup { kind: Markup::Highlight, quads: vec![[20.0, 280.0, 80.0, 280.0, 20.0, 270.0, 80.0, 270.0]] }, "keep"))
         .unwrap();
     s.apply(id, fill_item(Shape::TextBox { rect: [20.0, 150.0, 120.0, 180.0], font_size: 12.0 }, "Note")).unwrap();
-    s.apply(id, Edit::AddField { page: 0, rect: [20.0, 230.0, 120.0, 250.0], kind: NewField::Text { multiline: false }, name: Some("email".into()) })
-        .unwrap();
+    s.apply(
+        id,
+        Edit::AddField {
+            page: 0,
+            rect: [20.0, 230.0, 120.0, 250.0],
+            kind: NewField::Text { multiline: false },
+            name: Some("email".into()),
+            look: None,
+        },
+    )
+    .unwrap();
 
     s.apply(id, Edit::FlattenFillSign).unwrap();
     assert_eq!(s.get(id).unwrap().can_undo(), Some("Flatten Fill & Sign"));

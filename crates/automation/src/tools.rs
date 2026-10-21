@@ -336,7 +336,7 @@ pub fn tools() -> Vec<ToolDef> {
         t(
             "form_add_field",
             "Prepare form: add a field",
-            "Add a form field on a page. type: text, date, checkbox, radio, combo, list, button, image (a picture placeholder; fill it with form_set_image), signature. rect in points from the top-left of the displayed page [x0, y0, x1, y1]. name defaults to Acrobat's next free name (Text1, Check Box1, Group1, Dropdown1, List Box1, Button1, Image1, Signature1, Date1). Radio buttons join the radio group named by group (a new group otherwise) with the export value export. Returns the field's name. Undoable.",
+            "Add a form field on a page. type: text, date, checkbox, radio, combo, list, button, image (a picture placeholder; fill it with form_set_image), signature. rect in points from the top-left of the displayed page [x0, y0, x1, y1]. name defaults to Acrobat's next free name (Text1, Check Box1, Group1, Dropdown1, List Box1, Button1, Image1, Signature1, Date1). Radio buttons join the radio group named by group (a new group otherwise) with the export value export. appearance and font_size (0 = auto) give the new field a look of its own instead of the built-in grey border and white fill, as Prepare form's Use Current Properties as New Defaults does; check boxes, radio buttons and signatures take only the border and fill properties. Returns the field's name. Undoable.",
         )
         .with(schema(
             json!({
@@ -352,6 +352,8 @@ pub fn tools() -> Vec<ToolDef> {
                 "editable": { "type": "boolean", "description": "Combo box accepts typed text." },
                 "multi_select": { "type": "boolean" },
                 "caption": { "type": "string", "description": "Button label." },
+                "appearance": { "type": "object", "description": "Appearance tab: border, fill, text_color (#RRGGBB, a name or \"none\"), width (0–12 points), style (solid, dashed, beveled, inset, underline), font (helvetica, times, courier)." },
+                "font_size": { "type": "number", "minimum": 0 },
             }),
             &["doc", "page", "type", "rect"],
         )),

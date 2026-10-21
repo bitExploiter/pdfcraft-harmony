@@ -170,6 +170,7 @@ fn date_fields_offer_a_calendar() {
         rect: [50.0, 40.0, 200.0, 60.0],
         kind: pdfcraft_engine::NewField::Date,
         name: Some("due".into()),
+        look: None,
     });
     h.run_steps(4);
     click_field(&mut h, "due", 0);
@@ -259,6 +260,7 @@ fn lithuanian_calendar_localizes_months_and_weekdays_without_changing_field_valu
         rect: [50.0, 40.0, 200.0, 60.0],
         kind: pdfcraft_engine::NewField::Date,
         name: Some("due".into()),
+        look: None,
     });
     h.run_steps(4);
     click_field(&mut h, "due", 0);
@@ -821,6 +823,7 @@ fn calculated_field_and_script_side_effect_on_another_page_re_render() {
         rect: [20.0, 20.0, 100.0, 40.0],
         kind: pdfcraft_engine::NewField::Text { multiline: false },
         name: Some("page2_field".into()),
+        look: None,
     }));
     assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::SetFieldScript {
         name: "page2_field".into(),

@@ -359,7 +359,7 @@ impl Session {
                 props.max_len = Some(Some(cells));
                 props.flags = vec![(pdfcraft_forms::flags::COMB, true)];
             }
-            edits.push(Edit::AddField { page, rect: c.rect, kind, name: Some(c.name.clone()) });
+            edits.push(Edit::AddField { page, rect: c.rect, kind, name: Some(c.name.clone()), look: None });
             if turn != 0 || comb.is_some() {
                 edits.push(Edit::SetFieldProps { name: c.name, props: Box::new(props) });
             }

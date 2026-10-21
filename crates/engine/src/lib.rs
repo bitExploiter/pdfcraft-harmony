@@ -57,8 +57,8 @@ pub use pdfcraft_edit::{
 };
 pub use pdfcraft_forms::{
     BorderStyle, CheckStyle, Field as FormField, FieldAction, FieldChange, FieldFont, FieldKind as FormFieldKind, FieldProps, FieldValue,
-    Look as FieldLook, LookPatch as FieldLookPatch, NewField, TabOrder, Trigger as FieldTrigger, Widget as FormWidget, af as form_scripts,
-    appearance as form_appearance, appearance::auto_text_size_by as field_auto_text_size_by, flags as field_flags,
+    Look as FieldLook, LookPatch as FieldLookPatch, NewField, NewFieldLook, TabOrder, Trigger as FieldTrigger, Widget as FormWidget,
+    af as form_scripts, appearance as form_appearance, appearance::auto_text_size_by as field_auto_text_size_by, flags as field_flags,
 };
 
 pub use pdfcraft_a11y as a11y;
@@ -801,6 +801,13 @@ impl Document {
         Some(pdfcraft_forms::look(&e.cos, f))
     }
 
+    /// The look of one widget of a field: a radio button in a group can differ from the others.
+    pub fn field_widget_look(&self, name: &str, widget: usize) -> Option<pdfcraft_forms::Look> {
+        let e = self.editor.as_ref()?;
+        let f = self.form.iter().find(|f| f.name == name)?;
+        (widget < f.widgets.len()).then(|| pdfcraft_forms::widget_look(&e.cos, f, widget))
+    }
+
     /// A check box's or radio button's mark (Field Properties ▸ Options), `None` for other fields.
     pub fn field_check_style(&self, name: &str) -> Option<CheckStyle> {
         let e = self.editor.as_ref()?;
@@ -1486,6 +1493,8 @@ pub enum Edit {
         rect: [f64; 4],
         kind: NewField,
         name: Option<String>,
+        /// Use Current Properties as New Defaults: the saved look instead of the built-in one.
+        look: Option<Box<NewFieldLook>>,
     },
     /// Field Properties ▸ General / Options.
     SetFieldProps {
@@ -2482,8 +2491,8 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         Edit::ResetForm { names } => {
             pdfcraft_forms::reset(doc, names.as_deref())?;
         }
-        Edit::AddField { page, rect, kind, name } => {
-            pdfcraft_forms::add_field(doc, *page, *rect, kind, name.as_deref())?;
+        Edit::AddField { page, rect, kind, name, look } => {
+            pdfcraft_forms::add_field_with(doc, *page, *rect, kind, name.as_deref(), look.as_deref())?;
         }
         Edit::SetFieldProps { name, props } => {
             pdfcraft_forms::set_props(doc, name, props)?;
