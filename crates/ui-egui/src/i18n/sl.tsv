@@ -1207,6 +1207,10 @@
 	On Focus	Ob fokusu
 	On the web, open or drop an image to convert it	V spletni različici odprite ali spustite sliko za pretvorbo
 	One {f} file per page, named after the document.	Ena datoteka {f} na stran, poimenovana po dokumentu.
+	Estimated size: about {size}	Ocenjena velikost: približno {size}
+	No size estimate: {e}	Ni ocene velikosti: {e}
+	Estimating size…	Ocenjevanje velikosti…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Ocenjeno iz vzorca strani pri tej ločljivosti in obliki; datoteke se lahko razlikujejo.
 	Only continue if you trust this document. An address can carry information from the document, such as what you typed into its form.	Nadaljujte samo, če temu dokumentu zaupate. Naslov lahko prenaša podatke iz dokumenta, na primer to, kar ste vnesli v njegov obrazec.
 	Only the document's owner can change its security (open it with the permissions password)	Varnostne nastavitve lahko spremeni samo lastnik dokumenta (odprite ga z geslom za dovoljenja)
 	Only the page content changes: links, comments, form fields and bookmarks on the original pages stay.	Spremeni se samo vsebina strani: povezave, komentarji, polja obrazca in zaznamki na izvirnih straneh ostanejo.

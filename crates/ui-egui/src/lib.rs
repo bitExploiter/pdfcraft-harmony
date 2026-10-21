@@ -771,6 +771,8 @@ pub struct PdfCraftApp {
     pub marks_draft: marks_ui::MarksDraft,
     /// Export dialog settings.
     pub export_draft: export_ui::ExportDraft,
+    /// The export dialog's size estimate: a sample of the pages, measured off the UI thread.
+    pub(crate) export_size: export_ui::SizeDraft,
     /// A running export's progress.
     export_status: Option<export_ui::ExportStatus>,
     /// The saved Fill & Sign signature and initials (drawn or typed).
@@ -1054,6 +1056,7 @@ impl PdfCraftApp {
             boxes_draft: Default::default(),
             marks_draft: Default::default(),
             export_draft: Default::default(),
+            export_size: Default::default(),
             export_status: None,
             signature: None,
             initials: None,

@@ -742,6 +742,10 @@
 	Format	形式
 	Quality	画質
 	One {f} file per page, named after the document.	ページごとに文書名を付けた {f} ファイルを作成します。
+	Estimated size: about {size}	推定サイズ: 約 {size}
+	No size estimate: {e}	サイズを推定できません: {e}
+	Estimating size…	サイズを推定しています…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	この解像度と形式で一部のページから推定しています。実際のファイルサイズとは異なる場合があります。
 	Exclude images smaller than	次のサイズ未満の画像を除外:
 	No limit	制限なし
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	各画像を一度ずつ、文書名とページ番号を付けて保存します。JPEG はそのまま、その他は PNG で保存します。

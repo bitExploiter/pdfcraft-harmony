@@ -81,6 +81,16 @@ fn failed(e: impl std::fmt::Display) -> ToolError {
     ToolError::Failed(e.to_string())
 }
 
+/// The image format the export tools' `format` argument names (PNG when it says nothing).
+fn export_format(a: &Args, quality: u8) -> Result<pdfcraft_engine::export::ImageFormat> {
+    Ok(match a.opt_str("format")?.unwrap_or("png") {
+        "png" => pdfcraft_engine::export::ImageFormat::Png,
+        "jpeg" | "jpg" => pdfcraft_engine::export::ImageFormat::Jpeg { quality },
+        "tiff" | "tif" => pdfcraft_engine::export::ImageFormat::Tiff,
+        f => return Err(ToolError::InvalidArgs(format!("unknown format {f:?} (png, jpeg, tiff)"))),
+    })
+}
+
 impl From<pdfcraft_engine::EditError> for ToolError {
     fn from(e: pdfcraft_engine::EditError) -> Self {
         failed(e)
@@ -711,6 +721,7 @@ impl Automation {
                 summary(self.session.get(new).ok_or_else(|| failed("the document vanished"))?)
             }
             "doc_export_images" | "doc_export_text" | "doc_export_all_images" => self.export(name, &a)?,
+            "doc_export_size" => self.export_size(&a)?,
             "doc_header_footer" | "doc_watermark" | "doc_background" | "doc_remove_marks" => self.marks(name, &a)?,
             "doc_unprotect" => {
                 let mut out = self.apply(&a, Edit::RemoveProtection)?;
@@ -1286,12 +1297,7 @@ impl Automation {
         }
         let dpi = a.opt_num("dpi")?.unwrap_or(150.0);
         let quality = a.opt_int("quality")?.unwrap_or(85).clamp(1, 100) as u8;
-        let format = match a.opt_str("format")?.unwrap_or("png") {
-            "png" => pdfcraft_engine::export::ImageFormat::Png,
-            "jpeg" | "jpg" => pdfcraft_engine::export::ImageFormat::Jpeg { quality },
-            "tiff" | "tif" => pdfcraft_engine::export::ImageFormat::Tiff,
-            f => return Err(ToolError::InvalidArgs(format!("unknown format {f:?} (png, jpeg, tiff)"))),
-        };
+        let format = export_format(a, quality)?;
         let mut files = Vec::new();
         let mut lowered = Vec::new();
         for p in pages {
@@ -1310,6 +1316,26 @@ impl Automation {
         } else {
             Ok(json!({ "count": files.len(), "files": files, "lower_dpi": lowered }))
         }
+    }
+
+    /// What `doc_export_images` would write, without writing it (#2819): a sample of the pages,
+    /// drawn and encoded, estimates every page.
+    fn export_size(&self, a: &Args) -> Result<Value> {
+        let doc = self.doc_to_copy(a)?;
+        let pages = match a.opt_ints("pages")? {
+            Some(_) => self.pages(a, "pages")?,
+            None => (0..doc.info.pages.len()).collect(),
+        };
+        let dpi = a.opt_num("dpi")?.unwrap_or(150.0);
+        let quality = a.opt_int("quality")?.unwrap_or(85).clamp(1, 100) as u8;
+        let format = export_format(a, quality)?;
+        let estimate = pdfcraft_engine::export::Exporter::new(doc).estimate(&pages, dpi, format).map_err(failed)?;
+        let per_page: Vec<Value> = pages.iter().zip(&estimate.pages).map(|(page, bytes)| json!({ "page": page + 1, "bytes": bytes })).collect();
+        Ok(json!({
+            "pages": per_page,
+            "total": estimate.total(),
+            "sampled": estimate.sampled.iter().map(|page| page + 1).collect::<Vec<_>>(),
+        }))
     }
 
     fn doc_create(&mut self, a: &Args) -> Result<Value> {

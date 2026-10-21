@@ -697,6 +697,10 @@
 	Format	Biçim
 	Quality	Kalite
 	One {f} file per page, named after the document.	Belgenin adını taşıyan sayfa başına bir {f} dosyası.
+	Estimated size: about {size}	Tahmini boyut: yaklaşık {size}
+	No size estimate: {e}	Boyut tahmini yok: {e}
+	Estimating size…	Boyut tahmin ediliyor…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Bu çözünürlük ve biçimde sayfaların bir örneğinden tahmin edildi; dosyalar farklı olabilir.
 	Exclude images smaller than	Şundan küçük resimleri hariç tut:
 	No limit	Sınır yok
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Her resim belge ve sayfaya göre adlandırılarak bir kez. JPEG resimler değiştirilmeden, diğerleri PNG olarak kaydedilir.

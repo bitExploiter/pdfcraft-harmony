@@ -741,6 +741,10 @@
 	Format	الصيغة
 	Quality	الجودة
 	One {f} file per page, named after the document.	ملف {f} واحد لكل صفحة، يُسمى باسم المستند.
+	Estimated size: about {size}	الحجم التقديري: نحو {size}
+	No size estimate: {e}	لا يوجد تقدير للحجم: {e}
+	Estimating size…	جارٍ تقدير الحجم…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	قُدِّر من عينة من الصفحات بهذه الدقة وهذا التنسيق؛ قد تختلف الملفات.
 	Exclude images smaller than	استثناء الصور الأصغر من
 	No limit	بلا حد
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	كل صورة مرة واحدة، تُسمى باسم المستند والصفحة. صور JPEG تُحفظ دون تغيير؛ والبقية بصيغة PNG.

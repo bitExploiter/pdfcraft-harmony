@@ -374,6 +374,10 @@
 	Format	格式
 	Quality	品質
 	One {f} file per page, named after the document.	每頁一個 {f} 檔案，以文件命名。
+	Estimated size: about {size}	預估大小：約 {size}
+	No size estimate: {e}	無法估算大小：{e}
+	Estimating size…	正在估算大小…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	依此解析度與格式抽樣部分頁面估算；實際檔案可能有所不同。
 	Exclude images smaller than	排除小於以下尺寸的圖片
 	No limit	無限制
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	每個圖片一次，以文件和頁面命名。JPEG 圖片原樣儲存，其他為 PNG。

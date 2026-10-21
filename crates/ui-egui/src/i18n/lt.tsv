@@ -798,6 +798,10 @@
 	Old file:	Senas failas:
 	One word or phrase per line	Po vieną žodį ar frazę eilutėje
 	One {f} file per page, named after the document.	Po vieną {f} failą kiekvienam puslapiui, pavadintą pagal dokumentą.
+	Estimated size: about {size}	Apskaičiuotas dydis: apie {size}
+	No size estimate: {e}	Dydis neapskaičiuotas: {e}
+	Estimating size…	Skaičiuojamas dydis…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Apskaičiuota pagal puslapių pavyzdį šia raiška ir formatu; failai gali skirtis.
 	Only change the colour of black text or line art	Keisti tik juodo teksto ir linijinių piešinių spalvą
 	Only checked properties will change. Mixed means the selected fields have different values.	Bus pakeistos tik pažymėtos savybės. „Mišrios reikšmės“ reiškia, kad pasirinktų laukų reikšmės skiriasi.
 	Only the page content changes: links, comments, form fields and bookmarks on the original pages stay.	Keičiamas tik puslapio turinys: saitai, komentarai, formos laukai ir žymelės pradiniuose puslapiuose lieka.

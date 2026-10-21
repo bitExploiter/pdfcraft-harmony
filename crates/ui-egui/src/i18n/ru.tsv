@@ -735,6 +735,10 @@
 	Format	Формат
 	Quality	Качество
 	One {f} file per page, named after the document.	Один файл {f} на страницу, по имени документа.
+	Estimated size: about {size}	Примерный размер: около {size}
+	No size estimate: {e}	Нет оценки размера: {e}
+	Estimating size…	Оценка размера…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Оценка по выборке страниц при этом разрешении и формате; файлы могут отличаться.
 	Exclude images smaller than	Исключить изображения меньше
 	No limit	Без ограничений
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Каждое изображение один раз, по имени документа и страницы. JPEG сохраняются без изменений, остальные — как PNG.

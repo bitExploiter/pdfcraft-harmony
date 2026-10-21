@@ -698,6 +698,10 @@
 	Format	Пішім
 	Quality	Сапа
 	One {f} file per page, named after the document.	Бет сайын бір {f} файлы, құжаттың атауымен аталады.
+	Estimated size: about {size}	Болжамды өлшем: шамамен {size}
+	No size estimate: {e}	Өлшем болжамы жоқ: {e}
+	Estimating size…	Өлшем болжанып жатыр…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Осы ажыратымдылық пен пішімдегі беттердің үлгісі бойынша болжанған; файлдар өзгеше болуы мүмкін.
 	Exclude images smaller than	Мынадан кіші суреттерді қоспау
 	No limit	Шектеу жоқ
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Әр сурет бір рет, құжат пен бет атауымен аталады. JPEG суреттері өзгеріссіз сақталады; қалғандары PNG болып сақталады.

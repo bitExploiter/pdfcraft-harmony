@@ -735,6 +735,10 @@
 	Format	Formato
 	Quality	Calidad
 	One {f} file per page, named after the document.	Un archivo {f} por página, con el nombre del documento.
+	Estimated size: about {size}	Tamaño estimado: unos {size}
+	No size estimate: {e}	Sin tamaño estimado: {e}
+	Estimating size…	Estimando el tamaño…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Estimado a partir de una muestra de las páginas con esta resolución y formato; los archivos pueden variar.
 	Exclude images smaller than	Excluir imágenes más pequeñas que
 	No limit	Sin límite
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Cada imagen una sola vez, con el nombre del documento y la página. Las imágenes JPEG se guardan sin cambios; las demás, como PNG.

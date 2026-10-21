@@ -712,6 +712,10 @@
 	Format	Formátum
 	Quality	Minőség
 	One {f} file per page, named after the document.	Oldalanként egy {f} fájl, a dokumentum neve alapján.
+	Estimated size: about {size}	Becsült méret: körülbelül {size}
+	No size estimate: {e}	Nincs méretbecslés: {e}
+	Estimating size…	Méret becslése…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Az oldalak mintájából becsülve ezen a felbontáson és formátumban; a fájlok eltérhetnek.
 	Exclude images smaller than	Az ennél kisebb képek kihagyása
 	No limit	Nincs korlát
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Minden kép egyszer, a dokumentum és az oldal neve alapján. A JPEG-képek változatlanul mentődnek, a többi PNG-ként.

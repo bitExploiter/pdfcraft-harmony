@@ -716,6 +716,10 @@ comment menu	Edit	సవరించు
 	Format	ఫార్మాట్
 	Quality	నాణ్యత
 	One {f} file per page, named after the document.	ప్రతి పేజీకి ఒక {f} ఫైల్, పత్రం పేరుతో.
+	Estimated size: about {size}	అంచనా పరిమాణం: సుమారు {size}
+	No size estimate: {e}	పరిమాణ అంచనా లేదు: {e}
+	Estimating size…	పరిమాణాన్ని అంచనా వేస్తోంది…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	ఈ రిజల్యూషన్ మరియు ఫార్మాట్‌లో కొన్ని పేజీల నమూనా నుండి అంచనా; ఫైళ్లు భిన్నంగా ఉండవచ్చు.
 	Exclude images smaller than	ఇంతకంటే చిన్న చిత్రాలను మినహాయించు
 	No limit	పరిమితి లేదు
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	ప్రతి చిత్రం ఒక్కసారే, పత్రం పేరు, పేజీ సంఖ్యతో. JPEG చిత్రాలు మార్పు లేకుండా సేవ్ చేయబడతాయి; మిగతావి PNGగా.

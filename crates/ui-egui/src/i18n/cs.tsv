@@ -817,6 +817,10 @@ key	Space	Mezerník
 	Format	Formát
 	Quality	Kvalita
 	One {f} file per page, named after the document.	Jeden soubor {f} na stránku, pojmenovaný podle dokumentu.
+	Estimated size: about {size}	Odhadovaná velikost: asi {size}
+	No size estimate: {e}	Bez odhadu velikosti: {e}
+	Estimating size…	Odhadování velikosti…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Odhadnuto ze vzorku stránek v tomto rozlišení a formátu; soubory se mohou lišit.
 	Exclude images smaller than	Vyloučit obrázky menší než
 	No limit	Bez omezení
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Každý obrázek jednou, pojmenovaný podle dokumentu a stránky. Obrázky JPEG se uloží beze změny, ostatní jako PNG.

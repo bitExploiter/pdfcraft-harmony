@@ -793,6 +793,10 @@ theme	Appearance	Giao diện
 	Old file:	Tệp cũ:
 	One word or phrase per line	Mỗi dòng một từ hoặc cụm từ
 	One {f} file per page, named after the document.	Mỗi trang một tệp {f}, đặt tên theo tài liệu.
+	Estimated size: about {size}	Kích thước ước tính: khoảng {size}
+	No size estimate: {e}	Không có ước tính kích thước: {e}
+	Estimating size…	Đang ước tính kích thước…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Ước tính từ một mẫu các trang ở độ phân giải và định dạng này; các tệp có thể khác.
 	Only change the colour of black text or line art	Chỉ đổi màu văn bản hoặc nét vẽ đường màu đen
 	Only checked properties will change. Mixed means the selected fields have different values.	Chỉ các thuộc tính được đánh dấu mới thay đổi. Hỗn hợp nghĩa là các trường đã chọn có giá trị khác nhau.
 	Only the page content changes: links, comments, form fields and bookmarks on the original pages stay.	Chỉ nội dung trang thay đổi: liên kết, bình luận, trường biểu mẫu và dấu trang trên các trang gốc được giữ nguyên.

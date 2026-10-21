@@ -415,6 +415,10 @@
 	Format	Формат
 	Quality	Качество
 	One {f} file per page, named after the document.	По един {f} файл на страница, именуван по документа.
+	Estimated size: about {size}	Приблизителен размер: около {size}
+	No size estimate: {e}	Няма приблизителен размер: {e}
+	Estimating size…	Изчисляване на размера…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Изчислено по извадка от страниците с тази разделителна способност и формат; файловете може да се различават.
 	Exclude images smaller than	Изключи изображения, по-малки от
 	No limit	Без ограничение
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Всяко изображение веднъж, именувано по документа и страницата. JPEG изображенията се записват непроменени, а останалите – като PNG.

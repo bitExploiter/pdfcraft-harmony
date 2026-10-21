@@ -421,6 +421,10 @@
 	Format	格式
 	Quality	质量
 	One {f} file per page, named after the document.	每页一个 {f} 文件，以文档命名。
+	Estimated size: about {size}	预计大小：约 {size}
+	No size estimate: {e}	无法估算大小：{e}
+	Estimating size…	正在估算大小…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	根据此分辨率和格式对部分页面抽样估算；实际文件可能有所不同。
 	Exclude images smaller than	排除小于以下尺寸的图像
 	No limit	无限制
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	每个图像一次，以文档和页面命名。JPEG 图像原样保存，其他为 PNG。

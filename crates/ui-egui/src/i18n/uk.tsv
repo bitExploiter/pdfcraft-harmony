@@ -739,6 +739,10 @@
 	Format	Формат
 	Quality	Якість
 	One {f} file per page, named after the document.	Один файл {f} на сторінку з назвою документа.
+	Estimated size: about {size}	Орієнтовний розмір: близько {size}
+	No size estimate: {e}	Немає оцінки розміру: {e}
+	Estimating size…	Оцінювання розміру…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Оцінено за вибіркою сторінок із цією роздільністю та форматом; файли можуть відрізнятися.
 	Exclude images smaller than	Виключити зображення, менші за
 	No limit	Без обмежень
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Кожне зображення один раз, із назвою документа й сторінки. Зображення JPEG зберігаються без змін; решта — як PNG.

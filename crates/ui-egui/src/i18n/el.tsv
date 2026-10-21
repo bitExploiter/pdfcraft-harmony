@@ -2027,6 +2027,10 @@
 	Export All Images	Εξαγωγή όλων των εικόνων
 	Format	Μορφή
 	One {f} file per page, named after the document.	Ένα αρχείο {f} ανά σελίδα, με όνομα βάσει του εγγράφου.
+	Estimated size: about {size}	Εκτιμώμενο μέγεθος: περίπου {size}
+	No size estimate: {e}	Δεν υπάρχει εκτίμηση μεγέθους: {e}
+	Estimating size…	Εκτίμηση μεγέθους…
+	Measured on a sample of the pages at this resolution and format; the files may differ.	Εκτιμάται από δείγμα σελίδων σε αυτή την ανάλυση και μορφή· τα αρχεία μπορεί να διαφέρουν.
 	Exclude images smaller than	Εξαίρεση εικόνων μικρότερων από
 	No limit	Χωρίς όριο
 	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	Κάθε εικόνα εξάγεται μία φορά με όνομα βάσει του εγγράφου και της σελίδας. Οι εικόνες JPEG αποθηκεύονται χωρίς αλλαγές, οι υπόλοιπες ως PNG.

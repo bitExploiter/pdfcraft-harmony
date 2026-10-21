@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M10, #2819: Export ▸ Image estimates the size of the files before exporting; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M6: CSV tab-containing headers; estimates unchanged)
@@ -171,6 +172,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-18 (M10, #2819 / #3137):** Export ▸ Image shows what the files will take before exporting: `Exporter::estimate` draws and encodes up to three pages (the first, the middle and the last) at the export's resolution and format, and scales their bytes per pixel to every page's own pixel count, on a worker thread with cancellation and a debounce; the new read-only `doc_export_size` tool returns the same estimate headlessly. Synthetic regressions check identical pages estimate their exact file sizes, that differing pages stay within a quarter, and that the estimate writes nothing. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
