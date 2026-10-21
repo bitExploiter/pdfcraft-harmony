@@ -4602,6 +4602,49 @@ trailer << /Root 1 0 R >>
         assert!(grey[0] == grey[1] && grey[1] == grey[2] && grey[0] < 255, "the image covers the page: {grey:?}");
     }
 
+    /// A text object in a clipping mode clips what follows it even when it drew no glyph: the
+    /// clip is empty and nothing paints (ISO 32000-1 §9.3.6). Applying nothing instead left the
+    /// fill a clipping title was painted through covering the whole page once its glyphs were
+    /// gone, which is what editing or redacting such a title did (#3123, #3429).
+    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
+    #[cfg_attr(not(target_arch = "wasm32"), test)]
+    fn a_glyph_shown_in_a_clipping_mode_clips_even_with_no_outline() {
+        // Each page fills its whole 40x40 area with red; they differ in what clips the fill.
+        let fill = "1 0 0 rg 0 0 40 40 re f";
+        let cases = [
+            // A glyph shown in a clipping mode with nothing to clip to (a space): the clip is
+            // empty, so nothing paints through it.
+            (format!("q BT 7 Tr /F1 24 Tf 4 10 Td ( ) Tj ET {fill} Q"), 0u32),
+            // A text object that shows no glyph at all leaves the clipping path alone.
+            (format!("q BT 7 Tr /F1 24 Tf 4 10 Td ET {fill} Q"), 1600),
+            // No text object at all: the fill covers the page.
+            (format!("q {fill} Q"), 1600),
+            // A mode that paints rather than clips, showing a glyph with no outline: no clip.
+            (format!("q BT 0 Tr /F1 24 Tf 4 10 Td ( ) Tj ET {fill} Q"), 1600),
+        ];
+        for (content, want_red) in cases {
+            let mut pdf = b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 40 40] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >> endobj\n".to_vec();
+            pdf.extend_from_slice(format!("4 0 obj << /Length {} >> stream\n{content}\nendstream endobj\n", content.len()).as_bytes());
+            pdf.extend_from_slice(
+                b"5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF",
+            );
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let mut r = PageRenderer::new(Arc::new(pdf), RenderConfig::default());
+                let _ = tx.send(r.render(RenderRequest { page: 0, kind: RequestKind::Pixels, tile: None, scale: 1.0, tag: 0, preview: false }));
+            });
+            let page = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the page must render");
+            assert!(page.error.is_none(), "{:?}", page.error);
+            let red = (0..page.width * page.height)
+                .filter(|i| {
+                    let o = (*i * 4) as usize;
+                    page.rgba[o] > 180 && page.rgba[o + 1] < 90
+                })
+                .count() as u32;
+            assert_eq!(red, want_red, "{content}");
+        }
+    }
+
     /// A one-page PDF whose content is the stream `stream`, with the entries `dict` in its
     /// dictionary.
     fn one_page_pdf(stream: &[u8], dict: &str) -> Vec<u8> {
