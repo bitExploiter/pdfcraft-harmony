@@ -2445,3 +2445,12 @@ animation effects	Off	Kapalı
 	No time server is chosen, so the signing time is this computer's clock.	Zaman sunucusu seçilmedi; bu yüzden imzalama zamanı bu bilgisayarın saatinden alınır.
 	Choose one in Preferences ▸ Signatures	Tercihler > İmzalar bölümünden birini seçin
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	İmzalandı ve {path} konumuna kaydedildi, ancak güvenilir zaman olmadan: {reason}. İmzalama zamanı bu bilgisayarın saatidir.
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
+	Less	Daha az
+	Other options	Diğer seçenekler

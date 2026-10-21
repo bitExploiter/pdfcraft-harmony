@@ -2448,3 +2448,12 @@ animation effects	Off	Ki
 	No time server is chosen, so the signing time is this computer's clock.	Nincs kiválasztva időszerver, ezért az aláírás ideje a számítógép órájából származik.
 	Choose one in Preferences ▸ Signatures	Válassz egyet itt: Beállítások > Aláírások
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Aláírva és mentve ide: {path}, de megbízható idő nélkül: {reason}. Az aláírás ideje a számítógép órájából származik.
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
+	Less	Kevesebb
+	Other options	Egyéb beállítások

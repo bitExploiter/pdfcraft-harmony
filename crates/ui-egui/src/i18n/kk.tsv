@@ -2447,3 +2447,12 @@ animation effects	Off	Өшірулі
 	No time server is chosen, so the signing time is this computer's clock.	Уақыт сервері таңдалмаған, сондықтан қол қою уақыты осы компьютердің сағатынан алынады.
 	Choose one in Preferences ▸ Signatures	Параметрлер > Қолтаңбалар бөлімінде таңдаңыз
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Қол қойылып, {path} жолына сақталды, бірақ сенімді уақытсыз: {reason}. Қол қою уақыты осы компьютердің сағатынан алынды.
+	Font	Қаріп
+	Bulleted list	Таңбалауыш тізім
+	Numbered list	Нөмірленген тізім
+	Alignment	Туралау
+	Superscript	Жоғарғы индекс
+	Subscript	Төменгі индекс
+	Paragraph spacing	Абзац аралығы
+	Less	Азырақ
+	Other options	Басқа параметрлер

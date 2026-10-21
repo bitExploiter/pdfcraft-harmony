@@ -2463,3 +2463,12 @@ animation effects	Off	Desativados
 	No time server is chosen, so the signing time is this computer's clock.	Nenhum servidor de carimbo de data/hora foi escolhido, então o horário da assinatura é o do relógio deste computador.
 	Choose one in Preferences ▸ Signatures	Escolha um em Preferências > Assinaturas
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Assinado e salvo em {path}, mas sem horário confiável: {reason}. O horário da assinatura é o do relógio deste computador.
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
+	Less	Menos
+	Other options	Outras opções

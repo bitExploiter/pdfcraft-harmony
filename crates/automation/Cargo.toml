@@ -19,7 +19,6 @@ pdfcraft-tsa-http = { workspace = true }
 serde_json = { workspace = true }
 sha2 = "0.11"
 tempfile = "3.27"
-png = "0.18"
 base64 = { version = "0.22", optional = true }
 
 
@@ -32,6 +31,7 @@ mcp = ["dep:base64"]
 pdfcraft-fonts = { workspace = true }
 # A loopback time server for the signing tests.
 pdfcraft-tsa-http = { workspace = true, features = ["test-server"] }
+png = "0.18"
 flate2.workspace = true
 pdfcraft-model = { workspace = true }
 pdfcraft-xfa = { workspace = true }

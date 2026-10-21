@@ -2358,3 +2358,12 @@ animation effects	Off	ఆఫ్
 	No time server is chosen, so the signing time is this computer's clock.	ఏ టైమ్ సర్వర్ ఎంచుకోబడలేదు, కాబట్టి సంతకం సమయం ఈ కంప్యూటర్ గడియారం నుండి వస్తుంది.
 	Choose one in Preferences ▸ Signatures	ప్రాధాన్యతలు > సంతకాలు లో ఒకదాన్ని ఎంచుకోండి
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	సంతకం చేసి {path}లో సేవ్ చేయబడింది, కానీ విశ్వసనీయ సమయం లేకుండా: {reason}. సంతకం సమయం ఈ కంప్యూటర్ గడియారం నుండి వచ్చింది.
+	Font	ఫాంట్
+	Bulleted list	బుల్లెట్ జాబితా
+	Numbered list	సంఖ్యల జాబితా
+	Alignment	అమరిక
+	Superscript	సూపర్‌స్క్రిప్ట్
+	Subscript	సబ్‌స్క్రిప్ట్
+	Paragraph spacing	పేరా అంతరం
+	Less	తక్కువ
+	Other options	ఇతర ఎంపికలు

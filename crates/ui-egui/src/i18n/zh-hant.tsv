@@ -2399,3 +2399,12 @@ animation effects	Off	關
 	No time server is chosen, so the signing time is this computer's clock.	尚未選擇時間伺服器，因此簽署時間取自這部電腦的時鐘。
 	Choose one in Preferences ▸ Signatures	在 偏好設定 → 簽章 中選擇一個
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	已簽名並儲存到{path}，但沒有受信任的時間：{reason}。簽署時間取自這部電腦的時鐘。
+	Font	字型
+	Bulleted list	項目符號清單
+	Numbered list	編號清單
+	Alignment	對齊
+	Superscript	上標
+	Subscript	下標
+	Paragraph spacing	段落間距
+	Less	收起
+	Other options	其他選項

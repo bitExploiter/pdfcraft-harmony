@@ -2449,3 +2449,12 @@ animation effects	Off	オフ
 	No time server is chosen, so the signing time is this computer's clock.	タイムサーバーが選ばれていないため、署名時刻はこのコンピューターの時計によります。
 	Choose one in Preferences ▸ Signatures	環境設定 → 署名 で選択
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	署名して {path} に保存しましたが、信頼できる時刻は付いていません（{reason}）。署名時刻はこのコンピューターの時計によります。
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
+	Less	折りたたむ
+	Other options	その他のオプション

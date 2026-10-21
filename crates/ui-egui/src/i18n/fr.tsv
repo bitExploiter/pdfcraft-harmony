@@ -2449,3 +2449,12 @@ animation effects	Off	Désactivés
 	No time server is chosen, so the signing time is this computer's clock.	Aucun serveur d'horodatage n'est choisi : l'heure de signature est celle de l'horloge de cet ordinateur.
 	Choose one in Preferences ▸ Signatures	En choisir un dans Préférences > Signatures
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Signé et enregistré dans {path}, mais sans heure de confiance : {reason}. L'heure de signature est celle de l'horloge de cet ordinateur.
+	Font	Police
+	Bulleted list	Liste à puces
+	Numbered list	Liste numérotée
+	Alignment	Alignement
+	Superscript	Exposant
+	Subscript	Indice
+	Paragraph spacing	Espacement des paragraphes
+	Less	Moins
+	Other options	Autres options

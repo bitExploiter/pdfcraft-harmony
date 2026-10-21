@@ -2471,3 +2471,12 @@ animation effects	Off	Вимкнено
 	No time server is chosen, so the signing time is this computer's clock.	Сервер часу не вибрано, тож час підпису береться з годинника цього комп’ютера.
 	Choose one in Preferences ▸ Signatures	Виберіть його в розділі «Налаштування > Підписи»
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Підписано й збережено в {path}, але без довіреного часу: {reason}. Час підпису взято з годинника цього комп’ютера.
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
+	Less	Менше
+	Other options	Інші параметри

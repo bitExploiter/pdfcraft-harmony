@@ -2699,3 +2699,11 @@ theme	Appearance	Išvaizda
 	No time server is chosen, so the signing time is this computer's clock.	Laiko serveris nepasirinktas, todėl pasirašymo laikas nustatomas pagal šio kompiuterio laikrodį.
 	Choose one in Preferences ▸ Signatures	Pasirinkite jį: Nuostatos > Parašai
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Pasirašyta ir įrašyta į {path}, bet be patikimo laiko: {reason}. Pasirašymo laikas nustatytas pagal šio kompiuterio laikrodį.
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
+	Less	Mažiau
+	Other options	Kitos parinktys

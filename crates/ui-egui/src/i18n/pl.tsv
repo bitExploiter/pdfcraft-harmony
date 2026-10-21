@@ -2425,3 +2425,12 @@ animation effects	Off	Wyłączone
 	No time server is chosen, so the signing time is this computer's clock.	Nie wybrano serwera znaczników czasu, więc czas podpisu pochodzi z zegara tego komputera.
 	Choose one in Preferences ▸ Signatures	Wybierz go w Preferencje ▸ Podpisy
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Podpisano i zapisano w {path}, ale bez zaufanego czasu: {reason}. Czas podpisu pochodzi z zegara tego komputera.
+	Font	Czcionka
+	Bulleted list	Lista punktowana
+	Numbered list	Lista numerowana
+	Alignment	Wyrównanie
+	Superscript	Indeks górny
+	Subscript	Indeks dolny
+	Paragraph spacing	Odstęp między akapitami
+	Less	Mniej
+	Other options	Inne opcje

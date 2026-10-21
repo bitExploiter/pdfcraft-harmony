@@ -2454,3 +2454,12 @@ animation effects	Off	Izklopljeni
 	No time server is chosen, so the signing time is this computer's clock.	Časovni strežnik ni izbran, zato je čas podpisa vzet z ure tega računalnika.
 	Choose one in Preferences ▸ Signatures	Izberite ga v Nastavitve > Podpisi
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Podpisano in shranjeno v {path}, vendar brez zaupanja vrednega časa: {reason}. Čas podpisa je vzet z ure tega računalnika.
+	Font	Pisava
+	Bulleted list	Označen seznam
+	Numbered list	Oštevilčen seznam
+	Alignment	Poravnava
+	Superscript	Nadpisano
+	Subscript	Podpisano
+	Paragraph spacing	Razmik med odstavki
+	Less	Manj
+	Other options	Druge možnosti

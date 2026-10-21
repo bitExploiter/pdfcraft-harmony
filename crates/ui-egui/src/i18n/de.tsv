@@ -2450,3 +2450,12 @@ animation effects	Off	Aus
 	No time server is chosen, so the signing time is this computer's clock.	Kein Zeitserver gewählt, daher stammt die Signaturzeit von der Uhr dieses Computers.
 	Choose one in Preferences ▸ Signatures	Einen in Einstellungen > Signaturen wählen
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Signiert und gespeichert unter {path}, aber ohne vertrauenswürdige Zeit: {reason}. Die Signaturzeit stammt von der Uhr dieses Computers.
+	Font	Schrift
+	Bulleted list	Aufzählung
+	Numbered list	Nummerierte Liste
+	Alignment	Ausrichtung
+	Superscript	Hochgestellt
+	Subscript	Tiefgestellt
+	Paragraph spacing	Absatzabstand
+	Less	Weniger
+	Other options	Weitere Optionen

@@ -2523,3 +2523,12 @@ animation effects	Off	Vypnuto
 	No time server is chosen, so the signing time is this computer's clock.	Není vybrán žádný časový server, takže čas podpisu pochází z hodin tohoto počítače.
 	Choose one in Preferences ▸ Signatures	Vyberte ho v „Předvolby > Podpisy“
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Podepsáno a uloženo do {path}, ale bez důvěryhodného času: {reason}. Čas podpisu pochází z hodin tohoto počítače.
+	Font	Písmo
+	Bulleted list	Odrážkový seznam
+	Numbered list	Číslovaný seznam
+	Alignment	Zarovnání
+	Superscript	Horní index
+	Subscript	Dolní index
+	Paragraph spacing	Mezera mezi odstavci
+	Less	Méně
+	Other options	Další možnosti

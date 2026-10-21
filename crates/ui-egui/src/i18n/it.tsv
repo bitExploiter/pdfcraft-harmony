@@ -2661,3 +2661,12 @@ certificate	SHA-256 digest	Impronta SHA-256
 	No time server is chosen, so the signing time is this computer's clock.	Nessun server di marca temporale scelto, quindi l'ora della firma è quella dell'orologio di questo computer.
 	Choose one in Preferences ▸ Signatures	Scegline uno in Preferenze > Firme
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Firmato e salvato in {path}, ma senza ora attendibile: {reason}. L'ora della firma è quella dell'orologio di questo computer.
+	Font	Carattere
+	Bulleted list	Elenco puntato
+	Numbered list	Elenco numerato
+	Alignment	Allineamento
+	Superscript	Apice
+	Subscript	Pedice
+	Paragraph spacing	Spaziatura paragrafi
+	Less	Meno
+	Other options	Altre opzioni

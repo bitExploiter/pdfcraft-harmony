@@ -2412,3 +2412,12 @@ animation effects	Off	Изключени
 	No time server is chosen, so the signing time is this computer's clock.	Не е избран сървър за време, затова времето на подписване е от часовника на този компютър.
 	Choose one in Preferences ▸ Signatures	Изберете в Настройки > Подписи
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Подписано и записано в {path}, но без надеждно време: {reason}. Времето на подписване е от часовника на този компютър.
+	Font	Шрифт
+	Bulleted list	Списък с водещи символи
+	Numbered list	Номериран списък
+	Alignment	Подравняване
+	Superscript	Горен индекс
+	Subscript	Долен индекс
+	Paragraph spacing	Разстояние между абзаците
+	Less	По-малко
+	Other options	Други опции

@@ -2455,3 +2455,12 @@ animation effects	Off	Ανενεργά
 	No time server is chosen, so the signing time is this computer's clock.	Δεν έχει επιλεγεί διακομιστής χρόνου, οπότε η ώρα υπογραφής προέρχεται από το ρολόι αυτού του υπολογιστή.
 	Choose one in Preferences ▸ Signatures	Επιλέξτε έναν στις Προτιμήσεις > Υπογραφές
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	Υπογράφηκε και αποθηκεύτηκε στο {path}, αλλά χωρίς αξιόπιστη ώρα: {reason}. Η ώρα υπογραφής προέρχεται από το ρολόι αυτού του υπολογιστή.
+	Font	Γραμματοσειρά
+	Bulleted list	Λίστα με κουκκίδες
+	Numbered list	Αριθμημένη λίστα
+	Alignment	Στοίχιση
+	Superscript	Εκθέτης
+	Subscript	Δείκτης
+	Paragraph spacing	Απόσταση παραγράφων
+	Less	Λιγότερα
+	Other options	Άλλες επιλογές

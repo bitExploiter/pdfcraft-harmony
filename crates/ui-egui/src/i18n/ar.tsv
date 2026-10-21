@@ -2726,3 +2726,11 @@ certificate	Version	الإصدار
 	No time server is chosen, so the signing time is this computer's clock.	لم يتم اختيار خادم وقت، لذا يكون وقت التوقيع من ساعة هذا الحاسوب.
 	Choose one in Preferences ▸ Signatures	اختر واحدًا من التفضيلات > التوقيعات
 	Signed and saved to {path}, but without a trusted time: {reason}. The signing time is this computer's clock.	تم التوقيع والحفظ في {path}، ولكن دون وقت موثوق: {reason}. وقت التوقيع هو ساعة هذا الحاسوب.
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
+	Less	أقل
+	Other options	خيارات أخرى
