@@ -769,9 +769,13 @@ pub struct PdfCraftApp {
     pub(crate) windows: Vec<windows::DocWindow>,
     pub(crate) current_window: u32,
     next_window: u32,
-    /// A document moved into the main window while another was drawn: the main window's
-    /// active tab once that one is swapped out again.
-    main_activation: Option<DocId>,
+    /// Documents moved into another window than the one being drawn (a tab's Move to Main
+    /// Window, or a tab dropped on another window): each that window's active tab once the
+    /// windows are drawn ([`windows`]).
+    activations: Vec<(u32, DocId)>,
+    /// Where each window was on screen at the start of this frame, by key, for a tab dropped
+    /// on one ([`windows`]).
+    window_rects: Vec<(u32, egui::Rect)>,
     styled: bool,
     fonts_ready: bool,
     /// The CJK fallback order the installed fonts follow (see `theme::installed_font_definitions`).
@@ -1070,7 +1074,8 @@ impl PdfCraftApp {
             windows: Vec::new(),
             current_window: windows::MAIN,
             next_window: windows::MAIN + 1,
-            main_activation: None,
+            activations: Vec::new(),
+            window_rects: Vec::new(),
             styled: false,
             fonts_ready: false,
             fonts_cjk: theme::CjkPreference::Default,

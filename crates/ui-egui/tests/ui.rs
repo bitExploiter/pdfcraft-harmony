@@ -1320,6 +1320,28 @@ fn dragging_a_tab_moves_it_and_keeps_the_same_document_active() {
     }
 }
 
+/// Dragged well below the strip, a tab tears off: the pointer carries its name and what letting
+/// go does, and letting go opens it in a window of its own. The main window keeps the others.
+#[test]
+fn dragging_a_tab_off_the_strip_opens_it_in_a_new_window() {
+    use egui::accesskit::Role;
+    let mut h = three_tab_harness();
+    let ids: Vec<_> = h.state().views.iter().map(|view| view.id).collect();
+    let to = h.get_by_role_and_label(Role::Tab, "first.pdf").rect().center() + egui::vec2(0.0, 300.0);
+    drag_named_tab(&mut h, "first.pdf", to, false);
+    assert!(h.query_by_label("Release to open in a new window").is_some(), "the preview follows the pointer");
+    assert!(!h.state().has_other_windows(), "nothing moves before letting go");
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+    h.run_steps(3);
+    assert_eq!(h.state().window_count(), 2);
+    assert_eq!(h.state().views.iter().map(|view| view.id).collect::<Vec<_>>(), ids, "every document stays open");
+    assert!(h.query_by_label("Release to open in a new window").is_none());
+    // Back along the strip, a drag is a move among the tabs again.
+    let to = h.get_by_role_and_label(Role::Tab, "last.pdf").rect().left_center() - egui::vec2(10.0, 0.0);
+    drag_named_tab(&mut h, "middle.pdf", to + egui::vec2(200.0, 0.0), true);
+    assert_eq!(h.state().window_count(), 2, "a drag along the strip opens no window");
+}
+
 /// Regression (#2225): the drop line in front of the first tab sat half a gap outside the
 /// scroll area's clip rect and was never visible.
 #[test]

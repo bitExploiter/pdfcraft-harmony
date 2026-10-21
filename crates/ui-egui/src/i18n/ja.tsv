@@ -2443,6 +2443,7 @@ animation effects	Off	オフ
 	Fade side panels	サイドパネルを薄くする
 	Hide side panels after	サイドパネルを隠すまでの時間
 	Move to New Window	新しいウィンドウに移動
+	Release to open in a new window	離すと新しいウィンドウで開きます
 	Move to Main Window	メインウィンドウに移動
 	Appearance & Theme	外観とテーマ
 	Colours to read documents in, without changing the documents.	文書を変更せずに読むための色。

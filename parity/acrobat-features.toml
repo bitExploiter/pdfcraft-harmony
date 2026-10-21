@@ -1223,11 +1223,11 @@ title = "Multiple windows; drag a tab out into a window"
 area = "B"
 tier = "P1"
 milestone = "M14"
-status = "planned"
+status = "partial"
 commands = []
 tools = []
-evidence = []
-notes = ""
+evidence = ["crates/ui-egui/tests/ui.rs::dragging_a_tab_off_the_strip_opens_it_in_a_new_window", "crates/ui-egui/src/windows.rs::a_torn_off_tab_opens_in_a_window_under_the_pointer", "crates/ui-egui/src/windows.rs::a_tab_dropped_on_another_window_moves_into_it", "crates/ui-egui/src/windows.rs::the_last_session_reopens_its_windows", "crates/ui-egui/src/windows.rs::closing_a_window_closes_its_tabs_and_asks_about_unsaved_ones"]
+notes = "Desktop only. A tab's menu has Move to New Window and Move to Main Window. Dragging a tab well off the strip tears it off: a preview follows the pointer; letting go over another window moves the tab there, and anywhere else opens it in a window of its own under the pointer. Each window has its own active tab, workspace, panels and dialogs; closing a window asks about its unsaved documents; quitting and Close all bring every tab back to the main window first. With Reopen last session on, the windows come back with their tabs, active tabs and places. Missing: a drop line among the target window's tabs (a dropped tab goes last); window menu commands and an automation tool; the drag across windows is tested on Windows only (the test harness cannot open real windows)."
 
 [[feature]]
 id = "view.split-window"

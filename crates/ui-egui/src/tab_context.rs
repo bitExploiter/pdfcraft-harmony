@@ -9,6 +9,9 @@ pub(crate) enum Action {
     NewWindow(DocId),
     /// Move to Main Window (from a window beside it).
     MainWindow(DocId),
+    /// Dragged off the strip and released: where on screen (points), when known, and the size
+    /// of the window it came from ([`crate::PdfCraftApp::tear_off`]).
+    TearOff(DocId, Option<egui::Pos2>, Option<egui::Vec2>),
 }
 
 impl crate::PdfCraftApp {
@@ -39,6 +42,7 @@ impl crate::PdfCraftApp {
             }
             Action::NewWindow(id) => self.move_to_new_window(id),
             Action::MainWindow(id) => self.move_to_main_window(id),
+            Action::TearOff(id, at, size) => self.tear_off(id, at, size),
             Action::Reveal(id) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 if let Some(path) = self.session.get(id).and_then(|d| d.path.clone())
