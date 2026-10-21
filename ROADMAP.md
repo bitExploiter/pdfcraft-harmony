@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M7, #2918/#3707/#184: Add text draws Japanese through the craft-fonts document faces, with style-matched Mincho/Gothic and bold faces, U+3000 kept and typing order preserved; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -171,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-22 (M7, #2918, #3707, #184):** Edit a PDF ▸ Text / Add content ▸ Text and `page_add_text` now draw Japanese instead of refusing it. Kana, kanji, full-width punctuation, the ideographic space U+3000 and any other character outside WinAnsiEncoding that the item's own standard font lacks take the craft-fonts `Jpan` face that matches the item's style: Mincho for a Times item, BIZ UDPGothic otherwise, and the Bold weight for a bold item. The face is chosen before shaping, so advances and the Type 3 outlines come from one face; each character is a Type 3 glyph with a ToUnicode entry, each line carries its typing order as `/ActualText`, and wrapping breaks Japanese between characters. Extract, copy and search keep the string exactly, including U+3000 (paragraph mode of Edit text keeps it too). The shaped path keeps its Arabic, Hebrew and Thai behaviour. Built without craft-fonts, the text is refused by name as before and nothing is written; moving an item that already holds it follows the existing item rules. #184's fallback-style and reported-face behaviour is covered by the existing Edit text regressions (`japanese_line_fallback_uses_real_source_family_and_weight`, `japanese_paragraph_fallback_honors_requested_family_and_weight`, `japanese_fallback_reports_the_face_after_save_and_reopen`). Editing CJK inside existing lines remains open. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
@@ -548,10 +552,13 @@ Newest first: the date, what moved, and the new overall estimate.
 
 ## Revision history
 
+**2026-10-22 · minor:** M7/#2918/#3707/#184: Add text draws Japanese (kana, kanji, U+3000, full-width punctuation, Cyrillic fallback) through the craft-fonts document faces, style-matched to the item (Mincho/Gothic, bold weight), with Type 3 ToUnicode and per-line ActualText; wrapping breaks between characters. Refusal without craft-fonts names the character. Edit text's fallback style, U+3000 paragraph handling and reported face are regression-covered. Estimates unchanged.
+
 **2026-10-15 · minor:** M14/#2383 candidate: GPU device requests clamp unsupported limits while retaining the adapter texture extent. Synthetic V3D/downlevel regressions and Windows GPU-required tests pass; Raspberry Pi hardware remains unverified. Estimates unchanged.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | M7/#2918/#3707/#184: Add text draws Japanese through the craft-fonts document faces (style-matched Mincho/Gothic and bold), keeping U+3000 and typing order with Type 3 ToUnicode and per-line ActualText; wrapping breaks between characters. Existing Arabic, Hebrew and Thai paths unchanged; estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |
