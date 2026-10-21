@@ -1027,13 +1027,20 @@ fn use_system_title_bar_swaps_the_header_bar_for_the_window_frame() {
     assert_eq!(asked, Some(true), "the window gets its frame back");
     assert!(h.query_by_label("Minimize").is_none(), "and the tab strip loses its buttons");
     let saved = h.state().persist();
-    assert!(saved.contains(r#""system_title_bar":true"#), "{saved}");
+    assert!(saved.contains(r#""title_bar":"system""#), "{saved}");
     let mut restored = PdfCraftApp::new();
     restored.restore(&saved);
     assert!(restored.system_title_bar);
     restored.set_option("system-title-bar", "false").unwrap();
     assert!(!restored.system_title_bar);
     assert!(restored.set_option("system-title-bar", "maybe").is_err());
+    // Settings from before Windows offered the preference hold a boolean, which every platform
+    // saved as `false` while only GNOME showed the checkbox: there it still counts, on Windows the
+    // default stands (otherwise every upgrade would lose the title bar).
+    let mut upgraded = PdfCraftApp::new();
+    upgraded.restore(r#"{"system_title_bar":false}"#);
+    assert_eq!(upgraded.system_title_bar, cfg!(target_os = "windows"));
+    assert_eq!(PdfCraftApp::new().system_title_bar, cfg!(target_os = "windows"), "the default");
     // Where the desktop draws the frame there is nothing to choose.
     let mut h = harness(|app| app.set_option("dialog", "preferences").unwrap());
     h.run_steps(2);
