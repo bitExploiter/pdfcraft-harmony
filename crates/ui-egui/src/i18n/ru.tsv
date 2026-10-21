@@ -2354,5 +2354,12 @@ animation effects	Off	Выкл
 	Save and Rename	Сохранить и переименовать
 	Renamed to {name}	Переименовано в {name}
 	Couldn't rename {name}: {e}	Не удалось переименовать {name}: {e}
+	Font	Шрифт
+	Bulleted list	Маркированный список
+	Numbered list	Нумерованный список
+	Alignment	Выравнивание
+	Superscript	Надстрочный
+	Subscript	Подстрочный
+	Paragraph spacing	Интервал между абзацами
 	Less	Меньше
 	Other options	Другие параметры

@@ -2515,5 +2515,12 @@ animation effects	Off	Vypnuto
 	Save and Rename	Uložit a přejmenovat
 	Renamed to {name}	Přejmenováno na {name}
 	Couldn't rename {name}: {e}	{name} nelze přejmenovat: {e}
+	Font	Písmo
+	Bulleted list	Odrážkový seznam
+	Numbered list	Číslovaný seznam
+	Alignment	Zarovnání
+	Superscript	Horní index
+	Subscript	Dolní index
+	Paragraph spacing	Mezera mezi odstavci
 	Less	Méně
 	Other options	Další možnosti

@@ -2440,5 +2440,12 @@ animation effects	Off	Ki
 	Save and Rename	Mentés és átnevezés
 	Renamed to {name}	Átnevezve erre: {name}
 	Couldn't rename {name}: {e}	Nem sikerült átnevezni ezt: {name}: {e}
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

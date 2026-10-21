@@ -2439,5 +2439,12 @@ animation effects	Off	Өшірулі
 	Save and Rename	Сақтау және атын өзгерту
 	Renamed to {name}	Аты {name} болып өзгертілді
 	Couldn't rename {name}: {e}	{name} атын өзгерту мүмкін болмады: {e}
+	Font	Қаріп
+	Bulleted list	Таңбалауыш тізім
+	Numbered list	Нөмірленген тізім
+	Alignment	Туралау
+	Superscript	Жоғарғы индекс
+	Subscript	Төменгі индекс
+	Paragraph spacing	Абзац аралығы
 	Less	Азырақ
 	Other options	Басқа параметрлер

@@ -2417,5 +2417,12 @@ animation effects	Off	Wyłączone
 	Save and Rename	Zapisz i zmień nazwę
 	Renamed to {name}	Zmieniono nazwę na {name}
 	Couldn't rename {name}: {e}	Nie można zmienić nazwy {name}: {e}
+	Font	Czcionka
+	Bulleted list	Lista punktowana
+	Numbered list	Lista numerowana
+	Alignment	Wyrównanie
+	Superscript	Indeks górny
+	Subscript	Indeks dolny
+	Paragraph spacing	Odstęp między akapitami
 	Less	Mniej
 	Other options	Inne opcje

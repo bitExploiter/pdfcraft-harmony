@@ -2442,5 +2442,12 @@ animation effects	Off	Aus
 	Save and Rename	Speichern und umbenennen
 	Renamed to {name}	Umbenannt in {name}
 	Couldn't rename {name}: {e}	{name} konnte nicht umbenannt werden: {e}
+	Font	Schrift
+	Bulleted list	Aufzählung
+	Numbered list	Nummerierte Liste
+	Alignment	Ausrichtung
+	Superscript	Hochgestellt
+	Subscript	Tiefgestellt
+	Paragraph spacing	Absatzabstand
 	Less	Weniger
 	Other options	Weitere Optionen

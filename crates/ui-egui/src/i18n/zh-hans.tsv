@@ -2405,5 +2405,12 @@ animation effects	Off	关
 	Save and Rename	保存并重命名
 	Renamed to {name}	已重命名为 {name}
 	Couldn't rename {name}: {e}	无法重命名 {name}：{e}
+	Font	字体
+	Bulleted list	项目符号列表
+	Numbered list	编号列表
+	Alignment	对齐
+	Superscript	上标
+	Subscript	下标
+	Paragraph spacing	段落间距
 	Less	收起
 	Other options	其他选项

@@ -2391,5 +2391,12 @@ animation effects	Off	關
 	Save and Rename	儲存並重新命名
 	Renamed to {name}	已重新命名為 {name}
 	Couldn't rename {name}: {e}	無法重新命名 {name}：{e}
+	Font	字型
+	Bulleted list	項目符號清單
+	Numbered list	編號清單
+	Alignment	對齊
+	Superscript	上標
+	Subscript	下標
+	Paragraph spacing	段落間距
 	Less	收起
 	Other options	其他選項

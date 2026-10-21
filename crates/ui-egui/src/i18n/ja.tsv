@@ -2441,5 +2441,12 @@ animation effects	Off	オフ
 	Save and Rename	保存して名前を変更
 	Renamed to {name}	{name} に名前を変更しました
 	Couldn't rename {name}: {e}	{name} の名前を変更できませんでした: {e}
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
 	Less	折りたたむ
 	Other options	その他のオプション

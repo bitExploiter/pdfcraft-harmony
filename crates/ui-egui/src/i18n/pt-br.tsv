@@ -2455,5 +2455,12 @@ animation effects	Off	Desativados
 	Save and Rename	Salvar e renomear
 	Renamed to {name}	Renomeado para {name}
 	Couldn't rename {name}: {e}	Não foi possível renomear {name}: {e}
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
 	Less	Menos
 	Other options	Outras opções

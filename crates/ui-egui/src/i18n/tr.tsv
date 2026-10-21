@@ -2437,5 +2437,12 @@ animation effects	Off	Kapalı
 	Save and Rename	Kaydet ve yeniden adlandır
 	Renamed to {name}	{name} olarak yeniden adlandırıldı
 	Couldn't rename {name}: {e}	{name} yeniden adlandırılamadı: {e}
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
 	Less	Daha az
 	Other options	Diğer seçenekler

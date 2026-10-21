@@ -2718,5 +2718,11 @@ certificate	Version	الإصدار
 	Save and Rename	حفظ وإعادة التسمية
 	Renamed to {name}	أُعيدت التسمية إلى {name}
 	Couldn't rename {name}: {e}	تعذّرت إعادة تسمية {name}: {e}
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى

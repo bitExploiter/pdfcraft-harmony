@@ -2692,5 +2692,11 @@ theme	Appearance	Išvaizda
 	Save and Rename	Įrašyti ir pervardyti
 	Renamed to {name}	Pervardyta į {name}
 	Couldn't rename {name}: {e}	Nepavyko pervardyti {name}: {e}
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys
