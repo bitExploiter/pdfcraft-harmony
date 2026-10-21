@@ -92,6 +92,10 @@ fn objects(h: &Harness<'static, PdfCraftApp>) -> Vec<EditableObject> {
     let app = h.state();
     app.session.get(app.views[0].id).unwrap().editable_objects(0).unwrap()
 }
+/// The Edit panel shows no "{n} object(s) selected" line.
+fn nothing_selected(h: &Harness<'static, PdfCraftApp>) -> bool {
+    h.query_all_by_label_contains("object selected").next().is_none() && h.query_all_by_label_contains("objects selected").next().is_none()
+}
 fn click(h: &mut Harness<'static, PdfCraftApp>, p: Pos2, mods: Modifiers) {
     h.hover_at(p);
     h.run_steps(2);
@@ -160,7 +164,10 @@ fn marquee_and_mixed_group_drag_move_once_and_undo_together() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(4);
     assert_eq!(objects(&h), before);
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(
+        h.query_all_by_label_contains("object selected").next().is_none() && h.query_all_by_label_contains("objects selected").next().is_none(),
+        "no objects selected"
+    );
     h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z);
     h.run_steps(4);
     assert_eq!(objects(&h), after);
@@ -185,7 +192,10 @@ fn modifier_clicks_extend_an_ordinary_selection_and_toggle_objects() {
     assert!(!h.state().session.get(h.state().views[0].id).unwrap().dirty);
     h.key_press(Key::Escape);
     h.run_steps(3);
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(
+        h.query_all_by_label_contains("object selected").next().is_none() && h.query_all_by_label_contains("objects selected").next().is_none(),
+        "no objects selected"
+    );
 }
 
 #[test]
@@ -235,7 +245,10 @@ fn a_document_change_invalidates_old_selection_before_the_next_drag() {
         .apply(id, Edit::AddText { page: 0, text: AddedText { text: "A new item".into(), rect: [40.0, 210.0, 150.0, 240.0], ..Default::default() } })
         .unwrap();
     h.run_steps(4);
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(
+        h.query_all_by_label_contains("object selected").next().is_none() && h.query_all_by_label_contains("objects selected").next().is_none(),
+        "no objects selected"
+    );
     assert_eq!(objects(&h).len(), 5);
 }
 
@@ -404,24 +417,23 @@ fn vector_paths_are_selected_by_their_painted_shape() {
     assert_eq!(before.len(), 5);
     let line = before.last().unwrap();
     assert_eq!((line.target.kind, line.content_type), (ObjectKind::Path, "path"));
-    let hint = "Shift-click to select several objects. Drag empty space to select an area.";
     // Inside the line's box, away from its stroke, a press is on empty page.
     let p = at(&h, 370.0, 390.0);
     click(&mut h, p, Modifiers::NONE);
-    h.get_by_label(hint);
+    assert!(nothing_selected(&h));
     click(&mut h, p, Modifiers::SHIFT);
-    h.get_by_label(hint);
+    assert!(nothing_selected(&h));
     // A plain click on the stroke selects the line alone; a modifier click toggles it.
     let on_line = at(&h, 340.0, 360.0);
     click(&mut h, on_line, Modifiers::NONE);
     h.get_by_label("1 object selected");
     assert!(h.state().views[0].line_editor.is_none() && h.state().views[0].image_selection.is_none());
     click(&mut h, on_line, Modifiers::COMMAND);
-    h.get_by_label(hint);
+    assert!(nothing_selected(&h));
     click(&mut h, on_line, Modifiers::SHIFT);
     h.get_by_label("1 object selected");
     click(&mut h, on_line, Modifiers::COMMAND);
-    h.get_by_label(hint);
+    assert!(nothing_selected(&h));
     let (a, b) = (at(&h, 320.0, 300.0), at(&h, 395.0, 380.0));
     drag(&mut h, a, b);
     h.get_by_label("1 object selected");
@@ -465,7 +477,7 @@ fn a_page_covering_vector_background_stays_out_of_clicks_and_small_marquees() {
     // A plain click on it starts a marquee instead of selecting it.
     let p = at(&h, 300.0, 250.0);
     click(&mut h, p, Modifiers::NONE);
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(nothing_selected(&h));
     // Around the figure only (40..100 across, 130..160 down).
     let (a, b) = (at(&h, 30.0, 120.0), at(&h, 110.0, 170.0));
     drag(&mut h, a, b);
@@ -566,7 +578,7 @@ fn delete_removes_the_selected_path_and_image_in_one_step() {
     assert_eq!(after.len(), 3);
     assert!(after.iter().all(|o| matches!(o.target.kind, ObjectKind::Text | ObjectKind::Added)), "{after:?}");
     assert_eq!(undo_label(&h).as_deref(), Some("Delete objects"));
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(nothing_selected(&h));
     h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
     h.run_steps(4);
     assert_eq!(objects(&h), before);
@@ -598,7 +610,7 @@ fn text_over_a_vector_path_still_opens_for_typing() {
     let p = at(&h, 55.0, 70.0);
     click(&mut h, p, Modifiers::NONE);
     assert!(h.state().views[0].line_editor.is_some());
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(nothing_selected(&h));
     // Beside the headline the press reaches the panel.
     let p = at(&h, 210.0, 50.0);
     click(&mut h, p, Modifiers::NONE);
@@ -841,7 +853,7 @@ fn delete_in_the_page_menu_removes_the_selection_in_one_step() {
     assert_eq!(after.len(), 3);
     assert!(after.iter().all(|o| matches!(o.target.kind, ObjectKind::Text | ObjectKind::Added)), "{after:?}");
     assert_eq!(undo_label(&h).as_deref(), Some("Delete objects"));
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(nothing_selected(&h));
     undo(&mut h);
     assert_eq!(objects(&h), before);
 }
@@ -906,7 +918,7 @@ fn escape_closes_the_colour_grid_and_keeps_the_selection() {
     h.get_by_label("1 object selected");
     h.key_press(Key::Escape);
     h.run_steps(3);
-    h.get_by_label("Shift-click to select several objects. Drag empty space to select an area.");
+    assert!(nothing_selected(&h));
 }
 
 #[test]

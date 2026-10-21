@@ -781,7 +781,6 @@ mod tests {
             let lang = crate::i18n::Lang::from_code(language.code).unwrap();
             for label in [
                 "Drag the selection to move it. Esc clears the selection.",
-                "Shift-click to select several objects. Drag empty space to select an area.",
                 "Select at most 1000 objects at a time.",
                 "Finish or discard the text being edited before selecting several objects.",
                 "Move object",
