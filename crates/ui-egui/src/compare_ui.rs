@@ -169,7 +169,7 @@ impl PdfCraftApp {
         let Some(old) = self.compare_old else { return };
         match self.session.compare(old, new) {
             Ok(result) => {
-                let visual = self.session.compare_visual(old, new, 72.0).unwrap_or_default();
+                let visual = self.session.compare_visual_pairs(old, new, &result.page_pairs, 72.0).unwrap_or_default();
                 self.views[i].compare_marks = result
                     .changes
                     .iter()
@@ -380,16 +380,6 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
 fn page_top_y(app: &PdfCraftApp, view_index: usize, page: usize) -> f32 {
     let Some(v) = app.views.get(view_index) else { return 0.0 };
     let Some(doc) = app.session.get(v.id) else { return 0.0 };
-    let s = v.zoom * crate::canvas::PT;
-    let gap = 14.0;
-    doc.info
-        .pages
-        .iter()
-        .take(page)
-        .map(|p| {
-            let rot = (p.rotation.rem_euclid(360) as u16 + v.rotation) % 360;
-            let h = if rot % 180 == 0 { p.height } else { p.width };
-            h * s + gap
-        })
-        .sum()
+    let w = v.content_width(&doc.info, v.viewport_rect().width());
+    v.layout(&doc.info, w).get(page).map_or(0.0, |r| r.min.y)
 }

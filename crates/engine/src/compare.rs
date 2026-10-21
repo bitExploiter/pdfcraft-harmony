@@ -56,9 +56,14 @@ impl Session {
     /// Visual compare: regions where each page of `new` looks different from its corresponding
     /// page in `old` (rendered at `dpi`), as (page, user-space box in `new`).
     pub fn compare_visual(&self, old: DocId, new: DocId, dpi: f32) -> Result<Vec<(usize, [f64; 4])>, EditError> {
+        let c = self.compare(old, new)?;
+        self.compare_visual_pairs(old, new, &c.page_pairs, dpi)
+    }
+
+    /// Visual compare over already-matched `(old_page, new_page)` pairs.
+    pub fn compare_visual_pairs(&self, old: DocId, new: DocId, pairs: &[(usize, usize)], dpi: f32) -> Result<Vec<(usize, [f64; 4])>, EditError> {
         let a = self.get(old).ok_or(EditError::NoDocument)?;
         let b = self.get(new).ok_or(EditError::NoDocument)?;
-        let c = pdfcraft_compare::compare_with_pages(&a.words(), a.info.pages.len(), &b.words(), b.info.pages.len());
         let renderer = |d: &crate::Document| {
             pdfcraft_render::PageRenderer::new(
                 d.bytes.clone(),
@@ -68,7 +73,7 @@ impl Session {
         let (mut ra, mut rb) = (renderer(a), renderer(b));
         let scale = dpi.clamp(18.0, 150.0) / 72.0;
         let mut out = Vec::new();
-        for (old_page, new_page) in c.page_pairs {
+        for &(old_page, new_page) in pairs {
             let Some(info) = b.info.pages.get(new_page) else { continue };
             if old_page >= a.info.pages.len() {
                 continue;

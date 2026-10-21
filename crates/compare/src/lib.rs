@@ -469,9 +469,20 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
     let old_profiles: Vec<PageProfile> = old_by_page.iter().map(|w| PageProfile::from_words(w)).collect();
     let new_profiles: Vec<PageProfile> = new_by_page.iter().map(|w| PageProfile::from_words(w)).collect();
 
+    let mut token_to_new: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
+    for (q, pb) in new_profiles.iter().enumerate() {
+        for &h in pb.unigrams.keys() {
+            token_to_new.entry(h).or_default().push(q);
+        }
+    }
+
     let mut candidates: Vec<(usize, usize, f64)> = Vec::new();
     for (p, pa) in old_profiles.iter().enumerate() {
-        for (q, pb) in new_profiles.iter().enumerate() {
+        let mut shared_new: Vec<usize> = pa.unigrams.keys().filter_map(|h| token_to_new.get(h)).flatten().copied().collect();
+        shared_new.sort_unstable();
+        shared_new.dedup();
+        for q in shared_new {
+            let pb = &new_profiles[q];
             let sim = page_similarity(pa, pb);
             if sim >= MIN_PAGE_SIM {
                 let rel_dist = (p as f64 / n.max(1) as f64 - q as f64 / m.max(1) as f64).abs();
@@ -517,6 +528,15 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
             old_to_new[p] = Some(q);
             new_to_old[q] = Some(p);
             anchors.push((p, q));
+        }
+        // Same number of leftover text pages on both sides of the gap: treat them as edited pages.
+        let rest_old: Vec<usize> = (p0..p1).filter(|&p| old_to_new[p].is_none()).collect();
+        let rest_new: Vec<usize> = (q0..q1).filter(|&q| new_to_old[q].is_none()).collect();
+        if !rest_old.is_empty() && rest_old.len() == rest_new.len() {
+            for (&p, &q) in rest_old.iter().zip(rest_new.iter()) {
+                old_to_new[p] = Some(q);
+                new_to_old[q] = Some(p);
+            }
         }
     }
 
