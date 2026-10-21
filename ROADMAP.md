@@ -1,6 +1,6 @@
 # PdfCraft roadmap
 
-> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M7, #3813: dropping images into the editor adds centred, selected content to the active page; PDF opens, image import without a document and specialized drop targets keep their existing behaviour. Estimates unchanged.)
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M7, #3813: dropping images into the editor adds centred, selected content to the active page. Mixed browser drops finish reading as a batch and insert images before opening PDFs; failed image reads queue no empty edit. Image import without a document and specialized drop targets keep their existing behaviour. Estimates unchanged.)
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
@@ -173,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-21 (M7, #3813 review):** Browser mixed drops insert images before opening PDFs, even when the PDF reads first. Failed reads retain their read error without an empty edit or a misleading stale-target notice. Deterministic asynchronous regressions cover both cases.
 
 - **2026-10-21 (M7, #3813):** Images dropped in the editor use Add image on the current page, with selection and undo/redo. The headless equivalent remains `page_add_image`.
 

@@ -8,15 +8,18 @@ use pdfcraft_ui_egui::{LeftPanel, PdfCraftApp};
 struct Dropped(std::path::PathBuf, Result<Vec<u8>, String>);
 
 impl egui::DroppedFile for Dropped {
+    /// Expose the synthetic filename used by the drop router.
     fn path(&self) -> &std::path::Path {
         &self.0
     }
 
+    /// Return the fixture bytes or its simulated read error.
     fn bytes(&self) -> Result<Vec<u8>, String> {
         self.1.clone()
     }
 }
 
+/// Generate an original image without committing a binary fixture.
 fn png() -> Vec<u8> {
     let mut bytes = Vec::new();
     let mut encoder = png::Encoder::new(&mut bytes, 120, 60);
@@ -26,6 +29,7 @@ fn png() -> Vec<u8> {
     bytes
 }
 
+/// Open synthetic two-page documents with the last tab active.
 fn harness(documents: usize) -> Harness<'static, PdfCraftApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_| {
         let mut app = PdfCraftApp::new();
@@ -40,6 +44,7 @@ fn harness(documents: usize) -> Harness<'static, PdfCraftApp> {
     h
 }
 
+/// Deliver real egui drop input and process the following frames.
 fn drop_files(h: &mut Harness<'static, PdfCraftApp>, files: Vec<Dropped>) {
     for file in files {
         h.input_mut().dropped_files.push(std::sync::Arc::new(file));
@@ -47,6 +52,7 @@ fn drop_files(h: &mut Harness<'static, PdfCraftApp>, files: Vec<Dropped>) {
     h.run_steps(4);
 }
 
+/// Insertion targets the current page, selects the image and survives save/reopen and undo/redo.
 #[test]
 fn image_drop_inserts_on_the_active_page_and_supports_undo_redo() {
     let mut h = harness(2);
@@ -83,6 +89,7 @@ fn image_drop_inserts_on_the_active_page_and_supports_undo_redo() {
     assert_eq!(app.session.get(reopened).unwrap().added()[0].page, 1);
 }
 
+/// Without an editor document, images keep the existing conversion-to-PDF flow.
 #[test]
 fn image_drop_without_a_document_opens_a_tab() {
     let mut h = harness(0);
@@ -94,6 +101,7 @@ fn image_drop_without_a_document_opens_a_tab() {
     assert!(doc.added().is_empty(), "the image is converted to a new document");
 }
 
+/// Native mixed drops insert readable images before opening the dropped PDF.
 #[test]
 fn image_drop_batch_continues_after_bad_files_and_pdf_still_opens_a_tab() {
     let mut h = harness(1);
@@ -114,6 +122,7 @@ fn image_drop_batch_continues_after_bad_files_and_pdf_still_opens_a_tab() {
     assert_eq!(doc.info.pages.len(), 2);
 }
 
+/// Organize keeps its specialized page-insertion destination.
 #[test]
 fn an_image_dropped_on_the_organize_grid_still_inserts_a_page() {
     let mut h = harness(1);
@@ -127,6 +136,7 @@ fn an_image_dropped_on_the_organize_grid_still_inserts_a_page() {
     assert_eq!(h.state().views.len(), 1);
 }
 
+/// Every format supported by Add image reaches content insertion.
 #[test]
 fn every_add_image_extension_is_routed_to_content() {
     let mut h = harness(1);
@@ -137,6 +147,7 @@ fn every_add_image_extension_is_routed_to_content() {
     assert_eq!(h.state().session.get(h.state().views[0].id).unwrap().added().len(), 10);
 }
 
+/// Desktop drops read the native path instead of the browser byte accessor.
 #[test]
 fn image_drop_reads_an_absolute_path_from_disk() {
     let path = std::env::temp_dir().join(format!("pdfcraft-image-drop-{}.png", std::process::id()));
@@ -148,6 +159,7 @@ fn image_drop_reads_an_absolute_path_from_disk() {
     assert_eq!(h.state().views.len(), 1);
 }
 
+/// Invalid image bytes and failed reads report errors without dirtying the PDF.
 #[test]
 fn bad_image_drops_report_an_error_without_changing_the_document() {
     for bytes in [Ok(b"broken".to_vec()), Err("read failed".into())] {
@@ -162,10 +174,12 @@ fn bad_image_drops_report_an_error_without_changing_the_document() {
     }
 }
 
+/// Capture a browser request before asynchronous reads complete.
 fn browser_drop(h: &Harness<'static, PdfCraftApp>) -> pdfcraft_ui_egui::FileRequest {
     h.state().file_request(pdfcraft_ui_egui::FilePurpose::AddImages { page: 0 }, vec![("first.png".into(), png()), ("last.png".into(), png())])
 }
 
+/// A browser batch keeps its captured page despite later page navigation.
 #[test]
 fn browser_image_drop_keeps_its_page_and_inserts_the_whole_batch() {
     let mut h = harness(1);
@@ -178,6 +192,7 @@ fn browser_image_drop_keeps_its_page_and_inserts_the_whole_batch() {
     assert!(doc.added().iter().all(|a| a.page == 0));
 }
 
+/// Captured browser targets reject another active tab or intervening edits.
 #[test]
 fn browser_image_drop_refuses_a_switched_or_edited_document() {
     for switch in [true, false] {
