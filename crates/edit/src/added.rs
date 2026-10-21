@@ -19,6 +19,42 @@ use unicode_bidi::{Level, ParagraphBidiInfo};
 use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, place_tagged};
 
 const TAG: &str = "Added";
+mod font;
+mod resources;
+
+/// Font selection and shaping use the same rows, while markers retain the original text.
+fn normalized_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if text.contains('\r') { std::borrow::Cow::Owned(text.replace("\r\n", "\n").replace('\r', "\n")) } else { std::borrow::Cow::Borrowed(text) }
+}
+
+/// The selected document program, or the bundled Unicode face when the standard encoding
+/// cannot represent the text. Coverage, rather than a language list, chooses that fallback.
+fn selected_font(t: &AddedText) -> Option<&[u8]> {
+    t.font.as_deref().map(Vec::as_slice).or_else(|| {
+        let text = normalized_text(&t.text);
+        (text.split('\n').any(|s| pdfcraft_fonts::first_non_win_ansi(s).is_some())
+            && pdfcraft_fonts::embedding::covers(pdfcraft_fonts::INTER_REGULAR, &text))
+        .then_some(pdfcraft_fonts::INTER_REGULAR)
+    })
+}
+
+impl AddedText {
+    /// Shared ownership of the explicit program or automatic Inter fallback, for cache keys.
+    pub fn font_program(&self) -> Option<std::sync::Arc<Vec<u8>>> {
+        self.font.clone().or_else(|| selected_font(self).map(|_| pdfcraft_fonts::inter_regular_shared()))
+    }
+    /// Borrow the face the PDF writer will actually use; standard PDF faces have no program.
+    pub fn font_bytes(&self) -> Option<&[u8]> {
+        selected_font(self)
+    }
+
+    /// Report the resolved face, including an unavailable explicit program without substituting.
+    pub fn font_label(&self) -> String {
+        selected_font(self)
+            .map(|b| pdfcraft_fonts::embedding::names(b).map(|(_, n)| n).unwrap_or_else(|_| "Missing document font".into()))
+            .unwrap_or_else(|| self.family.label().into())
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Family {
@@ -111,6 +147,9 @@ pub struct AddedText {
     pub rect: [f64; 4],
     pub text: String,
     pub family: Family,
+    /// Explicit static TTF/OTF document face. Its complete program is embedded and retained
+    /// when the item is reopened; never an interface/system fallback or a filesystem path.
+    pub font: Option<std::sync::Arc<Vec<u8>>>,
     pub bold: bool,
     pub italic: bool,
     pub size: f64,
@@ -124,6 +163,7 @@ impl Default for AddedText {
             rect: [0.0; 4],
             text: String::new(),
             family: Family::Helvetica,
+            font: None,
             bold: false,
             italic: false,
             size: 12.0,
@@ -238,6 +278,11 @@ pub fn lines(t: &AddedText) -> Vec<String> {
 /// [`lines`], each with whether its paragraph runs right to left (its first strong character
 /// does).
 fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
+    if let Some(bytes) = selected_font(t) {
+        return font::layout(t, bytes)
+            .map(|layout| layout.rows.iter().map(|r| (r.text.clone(), r.rtl)).collect())
+            .unwrap_or_else(|_| t.text.split('\n').map(|s| (s.to_string(), false)).collect());
+    }
     let width = (t.rect[2] - t.rect[0]).max(t.size);
     let mut out = Vec::new();
     for para in t.text.split('\n') {
@@ -327,6 +372,11 @@ fn is_hebrew(c: char) -> bool {
 /// draw (or that has no face to draw it). Page-content tools refuse such text; the Add-text editor
 /// keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
+    if let Some(bytes) = selected_font(t) {
+        // This API reports missing characters only. Layout/embedding/budget errors have
+        // their own diagnostic; a supported first character must never be blamed for them.
+        return pdfcraft_fonts::source_shaping::first_missing(bytes, &t.text);
+    }
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
             return Some(c);
@@ -503,6 +553,9 @@ pub fn text_rect(t: &AddedText) -> [f64; 4] {
 
 /// The widest explicit line before wrapping, measured with the PDF writing fonts.
 pub fn text_width(t: &AddedText) -> f64 {
+    if let Some(bytes) = selected_font(t) {
+        return font::layout(t, bytes).map_or(0.0, |layout| layout.natural_width * t.size);
+    }
     t.text.split('\n').map(|line| shaped_width(t, line, unicode_bidi::get_base_direction(line) == unicode_bidi::Direction::Rtl)).fold(0.0, f64::max)
 }
 
@@ -755,6 +808,12 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
     .into_bytes();
     match c {
         Content::Text(t) => {
+            if let Some(bytes) = selected_font(t) {
+                let fonts = font::draw(doc, t, bytes, taken, &mut out)?;
+                res.set(b"Font".to_vec(), Object::Dict(fonts));
+                out.extend_from_slice(b"Q\n");
+                return Ok((out, res));
+            }
             let base = t.family.base_font(t.bold, t.italic);
             let name = font_name(base);
             let mut font = Dict::new();
@@ -875,7 +934,8 @@ fn params(c: &Content) -> Dict {
     d
 }
 
-fn parse(doc: &Document, d: &Dict) -> Option<Content> {
+/// Restore editable parameters and share their saved program; automatic fallback stays automatic.
+fn parse(doc: &Document, d: &Dict, fonts: &mut pdfcraft_fonts::pdf::EmbeddedFontCache) -> Option<Content> {
     let r = nums(doc, d.get(b"Rect"));
     let rect: [f64; 4] = r.try_into().ok()?;
     match d.name(b"Kind")? {
@@ -886,6 +946,18 @@ fn parse(doc: &Document, d: &Dict) -> Option<Content> {
                 rect,
                 text: d.get(b"Text").and_then(|t| doc.resolve(t).as_string().map(|s| s.to_text())).unwrap_or_default(),
                 family,
+                // A missing/corrupt saved program stays explicit: editing must report the
+                // missing font rather than silently switching to a standard face.
+                font: d.get(b"CustomFont").and_then(|f| {
+                    let bytes = doc.dict(f).and_then(|f| fonts.read(doc, &f)).unwrap_or_default();
+                    if matches!(d.get(b"AutoFont"), Some(Object::Bool(true)))
+                        && std::sync::Arc::ptr_eq(&bytes, &pdfcraft_fonts::inter_regular_shared())
+                    {
+                        None
+                    } else {
+                        Some(bytes)
+                    }
+                }),
                 bold,
                 italic,
                 size: d.get(b"Size").and_then(Object::as_f64).unwrap_or(12.0),
@@ -937,6 +1009,11 @@ fn for_each_content_entry(doc: &Document, page: &pdfcraft_model::Page, mut visit
 
 /// Finds page marks and editable added content in one pass over the page content entries.
 pub fn scan_markers(doc: &Document) -> MarkerScan {
+    scan_markers_with_fonts(doc, &mut pdfcraft_fonts::pdf::EmbeddedFontCache::default())
+}
+
+/// As [`scan_markers`], retaining decoded full programs across document refreshes.
+pub fn scan_markers_with_fonts(doc: &Document, fonts: &mut pdfcraft_fonts::pdf::EmbeddedFontCache) -> MarkerScan {
     let mut scan = MarkerScan::default();
     for (pi, page) in page_list(doc).iter().enumerate() {
         for_each_content_entry(doc, page, |entry| {
@@ -965,7 +1042,7 @@ pub fn scan_markers(doc: &Document) -> MarkerScan {
                 let Some(params_object) = dict.get(b"PCAdded") else { return };
                 with_resolved(doc, params_object, |resolved_params| {
                     let Some(params) = resolved_params.as_dict() else { return };
-                    if let Some(content) = parse(doc, params) {
+                    if let Some(content) = parse(doc, params, fonts) {
                         // Display points depend on the page's /UserUnit. An item records the one it was
                         // written for; none means 1, as for items written before display space followed
                         // /UserUnit.
@@ -999,6 +1076,10 @@ fn validate(c: &Content) -> Result<(), EditError> {
             if (r[2] - r[0]).abs() < 1.0 {
                 return Err(EditError::Invalid("the text box is too narrow".into()));
             }
+            if let Some(bytes) = selected_font(t) {
+                font::layout(t, bytes)?;
+                return Ok(());
+            }
             if t.text.chars().any(is_thai) && pdfcraft_fonts::document_thai_font().is_none() {
                 return Err(thai_error(GlyphError::NoFont, &t.text));
             }
@@ -1026,20 +1107,39 @@ fn validate(c: &Content) -> Result<(), EditError> {
     Ok(())
 }
 
+/// The refusal shown by the inline editor, including non-glyph layout/budget failures.
+pub fn text_error(t: &AddedText) -> Option<String> {
+    if t.text.trim().is_empty() {
+        return None;
+    }
+    validate(&Content::Text(t.clone())).err().map(|e| e.to_string())
+}
+
 /// Write an item's stream (new, or replacing `obj`) and make its resources available to the page.
 fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
+    if matches!(c, Content::Text(t) if selected_font(t).is_some()) {
+        // Embedding and appending page content form one edit. Stage a document clone so
+        // direct crate callers also get an atomic failure. Source data and objects are shared;
+        // the edited-object overlay BTreeMap itself is copied.
+        let mut staged = doc.clone();
+        let result = write_item(&mut staged, page, c, obj)?;
+        *doc = staged;
+        Ok(result)
+    } else {
+        write_item(doc, page, c, obj)
+    }
+}
+
+fn write_item(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
     validate(c)?;
     let all = page_list(doc);
     check(&[page], all.len())?;
     let p = &all[page];
     let view = p.view_matrix(doc);
     let user_unit = p.user_unit(doc);
-    // The page gets its own copy of its resources with the item's fonts and images added, and
-    // without the Arabic fonts of the version it replaces.
+    // Keep old resources available during drawing so unchanged mappings/programs can be reused.
+    // Afterwards reclaim only mappings no remaining consumer needs, in the page's own copy.
     let mut pres = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
-    if let Some(r) = obj {
-        drop_fonts(doc, &mut pres, &own_fonts(doc, r));
-    }
     let taken = pres.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()).unwrap_or_default();
     let (content, res) = draw(doc, c, view, &taken, obj.is_some())?;
     for (k, v) in res.iter() {
@@ -1049,10 +1149,23 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
         }
         pres.set(k.clone(), Object::Dict(sub));
     }
+    if let Some(old) = obj {
+        resources::prune_page(doc, &mut pres, p, old, Some(&content));
+    }
     doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(pres)))?;
     let mut sd = Dict::new();
     sd.set(b"PCMark".to_vec(), Object::name(TAG));
     let mut added = params(c);
+    if let Content::Text(t) = c
+        && selected_font(t).is_some()
+        && let Some(fonts) = res.get(b"Font").and_then(Object::as_dict)
+        && let Some((_, face)) = fonts.iter().next()
+    {
+        added.set(b"CustomFont".to_vec(), face.clone());
+        if t.font.is_none() {
+            added.set(b"AutoFont".to_vec(), Object::Bool(true));
+        }
+    }
     if user_unit != 1.0 {
         added.set(b"UserUnit".to_vec(), Object::Real(user_unit));
     }
@@ -1109,14 +1222,10 @@ pub fn delete_content(doc: &mut Document, page: usize, index: usize) -> Result<(
     let a = find(doc, page, index)?;
     let p = page_list(doc).swap_remove(page);
     let list: Vec<Object> = contents(doc, &p)?.into_iter().filter(|o| o.as_ref() != Some(a.obj)).collect();
-    let fonts = own_fonts(doc, a.obj);
     // Only the page's own resources carry an item's fonts (`write` gives the page a copy).
-    let res = match p.dict.get(b"Resources") {
-        Some(Object::Dict(d)) if !fonts.is_empty() => Some(d.clone()),
-        _ => None,
-    };
+    let res = p.dict.get(b"Resources").and_then(|r| doc.dict(r));
     let res = res.map(|mut r| {
-        drop_fonts(doc, &mut r, &fonts);
+        resources::prune_page(doc, &mut r, &p, a.obj, None);
         r
     });
     doc.update_dict(p.obj, |d| {
@@ -1126,25 +1235,6 @@ pub fn delete_content(doc: &mut Document, page: usize, index: usize) -> Result<(
         }
     })?;
     Ok(())
-}
-
-/// The Type 3 fonts an Arabic item's stream shows text with. Each item has its own (`draw_shaped`
-/// names them so), so they go when the item is replaced or deleted.
-fn own_fonts(doc: &Document, obj: ObjRef) -> Vec<Vec<u8>> {
-    let Object::Stream(s) = &*doc.get(obj) else { return Vec::new() };
-    let Ok(data) = s.decoded() else { return Vec::new() };
-    data.split(u8::is_ascii_whitespace).filter_map(|w| w.strip_prefix(b"/")).filter(|w| w.starts_with(b"PCAr")).map(<[u8]>::to_vec).collect()
-}
-
-fn drop_fonts(doc: &Document, res: &mut Dict, names: &[Vec<u8>]) {
-    if names.is_empty() {
-        return;
-    }
-    let Some(mut fonts) = res.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()) else { return };
-    for name in names {
-        fonts.remove(name);
-    }
-    res.set(b"Font".to_vec(), Object::Dict(fonts));
 }
 
 #[cfg(test)]

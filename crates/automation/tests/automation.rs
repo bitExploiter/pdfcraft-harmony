@@ -1,6 +1,7 @@
 //! End-to-end tests of the automation tools and the MCP server, on synthetic PDFs.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 #[cfg(feature = "mcp")]
 use pdfcraft_automation::mcp::McpServer;
@@ -6109,6 +6110,206 @@ fn thai_text_through_tools_saves_reopens_extracts_and_renders() {
     assert!(rendered.iter().any(|c| matches!(c, Content::Png { data, width, height } if !data.is_empty() && *width > 0 && *height > 0)));
     ok(&mut a, "content_update", json!({"doc": reopened, "page": 1, "index": 1, "text": "แก้ไข น้ำ"}));
     assert!(page_text(&mut a, reopened)[0].contains("แก้ไข น้ำ"));
+}
+
+#[test]
+fn added_unicode_document_fonts_through_tools() {
+    let dir = workdir("added-unicode-font");
+    let mut cases = vec![
+        (None, "Привет, мир!", "До свидания!"),
+        (None, "A\u{2066}Привет\u{2069} B\u{fe0f}\u{200d}C", "Controls \u{200c}Привет"),
+        (Some(pdfcraft_fonts::INTER_REGULAR.to_vec()), "A\u{2066}Привет\u{2069} B\u{fe0f}\u{200d}C", "Controls \u{200c}Привет"),
+    ];
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_THAI_FONT") {
+        cases.push((Some(std::fs::read(path).unwrap()), "Hello น้ำ ผู้ใช้ ปู่", "แก้ไข น้ำ"));
+    }
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_OTF_FONT") {
+        cases.push((Some(std::fs::read(path).unwrap()), "Привет office Ελληνικά", "Unicode CFF Привет"));
+    }
+    for (case, (bytes, text, replacement)) in cases.into_iter().enumerate() {
+        let mut a = auto(&dir);
+        // A GPL-exception font is an external PDF test input, not admitted by runtime import
+        // policy here. Exercise the same tool with that document's complete embedded face.
+        let mut existing = None;
+        let input = if let Some(bytes) = bytes.as_ref().filter(|b| pdfcraft_fonts::embedding::validate_document_input(b).is_err()) {
+            let mut source = pdfcraft_cos::Document::open(Arc::new(std::fs::read(dir.join("a.pdf")).unwrap())).unwrap();
+            let page = pdfcraft_model::pages(&source).remove(0);
+            let mut resources = source.dict(page.dict.get(b"Resources").unwrap()).unwrap();
+            let mut fonts = source.dict(resources.get(b"Font").unwrap()).unwrap();
+            let (_, name) = pdfcraft_fonts::embedding::names(bytes).unwrap();
+            existing = Some(pdfcraft_fonts::embedding::embed(&mut source, &mut fonts, bytes, &name).unwrap());
+            resources.set(b"Font".to_vec(), pdfcraft_cos::Object::Dict(fonts));
+            source.update_dict(page.obj, |d| d.set(b"Resources".to_vec(), pdfcraft_cos::Object::Dict(resources))).unwrap();
+            std::fs::write(dir.join("external.pdf"), pdfcraft_cos::write_incremental(&source, &Default::default()).unwrap()).unwrap();
+            "external.pdf"
+        } else {
+            "a.pdf"
+        };
+        let doc = ok(&mut a, "doc_open", json!({"path":input}))["doc"].as_u64().unwrap();
+        let mut args = json!({"doc":doc,"page":1,"text":text,"at":[10,20],"width":180,"size":10});
+        if let Some(bytes) = bytes {
+            std::fs::write(dir.join("input.ttf"), bytes).unwrap();
+            if let Some(resource) = existing {
+                assert!(a.call("text_font_import", &json!({"doc":doc,"page":1,"path":"input.ttf"})).is_err());
+                args["font_resource"] = json!(resource);
+            } else {
+                let imported = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+                let again = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"input.ttf"}));
+                assert_eq!(again["resource"], imported["resource"]);
+                args["font_resource"] = imported["resource"].clone();
+            }
+            assert!(args["font_resource"].is_string());
+        }
+        ok(&mut a, "page_add_text", args);
+        assert!(page_text(&mut a, doc)[0].contains(text));
+        assert_eq!(ok(&mut a, "text_find", json!({"doc":doc,"query":text}))["count"], 1);
+        let saved_name = format!("unicode-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":doc,"path":saved_name}));
+        if dir.join("input.ttf").exists() {
+            std::fs::remove_file(dir.join("input.ttf")).unwrap();
+        }
+        let reopened = ok(&mut a, "doc_open", json!({"path":saved_name}))["doc"].as_u64().unwrap();
+        assert!(page_text(&mut a, reopened)[0].contains(text));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        let rendered = a.call("page_render", &json!({"doc":reopened,"page":1,"dpi":144})).unwrap();
+        assert!(rendered.iter().any(|c| matches!(c, Content::Png { data, width, height } if !data.is_empty() && *width>0 && *height>0)));
+        for content in &rendered {
+            if let Content::Png { data, .. } = content {
+                let image = image::load_from_memory(data).unwrap().to_rgba8();
+                let ink = image
+                    .enumerate_pixels()
+                    .filter(|(x, y, p)| *x < 380 && (35..80).contains(y) && p.0[0] < 160 && p.0[1] < 160 && p.0[2] < 160 && p.0[3] > 0)
+                    .count();
+                assert!(ink > 20, "the added text must paint visible ink in the otherwise blank top of the page");
+                std::fs::write(dir.join(format!("render-{case}.png")), data).unwrap();
+            }
+        }
+        ok(&mut a, "content_update", json!({"doc":reopened,"page":1,"index":1,"text":replacement}));
+        assert!(page_text(&mut a, reopened)[0].contains(replacement));
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert!(page_text(&mut a, reopened)[0].contains(text));
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert!(page_text(&mut a, reopened)[0].contains(replacement));
+        let before = ok(&mut a, "content_list", json!({"doc":reopened}));
+        assert!(a.call("content_update", &json!({"doc":reopened,"page":1,"index":1,"font_resource":"missing"})).is_err());
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened})), before);
+    }
+}
+
+/// No explicit font: Windows line endings must select Inter just like LF and remain editable.
+#[test]
+fn added_automatic_fallback_crlf_through_tools() {
+    let dir = workdir("added-automatic-crlf");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+    for (case, ending) in ["\r\n", "\r", "\n"].into_iter().enumerate() {
+        let text = format!("Привет{ending}мир");
+        ok(&mut a, "page_add_text", json!({"doc":doc,"page":1,"text":text,"at":[10,20],"width":180,"size":10}));
+        let items = ok(&mut a, "content_list", json!({"doc":doc}));
+        assert_eq!(items["items"][0]["text"], text);
+        assert!(items["items"][0]["font"].as_str().unwrap().contains("Inter"));
+        let path = format!("automatic-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":doc,"path":path}));
+        let reopened = ok(&mut a, "doc_open", json!({"path":path}))["doc"].as_u64().unwrap();
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        for query in ["Привет", "мир"] {
+            assert_eq!(ok(&mut a, "text_find", json!({"doc":reopened,"query":query}))["count"], 1);
+        }
+        ok(&mut a, "content_update", json!({"doc":reopened,"page":1,"index":1,"text":"Latin"}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["font"], "Helvetica");
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], "Latin");
+        let latin_path = format!("automatic-latin-{case}.pdf");
+        ok(&mut a, "doc_save", json!({"doc":reopened,"path":latin_path}));
+        let saved = pdfcraft_cos::Document::open(Arc::new(std::fs::read(dir.join(latin_path)).unwrap())).unwrap();
+        let page = &pdfcraft_model::pages(&saved)[0];
+        let resources = saved.dict(page.dict.get(b"Resources").unwrap()).unwrap();
+        let fonts = saved.dict(resources.get(b"Font").unwrap()).unwrap();
+        assert!(!fonts.iter().any(|(name, _)| name.starts_with(b"PCFull")), "the automatic Unicode mapping is no longer used");
+        ok(&mut a, "edit_undo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], text);
+        assert_eq!(ok(&mut a, "text_find", json!({"doc":reopened,"query":"мир"}))["count"], 1);
+        ok(&mut a, "edit_redo", json!({"doc":reopened}));
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":reopened}))["items"][0]["text"], "Latin");
+        ok(&mut a, "doc_close", json!({"doc":reopened,"discard_changes":true}));
+        ok(&mut a, "content_delete", json!({"doc":doc,"page":1,"index":1}));
+    }
+}
+
+#[test]
+fn added_font_resources_reject_style_flags_subsets_and_preview_only_faces() {
+    let dir = workdir("added-font-admission");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"a.pdf"}))["doc"].as_u64().unwrap();
+    std::fs::write(dir.join("inter.ttf"), pdfcraft_fonts::INTER_REGULAR).unwrap();
+    let resource = ok(&mut a, "text_font_import", json!({"doc":doc,"page":1,"path":"inter.ttf"}))["resource"].clone();
+    let base = json!({"doc":doc,"page":1,"text":"Привет","at":[10,20],"font_resource":resource});
+    let before = ok(&mut a, "content_list", json!({"doc":doc}));
+    for flag in ["bold", "italic", "font"] {
+        let mut args = base.clone();
+        args[flag] = if flag == "font" { json!("helvetica") } else { json!(false) };
+        assert!(a.call("page_add_text", &args).is_err());
+        assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), before);
+    }
+    let mut preview = base.clone();
+    preview["font_resource"] = json!("PCApprovedInter");
+    assert!(a.call("page_add_text", &preview).unwrap_err().to_string().contains("preview-only"));
+    ok(&mut a, "page_add_text", base);
+    let selected = ok(&mut a, "content_list", json!({"doc":doc}));
+    let state = ok(&mut a, "doc_info", json!({"doc":doc}));
+    for flag in ["bold", "italic"] {
+        for value in [true, false] {
+            let mut args = json!({"doc":doc,"page":1,"index":1});
+            args[flag] = json!(value);
+            assert!(a.call("content_update", &args).unwrap_err().to_string().contains("style flags"));
+            assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), selected);
+            assert_eq!(ok(&mut a, "doc_info", json!({"doc":doc})), state);
+        }
+    }
+    // Choosing a standard face explicitly clears the selected program and permits its style.
+    ok(&mut a, "content_update", json!({"doc":doc,"page":1,"index":1,"font":"times","text":"Latin","bold":true}));
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":doc}))["items"][0]["bold"], true);
+    ok(&mut a, "edit_undo", json!({"doc":doc}));
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":doc})), selected);
+    for flag in ["bold", "italic"] {
+        let mut args = json!({"doc":doc,"page":1,"index":1,"font_resource":resource});
+        args[flag] = json!(true);
+        assert!(a.call("content_update", &args).is_err());
+    }
+}
+
+/// Import must return a reusable full face even when identical bytes back an existing subset.
+#[test]
+fn imported_font_resource_skips_an_existing_subset() {
+    let dir = workdir("import-over-subset");
+    let mut a = auto(&dir);
+    std::fs::write(dir.join("inter.ttf"), pdfcraft_fonts::INTER_REGULAR).unwrap();
+    // The page catalogue must retain subsets for Edit Text while refusing them for Add Text.
+    let mut source = pdfcraft_cos::Document::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&source).remove(0);
+    let mut fonts = pdfcraft_cos::Dict::new();
+    let resource = pdfcraft_fonts::embedding::embed(&mut source, &mut fonts, pdfcraft_fonts::INTER_REGULAR, "Inter").unwrap();
+    let top = fonts.get(resource.as_bytes()).unwrap().as_ref().unwrap();
+    source.update_dict(top, |d| d.set(b"BaseFont".to_vec(), pdfcraft_cos::Object::name("ABCDEF+Inter"))).unwrap();
+    let mut resources = pdfcraft_cos::Dict::new();
+    resources.set(b"Font".to_vec(), pdfcraft_cos::Object::Dict(fonts));
+    source.update_dict(page.obj, |d| d.set(b"Resources".to_vec(), pdfcraft_cos::Object::Dict(resources))).unwrap();
+    std::fs::write(dir.join("subset.pdf"), pdfcraft_cos::write_incremental(&source, &Default::default()).unwrap()).unwrap();
+    let subset = ok(&mut a, "doc_open", json!({"path":"subset.pdf"}))["doc"].as_u64().unwrap();
+    assert!(
+        a.call("page_add_text", &json!({"doc":subset,"page":1,"text":"Test","at":[10,20],"font_resource":resource}))
+            .unwrap_err()
+            .to_string()
+            .contains("subset")
+    );
+    assert_eq!(ok(&mut a, "content_list", json!({"doc":subset}))["count"], 0);
+    // Importing the identical program must return the full resource, not the earlier subset.
+    let full = ok(&mut a, "text_font_import", json!({"doc":subset,"page":1,"path":"inter.ttf"}))["resource"].clone();
+    assert_ne!(full, json!(resource));
+    ok(&mut a, "page_add_text", json!({"doc":subset,"page":1,"text":"Привет","at":[10,20],"font_resource":full}));
+    assert!(page_text(&mut a, subset)[0].contains("Привет"));
 }
 
 #[test]

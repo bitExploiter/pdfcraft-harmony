@@ -51,7 +51,7 @@ pub use pdfcraft_organize::view::{InitialView, Layout as InitialLayout, Magnific
 
 pub use pdfcraft_cos::Algorithm;
 pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
-pub use pdfcraft_edit::added::{text_rect as added_text_rect, text_width as added_text_width};
+pub use pdfcraft_edit::added::{text_error as added_text_error, text_rect as added_text_rect, text_width as added_text_width};
 pub use pdfcraft_edit::{
     Added, AddedImage, AddedText, Align as TextAlign, Background, Content as AddedContent, Family as FontFamily, HeaderFooter, MarkKind, Watermark,
 };
@@ -318,6 +318,14 @@ struct Editor {
     appearances: AppearanceCache,
     /// The text blocks last computed for one page, reused while the document is unchanged.
     text_blocks: TextBlocksCache,
+    /// One page/revision's menu and bounded decoded programs, also shared by added items.
+    text_fonts: Arc<std::sync::Mutex<EditorFonts>>,
+}
+
+#[derive(Default)]
+struct EditorFonts {
+    programs: pdfcraft_fonts::pdf::EmbeddedFontCache,
+    page: Option<(pdfcraft_cos::ReadState, usize, Vec<pdfcraft_edit::text::TextEditorFont>)>,
 }
 
 /// One page's text blocks ([`pdfcraft_edit::text_blocks`]) and the document state they were read
@@ -338,6 +346,14 @@ impl Clone for TextBlocksCache {
 }
 
 impl Editor {
+    /// Refresh editable markers with shared font ownership; poisoning only loses cache reuse.
+    fn scan_markers(&self) -> pdfcraft_edit::MarkerScan {
+        if let Ok(mut cache) = self.text_fonts.lock() {
+            pdfcraft_edit::added::scan_markers_with_fonts(&self.cos, &mut cache.programs)
+        } else {
+            pdfcraft_edit::scan_markers(&self.cos)
+        }
+    }
     /// The text blocks on `page` (0-based), from the cache when the document hasn't changed.
     fn text_blocks(&self, page: usize) -> Result<Arc<Vec<pdfcraft_edit::TextBlock>>, EditError> {
         if let Ok(cache) = self.text_blocks.0.lock()
@@ -705,7 +721,7 @@ impl Document {
                     .map(|e| {
                         #[cfg(test)]
                         record_marker_scan();
-                        pdfcraft_edit::scan_markers(&e.cos)
+                        e.scan_markers()
                     })
                     .unwrap_or_default()
             })
@@ -722,7 +738,7 @@ impl Document {
                     .map(|e| {
                         #[cfg(test)]
                         record_marker_scan();
-                        pdfcraft_edit::scan_markers(&e.cos)
+                        e.scan_markers()
                     })
                     .unwrap_or_default()
             })
@@ -3570,6 +3586,7 @@ impl Session {
                         keys,
                         appearances: AppearanceCache::default(),
                         text_blocks: TextBlocksCache::default(),
+                        text_fonts: Default::default(),
                     }),
                     None,
                 )

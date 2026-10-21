@@ -30,6 +30,12 @@ pub use shaping::{
 };
 pub use std14::Std14;
 
+/// One shared copy for document-font choices and drafts; never copied once per frame.
+pub fn inter_regular_shared() -> std::sync::Arc<Vec<u8>> {
+    static BYTES: std::sync::OnceLock<std::sync::Arc<Vec<u8>>> = std::sync::OnceLock::new();
+    BYTES.get_or_init(|| std::sync::Arc::new(INTER_REGULAR.to_vec())).clone()
+}
+
 /// Advance of `s` in Helvetica at `size` points, using the exact standard-14 metrics.
 ///
 /// Kept as a free function because generated appearances overwhelmingly use Helvetica; reach for

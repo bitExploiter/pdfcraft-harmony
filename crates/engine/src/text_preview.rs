@@ -64,7 +64,19 @@ impl Document {
     /// Embedded source faces for a text editor, bounded and validated as sfnt programs.
     /// This is read-only; no source font is installed or exported.
     pub fn text_editor_fonts(&self, page: usize) -> Vec<pdfcraft_edit::text::TextEditorFont> {
-        self.editor.as_ref().and_then(|e| pdfcraft_edit::text::text_editor_fonts(&e.cos, page).ok()).unwrap_or_default()
+        let Some(editor) = self.editor.as_ref() else { return Vec::new() };
+        let Ok(mut cache) = editor.text_fonts.lock() else {
+            return pdfcraft_edit::text::text_editor_fonts(&editor.cos, page).unwrap_or_default();
+        };
+        if let Some((state, p, fonts)) = cache.page.as_ref()
+            && *p == page
+            && state.matches(&editor.cos)
+        {
+            return fonts.clone();
+        }
+        let fonts = pdfcraft_edit::text::text_editor_fonts_cached(&editor.cos, page, &mut cache.programs).unwrap_or_default();
+        cache.page = Some((editor.cos.read_state(), page, fonts.clone()));
+        fonts
     }
 
     /// Preparing the background never changes working bytes, dirty state or undo history.

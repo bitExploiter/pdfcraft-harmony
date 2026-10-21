@@ -92,6 +92,32 @@ fn legacy_indic_font(base_font: &str) -> bool {
 /// A source PDF's sfnt program for an in-memory editor. Never a bundled font or an export
 /// fallback. Type 1/Type 3 programs cannot be consumed by an sfnt text renderer.
 pub fn embedded_sfnt(doc: &Document, font: &Dict) -> Option<Vec<u8>> {
+    let mut cache = EmbeddedFontCache::default();
+    let bytes = read_embedded_sfnt(doc, font, &mut cache)?;
+    drop(cache);
+    Some(std::sync::Arc::unwrap_or_clone(bytes))
+}
+
+/// Bounded decoded programs shared by source-font menus and editable added items. Object
+/// identity invalidates a changed stream, while an unrelated edit keeps the same program.
+/// Legacy cmaps synthesized from a PDF mapping are deliberately not shared across mappings.
+#[derive(Clone, Default)]
+pub struct EmbeddedFontCache {
+    entries: Vec<(std::sync::Arc<Object>, std::sync::Arc<Vec<u8>>)>,
+    bytes: usize,
+    // Eviction must not duplicate a program still owned by added items or a page catalogue.
+    shared: std::collections::HashMap<usize, (std::sync::Weak<Object>, std::sync::Weak<Vec<u8>>)>,
+}
+
+impl EmbeddedFontCache {
+    /// Decode or reuse this resource's sfnt program; source-object identity detects replacement.
+    pub fn read(&mut self, doc: &Document, font: &Dict) -> Option<std::sync::Arc<Vec<u8>>> {
+        read_embedded_sfnt(doc, font, self)
+    }
+}
+
+/// Read bounded sfnt bytes, keeping mapping-specific legacy cmap repairs out of the shared cache.
+fn read_embedded_sfnt(doc: &Document, font: &Dict, cache: &mut EmbeddedFontCache) -> Option<std::sync::Arc<Vec<u8>>> {
     use skrifa::{MetadataProvider as _, raw::TableProvider as _};
     let descendant = dict(doc, font.get(b"DescendantFonts").and_then(|o| doc.resolve(o).as_array().and_then(|a| a.first()).cloned()).as_ref());
     let descriptor = dict(doc, descendant.as_ref().unwrap_or(font).get(b"FontDescriptor"))?;
@@ -99,12 +125,33 @@ pub fn embedded_sfnt(doc: &Document, font: &Dict) -> Option<Vec<u8>> {
         let Some(object) = descriptor.get(key) else { continue };
         let object = doc.resolve(object);
         let Object::Stream(stream) = object.as_ref() else { continue };
+        let identity = std::sync::Arc::as_ptr(&object) as usize;
+        if let Some((source, bytes)) = cache.shared.get(&identity)
+            && let (Some(source), Some(bytes)) = (source.upgrade(), bytes.upgrade())
+            && std::sync::Arc::ptr_eq(&source, &object)
+        {
+            return Some(bytes);
+        }
         let Ok(mut bytes) = stream.decoded_within(16 << 20) else { continue };
         let Ok(face) = skrifa::FontRef::from_index(&bytes, 0) else { continue };
         if face.metrics(skrifa::instance::Size::unscaled(), skrifa::instance::LocationRef::default()).units_per_em == 0 {
             continue;
         }
         if face.charmap().mappings().next().is_some() {
+            let bytes = if bytes == crate::INTER_REGULAR { crate::inter_regular_shared() } else { std::sync::Arc::new(bytes) };
+            while cache.bytes.saturating_add(bytes.len()) > 32 << 20 || cache.entries.len() >= 128 {
+                // Each decoded program is <=16 MiB, so either limit implies a nonempty cache.
+                let (_, old) = cache.entries.remove(0);
+                cache.bytes = cache.bytes.saturating_sub(old.len());
+            }
+            cache.bytes += bytes.len();
+            if cache.shared.len() >= 8192 {
+                cache.shared.retain(|_, (source, bytes)| source.strong_count() > 0 && bytes.strong_count() > 0);
+            }
+            if cache.shared.len() < 8192 {
+                cache.shared.insert(identity, (std::sync::Arc::downgrade(&object), std::sync::Arc::downgrade(&bytes)));
+            }
+            cache.entries.push((object, bytes.clone()));
             return Some(bytes);
         }
         // Some PDF generators keep a Mac format-6 code→glyph cmap. egui accepts Unicode
@@ -129,7 +176,7 @@ pub fn embedded_sfnt(doc: &Document, font: &Dict) -> Option<Vec<u8>> {
             && append_editor_cmap(&mut bytes, &mappings).is_some()
             && skrifa::FontRef::new(&bytes).is_ok_and(|font| font.charmap().mappings().next().is_some())
         {
-            return Some(bytes);
+            return Some(std::sync::Arc::new(bytes));
         }
     }
     None
@@ -1219,6 +1266,24 @@ mod tests {
     use pdfcraft_cos::{Dict, Document, Object, Stream};
 
     use super::*;
+
+    #[test]
+    fn embedded_program_is_shared_after_cache_eviction_while_an_item_owns_it() {
+        let mut doc = Document::new_empty();
+        let program =
+            doc.add(Object::Stream(Stream::from_raw(Dict::new(), include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec())));
+        let mut descriptor = Dict::new();
+        descriptor.set(b"FontFile2".to_vec(), Object::Ref(program));
+        let mut font = Dict::new();
+        font.set(b"FontDescriptor".to_vec(), Object::Dict(descriptor));
+        let mut cache = EmbeddedFontCache::default();
+        let owned_by_item = cache.read(&doc, &font).unwrap();
+        cache.entries.clear();
+        cache.bytes = 0;
+        assert!(std::sync::Arc::ptr_eq(&owned_by_item, &cache.read(&doc, &font).unwrap()));
+        doc.set(program, Object::Stream(Stream::from_raw(Dict::new(), crate::INTER_REGULAR.to_vec())));
+        assert!(!std::sync::Arc::ptr_eq(&owned_by_item, &cache.read(&doc, &font).unwrap()));
+    }
 
     /// A font whose ranges cover a few low codes keeps tables that size, not a fixed 64k-entry one.
     #[test]

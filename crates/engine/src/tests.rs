@@ -37,6 +37,47 @@ fn session_with(n: usize) -> (Session, DocId) {
 }
 
 #[test]
+fn added_font_programs_and_page_catalogue_survive_unrelated_refreshes() {
+    let (mut s, id) = session_with(2);
+    let bytes = Arc::new(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec());
+    s.apply(id, Edit::RegisterTextFont { page: 0, bytes }).unwrap();
+    let first = s.get(id).unwrap().text_editor_fonts(0).remove(0);
+    let again = s.get(id).unwrap().text_editor_fonts(0).remove(0);
+    assert!(Arc::ptr_eq(&first.bytes, &again.bytes));
+    let item = AddedText { text: "Привет".into(), rect: [10.0, 100.0, 190.0, 200.0], font: Some(first.bytes.clone()), ..Default::default() };
+    s.apply(id, Edit::AddText { page: 0, text: item.clone() }).unwrap();
+    s.apply(id, Edit::AddText { page: 0, text: AddedText { text: "Second".into(), ..item } }).unwrap();
+    let check = |s: &Session| {
+        let d = s.get(id).unwrap();
+        for item in d.added() {
+            let AddedContent::Text(t) = &item.content else { panic!() };
+            assert!(Arc::ptr_eq(t.font.as_ref().unwrap(), &first.bytes));
+        }
+        assert!(d.text_editor_fonts(0).iter().all(|f| Arc::ptr_eq(&f.bytes, &first.bytes)));
+        assert!(d.text_editor_fonts(1).is_empty(), "page is part of the catalogue key");
+    };
+    check(&s);
+    s.apply(id, Edit::RotatePages { pages: vec![1], degrees: 90 }).unwrap();
+    check(&s);
+    s.undo(id).unwrap();
+    check(&s);
+    // A changed program at an existing reference must invalidate the decoded-program cache.
+    let editor = s.docs.iter_mut().find(|d| d.id == id).unwrap().editor.as_mut().unwrap();
+    let page = pdfcraft_model::pages(&editor.cos).remove(0);
+    let resources = editor.cos.dict(page.dict.get(b"Resources").unwrap()).unwrap();
+    let fonts = editor.cos.dict(resources.get(b"Font").unwrap()).unwrap();
+    let font = editor.cos.dict(fonts.get(first.resource.as_bytes()).unwrap()).unwrap();
+    let descendants = editor.cos.resolve(font.get(b"DescendantFonts").unwrap());
+    let cid = editor.cos.dict(&descendants.as_array().unwrap()[0]).unwrap();
+    let descriptor = editor.cos.dict(cid.get(b"FontDescriptor").unwrap()).unwrap();
+    let program = descriptor.get(b"FontFile2").unwrap().as_ref().unwrap();
+    editor.cos.set(program, pdfcraft_cos::Object::Stream(pdfcraft_cos::Stream::from_raw(Default::default(), pdfcraft_fonts::INTER_REGULAR.to_vec())));
+    let changed = s.get(id).unwrap().text_editor_fonts(0).remove(0);
+    assert!(!Arc::ptr_eq(&first.bytes, &changed.bytes));
+    assert_eq!(changed.bytes.as_slice(), pdfcraft_fonts::INTER_REGULAR);
+}
+
+#[test]
 fn prepared_open_does_not_mutate_the_session_until_commit() {
     fn assert_send<T: Send>() {}
     assert_send::<crate::PreparedDocument>();
@@ -5516,6 +5557,7 @@ fn content_edit_keeps_pages_annotations_fields_and_links() {
         rect: [20.0, 20.0, 200.0, 60.0],
         text: "hello".into(),
         family: FontFamily::Helvetica,
+        font: None,
         bold: false,
         italic: false,
         size: 12.0,
@@ -5555,6 +5597,7 @@ fn content_refresh_lists_match_the_storages_an_edit_touches() {
                 rect: [0.0, 0.0, 10.0, 10.0],
                 text: String::new(),
                 family: FontFamily::Helvetica,
+                font: None,
                 bold: false,
                 italic: false,
                 size: 12.0,

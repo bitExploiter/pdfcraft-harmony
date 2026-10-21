@@ -394,25 +394,8 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
                     changed |= ui.selectable_value(&mut ed.font_resource, Some(font.resource.clone()), &font.face).changed();
                 }
             });
-        if ui.button(tl!("Load font…")).clicked() {
-            app.pick_files(crate::files::FilePurpose::TextFont { page: ed.page }, false);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        egui::ComboBox::from_id_salt("installed-document-font").selected_text(tl!("Installed fonts…")).show_ui(ui, |ui| {
-            if let Some(fonts) = crate::files::installed_font_files(ui.ctx()) {
-                if fonts.is_empty() {
-                    ui.label(tl!("No openly licensed document fonts found. Load a font file."));
-                }
-                for font in fonts {
-                    if ui.selectable_label(false, &font.face).clicked() {
-                        app.use_paths(crate::files::FilePurpose::TextFont { page: ed.page }, &[font.path]);
-                    }
-                }
-            } else {
-                ui.label(tl!("Finding document fonts…"));
-            }
-        });
-        if let Some(look) = crate::content_ui::format_panel(ui, t, &ed.look) {
+        font_file_controls(app, ui, crate::files::FilePurpose::TextFont { page: ed.page });
+        if let Some(look) = crate::content_ui::format_panel(ui, t, &ed.look, &[]) {
             ed.look = look;
             changed = true;
         }
@@ -453,26 +436,115 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
             _ => None,
         }
     });
-    match selected {
-        Some((page, index, text)) => {
-            if let Some(style) = crate::content_ui::format_panel(ui, t, &text) {
-                app.text_style = pdfcraft_engine::AddedText { text: String::new(), rect: [0.0; 4], ..style.clone() };
-                app.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(style) });
+    let draft = app.active_ids().and_then(|(i, _)| app.views[i].content.draft.clone());
+    if let Some(draft) = draft {
+        let style = pdfcraft_engine::AddedText { text: draft.text.clone(), ..draft.style.clone() };
+        if let Some(mut style) = added_format_panel(app, ui, t, draft.page, &style) {
+            style.text = draft.style.text.clone();
+            if let Some((i, _)) = app.active_ids()
+                && let Some(draft) = app.views[i].content.draft.as_mut()
+            {
+                draft.style = style.clone();
+                draft.focus = true;
             }
+            app.text_style = pdfcraft_engine::AddedText { text: String::new(), rect: [0.0; 4], ..style };
         }
-        None if app.quick_tool == crate::QuickTool::AddText => {
-            crate::content_ui::hint(ui, t);
-            if let Some(style) = crate::content_ui::format_panel(ui, t, &app.text_style) {
-                app.text_style = style;
+    } else {
+        match selected {
+            Some((page, index, text)) => {
+                if let Some(style) = added_format_panel(app, ui, t, page, &text) {
+                    app.text_style = pdfcraft_engine::AddedText { text: String::new(), rect: [0.0; 4], ..style.clone() };
+                    app.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(style) });
+                }
             }
+            None if app.quick_tool == crate::QuickTool::AddText => {
+                crate::content_ui::hint(ui, t);
+                let page = app.active_ids().map(|(i, _)| app.views[i].current).unwrap_or(0);
+                let style = app.text_style.clone();
+                if let Some(style) = added_format_panel(app, ui, t, page, &style) {
+                    app.text_style = style;
+                }
+            }
+            None => return,
         }
-        None => return,
     }
     ui.add_space(6.0);
     ui.separator();
 }
 
+/// Offer file input and on-request installed-font discovery for the active text tool.
+fn font_file_controls(app: &mut PdfCraftApp, ui: &mut egui::Ui, purpose: crate::files::FilePurpose) {
+    if ui.button(tl!("Load font…")).clicked() {
+        app.pick_files(purpose, false);
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    egui::ComboBox::from_id_salt("installed-document-font").selected_text(tl!("Installed fonts…")).show_ui(ui, |ui| {
+        if let Some(fonts) = crate::files::installed_font_files(ui.ctx()) {
+            if fonts.is_empty() {
+                ui.label(tl!("No openly licensed document fonts found. Load a font file."));
+            }
+            for font in fonts {
+                if ui.selectable_label(false, &font.face).clicked() {
+                    app.use_paths(purpose, &[font.path]);
+                }
+            }
+        } else {
+            ui.label(tl!("Finding document fonts…"));
+        }
+    });
+}
+
+/// Build Add Text choices from complete shared faces, including an uncommitted draft font.
+fn added_format_panel(
+    app: &mut PdfCraftApp,
+    ui: &mut egui::Ui,
+    t: &Tokens,
+    page: usize,
+    style: &pdfcraft_engine::AddedText,
+) -> Option<pdfcraft_engine::AddedText> {
+    if let Some((i, _)) = app.active_ids() {
+        app.views[i].content.format_focus = ui.rect_contains_pointer(ui.max_rect());
+    }
+    let mut fonts = vec![("Inter".into(), pdfcraft_fonts::inter_regular_shared())];
+    let document_fonts = app.active_ids().and_then(|(_, id)| app.session.get(id)).map(|d| d.text_editor_fonts(page)).unwrap_or_default();
+    for font in document_fonts.into_iter().filter(|f| !f.resource.starts_with("PCApproved") && !f.subset) {
+        if !fonts.iter().any(|(_, bytes)| std::sync::Arc::ptr_eq(bytes, &font.bytes)) {
+            fonts.push((font.face, font.bytes));
+        }
+    }
+    if let Some(bytes) = &style.font
+        && !fonts.iter().any(|(_, b)| std::sync::Arc::ptr_eq(b, bytes))
+    {
+        fonts.push((crate::content_ui::added_font_label(ui.ctx(), style), bytes.clone()));
+    }
+    let changed = crate::content_ui::format_panel(ui, t, style, &fonts);
+    font_file_controls(app, ui, crate::files::FilePurpose::AddedTextFont { page });
+    changed
+}
+
 impl PdfCraftApp {
+    /// Set a draft's face without history, or update a selected item in one undo step.
+    pub(crate) fn select_added_font(&mut self, page: usize, bytes: std::sync::Arc<Vec<u8>>) {
+        self.text_style.font = Some(bytes.clone());
+        self.text_style.bold = false;
+        self.text_style.italic = false;
+        let Some((i, id)) = self.active_ids() else { return };
+        if let Some(draft) = self.views[i].content.draft.as_mut().filter(|d| d.page == page) {
+            draft.style.font = Some(bytes);
+            draft.style.bold = false;
+            draft.style.italic = false;
+            draft.focus = true;
+        } else if let Some((p, index)) = self.views[i].content.selected.filter(|(p, _)| *p == page) {
+            let content = self.session.get(id).and_then(|d| d.added().iter().filter(|a| a.page == p).nth(index)).map(|a| a.content.clone());
+            if let Some(pdfcraft_engine::AddedContent::Text(mut text)) = content {
+                text.font = Some(bytes);
+                text.bold = false;
+                text.italic = false;
+                self.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(text) });
+            }
+        }
+    }
+
     /// Apply the open paragraph's formatting as one change; the paragraph stays open.
     pub(crate) fn apply_line_format(&mut self, index: usize, mut ed: crate::edit_text_ui::LineEditor, ctx: Option<&egui::Context>) {
         let edit = pdfcraft_engine::Edit::EditTextBlock { page: ed.page, block: ed.block, text: ed.text.clone(), style: ed.style() };

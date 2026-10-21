@@ -55,6 +55,323 @@ fn cx() -> Context {
 }
 
 #[test]
+fn added_unicode_font_roundtrip_keeps_program_text_and_editability() {
+    let mut fonts = vec![None, Some(Arc::new(pdfcraft_fonts::INTER_REGULAR.to_vec()))];
+    if let Some(path) = std::env::var_os("PDFCRAFT_TEST_OTF_FONT") {
+        fonts.push(Some(Arc::new(std::fs::read(path).unwrap())));
+    }
+    for font in fonts {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: "Привет, мир! Ελληνικά e\u{301} office".into(),
+            rect: [20.0, 100.0, 580.0, 300.0],
+            size: 16.0,
+            font,
+            ..AddedText::default()
+        };
+        assert_eq!(first_undrawable(&t), None);
+        add_content(&mut doc, 1, &Content::Text(t.clone())).unwrap();
+        for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+            let mut reopened = Document::open(Arc::new(bytes)).unwrap();
+            let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+            assert_eq!(saved.text, t.text);
+            assert_eq!(saved.font_bytes().unwrap(), t.font_bytes().unwrap());
+            assert_eq!(saved.font.is_some(), t.font.is_some(), "automatic fallback stays automatic");
+            assert!(text::text_lines(&reopened, 1).unwrap().iter().any(|l| l.text == t.text));
+            let updated = AddedText { text: "До свидания!".into(), ..saved };
+            update_content(&mut reopened, 1, 0, &Content::Text(updated.clone())).unwrap();
+            let reopened = reopen(&reopened);
+            assert!(text::text_lines(&reopened, 1).unwrap().iter().any(|l| l.text == updated.text));
+        }
+    }
+}
+
+/// Selected-font layout accepts platform line endings without changing stored typing.
+#[test]
+fn added_selected_font_normalizes_line_endings_for_layout_and_reopen() {
+    for ending in ["\r\n", "\r", "\n"] {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: format!("Привет{ending}AB"),
+            rect: [20.0, 100.0, 580.0, 300.0],
+            font: Some(pdfcraft_fonts::inter_regular_shared()),
+            ..Default::default()
+        };
+        assert_eq!(super::added::lines(&t), ["Привет", "AB"]);
+        let normalized = AddedText { text: "Привет\nAB".into(), ..t.clone() };
+        assert!((super::added::text_width(&t) - super::added::text_width(&normalized)).abs() < 0.001);
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        let reopened = reopen(&doc);
+        let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+        assert_eq!(saved.text, t.text);
+        let lines = text::text_lines(&reopened, 0).unwrap();
+        for expected in ["Привет", "AB"] {
+            assert!(lines.iter().any(|line| line.text == expected), "{lines:?}");
+        }
+    }
+}
+
+/// Automatic fallback must see the same rows as the Unicode layout, before font selection.
+#[test]
+fn added_automatic_fallback_normalizes_line_endings_before_font_selection() {
+    let normalized = AddedText { text: "Привет\nмир".into(), rect: [20.0, 100.0, 580.0, 300.0], ..Default::default() };
+    let mut reference = fixture();
+    add_content(&mut reference, 0, &Content::Text(normalized.clone())).unwrap();
+    for ending in ["\r\n", "\r", "\n"] {
+        let t = AddedText { text: format!("Привет{ending}мир"), ..normalized.clone() };
+        let latin = AddedText { text: format!("Latin{ending}rows"), ..normalized.clone() };
+        assert!(latin.font_bytes().is_none(), "line endings alone must not select a Unicode fallback");
+        assert!(t.font.is_none());
+        assert!(t.font_bytes().is_some_and(|bytes| bytes == pdfcraft_fonts::INTER_REGULAR));
+        assert_eq!(first_undrawable(&t), None);
+        assert_eq!(super::added::text_error(&t), None);
+        assert_eq!(super::added::lines(&t), ["Привет", "мир"]);
+        assert_eq!(super::added::text_width(&t), super::added::text_width(&normalized));
+        assert_eq!(super::added::text_rect(&t), super::added::text_rect(&normalized));
+        let mut doc = fixture();
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        assert_eq!(streams(&doc, 0), streams(&reference, 0), "{ending:?}: identical glyphs and positions");
+        for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+            let mut reopened = Document::open(Arc::new(bytes)).unwrap();
+            let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+            assert_eq!(saved.text, t.text, "retain the original editable line endings");
+            assert!(saved.font.is_none(), "automatic fallback stays automatic");
+            assert!(saved.font_bytes().is_some_and(|bytes| bytes == pdfcraft_fonts::INTER_REGULAR));
+            let lines = text::text_lines(&reopened, 0).unwrap();
+            for expected in ["Привет", "мир"] {
+                assert!(lines.iter().any(|line| line.text == expected), "{lines:?}");
+            }
+            let latin = AddedText { text: "Latin".into(), ..saved };
+            assert!(latin.font_bytes().is_none());
+            update_content(&mut reopened, 0, 0, &Content::Text(latin)).unwrap();
+            assert!(streams(&reopened, 0).last().unwrap().contains("/PCFHelvetica"));
+        }
+    }
+}
+
+#[test]
+fn added_document_font_errors_do_not_mutate_or_substitute() {
+    let mut doc = fixture();
+    let t = AddedText {
+        text: "Привет".into(),
+        rect: [20.0, 100.0, 400.0, 300.0],
+        font: Some(Arc::new(pdfcraft_fonts::INTER_REGULAR.to_vec())),
+        ..AddedText::default()
+    };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let saved = write_incremental(&doc, &SaveOptions::default()).unwrap();
+    for bad in [AddedText { text: "日本語".into(), ..t.clone() }, AddedText { font: Some(Arc::new(vec![0; 12])), ..t.clone() }] {
+        assert!(update_content(&mut doc, 0, 0, &Content::Text(bad)).is_err());
+        assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), saved);
+    }
+    let oversized_cluster = AddedText { text: format!("First row\ne{}", "\u{301}".repeat(2200)), ..t.clone() };
+    assert!(update_content(&mut doc, 0, 0, &Content::Text(oversized_cluster)).is_err());
+    assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), saved, "a later embedding failure must roll back earlier rows");
+    // Simulate an unavailable program in a damaged saved item.
+    let item = list_added(&doc).remove(0);
+    let Object::Stream(mut stream) = doc.get(item.obj).as_ref().clone() else { panic!() };
+    let mut params = stream.dict.get(b"PCAdded").unwrap().as_dict().unwrap().clone();
+    params.set(b"CustomFont".to_vec(), Object::Null);
+    stream.dict.set(b"PCAdded".to_vec(), Object::Dict(params));
+    doc.set(item.obj, Object::Stream(stream));
+    let item = list_added(&doc).remove(0);
+    let Content::Text(missing) = item.content else { panic!() };
+    assert!(missing.font.is_some());
+    assert!(update_content(&mut doc, 0, 0, &Content::Text(missing)).is_err());
+}
+
+/// The old mappings must become unreachable, including in a garbage-collected full save.
+#[test]
+fn added_font_replacement_and_deletion_reclaim_obsolete_mappings() {
+    for font in [None, Some(pdfcraft_fonts::inter_regular_shared())] {
+        let mut doc = fixture();
+        let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], font, ..Default::default() };
+        add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+        let old = added_full_fonts(&doc).pop().unwrap().1;
+        let replacement = AddedText { text: "Б".into(), ..t };
+        update_content(&mut doc, 0, 0, &Content::Text(replacement.clone())).unwrap();
+        let fonts = added_full_fonts(&doc);
+        assert_eq!(fonts.len(), 1, "only the replacement's mapping remains");
+        assert_ne!(fonts[0].1, old);
+        let mut doc = Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        assert!(
+            !doc.scan_objects().any(|(_, object)| matches!(object.as_ref(), Object::Stream(s)
+            if s.dict.name(b"Type") == Some(b"CMap") && s.decoded().unwrap().windows(6).any(|w| w == b"<0416>"))),
+            "the replaced character's ToUnicode entry must not survive a full rewrite"
+        );
+        let Content::Text(saved) = list_added(&doc).remove(0).content else { panic!() };
+        assert_eq!(saved.text, replacement.text);
+        assert_eq!(saved.font_bytes(), replacement.font_bytes());
+        update_content(&mut doc, 0, 0, &Content::Text(AddedText { text: "Latin".into(), font: None, ..replacement })).unwrap();
+        assert!(added_full_fonts(&doc).is_empty());
+        add_content(&mut doc, 0, &Content::Text(AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() })).unwrap();
+        delete_content(&mut doc, 0, 1).unwrap();
+        assert!(added_full_fonts(&doc).is_empty());
+        let full = Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap();
+        assert!(
+            !full.scan_objects().any(|(_, object)| matches!(object.as_ref(), Object::Stream(s)
+            if s.dict.name(b"Type") == Some(b"CMap") && s.decoded().unwrap().windows(6).any(|w| w == b"<0416>"))),
+            "deleting the last user releases its mapping in a full rewrite too"
+        );
+    }
+}
+
+fn added_full_fonts(doc: &Document) -> Vec<(Vec<u8>, Object)> {
+    let p = &pdfcraft_model::pages(doc)[0];
+    let resources = doc.dict(p.dict.get(b"Resources").unwrap()).unwrap();
+    doc.dict(resources.get(b"Font").unwrap())
+        .unwrap()
+        .iter()
+        .filter(|(name, _)| name.starts_with(b"PCFull"))
+        .map(|(name, object)| (name.clone(), object.clone()))
+        .collect()
+}
+
+#[test]
+fn added_font_cleanup_keeps_shared_mappings_until_the_last_user() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    add_content(&mut doc, 0, &Content::Text(AddedText { rect: [20.0, 100.0, 400.0, 300.0], ..t.clone() })).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 1);
+    let shared = added_full_fonts(&doc)[0].1.clone();
+    update_content(&mut doc, 0, 0, &Content::Text(AddedText { text: "Б".into(), ..t })).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 2);
+    assert!(added_full_fonts(&doc).iter().any(|(_, object)| object == &shared));
+    assert!(text::text_lines(&doc, 0).unwrap().iter().any(|line| line.text == "Ж"));
+    delete_content(&mut doc, 0, 1).unwrap();
+    assert_eq!(added_full_fonts(&doc).len(), 1);
+    delete_content(&mut doc, 0, 0).unwrap();
+    assert!(added_full_fonts(&doc).is_empty());
+}
+
+#[test]
+fn wrapped_added_font_text_preserves_original_spaces_on_reopen() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Раз  два три четыре  ".into(), rect: [20.0, 100.0, 100.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let rows = super::added::lines(&t);
+    assert!(rows.len() > 1);
+    assert!(rows[..rows.len() - 1].iter().all(|row| !row.ends_with(' ')));
+    for bytes in [write_incremental(&doc, &SaveOptions::default()).unwrap(), write_full(&doc, &SaveOptions::default()).unwrap()] {
+        let reopened = Document::open(Arc::new(bytes)).unwrap();
+        let Content::Text(saved) = list_added(&reopened).remove(0).content else { panic!() };
+        assert_eq!(saved.text, t.text);
+        assert!(saved.font.is_none());
+    }
+}
+
+#[test]
+fn added_font_move_reuses_its_mapping_and_registered_faces_remain_available() {
+    let mut doc = fixture();
+    let t = AddedText { text: "Ж".into(), rect: [20.0, 100.0, 400.0, 300.0], ..Default::default() };
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let before = added_full_fonts(&doc);
+    let objects = doc.scan_objects().count();
+    update_content(&mut doc, 0, 0, &Content::Text(AddedText { rect: [30.0, 100.0, 410.0, 300.0], ..t })).unwrap();
+    assert_eq!(added_full_fonts(&doc), before);
+    assert_eq!(doc.scan_objects().count(), objects, "moving reuses the font dictionary and embedded program");
+    let resource = text::register_text_font(&mut doc, 0, pdfcraft_fonts::INTER_REGULAR).unwrap();
+    let registered = added_full_fonts(&doc).into_iter().find(|(name, _)| name == resource.as_bytes()).unwrap().1;
+    assert_eq!(doc.dict(&registered).unwrap().get(b"PCRegisteredFont"), Some(&Object::Bool(true)));
+    delete_content(&mut doc, 0, 0).unwrap();
+    assert_eq!(added_full_fonts(&doc), [(resource.into_bytes(), registered)]);
+}
+
+#[test]
+fn added_custom_thai_font_shapes_marks_and_keeps_logical_clusters() {
+    // Font programs remain optional external inputs, never committed fixtures (AGENTS §1.4).
+    let bytes = std::env::var_os("PDFCRAFT_TEST_THAI_FONT")
+        .map(|p| std::fs::read(p).unwrap())
+        .or_else(|| pdfcraft_fonts::document_thai_font().filter(|f| pdfcraft_fonts::embedding::validate(f.bytes).is_ok()).map(|f| f.bytes.to_vec()));
+    let Some(bytes) = bytes else { return };
+    // Exercise structural shaping with external input; runtime import licence policy is
+    // unchanged and its GPL-exception decision lives in a separate PR.
+    pdfcraft_fonts::embedding::validate(&bytes).unwrap();
+    let mut doc = fixture();
+    let t = AddedText {
+        text: "Hello กิ่ น้ำ ผู้ใช้ ปู่ ๑๒๓".into(),
+        rect: [20.0, 100.0, 580.0, 300.0],
+        size: 24.0,
+        font: Some(Arc::new(bytes.clone())),
+        ..AddedText::default()
+    };
+    assert_eq!(first_undrawable(&t), None);
+    let shaped = pdfcraft_fonts::source_shaping::shape(&bytes, &t.text).unwrap();
+    assert!(shaped.glyphs.iter().any(|g| g.position[1] != 0.0 || g.text.chars().count() > 1));
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let doc = reopen(&doc);
+    assert!(text::text_lines(&doc, 0).unwrap().iter().any(|l| l.text == t.text));
+    let narrow = AddedText { text: "กิ่กิ่กิ่".into(), rect: [0.0, 0.0, 24.0, 200.0], ..t };
+    let rows = super::added::lines(&narrow);
+    assert_eq!(rows.concat(), narrow.text);
+    assert!(rows.iter().all(|s| s.starts_with('ก')));
+}
+
+#[test]
+fn added_automatic_font_and_explicit_font_keep_their_choice_on_reopen() {
+    for explicit in [false, true] {
+        let mut doc = fixture();
+        let t = AddedText {
+            text: "Привет".into(),
+            rect: [20.0, 100.0, 400.0, 300.0],
+            font: explicit.then(pdfcraft_fonts::inter_regular_shared),
+            ..Default::default()
+        };
+        add_content(&mut doc, 0, &Content::Text(t)).unwrap();
+        let mut doc = reopen(&doc);
+        let Content::Text(t) = list_added(&doc).remove(0).content else { panic!() };
+        assert_eq!(t.font.is_some(), explicit);
+        let latin = AddedText { text: "Latin".into(), ..t };
+        assert_eq!(latin.font_bytes().is_some(), explicit);
+        update_content(&mut doc, 0, 0, &Content::Text(latin)).unwrap();
+        let output = streams(&doc, 0).pop().unwrap();
+        assert_eq!(output.contains("/PCFHelvetica"), !explicit);
+    }
+}
+
+#[test]
+fn added_items_share_programs_and_batch_horizontal_glyphs() {
+    let mut doc = fixture();
+    let font = Arc::new(include_bytes!("../../../assets/fonts/JetBrainsMono-Regular.ttf").to_vec());
+    for text in ["First Привет", "Second До свидания"] {
+        add_content(
+            &mut doc,
+            0,
+            &Content::Text(AddedText { text: text.into(), rect: [20.0, 100.0, 580.0, 300.0], font: Some(font.clone()), ..Default::default() }),
+        )
+        .unwrap();
+    }
+    let doc = reopen(&doc);
+    let items = list_added(&doc);
+    let programs: Vec<_> = items
+        .iter()
+        .map(|i| {
+            let Content::Text(t) = &i.content else { panic!() };
+            t.font.as_ref().unwrap()
+        })
+        .collect();
+    assert!(Arc::ptr_eq(programs[0], programs[1]));
+    for output in streams(&doc, 0).iter().filter(|s| s.contains("/ActualText")) {
+        assert_eq!(output.matches(" Tm ").count(), 1, "one baseline matrix, not one per glyph: {output}");
+        assert_eq!(output.matches("] TJ").count(), 1);
+    }
+}
+
+#[test]
+fn added_budget_errors_do_not_blame_a_supported_character() {
+    let mut doc = fixture();
+    for text in ["a".repeat(262_145), format!("e{}", "\u{301}".repeat(2200))] {
+        let t = AddedText { text, rect: [20.0, 100.0, 400.0, 300.0], font: Some(pdfcraft_fonts::inter_regular_shared()), ..Default::default() };
+        assert_eq!(first_undrawable(&t), None);
+        let message = super::added::text_error(&t).unwrap();
+        assert!(message.contains("262144") || message.contains("budget"), "{message}");
+        assert!(add_content(&mut doc, 0, &Content::Text(t)).is_err());
+        assert!(list_added(&doc).is_empty());
+    }
+}
+
+#[test]
 fn tokens_expand() {
     let c = cx();
     assert_eq!(expand("Page <<1>> of <<n>>", 3, 10, 0, &c), "Page 3 of 10");

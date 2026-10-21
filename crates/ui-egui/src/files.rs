@@ -15,6 +15,9 @@ pub enum FilePurpose {
     TextFont {
         page: usize,
     },
+    AddedTextFont {
+        page: usize,
+    },
     Combine,
     InsertPages,
     ReplacePages,
@@ -60,7 +63,7 @@ pub(crate) fn installed_font_files(ctx: &egui::Context) -> Option<Vec<pdfcraft_e
 /// The picker for `purpose`: PDFs, and for Create and Insert also what they convert.
 fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
     let dialog = rfd::AsyncFileDialog::new();
-    if matches!(purpose, FilePurpose::TextFont { .. }) {
+    if matches!(purpose, FilePurpose::TextFont { .. } | FilePurpose::AddedTextFont { .. }) {
         return dialog.add_filter("TrueType / OpenType font", &["ttf", "otf"]);
     }
     if purpose == FilePurpose::RedactWords {
@@ -95,7 +98,7 @@ pub struct ReplaceDraft {
 impl FilePurpose {
     /// Insert and Replace edit the active document, at its selection.
     pub(crate) fn edits_active_document(self) -> bool {
-        matches!(self, Self::InsertPages | Self::ReplacePages | Self::TextFont { .. })
+        matches!(self, Self::InsertPages | Self::ReplacePages | Self::TextFont { .. } | Self::AddedTextFont { .. })
     }
 }
 
@@ -360,7 +363,7 @@ impl PdfCraftApp {
                 self.notify_fmt("{name} is too large for a word list (at most 1 MB).", &[("name", &name)]);
                 return;
             }
-            let read = if matches!(purpose, FilePurpose::TextFont { .. }) {
+            let read = if matches!(purpose, FilePurpose::TextFont { .. } | FilePurpose::AddedTextFont { .. }) {
                 use std::io::Read;
                 std::fs::File::open(p).and_then(|f| {
                     let mut bytes = Vec::new();
@@ -474,6 +477,24 @@ impl PdfCraftApp {
     /// Use picked files (also the entry point for tests and automation).
     pub fn use_files(&mut self, purpose: FilePurpose, files: Vec<(String, Vec<u8>)>) {
         match purpose {
+            FilePurpose::AddedTextFont { page } => {
+                let Some((_, bytes)) = files.into_iter().next() else { return };
+                if let Err(error) = pdfcraft_fonts::embedding::validate_document_input(&bytes) {
+                    self.notify(error);
+                    return;
+                }
+                // The draft owns the input until committed. AddText/UpdateContent embeds it
+                // as part of that single undo step; discarding a draft leaves the PDF alone.
+                let existing = self.active_ids().and_then(|(_, id)| self.session.get(id)).and_then(|d| {
+                    d.text_editor_fonts(page)
+                        .into_iter()
+                        .find(|f| !f.subset && !f.resource.starts_with("PCApproved") && f.bytes.as_slice() == bytes.as_slice())
+                });
+                let bytes = existing
+                    .map(|f| f.bytes)
+                    .unwrap_or_else(|| if bytes == pdfcraft_fonts::INTER_REGULAR { pdfcraft_fonts::inter_regular_shared() } else { Arc::new(bytes) });
+                self.select_added_font(page, bytes);
+            }
             FilePurpose::TextFont { page } => {
                 let Some((_, bytes)) = files.into_iter().next() else { return };
                 let bytes = Arc::new(bytes);
@@ -485,7 +506,7 @@ impl PdfCraftApp {
                 // The font just loaded is the one the user wants: apply it to the paragraph, as
                 // choosing it from the document-font menu does, instead of only registering it (#2591).
                 let resource = self.session.get(id).and_then(|doc| {
-                    doc.text_editor_fonts(page).into_iter().find(|f| f.bytes == *bytes && !f.resource.starts_with("PCApproved")).map(|f| f.resource)
+                    doc.text_editor_fonts(page).into_iter().find(|f| f.bytes == bytes && !f.resource.starts_with("PCApproved")).map(|f| f.resource)
                 });
                 let ctx = self.ctx.clone();
                 if resource.is_some() {

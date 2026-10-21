@@ -92,25 +92,40 @@ impl TextLine {
 pub struct TextEditorFont {
     pub resource: String,
     pub face: String,
-    pub bytes: Vec<u8>,
+    pub bytes: std::sync::Arc<Vec<u8>>,
+    /// A PDF subset is useful to preview its source text, but is not a full Add Text face.
+    pub subset: bool,
 }
 
+/// Read page source faces with a temporary cache, sharing programs within this catalogue.
 pub fn text_editor_fonts(doc: &Document, page: usize) -> Result<Vec<TextEditorFont>, EditError> {
+    text_editor_fonts_cached(doc, page, &mut pdfcraft_fonts::pdf::EmbeddedFontCache::default())
+}
+
+/// Read page source faces while reusing native Unicode programs across catalogue refreshes.
+pub fn text_editor_fonts_cached(
+    doc: &Document,
+    page: usize,
+    cache: &mut pdfcraft_fonts::pdf::EmbeddedFontCache,
+) -> Result<Vec<TextEditorFont>, EditError> {
     let p = page_dict(doc, page)?;
     let resources = p.dict.get(b"Resources").and_then(|o| doc.dict(o)).unwrap_or_default();
     let fonts = resources.get(b"Font").and_then(|o| doc.dict(o)).unwrap_or_default();
     let mut budget = 32_usize << 20;
-    let mut result = Vec::new();
+    let mut result: Vec<TextEditorFont> = Vec::new();
     for (name, font) in fonts.iter().take(128) {
         let Some(font) = doc.dict(font) else { continue };
-        let Some(bytes) = pdfcraft_fonts::pdf::embedded_sfnt(doc, &font) else { continue };
-        if bytes.len() > budget {
+        let Some(bytes) = cache.read(doc, &font) else { continue };
+        let cost = if result.iter().any(|p| std::sync::Arc::ptr_eq(&p.bytes, &bytes)) { 0 } else { bytes.len() };
+        if cost > budget {
             continue;
         }
-        budget -= bytes.len();
+        budget -= cost;
+        let base = Metrics::from_dict(doc, &font).base_font;
         result.push(TextEditorFont {
             resource: String::from_utf8_lossy(name).into_owned(),
-            face: Metrics::from_dict(doc, &font).base_font.rsplit('+').next().unwrap_or_default().to_owned(),
+            face: base.rsplit('+').next().unwrap_or_default().to_owned(),
+            subset: base.split_once('+').is_some_and(|(tag, _)| tag.len() == 6 && tag.bytes().all(|b| b.is_ascii_uppercase())),
             bytes,
         });
     }
@@ -123,7 +138,12 @@ pub fn text_editor_fonts(doc: &Document, page: usize) -> Result<Vec<TextEditorFo
                 continue;
             }
             budget -= full.bytes.len();
-            result.push(TextEditorFont { resource: format!("PCApproved{}", full.name()), face: face.clone(), bytes: full.bytes.to_vec() });
+            result.push(TextEditorFont {
+                resource: format!("PCApproved{}", full.name()),
+                face: face.clone(),
+                bytes: std::sync::Arc::new(full.bytes.to_vec()),
+                subset: false,
+            });
         }
     }
     Ok(result)
@@ -138,6 +158,12 @@ pub fn register_text_font(doc: &mut Document, page: usize, bytes: &[u8]) -> Resu
     let mut resources = p.dict.get(b"Resources").and_then(|o| doc.dict(o)).unwrap_or_default();
     let mut fonts = resources.get(b"Font").and_then(|o| doc.dict(o)).unwrap_or_default();
     let name = pdfcraft_fonts::embedding::embed(doc, &mut fonts, bytes, &postscript).map_err(EditError::Invalid)?;
+    // An explicit import remains available even when no current content draws with it.
+    if let Some(Object::Ref(font)) = fonts.get(name.as_bytes()) {
+        doc.update_dict(*font, |d| d.set(b"PCRegisteredFont".to_vec(), Object::Bool(true)))?;
+    } else if let Some(Object::Dict(font)) = fonts.get_mut(name.as_bytes()) {
+        font.set(b"PCRegisteredFont".to_vec(), Object::Bool(true));
+    }
     resources.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(resources)))?;
     Ok(name)
