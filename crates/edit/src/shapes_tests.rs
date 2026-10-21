@@ -166,3 +166,31 @@ fn text_with_zero_fill_opacity_is_transparent() {
     let blocks = crate::reading_blocks_checked(&faded_text("0.5"), 0).unwrap().blocks;
     assert!(blocks.iter().all(|b| !b.transparent), "half-transparent text still shows");
 }
+
+#[test]
+fn a_first_line_indent_is_measured() {
+    let content = "BT /F1 11 Tf 108 700 Td (Indented first line of a paragraph that is long) Tj -36 -14 Td (second line back at the margin of the text) Tj 0 -14 Td (third line also at the margin of the text) Tj ET";
+    let objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 800] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>".into(),
+        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into(),
+    ];
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offs = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offs.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let x = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offs {
+        out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n", objs.len() + 1).as_bytes());
+    let doc = Document::open(Arc::new(out)).unwrap();
+    let blocks = crate::reading_blocks_checked(&doc, 0).unwrap().blocks;
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    assert!((blocks[0].indent - 36.0).abs() < 0.5, "{}", blocks[0].indent);
+}

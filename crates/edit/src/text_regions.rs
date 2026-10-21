@@ -99,8 +99,13 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
             let Some(pr) = frame_row_rect(prev_row, lines) else { return false };
             let gap = prev.frame_origin().1 - first.frame_origin().1;
             let tol = prev.size.max(first.size).max(1.0);
-            let aligned =
-                (pr[0] - frame[0]).abs() < tol || ((pr[0] + pr[2] - frame[0] - frame[2]) / 2.0).abs() < tol || (pr[2] - frame[2]).abs() < tol;
+            // Reading order (export) also takes a paragraph's first-line indent: its first row
+            // starts up to a few ems right of the row under it.
+            let indented = !mixed && block.rows.len() == 1 && pr[0] > frame[0] && pr[0] - frame[0] <= tol * 6.0;
+            let aligned = indented
+                || (pr[0] - frame[0]).abs() < tol
+                || ((pr[0] + pr[2] - frame[0] - frame[2]) / 2.0).abs() < tol
+                || (pr[2] - frame[2]).abs() < tol;
             // OCR lines stay apart: the scan fixes where each one is, so they never rewrap together.
             (!mixed || !(invisible(prev) || invisible(first)))
                 && (mixed || same_style(prev, first))
@@ -126,6 +131,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 rows: Vec::new(),
                 invisible: true,
                 transparent: true,
+                indent: 0.0,
             });
         }
         let Some(block) = blocks.last_mut() else { continue };
@@ -162,6 +168,13 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         block.text.push_str(row_text.trim_matches(paragraph_separator));
         block.rect = union(block.rect, rect);
         block.rows.push(row);
+    }
+    for block in &mut blocks {
+        let lefts: Vec<f64> = block.rows.iter().filter_map(|r| frame_row_rect(r, lines)).map(|r| r[0]).collect();
+        if let (Some(first), Some(rest)) = (lefts.first(), lefts.get(1..).and_then(|r| r.iter().copied().reduce(f64::min))) {
+            let indent = first - rest;
+            block.indent = if indent.is_finite() { indent } else { 0.0 };
+        }
     }
     blocks
 }

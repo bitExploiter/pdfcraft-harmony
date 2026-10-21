@@ -282,6 +282,9 @@ pub struct TextBlock {
     /// Every line is drawn with a fill opacity of 0: a selectable layer over text the page shows
     /// as a picture (or as outlines). Editing treats it like visible text.
     pub transparent: bool,
+    /// How far the first visual row starts right of the others (points, along the baseline):
+    /// a first-line indent. 0 for a single row; negative for a hanging indent.
+    pub indent: f64,
 }
 
 impl TextBlock {
