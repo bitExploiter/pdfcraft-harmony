@@ -2397,3 +2397,8 @@ animation effects	Off	Изключени
 	Make properties default	Задаване като свойства по подразбиране
 	Pages selected	Избрани страници
 	Page properties	Свойства на страницата
+	Original (lossless)	Оригинал (без загуба)
+	Balanced	Балансирано
+	Compact	Компактно
+	Compressing combined PDF…	Компресиране на обединения PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	„Балансирано“ и „Компактно“ намаляват качеството на изображенията, за да намалят размера на файла. Текстът и формулярите остават редактируеми.

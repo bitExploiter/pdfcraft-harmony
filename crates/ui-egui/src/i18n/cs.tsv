@@ -2508,3 +2508,8 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+	Original (lossless)	Původní (beze ztráty)
+	Balanced	Vyvážená
+	Compact	Kompaktní
+	Compressing combined PDF…	Komprimuje se sloučené PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Předvolby Vyvážená a Kompaktní snižují kvalitu obrázků, aby zmenšily soubor. Text a formuláře zůstávají upravitelné.

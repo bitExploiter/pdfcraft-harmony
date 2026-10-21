@@ -1201,6 +1201,39 @@ fn combine_of(names: &[(&str, usize)]) -> Harness<'static, PdfCraftApp> {
 }
 
 #[test]
+fn combine_quality_can_be_chosen_before_combining() {
+    for (quality, inline) in [("Balanced", true), ("Compact", true), ("Compact", false)] {
+        let mut h = combine_of(&[("one.pdf", 1), ("two.pdf", 2)]);
+        h.state_mut().run_inline = inline;
+        h.get_by_value("Original (lossless)").click();
+        h.run_steps(2);
+        if quality == "Balanced"
+            && let Some(path) = std::env::var_os("PDFCRAFT_ORGANIZE_SNAPSHOT")
+        {
+            h.render().unwrap().save(std::path::Path::new(&path)).unwrap();
+        }
+        h.get_by_label(quality).click();
+        h.run_steps(2);
+        h.get_by_label("Combine").click();
+        h.run_steps(4);
+        for _ in 0..200 {
+            if !h.state().combine_showing() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            h.run_steps(1);
+        }
+        assert!(!h.state().combine_showing());
+        let app = h.state();
+        let view = app.views.last().unwrap();
+        let doc = app.session.get(view.id).unwrap();
+        assert_eq!(doc.info.pages.len(), 3);
+        assert_eq!(doc.info.outline.iter().map(|o| o.title.as_str()).collect::<Vec<_>>(), ["one", "two"]);
+        assert!(doc.dirty && doc.path.is_none());
+    }
+}
+
+#[test]
 fn column_headings_sort_the_list_and_flip_on_the_second_click() {
     let mut h = combine_of(&[("scan10.pdf", 1), ("Scan2.pdf", 3), ("a.pdf", 2)]);
     h.get_by_label("File name").click();

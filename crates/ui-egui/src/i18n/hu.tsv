@@ -2433,3 +2433,8 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+	Original (lossless)	Eredeti (veszteségmentes)
+	Balanced	Kiegyensúlyozott
+	Compact	Tömör
+	Compressing combined PDF…	Az egyesített PDF tömörítése…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	A Kiegyensúlyozott és a Tömör csökkentik a képek minőségét, így kisebb lesz a fájl. A szöveg és az űrlapok szerkeszthetők maradnak.

@@ -2448,3 +2448,8 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	Original (lossless)	Original (sem perdas)
+	Balanced	Equilibrado
+	Compact	Compacto
+	Compressing combined PDF…	Compactando o PDF combinado…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Equilibrado e Compacto reduzem a qualidade das imagens para diminuir o tamanho do arquivo. O texto e os formulários continuam editáveis.

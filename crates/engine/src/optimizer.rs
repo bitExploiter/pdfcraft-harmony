@@ -11,6 +11,68 @@ use pdfcraft_cos::{SaveOptions, write_full};
 
 use crate::{DocId, EditError, Hidden, OptimizeReport, Session, guard, optimize};
 
+/// Compression preset for a newly combined PDF.
+///
+/// [`Original`](Self::Original) leaves the combined bytes unchanged; the other presets reuse
+/// the optimizer and keep the original if optimization does not make the whole PDF smaller.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CombineQuality {
+    /// Keep the combined PDF exactly as written, with no optimization.
+    #[default]
+    Original,
+    /// Downsample images above 225 PPI to 150 PPI, using JPEG quality 60.
+    Balanced,
+    /// Downsample images above 144 PPI to 96 PPI, using JPEG quality 45.
+    Compact,
+}
+
+impl CombineQuality {
+    /// Parse the stable lowercase names used by automation and command interfaces.
+    /// Returns `None` for any unrecognized value.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "original" => Some(Self::Original),
+            "balanced" => Some(Self::Balanced),
+            "compact" => Some(Self::Compact),
+            _ => None,
+        }
+    }
+
+    /// Compress supported images without flattening pages or removing page thumbnails or
+    /// alternate image renditions. Keep the input unless the whole candidate is smaller.
+    /// The caller's session and sources stay intact.
+    pub fn apply(self, bytes: Arc<Vec<u8>>) -> Result<Arc<Vec<u8>>, EditError> {
+        if self == Self::Original {
+            return Ok(bytes);
+        }
+        guard(|| {
+            let images = match self {
+                Self::Compact => optimize::ImageSettings {
+                    target_ppi: 96.0,
+                    above_ppi: 144.0,
+                    compression: optimize::Compression::Jpeg(45),
+                    ..optimize::ImageSettings::REDUCE
+                },
+                _ => optimize::ImageSettings::REDUCE,
+            };
+            let settings = optimize::Settings {
+                color: images,
+                gray: images,
+                discard_thumbnails: false,
+                discard_alternate_images: false,
+                remove_invalid_links: false,
+                remove_unreferenced_dests: false,
+                ..Default::default()
+            };
+            let mut session = Session::new();
+            let id = session.open("Combined.pdf", None, bytes.clone(), None).map_err(|e| EditError::Optimize(e.to_string()))?;
+            let (candidate, _) = session.optimized_bytes(id, &settings, &[])?;
+            Ok(if candidate.len() < bytes.len() { candidate } else { bytes })
+        })
+        .map_err(EditError::Optimize)?
+    }
+}
+
 /// Where an optimization is.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OptimizeStage {

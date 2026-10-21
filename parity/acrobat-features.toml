@@ -2972,6 +2972,18 @@ evidence = ["crates/organize/src/tests.rs::combine_concatenates_with_a_bookmark_
 notes = "Combine files is its own tab: a table of the files (name, pages, size, modified, warnings) with column sorting, resizing and moving; files, folders (with subfolders) and open documents can be added, or dropped on the tab. Images (PNG, JPEG, TIFF, GIF, BMP, JPEG 2000) and .txt files become PDFs as they are added (#569; also in doc_combine). A file that can't be read stays in the list with why, and Combine asks before leaving it out; Office documents, HTML and other formats are not converted yet. Problems show before Combine (password, security settings that withhold page assembly, bad page ranges, duplicates); protected files are unlocked with their open or permissions password (also doc_combine passwords). The result is never encrypted, and is not yet offered for protection in the same step. A PDF/X result (output intent, GTS_PDFXVersion, Trapped, XMP pdfxid) only when every source declares the same version and output intent (#263). When they differ the result claims none, and nothing reports that yet; Acrobat behaviour not observed."
 
 [[feature]]
+id = "organize.combine-quality"
+title = "Output quality presets for combined PDFs"
+area = "D"
+tier = "P1"
+milestone = "M4"
+status = "shipped"
+commands = ["page.combine"]
+tools = ["doc_combine"]
+evidence = ["crates/automation/tests/automation.rs::combine_quality_presets_keep_pages_and_bookmarks", "crates/automation/tests/automation.rs::combine_quality_presets_reduce_images_without_flattening_forms", "crates/ui-egui/tests/editing.rs::combine_quality_can_be_chosen_before_combining"]
+notes = "Original (default) preserves combined bytes; Balanced uses 150 ppi/JPEG 60; Compact uses 96 ppi/JPEG 45. Candidates that are not smaller are discarded. Desktop compression runs in the background. No target byte size or preview estimate; unsupported image encodings/colour spaces stay unchanged. The web runs compression inline, as its existing optimizer does. Existing combine preservation limits remain."
+
+[[feature]]
 id = "organize.combine-bookmarks"
 title = "Combine adds a bookmark per file with its own bookmarks nested"
 area = "D"

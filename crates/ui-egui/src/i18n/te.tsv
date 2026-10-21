@@ -2343,3 +2343,8 @@ animation effects	Off	ఆఫ్
 	Make properties default	లక్షణాలను డిఫాల్ట్‌గా చేయి
 	Pages selected	ఎంచుకున్న పేజీలు
 	Page properties	పేజీ లక్షణాలు
+	Original (lossless)	అసలు (నాణ్యత కోల్పోకుండా)
+	Balanced	సమతుల్య
+	Compact	కాంపాక్ట్
+	Compressing combined PDF…	కలిపిన PDFను కుదిస్తోంది…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	సమతుల్య, కాంపాక్ట్ ఎంపికలు ఫైల్ పరిమాణం తగ్గించడానికి చిత్ర నాణ్యతను తగ్గిస్తాయి. వచనం, ఫారమ్‌లు సవరించగలిగేలా ఉంటాయి.

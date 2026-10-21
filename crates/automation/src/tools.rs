@@ -251,6 +251,8 @@ pub fn tools() -> Vec<ToolDef> {
                     "passwords": { "type": "array", "items": { "type": ["string", "null"] } },
                     "groups": { "type": "array", "items": { "type": ["integer", "null"], "minimum": 0 } },
                     "field_conflicts": { "type": "string", "enum": ["rename", "merge"] },
+                    "quality": { "type": "string", "enum": ["original", "balanced", "compact"], "default": "original",
+                        "description": "original preserves image quality; balanced uses 150 ppi / JPEG 60; compact uses 96 ppi / JPEG 45. Compression keeps the original combined bytes if no smaller. Text and forms remain editable; source files are unchanged." },
                     "out": save_out,
                     "open": open,
                 }),

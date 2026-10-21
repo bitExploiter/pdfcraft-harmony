@@ -223,3 +223,18 @@ behavior. Back/Forward
 returns to page tops, does not restore zoom, does not switch documents, and is not saved across
 restarts. Standalone engine/MCP sessions have no viewport, so they do not have a separate
 navigation-history tool; use the opt-in UI control channel to navigate the displayed document.
+
+## Combined PDF quality
+
+`doc_combine` accepts `quality: "original" | "balanced" | "compact"`, also available
+through `pdfcraft-cli run doc_combine` and MCP. The Combine files tab offers the same
+presets. Original is the default and leaves the combined bytes unchanged. Balanced
+uses 150 ppi above 225 ppi and JPEG quality 60; Compact uses 96 ppi above 144 ppi and
+JPEG quality 45. Both reuse the PDF optimizer and keep the original combined bytes
+if the candidate is not smaller. Text, form fields and bookmarks are not flattened;
+source files are unchanged. Desktop compression runs in the background.
+
+These are quality presets, not target file sizes. Unsupported image encodings and
+colour spaces are retained by the optimizer, and already compact PDFs may not shrink.
+The existing combine limitations still apply; choosing a preset does not add features
+that combining itself does not preserve.

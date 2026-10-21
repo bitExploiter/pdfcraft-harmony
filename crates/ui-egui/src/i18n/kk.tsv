@@ -2432,3 +2432,8 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+	Original (lossless)	Бастапқы (сапаны жоғалтпай)
+	Balanced	Теңгерімді
+	Compact	Ықшам
+	Compressing combined PDF…	Біріктірілген PDF сығылуда…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	«Теңгерімді» және «Ықшам» файл көлемін азайту үшін кескін сапасын төмендетеді. Мәтін мен пішіндер өңделетін күйде қалады.

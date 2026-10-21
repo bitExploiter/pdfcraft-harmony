@@ -2440,3 +2440,8 @@ animation effects	Off	Ανενεργά
 	Make properties default	Ορισμός ιδιοτήτων ως προεπιλογή
 	Pages selected	Επιλεγμένες σελίδες
 	Page properties	Ιδιότητες σελίδας
+	Original (lossless)	Αρχικό (χωρίς απώλειες)
+	Balanced	Ισορροπημένο
+	Compact	Συμπαγές
+	Compressing combined PDF…	Συμπίεση του συνδυασμένου PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Οι επιλογές «Ισορροπημένο» και «Συμπαγές» μειώνουν την ποιότητα των εικόνων για μικρότερο αρχείο. Το κείμενο και οι φόρμες παραμένουν επεξεργάσιμα.

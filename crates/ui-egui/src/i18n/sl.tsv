@@ -2439,3 +2439,8 @@ animation effects	Off	Izklopljeni
 	Make properties default	Nastavi lastnosti kot privzete
 	Pages selected	Izbrane strani
 	Page properties	Lastnosti strani
+	Original (lossless)	Izvirno (brez izgub)
+	Balanced	Uravnoteženo
+	Compact	Kompaktno
+	Compressing combined PDF…	Stiskanje združenega PDF-ja…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Možnosti »Uravnoteženo« in »Kompaktno« zmanjšata kakovost slik, da je datoteka manjša. Besedilo in obrazci ostanejo urejevalni.

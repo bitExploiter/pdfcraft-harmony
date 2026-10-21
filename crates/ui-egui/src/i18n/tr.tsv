@@ -2430,3 +2430,8 @@ animation effects	Off	Kapalı
 	Make properties default	Özellikleri varsayılan yap
 	Pages selected	Seçilen sayfalar
 	Page properties	Sayfa özellikleri
+	Original (lossless)	Orijinal (kayıpsız)
+	Balanced	Dengeli
+	Compact	Kompakt
+	Compressing combined PDF…	Birleştirilen PDF sıkıştırılıyor…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Dengeli ve Kompakt, dosya boyutunu küçültmek için görüntü kalitesini düşürür. Metin ve formlar düzenlenebilir kalır.

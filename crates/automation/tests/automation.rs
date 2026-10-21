@@ -897,6 +897,121 @@ fn combine_takes_images_and_text_files() {
 }
 
 #[test]
+fn combine_quality_presets_keep_pages_and_bookmarks() {
+    let dir = workdir("combine-quality");
+    let mut a = auto(&dir);
+    for grouped in [false, true] {
+        let mut args = json!({"paths": ["a.pdf", "b.pdf", "a.pdf"], "pages": ["3", "2", "1"], "open": true});
+        if grouped {
+            args["groups"] = json!([1, null, 1]);
+        }
+        args["out"] = json!("default.pdf");
+        ok(&mut a, "doc_combine", args.clone());
+        let original = std::fs::read(dir.join("default.pdf")).unwrap();
+        for quality in ["original", "balanced", "compact"] {
+            args["quality"] = json!(quality);
+            args["out"] = json!(format!("{quality}.pdf"));
+            let result = ok(&mut a, "doc_combine", args.clone());
+            let doc = result["document"]["doc"].as_u64().unwrap();
+            assert_eq!(page_text(&mut a, doc), ["Page 3", "Page 2", "Page 1"]);
+            let marks = ok(&mut a, "bookmark_list", json!({"doc": doc}))["bookmarks"].clone();
+            let marks: Vec<_> = marks.as_array().unwrap().iter().map(|m| (m["title"].as_str().unwrap(), m["page"].as_u64().unwrap())).collect();
+            assert_eq!(marks, if grouped { vec![("a", 1), ("b", 2)] } else { vec![("a", 1), ("b", 2), ("a", 3)] });
+            let bytes = std::fs::read(dir.join(format!("{quality}.pdf"))).unwrap();
+            assert!(bytes.len() <= original.len(), "{quality} grew the file");
+            if quality == "original" {
+                assert_eq!(bytes, original);
+            }
+        }
+    }
+    for quality in [json!("bogus"), json!(3), json!(true)] {
+        assert!(matches!(a.call("doc_combine", &json!({"paths": ["a.pdf", "b.pdf"], "quality": quality})), Err(ToolError::InvalidArgs(_))));
+    }
+}
+
+#[test]
+fn combine_quality_presets_reduce_images_without_flattening_forms() {
+    use pdfcraft_cos::{Dict, Document, Object, Stream};
+    let dir = workdir("combine-quality-images");
+    let mut source = Document::open(std::sync::Arc::new(form_pdf("Text1"))).unwrap();
+    let mut image = Dict::new();
+    for (key, value) in [(b"Type".as_slice(), "XObject"), (b"Subtype", "Image"), (b"ColorSpace", "DeviceRGB")] {
+        image.set(key.to_vec(), Object::Name(value.as_bytes().to_vec()));
+    }
+    for (key, value) in [(b"Width".as_slice(), 600), (b"Height", 600), (b"BitsPerComponent", 8)] {
+        image.set(key.to_vec(), Object::Int(value));
+    }
+    // Deterministic synthetic pixels at 600 ppi: no third-party fixture or font asset.
+    let pixels: Vec<u8> = (0..600 * 600 * 3).map(|i| ((i * 73 + i / 17) % 256) as u8).collect();
+    let image = source.add(Object::Stream(Stream::from_raw(image, pixels.clone())));
+    let content = source.add(Object::Stream(Stream::from_raw(Dict::new(), b"q 72 0 0 72 0 0 cm /Photo Do Q".to_vec())));
+    let mut xobjects = Dict::new();
+    xobjects.set(b"Photo".to_vec(), Object::Ref(image));
+    let mut resources = Dict::new();
+    resources.set(b"XObject".to_vec(), Object::Dict(xobjects));
+    let page = pdfcraft_cos::ObjRef::new(3, 0);
+    let mut note = Dict::new();
+    note.set(b"Type".to_vec(), Object::Name(b"Annot".to_vec()));
+    note.set(b"Subtype".to_vec(), Object::Name(b"Text".to_vec()));
+    note.set(b"Contents".to_vec(), Object::String(pdfcraft_cos::PdfString::text("Keep this comment")));
+    note.set(b"Rect".to_vec(), Object::Array([100, 100, 120, 120].map(Object::Int).to_vec()));
+    note.set(b"P".to_vec(), Object::Ref(page));
+    let note = source.add(Object::Dict(note));
+    source
+        .update_dict(page, |d| {
+            d.set(b"Resources".to_vec(), Object::Dict(resources));
+            d.set(b"Contents".to_vec(), Object::Ref(content));
+            d.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(pdfcraft_cos::ObjRef::new(4, 0)), Object::Ref(note)]));
+        })
+        .unwrap();
+    let source = pdfcraft_cos::write_full(&source, &Default::default()).unwrap();
+    std::fs::write(dir.join("photo.pdf"), &source).unwrap();
+    let mut a = auto(&dir);
+    let mut sizes = Vec::new();
+    for (quality, width) in [("original", 600), ("balanced", 150), ("compact", 96)] {
+        let result = ok(&mut a, "doc_combine", json!({"paths": ["photo.pdf", "photo.pdf"], "quality": quality, "out": "combined.pdf", "open": true}));
+        assert_eq!(result["renamed_fields"], json!([["Text1", "Text1-1"]]));
+        let bytes = std::fs::read(dir.join("combined.pdf")).unwrap();
+        sizes.push(bytes.len());
+        let combined = Document::open(std::sync::Arc::new(bytes)).unwrap();
+        let widths: Vec<i64> = combined
+            .object_numbers()
+            .iter()
+            .filter_map(|n| {
+                let o = combined.get(pdfcraft_cos::ObjRef::new(*n, combined.generation(*n)));
+                match &*o {
+                    Object::Stream(s) if s.dict.name(b"Subtype") == Some(b"Image") => {
+                        if quality == "original" {
+                            assert_eq!(s.decoded().unwrap(), pixels);
+                        }
+                        s.dict.int(b"Width")
+                    }
+                    _ => None,
+                }
+            })
+            .collect();
+        assert!(!widths.is_empty());
+        assert!(widths.iter().all(|w| *w == width), "{quality}: {widths:?}");
+        let doc = result["document"]["doc"].as_u64().unwrap();
+        let fields = ok(&mut a, "form_fields", json!({"doc": doc}));
+        let fields = fields["fields"].as_array().unwrap();
+        assert_eq!(
+            fields.iter().map(|f| (f["name"].as_str().unwrap(), f["value"].as_str().unwrap())).collect::<Vec<_>>(),
+            [("Text1", "x"), ("Text1-1", "x")]
+        );
+        assert_eq!(fields.iter().map(|f| f["page"].as_u64().unwrap()).collect::<Vec<_>>(), [1, 2]);
+        let comments = ok(&mut a, "comment_list", json!({"doc": doc}));
+        let comments = comments["comments"].as_array().unwrap();
+        assert_eq!(comments.len(), 2);
+        assert!(comments.iter().all(|c| c["contents"] == "Keep this comment"));
+        let rendered = a.call("page_render", &json!({"doc": doc, "page": 1})).unwrap();
+        assert!(matches!(rendered.first(), Some(Content::Png { .. })));
+    }
+    assert!(sizes[0] > sizes[1] && sizes[1] > sizes[2], "{sizes:?}");
+    assert_eq!(std::fs::read(dir.join("photo.pdf")).unwrap(), source);
+}
+
+#[test]
 fn combine_extract_and_split() {
     let dir = workdir("organize");
     let mut a = auto(&dir);

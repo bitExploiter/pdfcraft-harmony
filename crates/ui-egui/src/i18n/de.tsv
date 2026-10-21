@@ -2435,3 +2435,8 @@ animation effects	Off	Aus
 	Make properties default	Eigenschaften als Standard festlegen
 	Pages selected	Ausgewählte Seiten
 	Page properties	Seiteneigenschaften
+	Original (lossless)	Original (verlustfrei)
+	Balanced	Ausgewogen
+	Compact	Kompakt
+	Compressing combined PDF…	Kombinierte PDF-Datei wird komprimiert…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Ausgewogen und Kompakt verringern die Bildqualität, um die Datei zu verkleinern. Text und Formulare bleiben bearbeitbar.

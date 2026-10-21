@@ -2398,3 +2398,8 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+	Original (lossless)	原始（无损）
+	Balanced	均衡
+	Compact	紧凑
+	Compressing combined PDF…	正在压缩合并后的 PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	“均衡”和“紧凑”会降低图像质量以缩小文件。文本和表单仍可编辑。

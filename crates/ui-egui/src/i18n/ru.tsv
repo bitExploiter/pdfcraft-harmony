@@ -2347,3 +2347,8 @@ animation effects	Off	Выкл
 	Make properties default	Сделать свойства стандартными
 	Pages selected	Выделенные страницы
 	Page properties	Свойства страницы
+	Original (lossless)	Исходный (без потерь)
+	Balanced	Сбалансированный
+	Compact	Компактный
+	Compressing combined PDF…	Сжатие объединённого PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Сбалансированный и Компактный снижают качество изображений, чтобы уменьшить размер файла. Текст и формы остаются редактируемыми.

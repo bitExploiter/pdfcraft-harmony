@@ -2384,3 +2384,8 @@ animation effects	Off	關
 	Make properties default	將內容設為預設
 	Pages selected	選取的頁面
 	Page properties	頁面屬性
+	Original (lossless)	原始（無損）
+	Balanced	平衡
+	Compact	精簡
+	Compressing combined PDF…	正在壓縮合併後的 PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	「平衡」和「精簡」會降低影像品質以縮小檔案。文字和表單仍可編輯。

@@ -2401,6 +2401,102 @@ fn create_and_reduce() {
 }
 
 #[test]
+fn combine_quality_keeps_a_smaller_input_and_reports_bad_pdfs() {
+    use crate::optimizer::CombineQuality;
+    let s = Session::new();
+    let bytes = s.combine(&[("one".into(), Arc::new(fixture(1))), ("two".into(), Arc::new(fixture(1)))]).unwrap();
+    assert!(Arc::ptr_eq(&bytes, &CombineQuality::Original.apply(bytes.clone()).unwrap()));
+    let reduced = CombineQuality::Balanced.apply(bytes).unwrap();
+    assert!(Arc::ptr_eq(&reduced, &CombineQuality::Balanced.apply(reduced.clone()).unwrap()));
+    for quality in [CombineQuality::Balanced, CombineQuality::Compact] {
+        assert!(quality.apply(Arc::new(b"not a PDF".to_vec())).is_err());
+    }
+}
+
+#[test]
+fn combine_quality_keeps_page_thumbnails_and_alternate_images() {
+    use crate::optimizer::CombineQuality;
+    use pdfcraft_cos::{Dict, Document as CosDocument, Object, Stream};
+
+    let mut source = CosDocument::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_organize::pages(&source).unwrap()[0].obj;
+    let secondary = source.add(Object::Stream(Stream::from_raw(
+        Dict::from_iter([
+            (b"Type".to_vec(), Object::name("XObject")),
+            (b"Subtype".to_vec(), Object::name("Image")),
+            (b"Width".to_vec(), Object::Int(256)),
+            (b"Height".to_vec(), Object::Int(256)),
+            (b"BitsPerComponent".to_vec(), Object::Int(8)),
+            (b"ColorSpace".to_vec(), Object::name("DeviceGray")),
+        ]),
+        vec![128; 256 * 256],
+    )));
+    let thumbnail = source.add(Object::Stream(Stream::from_raw(
+        Dict::from_iter([
+            (b"Type".to_vec(), Object::name("XObject")),
+            (b"Subtype".to_vec(), Object::name("Image")),
+            (b"Width".to_vec(), Object::Int(256)),
+            (b"Height".to_vec(), Object::Int(256)),
+            (b"BitsPerComponent".to_vec(), Object::Int(8)),
+            (b"ColorSpace".to_vec(), Object::name("DeviceGray")),
+        ]),
+        vec![128; 256 * 256],
+    )));
+    let mut alternate = Dict::new();
+    alternate.set(b"Image".to_vec(), Object::Ref(secondary));
+    alternate.set(b"DefaultForPrinting".to_vec(), Object::Bool(true));
+    let mut primary = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("XObject")),
+        (b"Subtype".to_vec(), Object::name("Image")),
+        (b"Width".to_vec(), Object::Int(1)),
+        (b"Height".to_vec(), Object::Int(1)),
+        (b"BitsPerComponent".to_vec(), Object::Int(8)),
+        (b"ColorSpace".to_vec(), Object::name("DeviceGray")),
+    ]);
+    primary.set(b"Alternates".to_vec(), Object::Array(vec![Object::Dict(alternate)]));
+    let primary = source.add(Object::Stream(Stream::from_raw(primary, vec![128])));
+    let mut resources = source.get(page).as_dict().unwrap().get(b"Resources").and_then(Object::as_dict).unwrap().clone();
+    let mut xobjects = resources.get(b"XObject").and_then(Object::as_dict).cloned().unwrap_or_default();
+    xobjects.set(b"Photo".to_vec(), Object::Ref(primary));
+    resources.set(b"XObject".to_vec(), Object::Dict(xobjects));
+    let content = source.add(Object::Stream(Stream::from_raw(Dict::new(), b"q 72 0 0 72 0 0 cm /Photo Do Q".to_vec())));
+    source
+        .update_dict(page, |d| {
+            d.set(b"Thumb".to_vec(), Object::Ref(thumbnail));
+            d.set(b"Resources".to_vec(), Object::Dict(resources));
+            d.set(b"Contents".to_vec(), Object::Ref(content));
+        })
+        .unwrap();
+
+    let input = Arc::new(pdfcraft_cos::write_full(&source, &Default::default()).unwrap());
+    let original = CosDocument::open(input.clone()).unwrap();
+    let original_page = original.get(pdfcraft_organize::pages(&original).unwrap()[0].obj);
+    assert!(original_page.as_dict().unwrap().get(b"Thumb").is_some(), "fixture has a page thumbnail");
+    let original_resources = original_page.as_dict().unwrap().get(b"Resources").and_then(Object::as_dict).unwrap();
+    let original_xobjects = original_resources.get(b"XObject").and_then(Object::as_dict).unwrap();
+    let original_primary = original_xobjects.get(b"Photo").and_then(Object::as_ref).unwrap();
+    assert!(original.get(original_primary).as_dict().unwrap().get(b"Alternates").is_some(), "fixture has an alternate image");
+    for quality in [CombineQuality::Balanced, CombineQuality::Compact] {
+        let output = quality.apply(input.clone()).unwrap();
+        assert!(output.len() < input.len(), "fixture should make the optimizer choose its smaller candidate");
+        let output = CosDocument::open(output).unwrap();
+        for page in pdfcraft_organize::pages(&output).unwrap() {
+            let dict = output.get(page.obj);
+            let thumbnail = dict.as_dict().unwrap().get(b"Thumb").and_then(Object::as_ref).expect("thumbnail reference");
+            assert_eq!(output.get(thumbnail).as_dict().unwrap().name(b"Subtype"), Some(b"Image".as_slice()), "{quality:?} keeps page thumbnails");
+            let resources = dict.as_dict().unwrap().get(b"Resources").and_then(Object::as_dict).unwrap();
+            let xobjects = resources.get(b"XObject").and_then(Object::as_dict).unwrap();
+            let primary = xobjects.get(b"Photo").and_then(Object::as_ref).unwrap();
+            let primary = output.get(primary);
+            let alternates = primary.as_dict().unwrap().get(b"Alternates").and_then(Object::as_array).unwrap();
+            assert_eq!(alternates.len(), 1, "{quality:?} keeps alternate images");
+            let secondary = alternates[0].as_dict().unwrap().get(b"Image").and_then(Object::as_ref).expect("alternate image reference");
+            assert_eq!(output.get(secondary).as_dict().unwrap().name(b"Subtype"), Some(b"Image".as_slice()), "{quality:?} keeps alternate images");
+        }
+    }
+}
+
+#[test]
 fn an_optimize_job_reports_its_stages_and_can_be_cancelled() {
     use crate::optimizer::OptimizeStage;
     let (s, id) = session_with(2);

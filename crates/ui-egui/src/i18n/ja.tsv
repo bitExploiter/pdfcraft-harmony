@@ -2434,3 +2434,8 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	Original (lossless)	オリジナル（可逆）
+	Balanced	バランス
+	Compact	コンパクト
+	Compressing combined PDF…	結合した PDF を圧縮中…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	「バランス」と「コンパクト」は画像の画質を下げてファイルサイズを小さくします。テキストとフォームは引き続き編集できます。

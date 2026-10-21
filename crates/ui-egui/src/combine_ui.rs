@@ -6,12 +6,13 @@
 
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, HashMap};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use egui::{Align, Color32, CornerRadius, Layout, Modifiers, Rect, Sense, Stroke, vec2};
 use egui_extras::{Column, TableBuilder};
 use pdfcraft_engine::SourceProblem;
+use pdfcraft_engine::optimizer::CombineQuality;
 
 use crate::theme::{self, Tokens};
 use crate::{PdfCraftApp, icons, widgets};
@@ -159,6 +160,8 @@ enum HeadingEvent {
 pub struct CombineTab {
     pub open: bool,
     pub focused: bool,
+    pub quality: CombineQuality,
+    compression: Option<CombineCompression>,
     /// The selected rows, by [`CombineFile::id`], so a selection survives sorting and moving.
     pub selected: BTreeSet<u64>,
     /// Where a Shift+click or Shift+arrow range starts, and where it ends.
@@ -218,6 +221,24 @@ pub struct CombineTab {
     /// "Leave out files that can't be read?", asked when Combine is clicked with such files in the
     /// list.
     pub(crate) confirm_skip: bool,
+}
+
+#[derive(Clone, Debug)]
+struct CombineCompression {
+    result: Arc<Mutex<Option<CompressionResult>>>,
+    count: usize,
+    revision: u64,
+}
+
+type CompressionResult = Result<Arc<Vec<u8>>, pdfcraft_engine::EditError>;
+
+/// Localized name of a Combine output preset.
+fn quality_label(quality: CombineQuality) -> &'static str {
+    match quality {
+        CombineQuality::Original => tl!("Original (lossless)"),
+        CombineQuality::Balanced => tl!("Balanced"),
+        CombineQuality::Compact => tl!("Compact"),
+    }
 }
 
 /// The pages a range takes, and the range and page count they were worked out for.
@@ -635,6 +656,11 @@ struct TableEvents {
 
 /// The Combine files page.
 pub(crate) fn page(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
+    if app.combine_tab.compression.is_some() {
+        ui.spinner();
+        ui.label(tl!("Compressing combined PDF…"));
+        return;
+    }
     let t = Tokens::get(ui.ctx());
     let files_hovering = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
     // Ranges are checked before anything below reads them.
@@ -724,6 +750,18 @@ pub(crate) fn page(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             tl!("Files are combined from top to bottom. Leave Pages empty to take every page.")
         };
         ui.label(egui::RichText::new(hint).color(t.text_faint));
+        ui.horizontal(|ui| {
+            ui.label(tl!("Quality"));
+            egui::ComboBox::from_id_salt("combine-quality")
+                .selected_text(quality_label(app.combine_tab.quality))
+                .show_ui(ui, |ui| {
+                    for quality in [CombineQuality::Original, CombineQuality::Balanced, CombineQuality::Compact] {
+                        ui.selectable_value(&mut app.combine_tab.quality, quality, quality_label(quality));
+                    }
+                })
+                .response
+                .on_hover_text(tl!("Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable."));
+        });
         ui.add_space(12.0);
 
         // Toolbar: on two lines when the window is narrow.
@@ -2373,12 +2411,13 @@ impl PdfCraftApp {
         }
     }
 
-    /// Close the Combine files tab and forget its list; the last document shows, if any.
+    /// Close the Combine files tab and forget its list; keep pending output until it opens.
     pub fn close_combine_tab(&mut self) {
         let showing = self.combine_showing();
         // (Revisions keep counting: a drag begun before can never match a list made after.)
         let revision = self.combine_tab.revision.wrapping_add(1);
-        self.combine_tab = CombineTab { revision, ..CombineTab::default() };
+        let compression = self.combine_tab.compression.take();
+        self.combine_tab = CombineTab { revision, compression, ..CombineTab::default() };
         self.combine_draft.clear();
         self.combine_thumbs.clear();
         if showing {
@@ -2570,6 +2609,9 @@ impl PdfCraftApp {
     /// Combine the listed files into a new, unsaved document; the tab makes way for it.
     /// Files that can't be read are left out (the user was asked).
     pub fn combine_staged(&mut self) {
+        if self.combine_tab.compression.is_some() {
+            return;
+        }
         let files: Vec<&CombineFile> = self.combine_draft.iter().filter(|f| !f.unreadable()).collect();
         if files.is_empty() {
             return;
@@ -2580,9 +2622,60 @@ impl PdfCraftApp {
         let sources: Vec<(String, Arc<Vec<u8>>, Option<String>)> =
             files.iter().map(|f| (title_of(&f.name).to_string(), f.bytes.clone(), Some(f.range.clone()).filter(|r| !r.trim().is_empty()))).collect();
         let passwords: Vec<Option<&str>> = files.iter().map(|f| f.password.as_ref().map(|p| p.0.as_str())).collect();
-        match self.session.combine_grouped(&sources, &groups, &passwords) {
+        let result = self.session.combine_grouped(&sources, &groups, &passwords);
+        let revision = self.combine_tab.revision;
+        let quality = self.combine_tab.quality;
+        let bytes = match result {
+            Ok(bytes) if quality != CombineQuality::Original => bytes,
+            result => return self.finish_combine(result, count, revision),
+        };
+        let result = Arc::new(Mutex::new(None));
+        let slot = result.clone();
+        let work = move || {
+            let result = quality.apply(bytes);
+            if let Ok(mut slot) = slot.lock() {
+                *slot = Some(result);
+            }
+        };
+        self.combine_tab.compression = Some(CombineCompression { result, count, revision });
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.ctx.is_none() || self.run_inline {
+            work();
+        } else if let Err(e) = std::thread::Builder::new().name("pdfcraft-combine-compress".into()).spawn(work) {
+            self.combine_tab.compression = None;
+            self.notify_fmt("Couldn't combine files: {e}", &[("e", &e.to_string())]);
+        }
+        #[cfg(target_arch = "wasm32")]
+        work();
+        self.poll_combine_compression();
+    }
+
+    /// Drain the tracked worker result even when the Combine tab has been closed.
+    pub(crate) fn poll_combine_compression(&mut self) {
+        let Some(run) = &self.combine_tab.compression else { return };
+        let result = match run.result.lock() {
+            Ok(mut slot) => slot.take(),
+            Err(_) => Some(Err(pdfcraft_engine::EditError::Optimize("compression worker failed".into()))),
+        };
+        let Some(result) = result else {
+            if let Some(ctx) = &self.ctx {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
+            return;
+        };
+        let (count, revision) = (run.count, run.revision);
+        self.combine_tab.compression = None;
+        self.finish_combine(result, count, revision);
+    }
+
+    /// Open completed output without clearing a draft changed since the job started.
+    fn finish_combine(&mut self, result: CompressionResult, count: usize, revision: u64) {
+        match result {
             Ok(bytes) => {
-                self.close_combine_tab();
+                // A file dropped or added through control while the worker ran must not be lost.
+                if self.combine_tab.revision == revision {
+                    self.close_combine_tab();
+                }
                 let message = crate::i18n::fmt(tl!("Combined {n} files"), &[("n", &count.to_string())]);
                 self.open_created("Combined.pdf", bytes, &message)
             }
@@ -2595,6 +2688,58 @@ impl PdfCraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn combine_compression_preserves_new_draft_edits_and_errors_keep_the_list() {
+        let mut app = PdfCraftApp::new();
+        app.stage_combine(vec![("one.txt".into(), b"One".to_vec())]);
+        let bytes = app.combine_draft[0].bytes.clone();
+        let revision = app.combine_tab.revision;
+        app.combine_tab.compression = Some(CombineCompression { result: Arc::new(Mutex::new(Some(Ok(bytes)))), count: 1, revision });
+        app.stage_combine(vec![("two.txt".into(), b"Two".to_vec())]);
+        app.poll_combine_compression();
+        assert_eq!(app.combine_draft.len(), 2, "newly staged files stay available");
+        assert_eq!(app.views.len(), 1, "the completed result opens separately");
+        app.combine_tab.compression = Some(CombineCompression {
+            result: Arc::new(Mutex::new(Some(Err(pdfcraft_engine::EditError::Optimize("test failure".into()))))),
+            count: 2,
+            revision: app.combine_tab.revision,
+        });
+        app.poll_combine_compression();
+        assert_eq!(app.combine_draft.len(), 2);
+        assert_eq!(app.views.len(), 1);
+        assert!(app.combine_tab.compression.is_none());
+    }
+
+    /// Closing a tab retains its worker and completion cannot replace a newly staged list.
+    #[test]
+    fn closing_and_reopening_combine_keeps_pending_compression_and_new_draft() {
+        let mut app = PdfCraftApp::new();
+        app.stage_combine(vec![("one.txt".into(), b"One".to_vec())]);
+        let started_at = app.combine_tab.revision;
+        let result = Arc::new(Mutex::new(None));
+        app.combine_tab.compression = Some(CombineCompression { result: result.clone(), count: 1, revision: started_at });
+
+        app.close_combine_tab();
+        assert!(app.combine_draft.is_empty());
+        assert!(app.combine_tab.compression.is_some(), "closing keeps the pending compression attached");
+
+        app.stage_combine(vec![("new.txt".into(), b"Two".to_vec())]);
+        let reopened_at = app.combine_tab.revision;
+        assert_ne!(reopened_at, started_at, "the reopened list has a new revision");
+        app.combine_staged();
+        assert!(Arc::ptr_eq(&result, &app.combine_tab.compression.as_ref().unwrap().result), "a pending worker blocks a second combine");
+
+        let completed_pdf = app.session.create_blank(200.0, 300.0, 1).unwrap();
+        *result.lock().unwrap() = Some(Ok(completed_pdf));
+        app.poll_combine_compression();
+
+        assert_eq!(app.views.len(), 1, "the completed PDF still opens");
+        assert_eq!(app.combine_draft.len(), 1, "finishing old work doesn't clear the reopened draft");
+        assert_eq!(app.combine_draft[0].name, "new.txt");
+        assert!(app.combine_tab.open);
+        assert!(app.combine_tab.compression.is_none());
+    }
 
     /// A one-page PDF that opens with "pw".
     fn locked() -> Vec<u8> {

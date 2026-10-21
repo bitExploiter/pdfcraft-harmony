@@ -2410,3 +2410,8 @@ animation effects	Off	Wyłączone
 	Make properties default	Ustaw właściwości jako domyślne
 	Pages selected	Zaznaczone strony
 	Page properties	Właściwości strony
+	Original (lossless)	Oryginał (bezstratnie)
+	Balanced	Zrównoważony
+	Compact	Kompaktowy
+	Compressing combined PDF…	Kompresowanie połączonego pliku PDF…
+	Balanced and Compact reduce image quality to make a smaller file. Text and forms stay editable.	Tryby „Zrównoważony” i „Kompaktowy” obniżają jakość obrazów, aby zmniejszyć plik. Tekst i formularze pozostają edytowalne.

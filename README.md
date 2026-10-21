@@ -198,7 +198,7 @@ Nothing quietly disappears along the way:
 - layers keep their on/off defaults;
 - attachments come along.
 
-Every page of a combined document renders pixel-identical to its source.
+With the default Original quality, every page of a combined document renders pixel-identical to its source. Balanced and Compact reduce supported image quality to make smaller files.
 
 ```sh
 pdfcraft-cli combine report.pdf appendix.pdf --out combined.pdf
