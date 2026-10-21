@@ -6855,3 +6855,107 @@ fn text_box_and_callout_fill_and_border_through_tools() {
         assert_eq!(session.get(saved).unwrap().comment_props(0, index).unwrap().fill, None);
     }
 }
+
+/// #3211: Office text must honor the PDF's default layer configuration, including
+/// form-level /OC and hidden marked-content spans.
+#[test]
+fn office_export_omits_hidden_layer_text_through_tools() {
+    use pdfcraft_cos::{Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
+    let dir = workdir("office-hidden-layers-3211");
+    let mut pdf = Document::open(std::sync::Arc::new(fixture(1))).unwrap();
+    let hidden = pdf.add(Object::Dict({
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::Name(b"OCG".to_vec()));
+        d.set(b"Name".to_vec(), Object::String(pdfcraft_cos::PdfString::text("Hidden")));
+        d
+    }));
+    let shown = pdf.add(Object::Dict({
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::Name(b"OCG".to_vec()));
+        d.set(b"Name".to_vec(), Object::String(pdfcraft_cos::PdfString::text("Shown")));
+        d
+    }));
+    let mut config = Dict::new();
+    config.set(b"OFF".to_vec(), Object::Array(vec![Object::Ref(hidden)]));
+    let mut oc = Dict::new();
+    oc.set(b"OCGs".to_vec(), Object::Array(vec![Object::Ref(hidden), Object::Ref(shown)]));
+    oc.set(b"D".to_vec(), Object::Dict(config));
+    pdf.update_dict(ObjRef::new(1, 0), |d| {
+        d.set(b"OCProperties".to_vec(), Object::Dict(oc));
+    })
+    .unwrap();
+    let mut resources = pdf.dict(pdfcraft_model::pages(&pdf)[0].dict.get(b"Resources").unwrap()).unwrap();
+    let mut properties = Dict::new();
+    properties.set(b"Hidden".to_vec(), Object::Ref(hidden));
+    properties.set(b"Shown".to_vec(), Object::Ref(shown));
+    resources.set(b"Properties".to_vec(), Object::Dict(properties));
+    let mut form = Dict::new();
+    form.set(b"Type".to_vec(), Object::Name(b"XObject".to_vec()));
+    form.set(b"Subtype".to_vec(), Object::Name(b"Form".to_vec()));
+    form.set(b"OC".to_vec(), Object::Ref(hidden));
+    form.set(b"BBox".to_vec(), Object::Array(vec![0.into(), 0.into(), 200.into(), 300.into()]));
+    let form = pdf.add(Object::Stream(Stream::from_raw(form, b"BT /F1 12 Tf 20 60 Td (FORM_SECRET_33333) Tj ET".to_vec())));
+    let mut xo = Dict::new();
+    xo.set(b"Fm".to_vec(), Object::Ref(form));
+    resources.set(b"XObject".to_vec(), Object::Dict(xo));
+    pdf.update_dict(ObjRef::new(4, 0), |d| {
+        d.set(b"Resources".to_vec(), Object::Dict(resources));
+    })
+    .unwrap();
+    pdf.set(ObjRef::new(5,0),Object::Stream(Stream::from_raw(Dict::new(),format!("{} {} {}", "/Span BMC ".repeat(300), "BT /F1 12 Tf 20 250 Td (VISIBLE_TEXT) Tj ET /OC /Hidden BDC BT /F1 12 Tf 20 220 Td (LAYER_SECRET_99999) Tj ET EMC /OC /Shown BDC BT /F1 12 Tf 20 180 Td (SHOWN_77777) Tj ET EMC /Fm Do 0 g 15 210 200 24 re f", "EMC ".repeat(300)).into_bytes())));
+    let mut mark = Dict::new();
+    mark.set(b"Subtype".to_vec(), Object::name("Redact"));
+    mark.set(b"Rect".to_vec(), Object::Array(vec![15.into(), 210.into(), 215.into(), 234.into()]));
+    let mark = pdf.add(Object::Dict(mark));
+    pdf.update_dict(ObjRef::new(4, 0), |d| d.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(mark)]))).unwrap();
+    let bytes = write_full(&pdf, &SaveOptions::default()).unwrap();
+    std::fs::write(dir.join("layers.pdf"), &bytes).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({"path":"layers.pdf"}))["doc"].as_u64().unwrap();
+    let paragraphs = ok(&mut a, "text_paragraphs", json!({"doc":doc,"page":1})).to_string();
+    assert!(paragraphs.contains("VISIBLE_TEXT") && paragraphs.contains("SHOWN_77777"), "{paragraphs}");
+    assert!(!paragraphs.contains("SECRET"), "{paragraphs}");
+    for ext in ["html", "rtf", "docx", "pptx"] {
+        ok(&mut a, "doc_export_office", json!({"doc":doc,"path":format!("layers.{ext}")}));
+        let bytes = std::fs::read(dir.join(format!("layers.{ext}"))).unwrap();
+        let text = if ["docx", "pptx"].contains(&ext) {
+            // Read the package's stored/deflated XML parts independently of the exporter.
+            let mut xml = String::new();
+            let mut at = 0usize;
+            while bytes.get(at..).is_some_and(|s| s.starts_with(b"PK\x03\x04")) {
+                let method = u16::from_le_bytes(bytes[at + 8..at + 10].try_into().unwrap());
+                let size = u32::from_le_bytes(bytes[at + 18..at + 22].try_into().unwrap()) as usize;
+                let name = u16::from_le_bytes(bytes[at + 26..at + 28].try_into().unwrap()) as usize;
+                let extra = u16::from_le_bytes(bytes[at + 28..at + 30].try_into().unwrap()) as usize;
+                let start = at + 30 + name + extra;
+                let data = &bytes[start..start + size];
+                let mut part = Vec::new();
+                if method == 8 {
+                    std::io::Read::read_to_end(&mut flate2::read::DeflateDecoder::new(data), &mut part).unwrap();
+                } else {
+                    assert_eq!(method, 0);
+                    part.extend_from_slice(data);
+                }
+                xml.push_str(&String::from_utf8_lossy(&part));
+                at = start + size;
+            }
+            xml
+        } else {
+            String::from_utf8(bytes).unwrap()
+        };
+        assert!(text.contains("VISIBLE_TEXT") && text.contains("SHOWN_77777"), "{ext}: {text}");
+        assert!(!text.contains("SECRET") && !text.contains("99999") && !text.contains("33333"), "{ext}: {text}");
+    }
+    let audit = ok(&mut a, "doc_audit_redactions", json!({"doc": doc}));
+    for kind in ["covered-text", "unapplied-mark"] {
+        assert!(
+            audit["findings"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|f| f["kind"] == kind && f["covered_text"].as_str().is_some_and(|t| t.contains("LAYER_SECRET"))),
+            "{audit}"
+        );
+    }
+    assert_eq!(std::fs::read(dir.join("layers.pdf")).unwrap(), bytes, "export and audit are read-only");
+}

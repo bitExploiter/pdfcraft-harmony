@@ -529,3 +529,52 @@ fn reading_blocks_respect_stream_comments_and_split_operands() {
         assert_eq!(text, "Replacement text", "{}", String::from_utf8_lossy(s1));
     }
 }
+
+#[test]
+fn hidden_layers_and_deep_scopes_do_not_hide_redaction_findings() {
+    use pdfcraft_cos::{Dict, ObjRef, Object};
+    for depth in [0, 255, 256, 257, 300] {
+        for hidden in [false, true] {
+            let content = format!(
+                "{} {} BT /F1 12 Tf 50 700 Td (SECRET DATA 123) Tj ET {} {} 0 g 45 690 200 30 re f",
+                "/Span BMC ".repeat(depth),
+                if hidden { "/OC /Hidden BDC" } else { "" },
+                if hidden { "EMC" } else { "" },
+                "EMC ".repeat(depth)
+            );
+            let mut doc = open(one_page(content.as_bytes(), "/Annots [<< /Subtype /Redact /Rect [45 690 245 720] >>]"));
+            let group = doc.add(Object::Dict({
+                let mut d = Dict::new();
+                d.set(b"Type".to_vec(), Object::name("OCG"));
+                d
+            }));
+            let mut config = Dict::new();
+            config.set(b"OFF".to_vec(), Object::Array(vec![Object::Ref(group)]));
+            let mut oc = Dict::new();
+            oc.set(b"D".to_vec(), Object::Dict(config));
+            doc.update_dict(ObjRef::new(1, 0), |d| d.set(b"OCProperties".to_vec(), Object::Dict(oc))).unwrap();
+            let mut props = Dict::new();
+            props.set(b"Hidden".to_vec(), Object::Ref(group));
+            let mut resources = doc.dict(doc.get(ObjRef::new(3, 0)).as_dict().unwrap().get(b"Resources").unwrap()).unwrap();
+            resources.set(b"Properties".to_vec(), Object::Dict(props));
+            doc.update_dict(ObjRef::new(3, 0), |d| d.set(b"Resources".to_vec(), Object::Dict(resources))).unwrap();
+            let findings = audit_redactions(&doc).unwrap();
+            assert!(
+                findings.iter().any(|f| f.kind == FindingKind::CoveredText && f.covered_text.contains("SECRET")),
+                "depth {depth}, hidden {hidden}: {findings:?}"
+            );
+            assert!(
+                findings.iter().any(|f| f.kind == FindingKind::UnappliedMark && f.covered_text.contains("SECRET")),
+                "depth {depth}, hidden {hidden}: {findings:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn actual_text_replacement_cannot_conceal_retained_glyphs_from_audit() {
+    let content = b"/Span << /ActualText (ACCESSIBLE) >> BDC BT /F1 24 Tf 100 700 Td (SECRET DATA 123) Tj ET EMC 0 g 100 688 220 32 re f";
+    let findings = audit_redactions(&open(one_page(content, ""))).unwrap();
+    assert_eq!(findings.len(), 1);
+    assert_eq!(findings[0].covered_text, "SECRET DATA 123");
+}
