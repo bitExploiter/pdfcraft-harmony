@@ -2265,6 +2265,8 @@ animation effects	Off	Выкл
 
 # PDF tab context menu (#1233)
 	Close Tab	Закрыть вкладку
+	Close Other Tabs	Закрыть другие вкладки
+	Close Tabs to the Right	Закрыть вкладки справа
 	Reopen Closed Tab	Открыть закрытую вкладку
 	Reveal in Finder	Показать в Finder
 	Reveal in File Explorer	Показать в проводнике

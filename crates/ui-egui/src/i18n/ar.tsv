@@ -2373,6 +2373,8 @@ animation effects	Off	معطّلة
 
 # PDF tab context menu (#1233)
 	Close Tab	إغلاق علامة التبويب
+	Close Other Tabs	إغلاق علامات التبويب الأخرى
+	Close Tabs to the Right	إغلاق علامات التبويب إلى اليمين
 	Reopen Closed Tab	إعادة فتح علامة التبويب المغلقة
 	Reveal in Finder	إظهار في Finder
 	Reveal in File Explorer	إظهار في مستكشف الملفات

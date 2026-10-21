@@ -2340,6 +2340,8 @@ animation effects	Off	Өшірулі
 
 # PDF tab context menu (#1233)
 	Close Tab	Қойындыны жабу
+	Close Other Tabs	Басқа қойындыларды жабу
+	Close Tabs to the Right	Оң жақтағы қойындыларды жабу
 	Reopen Closed Tab	Жабылған қойындыны қайта ашу
 	Reveal in Finder	Finder ішінде көрсету
 	Reveal in File Explorer	Файл шолғышында көрсету

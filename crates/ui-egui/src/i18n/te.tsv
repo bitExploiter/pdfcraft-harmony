@@ -2253,6 +2253,8 @@ animation effects	Off	ఆఫ్
 
 # PDF tab context menu (#1233)
 	Close Tab	ట్యాబ్‌ను మూసివేయి
+	Close Other Tabs	ఇతర ట్యాబ్‌లను మూసివేయి
+	Close Tabs to the Right	కుడి వైపు ట్యాబ్‌లను మూసివేయి
 	Reopen Closed Tab	మూసివేసిన ట్యాబ్‌ను మళ్లీ తెరువు
 	Reveal in Finder	Finderలో చూపు
 	Reveal in File Explorer	ఫైల్ ఎక్స్‌ప్లోరర్‌లో చూపు

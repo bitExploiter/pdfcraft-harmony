@@ -2361,6 +2361,8 @@ animation effects	Off	Disattivati
 
 # PDF tab context menu (#1233)
 	Close Tab	Chiudi scheda
+	Close Other Tabs	Chiudi le altre schede
+	Close Tabs to the Right	Chiudi le schede a destra
 	Reopen Closed Tab	Riapri scheda chiusa
 	Reveal in Finder	Mostra nel Finder
 	Reveal in File Explorer	Mostra in Esplora file

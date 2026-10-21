@@ -2316,6 +2316,8 @@ animation effects	Off	关
 
 # PDF tab context menu (#1233)
 	Close Tab	关闭标签页
+	Close Other Tabs	关闭其他标签页
+	Close Tabs to the Right	关闭右侧标签页
 	Reopen Closed Tab	重新打开已关闭的标签页
 	Reveal in Finder	在 Finder 中显示
 	Reveal in File Explorer	在文件资源管理器中显示

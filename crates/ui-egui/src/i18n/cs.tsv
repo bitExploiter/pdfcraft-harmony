@@ -2426,6 +2426,8 @@ animation effects	Off	Vypnuto
 
 # PDF tab context menu (#1233)
 	Close Tab	Zavřít kartu
+	Close Other Tabs	Zavřít ostatní karty
+	Close Tabs to the Right	Zavřít karty vpravo
 	Reopen Closed Tab	Znovu otevřít zavřenou kartu
 	Reveal in Finder	Zobrazit ve Finderu
 	Reveal in File Explorer	Zobrazit v Průzkumníku souborů

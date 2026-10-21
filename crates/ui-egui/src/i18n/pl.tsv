@@ -2320,6 +2320,8 @@ animation effects	Off	Wyłączone
 
 # PDF tab context menu (#1233)
 	Close Tab	Zamknij kartę
+	Close Other Tabs	Zamknij inne karty
+	Close Tabs to the Right	Zamknij karty z prawej strony
 	Reopen Closed Tab	Otwórz ponownie zamkniętą kartę
 	Reveal in Finder	Pokaż w Finderze
 	Reveal in File Explorer	Pokaż w Eksploratorze plików

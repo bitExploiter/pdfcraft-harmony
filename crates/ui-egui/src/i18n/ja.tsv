@@ -2352,6 +2352,8 @@ animation effects	Off	オフ
 
 # PDF tab context menu (#1233)
 	Close Tab	タブを閉じる
+	Close Other Tabs	他のタブを閉じる
+	Close Tabs to the Right	右側のタブを閉じる
 	Reopen Closed Tab	閉じたタブを再度開く
 	Reveal in Finder	Finderで表示
 	Reveal in File Explorer	ファイルエクスプローラーで表示

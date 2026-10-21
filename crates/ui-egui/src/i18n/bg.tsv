@@ -2315,6 +2315,8 @@ animation effects	Off	Изключени
 
 # PDF tab context menu (#1233)
 	Close Tab	Затваряне на раздела
+	Close Other Tabs	Затваряне на другите раздели
+	Close Tabs to the Right	Затваряне на разделите вдясно
 	Reopen Closed Tab	Отваряне на затворения раздел
 	Reveal in Finder	Показване във Finder
 	Reveal in File Explorer	Показване във файловия мениджър

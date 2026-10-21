@@ -2366,6 +2366,8 @@ animation effects	Off	Desativados
 
 # PDF tab context menu (#1233)
 	Close Tab	Fechar aba
+	Close Other Tabs	Fechar as outras abas
+	Close Tabs to the Right	Fechar as abas à direita
 	Reopen Closed Tab	Reabrir aba fechada
 	Reveal in Finder	Mostrar no Finder
 	Reveal in File Explorer	Mostrar no explorador de arquivos

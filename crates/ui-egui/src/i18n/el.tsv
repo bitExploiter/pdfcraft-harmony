@@ -2350,6 +2350,8 @@ animation effects	Off	Ανενεργά
 
 # PDF tab context menu (#1233)
 	Close Tab	Κλείσιμο καρτέλας
+	Close Other Tabs	Κλείσιμο των άλλων καρτελών
+	Close Tabs to the Right	Κλείσιμο των καρτελών στα δεξιά
 	Reopen Closed Tab	Επαναφορά κλειστής καρτέλας
 	Reveal in Finder	Εμφάνιση στο Finder
 	Reveal in File Explorer	Εμφάνιση στη διαχείριση αρχείων

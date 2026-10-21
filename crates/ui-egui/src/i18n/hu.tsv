@@ -2351,6 +2351,8 @@ animation effects	Off	Ki
 
 # PDF tab context menu (#1233)
 	Close Tab	Lap bezárása
+	Close Other Tabs	Többi lap bezárása
+	Close Tabs to the Right	Jobbra lévő lapok bezárása
 	Reopen Closed Tab	Bezárt lap újranyitása
 	Reveal in Finder	Megjelenítés a Finderben
 	Reveal in File Explorer	Megjelenítés a fájlkezelőben
