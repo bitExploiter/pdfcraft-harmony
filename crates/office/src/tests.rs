@@ -172,3 +172,21 @@ fn page_count_without_converting() {
     assert_eq!(page_count(&sample(), None), Ok(2));
     assert_eq!(page_count(b"hello", None), Err(Error::NotPdf));
 }
+
+#[test]
+fn pptx_pages_keep_layout_and_artwork() {
+    let banner = b"0.2 0.4 0.6 rg 0 742 595 100 re f 0 g BT /F2 24 Tf 72 780 Td (Ba\x81l\x82k) Tj ET BT /F1 11 Tf 72 400 Td (Lower text) Tj ET";
+    let out = convert(&pdf(&[banner]), Target::PptxPages, &Options::default()).unwrap();
+    let slide = zip_entry(&out.bytes, "ppt/slides/slide1.xml").unwrap();
+    let pres = zip_entry(&out.bytes, "ppt/presentation.xml").unwrap();
+    assert!(pres.contains("<p:sldSz cx=\"7556500\" cy=\"10693400\"/>"), "an A4 page is an A4 slide: {pres}");
+    assert!(slide.contains("<a:srgbClr val=\"336699\"/>"), "the banner rectangle: {slide}");
+    let banner_at = slide.find("336699").unwrap_or(usize::MAX);
+    let title_at = slide.find("Başlık").expect("title text");
+    assert!(banner_at < title_at, "artwork behind text");
+    assert!(slide.contains("Lower text"));
+    // The flowing PowerPoint export keeps its own layout and leaves artwork out.
+    let flow = zip_entry(&convert(&pdf(&[banner]), Target::Pptx, &Options::default()).unwrap().bytes, "ppt/slides/slide1.xml").unwrap();
+    assert!(!flow.contains("336699"), "{flow}");
+    assert!(slide.matches("336699").count() == 1, "only the banner is that colour");
+}

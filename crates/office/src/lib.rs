@@ -16,7 +16,12 @@ pub const MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Target {
     Docx,
+    /// A deck to rework: each page reflowed into a title and body text (PdfCraft's Export a PDF ▸
+    /// PowerPoint).
     Pptx,
+    /// A PDF opened as slides: each page a slide its size, with its vector artwork, pictures and
+    /// text where they are on the page.
+    PptxPages,
     Html,
     Rtf,
 }
@@ -189,6 +194,7 @@ pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usiz
                         italic: f.contains("italic") || f.contains("oblique"),
                         color: b.color,
                         rotation: b.rotation - f64::from(info.rotation),
+                        invisible: b.invisible || b.transparent,
                     }
                 })
                 .collect();
@@ -206,10 +212,41 @@ pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usiz
                     })
                 })
                 .collect();
-            pdfcraft_export::Page { width: info.width as f64, height: info.height as f64, blocks, images }
+            pdfcraft_export::Page { width: info.width as f64, height: info.height as f64, blocks, images, shapes: Vec::new() }
         })
         .collect();
     (pages, truncated)
+}
+
+/// The vector artwork of the pages of `cos` (`only`: these 0-based indices, in this order), each
+/// page's in drawing order and in display space (points, y up, after `/Rotate` and `/UserUnit`).
+pub fn shapes(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usize]>) -> Vec<Vec<pdfcraft_export::Shape>> {
+    let all: Vec<usize> = (0..info.len()).collect();
+    only.unwrap_or(&all)
+        .iter()
+        .filter_map(|&i| Some((i, info.get(i)?)))
+        .map(|(i, b)| {
+            let crop_width = f64::from(b.crop[2] - b.crop[0]);
+            let display_width = f64::from(if b.rotation % 180 == 0 { b.width } else { b.height });
+            let unit = if crop_width > 0.0 && crop_width.is_finite() && display_width.is_finite() { display_width / crop_width } else { 1.0 };
+            let shown = |p: &[f64; 2]| {
+                let [x, y] = b.user_to_view(p[0] as f32, p[1] as f32);
+                [f64::from(x), f64::from(b.height - y)]
+            };
+            pdfcraft_edit::reading_shapes(cos, i)
+                .map(|r| r.shapes)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|s| pdfcraft_export::Shape {
+                    paths: s.paths.iter().map(|sp| sp.iter().map(shown).collect()).collect(),
+                    closed: s.closed,
+                    fill: s.fill,
+                    stroke: s.stroke,
+                    line_width: s.line_width * unit,
+                })
+                .collect()
+        })
+        .collect()
 }
 
 /// `pages` as a file of `target`'s format, titled `title`.
@@ -217,6 +254,7 @@ pub fn write(pages: &[pdfcraft_export::Page], target: Target, title: &str) -> Ve
     match target {
         Target::Docx => pdfcraft_export::docx(pages, title),
         Target::Pptx => pdfcraft_export::pptx(pages, title),
+        Target::PptxPages => pdfcraft_export::pptx_positioned(pages, title),
         Target::Html => pdfcraft_export::html(pages, title).into_bytes(),
         Target::Rtf => pdfcraft_export::rtf(pages).into_bytes(),
     }
@@ -268,7 +306,12 @@ fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Con
     {
         return Err(Error::BadPageRange(format!("page {} isn't in this PDF (pages 1–{page_count})", missing.saturating_add(1))));
     }
-    let (pages, truncated_pages) = pages(&cos, &boxes, opts.pages.as_deref());
+    let (mut pages, truncated_pages) = pages(&cos, &boxes, opts.pages.as_deref());
+    if target == Target::PptxPages {
+        for (page, art) in pages.iter_mut().zip(shapes(&cos, &boxes, opts.pages.as_deref())) {
+            page.shapes = art;
+        }
+    }
     let indices: Vec<usize> = opts.pages.clone().unwrap_or_else(|| (0..page_count).collect());
     let image_only_pages = pages.iter().zip(&indices).filter(|(p, _)| p.blocks.is_empty() && !p.images.is_empty()).map(|(_, &i)| i).collect();
     let title = opts.title.clone().or_else(|| info_title(&cos)).unwrap_or_default();
