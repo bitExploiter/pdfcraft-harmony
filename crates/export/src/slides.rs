@@ -4,7 +4,7 @@
 //! body text, for a deck to rework).
 
 use crate::pptx::{MAX_ITEM_EMU, emu, package, run_drawingml, slide_rels, slide_xml};
-use crate::{Block, Image, Page, Shape, esc, hex};
+use crate::{Block, Image, Page, Shape, esc};
 
 /// Points along an axis to EMU, clamped to `±MAX_ITEM_EMU` (NaN reads as 0).
 fn pos(pt: f64) -> i64 {
@@ -40,10 +40,10 @@ fn xfrm(x: i64, y: i64, cx: i64, cy: i64, rotation: Option<i64>) -> String {
     format!("<a:xfrm{r}><a:off x=\"{x}\" y=\"{y}\"/><a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm>")
 }
 
+/// A shape colour as a fill, black included: a shape without one takes the theme's.
 fn solid(color: [f64; 3]) -> String {
-    hex(color.map(|c| if c.is_finite() { c.clamp(0.0, 1.0) } else { 0.0 }))
-        .map(|h| format!("<a:solidFill><a:srgbClr val=\"{h}\"/></a:solidFill>"))
-        .unwrap_or_default()
+    let [r, g, b] = crate::rgb8(color.map(|c| if c.is_finite() { c.clamp(0.0, 1.0) } else { 0.0 }));
+    format!("<a:solidFill><a:srgbClr val=\"{r:02X}{g:02X}{b:02X}\"/></a:solidFill>")
 }
 
 /// One vector shape: an axis-aligned rectangle as a rectangle, anything else as a free-form path.
@@ -327,6 +327,15 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn black_artwork_stays_black() {
+        let mut p = page();
+        p.shapes = vec![Shape { paths: vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]], closed: true, fill: Some([0.0; 3]), stroke: Some([0.0; 3]), line_width: 1.0 }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        // Without a colour, the shape would take the theme's.
+        assert_eq!(slide.matches("<a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill>").count(), 2, "{slide}");
     }
 
     #[test]
