@@ -9,9 +9,7 @@
 //! rebuild loop, and a timed-out shared initialization is never started again in that pool.
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
-#[cfg(not(target_arch = "wasm32"))]
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::mpsc::{Receiver, sync_channel};
@@ -21,9 +19,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use work_queue::{ResultReceiver, WorkQueue};
 
-use hayro::hayro_interpret::font::{FontData, FontQuery};
+use hayro::hayro_interpret::font::{FontData, FontQuery, Glyph};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
-use hayro::hayro_interpret::{InterpreterSettings, InterpreterWarning};
+use hayro::hayro_interpret::{
+    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, InterpreterWarning, Paint, PathDrawMode,
+    SoftMask, TransformExt, interpret_page,
+};
 use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::page::Page;
 use hayro::vello_cpu::color::AlphaColor;
@@ -385,6 +386,54 @@ fn drawable_page(pdf: &Pdf, page: usize) -> Result<(&Page<'_>, f32, f32), String
     Ok((p, w, h))
 }
 
+/// The most SVG text one page may become, by [`SvgSize`]'s estimate. hayro-svg shares only
+/// glyphs, clips, masks and patterns, and writes out every other draw, so a page that draws one
+/// form millions of times would otherwise grow the SVG until memory runs out.
+const MAX_SVG_BYTES: u64 = 256 << 20;
+
+/// A device that only adds up about how much SVG each draw becomes: an element with its paint
+/// and transform about 128 bytes, each path segment at most 64, each image pixel 4 (its PNG in
+/// base64). Past [`MAX_SVG_BYTES`] it sets `stop`, the interpreter's cancel flag.
+struct SvgSize {
+    bytes: u64,
+    stop: Arc<AtomicBool>,
+}
+
+impl SvgSize {
+    fn element(&mut self, extra: u64) {
+        self.bytes = self.bytes.saturating_add(128).saturating_add(extra);
+        if self.bytes > MAX_SVG_BYTES {
+            self.stop.store(true, Ordering::Relaxed);
+        }
+    }
+
+    fn add_path(&mut self, path: &kurbo::BezPath) {
+        self.element(64u64.saturating_mul(path.elements().len() as u64));
+    }
+}
+
+impl<'a> Device<'a> for SvgSize {
+    fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
+    fn set_blend_mode(&mut self, _: BlendMode) {}
+    fn draw_path(&mut self, path: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'a>, _: &PathDrawMode) {
+        self.add_path(path);
+    }
+    fn push_clip_path(&mut self, clip: &ClipPath) {
+        self.add_path(&clip.path);
+    }
+    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'a>>, _: BlendMode) {
+        self.element(0);
+    }
+    fn draw_glyph(&mut self, _: &Glyph<'a>, _: kurbo::Affine, _: kurbo::Affine, _: &Paint<'a>, _: &GlyphDrawMode) {
+        self.element(0);
+    }
+    fn draw_image(&mut self, image: Image<'a, '_>, _: kurbo::Affine) {
+        self.element(u64::from(image.width()).saturating_mul(u64::from(image.height())).saturating_mul(4));
+    }
+    fn pop_clip_path(&mut self) {}
+    fn pop_transparency_group(&mut self) {}
+}
+
 fn finish(req: RenderRequest, start: Stopwatch, r: Result<Output, (String, bool)>, warnings: Vec<RenderWarning>) -> RenderedPage {
     let millis = start.millis();
     match r {
@@ -448,12 +497,24 @@ impl PageRenderer {
     }
 
     /// One page as a standalone SVG document over white, sized like `render` from the crop box
-    /// and rotation. Text is drawn as glyph outlines, so it is not selectable. Never panics.
+    /// and rotation. Text is drawn as glyph outlines, so it is not selectable. A page whose SVG
+    /// would pass about [`MAX_SVG_BYTES`] is an error. Never panics.
     pub fn svg(&mut self, page: usize) -> Result<String, String> {
         let pdf = self.pdf.as_ref().ok_or("the document could not be parsed")?;
         self.stats.page_interpretations = self.stats.page_interpretations.saturating_add(1);
         let r = catch_unwind(AssertUnwindSafe(|| {
-            let (p, _, _) = drawable_page(pdf, page)?;
+            let (p, w, h) = drawable_page(pdf, page)?;
+            // hayro-svg holds the whole document in one String, so size it before writing it.
+            let stop = Arc::new(AtomicBool::new(false));
+            let settings = InterpreterSettings { cancelled: Some(stop.clone()), ..self.settings.clone() };
+            let cache = InterpreterCache::new();
+            let mut ctx =
+                Context::new(p.initial_transform(true).to_kurbo(), kurbo::Rect::new(0.0, 0.0, w.into(), h.into()), &cache, p.xref(), settings);
+            interpret_page(p, &mut ctx, &mut SvgSize { bytes: 0, stop: stop.clone() });
+            if stop.load(Ordering::Relaxed) {
+                return Err(format!("too complex to export as SVG (over {} MiB); export it as PNG or JPEG instead", MAX_SVG_BYTES >> 20));
+            }
+            self.stats.page_interpretations = self.stats.page_interpretations.saturating_add(1);
             let white = hayro_svg::SvgRenderSettings { bg_color: [255, 255, 255, 255] };
             Ok(hayro_svg::convert(p, &hayro_svg::RenderCache::new(), &self.settings, &white))
         }));
@@ -2812,7 +2873,8 @@ trailer << /Root 1 0 R >>
         let svg = r.svg(0).expect("an SVG");
         assert!(svg.starts_with("<svg viewBox=\"0 0 200 100\" width=\"200\" height=\"100\" "), "{svg}");
         assert!(svg.contains("xmlns=\"http://www.w3.org/2000/svg\"") && svg.contains("background-color: rgba(255, 255, 255, 255)"), "{svg}");
-        assert_eq!(r.stats().page_interpretations, 1);
+        // One pass sizes the SVG, one writes it.
+        assert_eq!(r.stats().page_interpretations, 2);
         let rotated = svg_page("/MediaBox [0 0 200 100] /Rotate 90", "").svg(0).expect("an SVG");
         assert!(rotated.starts_with("<svg viewBox=\"0 0 100 200\" width=\"100\" height=\"200\" "), "{rotated}");
         let cropped = svg_page("/MediaBox [0 0 200 100] /CropBox [10 10 110 60]", "").svg(0).expect("an SVG");
@@ -2835,6 +2897,33 @@ trailer << /Root 1 0 R >>
         // A width past f32 range. (A zero-size box is no error: hayro draws it at A4 size.)
         let infinite = svg_page(&format!("/MediaBox [0 0 1{} 100]", "0".repeat(45)), "").svg(0);
         assert!(infinite.is_err_and(|e| e.contains("empty or invalid page box")));
+    }
+
+    /// A page drawing a form of a 70,000-segment path 100 times is about 450 MB of SVG text by
+    /// `SvgSize`'s estimate. That is an error, not a String that grows until memory runs out.
+    #[test]
+    fn svg_export_of_a_page_too_big_for_svg_is_an_error() {
+        let path: String = (0..70_000).map(|i| format!("{} {} l ", i % 200, i % 97)).collect();
+        let form = format!("0 0 m {path}S");
+        let content = "/Fm0 Do\n".repeat(100);
+        let pdf = format!(
+            "%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R /Resources << /XObject << /Fm0 5 0 R >> >> >> endobj
+4 0 obj << /Length {} >> stream
+{content}
+endstream endobj
+5 0 obj << /Type /XObject /Subtype /Form /BBox [0 0 200 100] /Length {} >> stream
+{form}
+endstream endobj
+trailer << /Root 1 0 R >>
+%%EOF",
+            content.len(),
+            form.len()
+        );
+        let mut r = PageRenderer::new(Arc::new(pdf.into_bytes()), RenderConfig::default());
+        assert!(r.svg(0).is_err_and(|e| e.contains("too complex to export as SVG")));
     }
 
     #[test]
