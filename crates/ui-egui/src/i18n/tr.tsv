@@ -2445,5 +2445,12 @@ animation effects	Off	Kapalı
 	the font can't draw it	yazı tipi bunu çizemiyor
 	the paragraph can't be rewritten	paragraf yeniden yazılamıyor
 	not editable text	düzenlenemeyen metin
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
 	Less	Daha az
 	Other options	Diğer seçenekler

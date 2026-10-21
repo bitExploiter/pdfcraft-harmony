@@ -2448,5 +2448,12 @@ animation effects	Off	Ki
 	the font can't draw it	a betűtípus nem tudja megjeleníteni
 	the paragraph can't be rewritten	a bekezdés nem írható újra
 	not editable text	nem szerkeszthető szöveg
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

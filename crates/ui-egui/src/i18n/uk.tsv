@@ -2471,5 +2471,12 @@ animation effects	Off	Вимкнено
 	the font can't draw it	шрифт не може його відобразити
 	the paragraph can't be rewritten	абзац не можна переписати
 	not editable text	текст, який не можна редагувати
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
 	Less	Менше
 	Other options	Інші параметри

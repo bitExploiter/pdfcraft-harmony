@@ -2726,5 +2726,11 @@ certificate	Version	الإصدار
 	the font can't draw it	لا يستطيع الخط رسمه
 	the paragraph can't be rewritten	تتعذر إعادة كتابة الفقرة
 	not editable text	نص غير قابل للتحرير
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى

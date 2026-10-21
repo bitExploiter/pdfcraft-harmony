@@ -2700,5 +2700,11 @@ theme	Appearance	Išvaizda
 	the font can't draw it	šriftas negali jo atvaizduoti
 	the paragraph can't be rewritten	pastraipos negalima perrašyti
 	not editable text	neredaguojamas tekstas
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys

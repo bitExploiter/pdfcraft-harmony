@@ -2449,5 +2449,12 @@ animation effects	Off	オフ
 	the font can't draw it	フォントで描画できない
 	the paragraph can't be rewritten	段落を書き換えられない
 	not editable text	編集できないテキスト
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
 	Less	折りたたむ
 	Other options	その他のオプション

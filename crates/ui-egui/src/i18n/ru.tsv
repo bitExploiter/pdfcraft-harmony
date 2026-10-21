@@ -2362,5 +2362,12 @@ animation effects	Off	Выкл
 	the font can't draw it	шрифт не может его отобразить
 	the paragraph can't be rewritten	абзац нельзя переписать
 	not editable text	нередактируемый текст
+	Font	Шрифт
+	Bulleted list	Маркированный список
+	Numbered list	Нумерованный список
+	Alignment	Выравнивание
+	Superscript	Надстрочный
+	Subscript	Подстрочный
+	Paragraph spacing	Интервал между абзацами
 	Less	Меньше
 	Other options	Другие параметры

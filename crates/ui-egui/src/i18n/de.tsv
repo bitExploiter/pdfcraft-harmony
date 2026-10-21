@@ -2450,5 +2450,12 @@ animation effects	Off	Aus
 	the font can't draw it	die Schrift kann es nicht darstellen
 	the paragraph can't be rewritten	der Absatz lässt sich nicht neu schreiben
 	not editable text	kein bearbeitbarer Text
+	Font	Schrift
+	Bulleted list	Aufzählung
+	Numbered list	Nummerierte Liste
+	Alignment	Ausrichtung
+	Superscript	Hochgestellt
+	Subscript	Tiefgestellt
+	Paragraph spacing	Absatzabstand
 	Less	Weniger
 	Other options	Weitere Optionen
