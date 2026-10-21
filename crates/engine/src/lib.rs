@@ -4069,7 +4069,10 @@ impl Session {
     /// Comment and form edits skip the full re-inspection (seconds on very large files): the
     /// comment list and field values are re-read from the object graph instead.
     fn refresh_scoped(doc: &mut Document, scope: Scope) -> Result<(), EditError> {
-        if scope == Scope::Full || doc.info.encrypted != doc.editor.as_ref().is_some_and(|e| e.cos.output_handler().is_some()) {
+        // A certificate-protected document is inspected through a decrypted copy, so its info never
+        // says encrypted: only a change of password encryption needs the full refresh.
+        let password_encrypted = doc.editor.as_ref().is_some_and(|e| e.cos.output_handler().is_some() && !certificate_secured(&e.cos));
+        if scope == Scope::Full || doc.info.encrypted != password_encrypted {
             return Self::refresh(doc);
         }
         if scope == Scope::Content {
