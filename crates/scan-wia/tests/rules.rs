@@ -490,3 +490,46 @@ mod page_size_per_source {
         assert!(rules::rejected_property_message(99_999, "x").contains("property 99999"));
     }
 }
+
+mod pick_scanner {
+    use craft_scan::ScannerRef;
+
+    use super::*;
+
+    fn device(id: &str, name: &str, port: Option<&str>) -> ScannerRef {
+        ScannerRef::new(id.into(), name.into(), port.map(Into::into))
+    }
+
+    fn fleet() -> Vec<ScannerRef> {
+        vec![device("{aaa}", "Canon LiDE 300", Some("USB001")), device("{bbb}", "Canon LiDE", Some("WSD-1")), device("{ccc}", "Epson X", None)]
+    }
+
+    #[test]
+    fn empty_text_takes_the_first_and_no_devices_is_an_error() {
+        assert_eq!(rules::pick_scanner(&fleet(), "").unwrap(), 0);
+        assert!(rules::pick_scanner(&[], "").is_err());
+    }
+
+    #[test]
+    fn an_exact_name_beats_a_longer_name_that_contains_it() {
+        assert_eq!(rules::pick_scanner(&fleet(), "Canon LiDE").unwrap(), 1);
+        assert_eq!(rules::pick_scanner(&fleet(), "canon lide").unwrap(), 1, "exact match ignores case, like `scan devices`");
+    }
+
+    #[test]
+    fn the_filter_is_case_insensitive_and_also_reads_the_port() {
+        assert_eq!(rules::pick_scanner(&fleet(), "EPSON").unwrap(), 2);
+        assert_eq!(rules::pick_scanner(&fleet(), "usb001").unwrap(), 0);
+        assert_eq!(rules::pick_scanner(&fleet(), "wsd-1").unwrap(), 1);
+    }
+
+    #[test]
+    fn two_matches_and_no_match_are_errors() {
+        let ambiguous = rules::pick_scanner(&fleet(), "lide 3").unwrap(); // only one contains "lide 3"
+        assert_eq!(ambiguous, 0);
+        let both = rules::pick_scanner(&fleet(), "canon").unwrap_err().to_string();
+        assert!(both.contains("more than one"), "{both}");
+        let none = rules::pick_scanner(&fleet(), "brother").unwrap_err().to_string();
+        assert!(none.contains("no scanner matches"), "{none}");
+    }
+}

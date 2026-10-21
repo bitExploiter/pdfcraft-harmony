@@ -4,7 +4,7 @@
 //! transfer failure with a status read. `craft-scan` knows only [`NativeCode`] and
 //! [`InterruptKind`]; this module is what the Windows backend does with them.
 
-use craft_scan::{HandlingStatus, InterruptKind, NativeCode, PageSize, ScanError, Source, interrupt_kind};
+use craft_scan::{HandlingStatus, InterruptKind, NativeCode, PageSize, ScanError, ScannerRef, Source, interrupt_kind};
 
 /// The sentence for a feeder transfer that answered busy while nothing names a cause.
 pub const BUSY_OR_FEEDER_EMPTY: &str = craft_scan::BUSY_OR_FEEDER_EMPTY;
@@ -558,4 +558,27 @@ pub fn contract_json() -> String {
         dump.push_str(&format!(",\"hresults\":{{{}}}}}", table.join(",")));
     }
     dump
+}
+
+/// The index of the scanner `wanted` names, matched the way `scan devices --device` filters: an exact id or
+/// name wins (so "Canon LiDE" is not ambiguous beside "Canon LiDE 300"), otherwise a case-insensitive
+/// substring of the id, name or port ([`ScannerRef::matches`]) that exactly one scanner satisfies. Empty
+/// text picks the first scanner.
+pub fn pick_scanner(devices: &[ScannerRef], wanted: &str) -> Result<usize, ScanError> {
+    if devices.is_empty() {
+        return Err(ScanError::Failed("no scanner is connected".into()));
+    }
+    if wanted.is_empty() {
+        return Ok(0);
+    }
+    let exact = |device: &ScannerRef| device.id.eq_ignore_ascii_case(wanted) || device.name.eq_ignore_ascii_case(wanted);
+    if let Some(index) = devices.iter().position(exact) {
+        return Ok(index);
+    }
+    let mut matched = devices.iter().enumerate().filter(|(_, device)| device.matches(wanted)).map(|(index, _)| index);
+    match (matched.next(), matched.next()) {
+        (Some(index), None) => Ok(index),
+        (Some(_), Some(_)) => Err(ScanError::Failed(format!("{wanted:?} matches more than one scanner"))),
+        _ => Err(ScanError::Failed(format!("no scanner matches {wanted:?}"))),
+    }
 }

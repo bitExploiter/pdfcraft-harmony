@@ -100,6 +100,9 @@ pub(crate) struct TransferState {
     pub(crate) progress: Option<ProgressToken>,
     /// Inbox WSD: trust `ulTransferredBytes`, not `lPercentComplete` (peaks ~40 then snaps to 100).
     pub(crate) wire_byte_progress: bool,
+    /// Set while [`halt_feeder`] is cancelling: the driver may call back into the sink from inside the cancel, and
+    /// that second halt must not cancel the transfer or stop the feeder again.
+    pub(crate) halting: bool,
 }
 
 impl Drop for TransferState {
@@ -245,10 +248,14 @@ fn page_from_bytes(bytes: &[u8], rule: PageRule, index: usize) -> Page {
 /// is cancelled and the feeder is told to stop.
 pub(crate) fn halt_feeder(state: &RefCell<TransferState>) {
     let (transfer, device, feeder) = {
-        let guard = match state.try_borrow() {
+        let mut guard = match state.try_borrow_mut() {
             Ok(guard) => guard,
             Err(_) => return,
         };
+        if guard.halting {
+            return;
+        }
+        guard.halting = true;
         (guard.transfer.clone(), guard.device.clone(), guard.feeder)
     };
     if let Some(transfer) = transfer {
@@ -256,6 +263,9 @@ pub(crate) fn halt_feeder(state: &RefCell<TransferState>) {
     }
     if feeder && let Some(device) = device {
         let _ = ffi::stop_feeder(&device);
+    }
+    if let Ok(mut guard) = state.try_borrow_mut() {
+        guard.halting = false;
     }
 }
 

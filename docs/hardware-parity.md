@@ -46,7 +46,7 @@ Each device in the list carries a connection tag (USB, or Network for WSD; none 
 one printer is listed twice under the same name (a trailing ` [..]` id is ignored) over USB and the
 network, each entry's tooltip says so, and with no remembered scanner the USB entry is selected first.
 A remembered scanner is always kept.
-Acquire (`scan acquire`, UI **Scan & OCR ▸ From scanner…**) transfers pages in memory;
+Acquire (`pdfcraft-cli scan`, UI **Scan & OCR ▸ From scanner…**) transfers pages in memory;
 partial results on failure surface as `ScanError::Incomplete` and the CLI can still write pages
 that arrived before the error.
 

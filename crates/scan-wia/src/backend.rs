@@ -858,6 +858,7 @@ fn acquire_pages(settings: &ScanSettings, route: &Cell<Option<(Source, bool)>>) 
         cancel: settings.cancel.clone(),
         progress: settings.progress.clone(),
         wire_byte_progress: wsd_port,
+        halting: false,
     }));
     // Declared before the callback and the transfer, so it runs after both are dropped, on every return.
     let _cleanup = TransferCleanup(Rc::clone(&state));
@@ -1056,30 +1057,17 @@ fn enum_devices(mgr: &IWiaDevMgr2) -> Result<Vec<IWiaPropertyStorage>, ScanError
 /// if there is one, otherwise the single device that contains the text. More than one match, or none, is an
 /// error.
 fn choose<'a>(devices: &'a [IWiaPropertyStorage], wanted: &str) -> Result<&'a IWiaPropertyStorage, ScanError> {
-    if devices.is_empty() {
-        return Err(ScanError::Failed("no scanner is connected".into()));
-    }
-    if wanted.is_empty() {
-        return devices.first().ok_or_else(|| ScanError::Failed("no scanner is connected".into()));
-    }
-    // An exact id or name wins over substring matches ("Canon LiDE" and "Canon LiDE 300").
-    if let Some(exact) = devices.iter().find(|device| {
-        read_string(device, WIA_DIP_DEV_ID).is_ok_and(|id| id == wanted) || read_string(device, WIA_DIP_DEV_NAME).is_ok_and(|name| name == wanted)
-    }) {
-        return Ok(exact);
-    }
-    let mut matched = None;
-    for device in devices {
-        let id = read_string(device, WIA_DIP_DEV_ID).unwrap_or_default();
-        let name = read_string(device, WIA_DIP_DEV_NAME).unwrap_or_default();
-        if name.contains(wanted) || id.contains(wanted) {
-            if matched.is_some() {
-                return Err(ScanError::Failed(format!("{wanted:?} matches more than one scanner")));
-            }
-            matched = Some(device);
-        }
-    }
-    matched.ok_or_else(|| ScanError::Failed(format!("no scanner matches {wanted:?}")))
+    let refs: Vec<ScannerRef> = devices
+        .iter()
+        .map(|device| {
+            let id = read_string(device, WIA_DIP_DEV_ID).unwrap_or_default();
+            let name = read_string(device, WIA_DIP_DEV_NAME).unwrap_or_default();
+            let port = read_string(device, WIA_DIP_PORT_NAME).ok().filter(|text| !text.is_empty());
+            ScannerRef::new(id, name, port)
+        })
+        .collect();
+    let index = rules::pick_scanner(&refs, wanted)?;
+    devices.get(index).ok_or_else(|| ScanError::Failed("no scanner is connected".into()))
 }
 
 /// All child items of the root item.
