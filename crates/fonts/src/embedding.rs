@@ -43,8 +43,11 @@ pub fn names(bytes: &[u8]) -> Result<(String, String), String> {
     Ok((family, postscript))
 }
 
-/// A selected external font is document input. Require its own open-licence declaration;
-/// never turn a proprietary system-interface fallback into an exported PDF font.
+/// A font the user explicitly selected for document text (Load font…, Installed fonts…), such
+/// as one installed on their system. Like other PDF editors, PdfCraft relies on the font's own
+/// embedding permissions (OS/2 fsType, checked by [`validate`]) rather than requiring an open
+/// licence: the user's right to use their installed fonts comes from those fonts' licences.
+/// Adobe's type designs stay excluded (AGENTS.md §1.1).
 pub fn validate_document_input(bytes: &[u8]) -> Result<(), String> {
     use skrifa::string::StringId;
     let (family, _) = names(bytes)?;
@@ -57,13 +60,6 @@ pub fn validate_document_input(bytes: &[u8]) -> Result<(), String> {
         [StringId::COPYRIGHT_NOTICE, StringId::MANUFACTURER].into_iter().flat_map(|id| f.localized_strings(id)).map(|s| s.to_string()).collect();
     if attribution.to_ascii_lowercase().contains("adobe") {
         return Err("Adobe-authored font assets are excluded by the project's asset policy".into());
-    }
-    let license: String = f.localized_strings(StringId::LICENSE_DESCRIPTION).map(|s| s.to_string()).collect();
-    if !["SIL OPEN FONT", "SIL Open Font", "Apache License", "Ubuntu Font Licence", "Bitstream Vera", "MIT License"]
-        .iter()
-        .any(|l| license.contains(l))
-    {
-        return Err("select an openly licensed font whose name table declares its licence (OFL, Apache, Ubuntu, Bitstream Vera or MIT)".into());
     }
     Ok(())
 }

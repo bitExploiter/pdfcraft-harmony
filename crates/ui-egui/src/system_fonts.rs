@@ -3,8 +3,9 @@
 //! The embedded faces (Inter, egui's defaults, craft-fonts) come first in every family; this one
 //! only draws characters none of them has, such as an Arabic file name in a build without
 //! craft-fonts, or the Simplified Chinese interface in a build without a `Hans` face (#826). A
-//! few more installed faces, [`devanagari_fallback`], [`telugu_fallback`], [`sinhala_fallback`]
-//! and [`tamil_fallback`], draw Hindi, Telugu, Sinhala and Tamil when one is installed. It is
+//! few more installed faces, [`devanagari_fallback`], [`telugu_fallback`], [`sinhala_fallback`],
+//! [`tamil_fallback`] and [`thaana_fallback`], draw Hindi, Telugu, Sinhala, Tamil and Dhivehi
+//! when one is installed. It is
 //! read at runtime and never embedded or shipped (AGENTS.md §1.4), and `PDFCRAFT_SYSTEM_FONTS=0`
 //! turns it off (published screenshots do).
 
@@ -32,6 +33,8 @@ const TELUGU_PROBE: char = '\u{0C15}';
 const SINHALA_PROBE: char = '\u{0D9A}';
 /// Tamil letter ka (க): the face must have it to cover Tamil.
 const TAMIL_PROBE: char = '\u{0B95}';
+/// Thaana letter haa (ހ): the face must have it to cover Dhivehi.
+const THAANA_PROBE: char = '\u{0780}';
 /// 欢 (U+6B22): Simplified only, absent from the Japanese craft-fonts faces.
 const HANS_PROBE: char = '\u{6B22}';
 /// 說 (U+8AAA): Traditional only, absent from the Japanese craft-fonts faces.
@@ -101,6 +104,13 @@ pub fn sinhala_fallback() -> Option<Arc<FontData>> {
 pub fn tamil_fallback() -> Option<Arc<FontData>> {
     static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     CACHE.get_or_init(|| script_fallback(&tamil_candidates(), TAMIL_PROBE)).clone()
+}
+
+/// The installed fallback face for Thaana (Dhivehi), read once. `None` when it is turned off or
+/// no candidate is installed; the interface then draws what the embedded faces can.
+pub fn thaana_fallback() -> Option<Arc<FontData>> {
+    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
+    CACHE.get_or_init(|| script_fallback(&thaana_candidates(), THAANA_PROBE)).clone()
 }
 
 fn script_fallback(candidates: &[PathBuf], probe: char) -> Option<Arc<FontData>> {
@@ -223,6 +233,22 @@ fn tamil_candidates() -> Vec<PathBuf> {
             "noto/NotoSansTamilUI-Regular.ttf",
             "lohit-tamil-fonts/Lohit-Tamil.ttf",
             "truetype/lohit-tamil/Lohit-Tamil.ttf",
+        ])
+    }
+}
+
+/// Well-known locations of Thaana faces, best first. MV Boli ships with every Windows since XP.
+fn thaana_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        ["mvboli.ttf"].iter().map(|f| windows_fonts().join(f)).collect()
+    } else if cfg!(target_os = "macos") {
+        ["/Library/Fonts/NotoSansThaana-Regular.ttf", "/Library/Fonts/NotoSansThaana[wght].ttf"].iter().map(PathBuf::from).collect()
+    } else {
+        unix_fonts(&[
+            "google-noto/NotoSansThaana-Regular.ttf",
+            "google-noto-vf/NotoSansThaana[wght].ttf",
+            "truetype/noto/NotoSansThaana-Regular.ttf",
+            "noto/NotoSansThaana-Regular.ttf",
         ])
     }
 }
@@ -407,11 +433,12 @@ mod tests {
         assert!(script_fallback(&candidates, DEVANAGARI_PROBE).is_none());
         assert!(script_fallback(&candidates, SINHALA_PROBE).is_none());
         assert!(script_fallback(&candidates, TAMIL_PROBE).is_none());
+        assert!(script_fallback(&candidates, THAANA_PROBE).is_none());
     }
 
     #[test]
     fn script_candidates_are_absolute_font_files() {
-        for list in [devanagari_candidates(), telugu_candidates(), sinhala_candidates(), tamil_candidates()] {
+        for list in [devanagari_candidates(), telugu_candidates(), sinhala_candidates(), tamil_candidates(), thaana_candidates()] {
             assert!(!list.is_empty());
             assert!(list.iter().all(|p| p.is_absolute() || cfg!(windows)), "{list:?}");
             assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{list:?}");
