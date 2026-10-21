@@ -149,7 +149,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                         };
                                         let l = ui.label(egui::RichText::new(label).color(t.text_muted));
                                         let is_date = *k == "CreationDate" || *k == "ModDate";
-                                        let is_err = is_date && !pdfcraft_engine::is_valid_pdf_date_input(v);
+                                        let seeded = if is_date {
+                                            doc.info_value(k).map(|e| pdfcraft_engine::format_pdf_date(&e)).unwrap_or_default()
+                                        } else {
+                                            String::new()
+                                        };
+                                        let is_err = is_date && v.trim() != seeded && !pdfcraft_engine::is_valid_pdf_date_input(v);
                                         ui.vertical(|ui| {
                                             ui.add(widgets::line(v).desired_width(420.0).background_color(t.field).id_salt(("info", *k)))
                                                 .labelled_by(l.id);
@@ -1238,11 +1243,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     close = true;
                 }
             } else if changed {
-                let has_error = app.props_draft.as_ref().is_some_and(|(_, draft)| {
-                    INFO_KEYS
-                        .iter()
-                        .zip(draft.iter())
-                        .any(|(k, v)| (*k == "CreationDate" || *k == "ModDate") && !pdfcraft_engine::is_valid_pdf_date_input(v))
+                let has_error = app.props_draft.as_ref().is_some_and(|(id, draft)| {
+                    let doc = app.session.get(*id);
+                    INFO_KEYS.iter().zip(draft.iter()).any(|(k, v)| {
+                        let seeded = doc.and_then(|d| d.info_value(k)).map(|e| pdfcraft_engine::format_pdf_date(&e)).unwrap_or_default();
+                        (*k == "CreationDate" || *k == "ModDate") && v.trim() != seeded && !pdfcraft_engine::is_valid_pdf_date_input(v)
+                    })
                 });
                 if ui.add_enabled_ui(!has_error, |ui| widgets::pill_button(ui, tl!("OK"), true)).inner.clicked() {
                     apply = true;

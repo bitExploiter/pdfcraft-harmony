@@ -889,9 +889,8 @@ pub fn is_valid_pdf_date_input(s: &str) -> bool {
     false
 }
 
-/// Suffix for a PDF date in the local timezone (e.g. `+03'00'` or `Z`).
-pub fn local_tz_suffix() -> String {
-    let offset = local_utc_offset();
+/// Suffix for a PDF date with an explicit offset in seconds east of UTC (e.g. `+03'00'` or `Z`).
+pub fn tz_suffix(offset: i64) -> String {
     if offset == 0 {
         return "Z".to_string();
     }
@@ -900,6 +899,11 @@ pub fn local_tz_suffix() -> String {
     let h = total_mins / 60;
     let m = total_mins % 60;
     format!("{sign}{h:02}'{m:02}'")
+}
+
+/// Suffix for a PDF date in the local timezone (e.g. `+03'00'` or `Z`).
+pub fn local_tz_suffix() -> String {
+    tz_suffix(local_utc_offset())
 }
 
 /// Normalize a human date, ISO date, or PDF date string into standard PDF date format `D:YYYYMMDDHHmmSS...`.
@@ -911,6 +915,16 @@ pub fn local_tz_suffix() -> String {
 /// - Common human formats (`2024-01-05 09:30:00`, `2024-01-05`, `2024/01/05`)
 /// Empty strings return empty (removing the entry).
 pub fn normalize_pdf_date(s: &str) -> String {
+    normalize_pdf_date_with(s, local_utc_offset())
+}
+
+/// Normalize a date string with an explicit timezone offset in seconds east of UTC.
+pub fn normalize_pdf_date_with_offset(s: &str, offset_secs: i64) -> String {
+    normalize_pdf_date_with(s, offset_secs)
+}
+
+/// Normalize a date string with an explicit timezone offset in seconds east of UTC.
+pub fn normalize_pdf_date_with(s: &str, offset_secs: i64) -> String {
     let s = s.trim();
     if s.is_empty() {
         return String::new();
@@ -993,7 +1007,7 @@ pub fn normalize_pdf_date(s: &str) -> String {
                     let tm = tz_digits.get(2..4).unwrap_or("00");
                     format!("{sign}{th}'{tm}'")
                 } else {
-                    local_tz_suffix()
+                    tz_suffix(offset_secs)
                 };
 
                 return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");
@@ -1050,7 +1064,7 @@ pub fn normalize_pdf_date(s: &str) -> String {
             let tm = tz_digits.get(2..4).unwrap_or("00");
             format!("{sign}{th}'{tm}'")
         } else {
-            local_tz_suffix()
+            tz_suffix(offset_secs)
         };
 
         return format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{sec:02}{tz}");
@@ -1116,6 +1130,11 @@ pub fn info(doc: &Document, key: &str) -> Option<String> {
 /// in the XMP packet, and viewers that read XMP first show its value: the packet's property is
 /// changed (or removed) to match (see `xmp`).
 pub fn set_info(doc: &mut Document, key: &str, value: &str) -> Result<(), OrganizeError> {
+    set_info_with_offset(doc, key, value, local_utc_offset())
+}
+
+/// Set (or clear, with an empty value) a document-information entry with an explicit timezone offset.
+pub fn set_info_with_offset(doc: &mut Document, key: &str, value: &str, offset_secs: i64) -> Result<(), OrganizeError> {
     let key = canonical_info_key(key);
     if !STANDARD_INFO_KEYS.contains(&key) {
         check_custom_key(key)?;
@@ -1125,7 +1144,7 @@ pub fn set_info(doc: &mut Document, key: &str, value: &str) -> Result<(), Organi
         if !is_valid_pdf_date_input(value) {
             return Err(OrganizeError::Invalid(format!("invalid date format: expected MM/DD/YY, h:mm:ss AM/PM, got '{value}'")));
         }
-        normalize_pdf_date(value)
+        normalize_pdf_date_with(value, offset_secs)
     } else {
         value.to_string()
     };

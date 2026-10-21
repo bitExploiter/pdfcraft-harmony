@@ -44,7 +44,8 @@ pub use signature_scan::{PhotoRect, ScanError, SignaturePhoto, Turn};
 pub use text_preview::TextEditPreview;
 
 pub use pdfcraft_organize::{
-    BoxSpec, FieldConflicts, PageBox, SplitBy, Transition, TransitionSpec, format_pdf_date, is_valid_pdf_date_input, normalize_pdf_date, split_ranges,
+    BoxSpec, FieldConflicts, PageBox, SplitBy, Transition, TransitionSpec, format_pdf_date, is_valid_pdf_date_input, normalize_pdf_date,
+    normalize_pdf_date_with, normalize_pdf_date_with_offset, set_info_with_offset, split_ranges,
 };
 
 /// One file produced by a split: (1-based first page, last page, PDF bytes).
@@ -2268,6 +2269,7 @@ struct EditCtx {
     date: Option<String>,
     /// Today in local time, for date tokens.
     today: (i64, u32, u32),
+    local_offset: i64,
     seed: u64,
     count: u64,
     /// Fields the edit renamed to keep imported names separate (old → new), for the repair
@@ -2296,6 +2298,7 @@ impl EditCtx {
             pages: 0,
             date: now.map(pdfcraft_cos::pdf_date),
             today: (1970, 1, 1),
+            local_offset: 0,
             seed,
             count: 0,
             renamed_fields: Vec::new(),
@@ -2349,7 +2352,7 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         Edit::InsertBlankPage { at, width, height } => {
             pdfcraft_organize::insert_blank_page(doc, *at, *width, *height)?;
         }
-        Edit::SetInfo { key, value } => pdfcraft_organize::set_info(doc, key, value)?,
+        Edit::SetInfo { key, value } => pdfcraft_organize::set_info_with_offset(doc, key, value, cx.local_offset)?,
         Edit::DuplicatePages { pages, at } => pdfcraft_organize::duplicate_pages(doc, pages, *at)?,
         Edit::ReplacePages { pages, name, bytes, src_pages } => {
             let src = open_source(name, bytes)?;
@@ -2763,14 +2766,6 @@ fn comment_list(doc: &pdfcraft_cos::Document) -> Vec<pdfcraft_render::Annotation
             fill_sign: s.fill_sign,
         })
         .collect()
-}
-
-/// Seconds to add to UTC for local time (0 where unknown).
-fn local_utc_offset() -> i64 {
-    #[cfg(not(target_arch = "wasm32"))]
-    return i64::from(chrono::Local::now().offset().local_minus_utc());
-    #[cfg(target_arch = "wasm32")]
-    return 0;
 }
 
 /// (year, month, day) from a PDF date `D:YYYYMMDD…`.
@@ -3296,7 +3291,7 @@ impl Session {
         match (self.utc_offset, self.clock) {
             (Some(zone), _) => zone(),
             (None, Some(_)) => 0,
-            (None, None) => local_utc_offset(),
+            (None, None) => pdfcraft_organize::local_utc_offset(),
         }
     }
 
@@ -3653,6 +3648,7 @@ impl Session {
     pub fn apply(&mut self, id: DocId, edit: Edit) -> Result<(), EditError> {
         let now = self.now();
         let today = self.today();
+        let local_offset = self.local_offset();
         let js_off = self.js_off;
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
@@ -3664,6 +3660,7 @@ impl Session {
         }
         cx.pages = doc.info.pages.len();
         cx.today = today;
+        cx.local_offset = local_offset;
         let reason = doc.read_only_reason.clone().unwrap_or_default();
         let signed = doc.is_signed();
         let editor = doc.editor.as_mut().ok_or(EditError::ReadOnly(reason))?;

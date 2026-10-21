@@ -570,6 +570,11 @@ fn format_pdf_date_formats_and_normalizes_correctly() {
     assert_eq!(format_pdf_date("2026-10-20T16:16:49Z"), "10/20/26, 4:16:49 PM");
     assert_eq!(format_pdf_date("2026-10-20 16:16:49"), "10/20/26, 4:16:49 PM");
 
+    // Explicit timezone offset:
+    assert_eq!(crate::normalize_pdf_date_with("10/20/26, 4:16:49 PM", 0), "D:20261020161649Z");
+    assert_eq!(crate::normalize_pdf_date_with("10/20/26, 4:16:49 PM", 7200), "D:20261020161649+02'00'");
+    assert_eq!(crate::normalize_pdf_date_with("10/20/26, 4:16:49 PM", -18000), "D:20261020161649-05'00'");
+
     // Non-dates are returned unchanged
     assert_eq!(format_pdf_date(""), "");
     assert_eq!(format_pdf_date("yesterday"), "yesterday");
@@ -614,6 +619,11 @@ fn is_valid_pdf_date_input_checks_pattern_correctly() {
     let mut doc = open(fixture());
     let err = set_info(&mut doc, "CreationDate", "bad-date-string").unwrap_err();
     assert!(matches!(err, crate::OrganizeError::Invalid(_)));
+
+    // set_info_with_offset normalizes with provided offset:
+    let mut doc2 = open(fixture());
+    crate::set_info_with_offset(&mut doc2, "CreationDate", "2026-10-20 16:16:49", 7200).unwrap();
+    assert_eq!(crate::info(&doc2, "CreationDate").as_deref(), Some("D:20261020161649+02'00'"));
 }
 
 #[test]

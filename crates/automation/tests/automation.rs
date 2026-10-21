@@ -275,8 +275,8 @@ fn creation_and_mod_date_set_and_listed_through_tools() {
     std::fs::write(dir.join("a.pdf"), fixture(1)).unwrap();
     let mut a = auto(&dir);
     let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
-    ok(&mut a, "doc_set_info", json!({ "doc": doc, "key": "CreationDate", "value": "2024-05-10 14:30:00" }));
-    ok(&mut a, "doc_set_info", json!({ "doc": doc, "key": "ModDate", "value": "2024-06-12 18:45:00" }));
+    ok(&mut a, "doc_set_info", json!({ "doc": doc, "key": "CreationDate", "value": "2024-05-10 14:30:00Z" }));
+    ok(&mut a, "doc_set_info", json!({ "doc": doc, "key": "ModDate", "value": "2024-06-12 18:45:00Z" }));
     let info = ok(&mut a, "doc_info", json!({ "doc": doc }));
     assert_eq!(info["creation_date"], "D:20240510143000Z");
     assert_eq!(info["mod_date"], "D:20240612184500Z");
