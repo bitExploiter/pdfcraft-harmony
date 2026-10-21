@@ -172,6 +172,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M4, #3726):** Extract Pages offers physical page ranges and odd/even filters alongside manual selection. UI and headless extraction share bounded parsing; invalid/empty selections are rejected before output or deletion. Synthetic regressions cover extraction, preservation and undo. Review follow-up: the milestone table lists these capabilities under completed work, separately from the remaining gaps. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
