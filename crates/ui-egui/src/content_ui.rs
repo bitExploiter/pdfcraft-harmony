@@ -565,17 +565,20 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
                 let resp = {
                     // Display order on screen, the logical text sent to the engine (#2101).
                     let (mut buf, _) = crate::edit_text_ui::VisualText::new(t.text.clone());
-                    let output = egui::TextEdit::multiline(&mut buf)
+                    let input_id = ui.make_persistent_id("added-text-edit");
+                    buf.remember(ui.ctx(), input_id);
+                    let mut output = egui::TextEdit::multiline(&mut buf)
                         .font(font)
                         .desired_width(r.width().max(60.0))
                         .desired_rows(1)
                         .background_color(if background_ready { Color32::TRANSPARENT } else { Color32::WHITE })
                         .text_color(Color32::from_rgb(cr, cg, cb))
                         .hint_text(tl!("Type text"))
-                        .id_salt("added-text-edit")
+                        .id(input_id)
                         .show(ui);
                     t.text = buf.logical_text();
-                    crate::edit_text_ui::clipboard_in_logical_order(ui, &mut buf, output.cursor_range);
+                    let cursor = buf.settle(ui.ctx(), &mut output);
+                    crate::edit_text_ui::clipboard_in_logical_order(ui, &mut buf, cursor);
                     output.response
                 };
                 if t.focus {

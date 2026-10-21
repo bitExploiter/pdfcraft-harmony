@@ -223,7 +223,9 @@ const MAX_OUTLINES: usize = 250;
 /// A paragraph being edited.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LineEditor {
-    pub selection: Option<std::ops::Range<usize>>,
+    /// The selected bytes of `text` the format panel styles: one range, or several when a
+    /// selection crosses right-to-left runs (#2101).
+    pub selection: Vec<std::ops::Range<usize>>,
     pub font_resource: Option<String>,
     pub page: usize,
     pub block: usize,
@@ -340,7 +342,7 @@ impl LineEditor {
             scale: (self.extras.scale != self.extras0.scale).then_some(self.extras.scale),
             ..Default::default()
         };
-        if let Some(range) = &self.selection
+        if !self.selection.is_empty()
             && (style.family.is_some()
                 || style.resource.is_some()
                 || style.size.is_some()
@@ -349,23 +351,28 @@ impl LineEditor {
                 || style.char_spacing.is_some()
                 || style.scale.is_some())
         {
-            style.ranges.push(pdfcraft_engine::RangeStyle {
-                range: range.clone(),
-                family: style.family.take(),
-                resource: style.resource.take(),
-                size: style.size.take(),
-                color: style.color.take(),
-                underline: style.underline.take(),
-                char_spacing: style.char_spacing.take(),
-                scale: style.scale.take(),
-            });
+            let (family, resource, size, color) = (style.family.take(), style.resource.take(), style.size.take(), style.color.take());
+            let (underline, char_spacing, scale) = (style.underline.take(), style.char_spacing.take(), style.scale.take());
+            // Each selected piece gets the same formatting; the pieces are disjoint and in order.
+            for range in &self.selection {
+                style.ranges.push(pdfcraft_engine::RangeStyle {
+                    range: range.clone(),
+                    family,
+                    resource: resource.clone(),
+                    size,
+                    color,
+                    underline,
+                    char_spacing,
+                    scale,
+                });
+            }
         }
         style
     }
 
     /// After applying formatting: the paragraph now has it.
     pub fn applied(&mut self) {
-        self.selection = None;
+        self.selection.clear();
         self.font_resource = None;
         self.family_chosen = false;
         self.look0 = self.look.clone();
@@ -1178,7 +1185,7 @@ fn open_editor(
     let right = xf.rect.right().min(view.viewport_rect().right()) - 6.0;
     let max_width = if l.rows.len() == 1 { (right - b.left()).max(b.width()) } else { b.width() };
     view.line_editor = Some(LineEditor {
-        selection: None,
+        selection: Vec::new(),
         font_resource: None,
         page,
         block,
@@ -1406,6 +1413,35 @@ pub(crate) struct VisualText {
     /// What a cut removed this frame, in logical order, for the clipboard (egui would copy the
     /// display order back out).
     deleted: Option<String>,
+    /// Where the caret stands after the last edit: egui moves its caret by the characters
+    /// inserted, in display positions, but reordering can put the edited spot anywhere in the
+    /// new display string. This keeps the logical spot, so the next keystroke (in this frame or
+    /// a later one, see [`Self::remember`]) continues there and [`Self::settle`] can show it.
+    caret: Option<Caret>,
+    /// An edit happened since the buffer was made, so egui's caret needs [`Self::settle`].
+    edited: bool,
+}
+
+/// A caret egui holds at display index `shown`, standing for the logical boundary `logical`
+/// (between logical characters `logical - 1` and `logical`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Caret {
+    shown: usize,
+    logical: usize,
+}
+
+/// A [`Caret`] kept across frames, valid only while the logical text is still `text_hash`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RememberedCaret {
+    caret: Caret,
+    text_hash: u64,
+}
+
+fn text_hash(text: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut h);
+    h.finish()
 }
 
 impl VisualText {
@@ -1414,7 +1450,58 @@ impl VisualText {
     pub(crate) fn new(text: String) -> (Self, Rc<RefCell<String>>) {
         let logical = Rc::new(RefCell::new(text));
         let (visual, order) = crate::bidi::visual_with_order(&logical.borrow());
-        (Self { logical: logical.clone(), visual, order, deleted: None }, logical)
+        (Self { logical: logical.clone(), visual, order, deleted: None, caret: None, edited: false }, logical)
+    }
+
+    /// Pick up where the last edit in the editor `id` left its caret, if the text is unchanged.
+    pub(crate) fn remember(&mut self, ctx: &egui::Context, id: egui::Id) {
+        let hash = text_hash(&self.logical.borrow());
+        self.caret = ctx
+            .data(|d| d.get_temp::<RememberedCaret>(caret_key(id)))
+            .filter(|r| r.text_hash == hash && r.caret.logical <= self.order.len())
+            .map(|r| r.caret);
+    }
+
+    /// After `TextEdit::show`: if an edit moved the text under egui's caret, put the caret back
+    /// next to what was just typed or deleted, in the new display order, and remember it. Returns
+    /// the caret range as it now stands (egui's own when nothing was edited).
+    pub(crate) fn settle(&mut self, ctx: &egui::Context, output: &mut egui::text_edit::TextEditOutput) -> Option<egui::text::CCursorRange> {
+        let id = output.response.id;
+        if let Some((shown, caret)) = self.settled() {
+            let range = egui::text::CCursorRange::one(egui::text::CCursor::new(shown));
+            output.state.cursor.set_char_range(Some(range));
+            output.state.clone().store(ctx, id);
+            output.cursor_range = Some(range);
+            let remembered = RememberedCaret { caret: Caret { shown, logical: caret.logical }, text_hash: text_hash(&self.logical.borrow()) };
+            ctx.data_mut(|d| d.insert_temp(caret_key(id), remembered));
+        }
+        output.cursor_range
+    }
+
+    /// After an edit, the display index the caret belongs at and the caret it stands for.
+    fn settled(&self) -> Option<(usize, Caret)> {
+        self.caret.filter(|_| self.edited).map(|c| (self.shown_at(c.logical), c))
+    }
+
+    /// The logical boundary a caret at display index `shown` stands for: the remembered one if
+    /// egui's caret is where the last edit left it, otherwise just before the logical character
+    /// shown there (past the end: the end).
+    fn logical_point(&self, shown: usize) -> usize {
+        match self.caret {
+            Some(c) if c.shown == shown => c.logical,
+            _ => self.order.get(shown).copied().unwrap_or(self.order.len()),
+        }
+    }
+
+    /// The display index for the logical boundary `logical`: just after where logical character
+    /// `logical - 1` shows (right-to-left stretches keep typing order inside the display string,
+    /// so this is the next character's side in reading order), or before character 0.
+    fn shown_at(&self, logical: usize) -> usize {
+        let at = |l: usize| self.order.iter().position(|&o| o == l);
+        match logical.checked_sub(1) {
+            Some(before) => at(before).map_or(self.order.len(), |i| i.saturating_add(1)),
+            None => at(0).unwrap_or(0),
+        }
     }
 
     /// The logical text as it stands now.
@@ -1440,14 +1527,20 @@ impl VisualText {
         out
     }
 
-    /// The logical characters a display range covers, as one span: the format panel's
-    /// `RangeStyle` takes a span, not the set a selection across runs can be.
-    pub(crate) fn logical_span(&self, range: std::ops::Range<usize>) -> std::ops::Range<usize> {
-        let Some(wanted) = self.order.get(range) else { return 0..0 };
-        match (wanted.iter().min(), wanted.iter().max()) {
-            (Some(lo), Some(hi)) => *lo..*hi + 1,
-            _ => 0..0,
+    /// The logical characters a display range covers, as contiguous logical ranges in order: a
+    /// selection across runs is a set, and formatting must reach exactly that set.
+    pub(crate) fn logical_ranges(&self, range: std::ops::Range<usize>) -> Vec<std::ops::Range<usize>> {
+        let Some(wanted) = self.order.get(range) else { return Vec::new() };
+        let mut wanted = wanted.to_vec();
+        wanted.sort_unstable();
+        let mut out: Vec<std::ops::Range<usize>> = Vec::new();
+        for i in wanted {
+            match out.last_mut() {
+                Some(r) if r.end == i => r.end = i.saturating_add(1),
+                _ => out.push(i..i.saturating_add(1)),
+            }
         }
+        out
     }
 
     /// What a cut removed this frame, in logical order, if anything.
@@ -1464,6 +1557,11 @@ impl VisualText {
 
 /// egui copies and cuts what it laid out — the display order. Put the logical text on the
 /// clipboard instead, and only when this editor actually handled a copy or a cut.
+/// Where the line editors keep a [`RememberedCaret`] for the `TextEdit` `id`.
+fn caret_key(id: egui::Id) -> egui::Id {
+    id.with("visual-text-caret")
+}
+
 pub(crate) fn clipboard_in_logical_order(ui: &egui::Ui, buf: &mut VisualText, cursor: Option<egui::text::CCursorRange>) {
     let (cut, copied) =
         ui.input(|i| (i.events.iter().any(|e| matches!(e, egui::Event::Cut)), i.events.iter().any(|e| matches!(e, egui::Event::Copy))));
@@ -1495,20 +1593,33 @@ impl egui::TextBuffer for VisualText {
 
     fn insert_text(&mut self, text: &str, char_index: egui::text::CharIndex) -> usize {
         let added = text.chars().count();
+        // Where the last edit left the caret, or before the logical character the caret's
+        // display position shows (past the end: at the end).
+        let at = self.logical_point(char_index.0).min(self.order.len());
         {
             let mut logical = self.logical.borrow_mut();
-            // The caret sits before the display character at its index; the typed text goes
-            // before the logical character that one shows (past the end: at the end).
-            let at = self.order.get(char_index.0).copied().unwrap_or_else(|| logical.chars().count());
             let byte = logical.char_indices().nth(at).map_or(logical.len(), |(b, _)| b);
             logical.insert_str(byte, text);
         }
         self.refresh();
+        // egui puts its caret `added` further on in display positions; that is where the next
+        // keystroke of this frame arrives, and it stands for the end of what was typed.
+        self.caret = Some(Caret { shown: char_index.0.saturating_add(added), logical: at.saturating_add(added) });
+        self.edited = true;
         added
     }
 
     fn delete_char_range(&mut self, char_range: std::ops::Range<egui::text::CharIndex>) {
-        let mut gone: Vec<usize> = self.order.get(char_range.start.0..char_range.end.0).map(|at| at.to_vec()).unwrap_or_default();
+        let (start, end) = (char_range.start.0, char_range.end.0);
+        // One character either side of a caret the last edit placed: Backspace and Delete
+        // remove the logical neighbour of that spot, not whatever the display shows there.
+        let mut gone: Vec<usize> = match self.caret {
+            Some(c) if end == c.shown && end.checked_sub(start) == Some(1) => c.logical.checked_sub(1).into_iter().collect(),
+            Some(c) if start == c.shown && end.checked_sub(start) == Some(1) => {
+                (c.logical < self.order.len()).then_some(c.logical).into_iter().collect()
+            }
+            _ => self.order.get(start..end).map(|at| at.to_vec()).unwrap_or_default(),
+        };
         gone.sort_unstable();
         if gone.is_empty() {
             return;
@@ -1530,6 +1641,11 @@ impl egui::TextBuffer for VisualText {
             *logical = kept;
         }
         self.refresh();
+        // egui puts its caret at the start of the range; the text closes up where the first
+        // removed character was.
+        let first = gone.first().copied().unwrap_or(0);
+        self.caret = Some(Caret { shown: start, logical: first });
+        self.edited = true;
     }
 }
 
@@ -1832,14 +1948,16 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                 // fresh, because TextEdit lays out again after it handles events, in the same
                 // frame, so a snapshot would miss what was just typed.
                 let (mut buf, logical) = VisualText::new(ed.text.clone());
+                let input_id = egui::Id::new("edit-text-line-input");
+                buf.remember(ui.ctx(), input_id);
                 let for_layout = logical.clone();
                 let mut layouter = |ui: &egui::Ui, _text: &dyn egui::TextBuffer, wrap_width: f32| {
                     let text = for_layout.borrow();
                     let galley = editor_galley(ui, &snapshot, &text, scale, wrap_width);
                     if snapshot.changes_with(&text) { galley } else { unseen(galley) }
                 };
-                let output = egui::TextEdit::multiline(&mut buf)
-                    .id(egui::Id::new("edit-text-line-input"))
+                let mut output = egui::TextEdit::multiline(&mut buf)
+                    .id(input_id)
                     .font(font.clone())
                     .margin(egui::Margin::ZERO)
                     .layouter(&mut layouter)
@@ -1849,7 +1967,8 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     .desired_rows(rows)
                     .show(ui);
                 ed.text = buf.logical_text();
-                clipboard_in_logical_order(ui, &mut buf, output.cursor_range);
+                let cursor = buf.settle(ui.ctx(), &mut output);
+                clipboard_in_logical_order(ui, &mut buf, cursor);
                 if ed.has_changes() {
                     if background_ready {
                         reveal = true;
@@ -1858,13 +1977,16 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     }
                 }
                 look = Some((Arc::clone(&output.galley), output.galley_pos));
-                if let Some(cursor) = output.cursor_range {
+                if let Some(cursor) = cursor {
                     let selected = cursor.as_sorted_char_range();
-                    // The format panel styles logical bytes; a selection across runs covers a
-                    // set, and its span is the range that holds it.
-                    let span = buf.logical_span(selected.start.into()..selected.end.into());
+                    // The format panel styles logical bytes; a selection across runs is a set
+                    // of logical ranges, and each is styled on its own.
                     let byte = |index| ed.text.char_indices().nth(index).map_or(ed.text.len(), |(at, _)| at);
-                    ed.selection = (!selected.is_empty() && span.start < span.end).then(|| byte(span.start)..byte(span.end));
+                    ed.selection = if selected.is_empty() {
+                        Vec::new()
+                    } else {
+                        buf.logical_ranges(selected.start.into()..selected.end.into()).into_iter().map(|r| byte(r.start)..byte(r.end)).collect()
+                    };
                 }
                 let r = output.response;
                 if r.changed() {
@@ -1969,13 +2091,93 @@ mod tests {
         let (buf, _) = VisualText::new("שדה abc".to_owned());
         // Display 0..4 is "abc ": the logical characters " abc".
         assert_eq!(buf.logical_slice(0..4), " abc");
-        assert_eq!(buf.logical_span(0..4), 3..7);
-        // Display 1..5 covers a set that spans runs: the slice keeps just it, the span holds it.
+        assert_eq!(buf.logical_ranges(0..4), std::iter::once(3..7).collect::<Vec<_>>());
+        // Display 1..5 covers a set that spans runs: the slice keeps just it, and so do the
+        // ranges the format panel styles — "דה" and "a" between them stay unselected.
         assert_eq!(buf.logical_slice(1..5), "ש bc");
-        assert_eq!(buf.logical_span(1..5), 0..7);
+        assert_eq!(buf.logical_ranges(1..5), [0..1, 3..4, 5..7]);
         // A range past the end reads as nothing rather than panicking.
         assert_eq!(buf.logical_slice(40..90), "");
-        assert_eq!(buf.logical_span(40..90), 0..0);
+        assert!(buf.logical_ranges(40..90).is_empty());
+    }
+
+    /// Type `keys` one at a time as egui does across frames: insert at its caret, which then
+    /// moves by what was inserted and is settled, and a fresh buffer picks the caret up next
+    /// frame. `\u{8}` is Backspace. Returns the logical text.
+    fn type_keys(start: &str, keys: &str) -> String {
+        let mut text = start.to_owned();
+        let mut remembered: Option<Caret> = None;
+        let mut caret = text.chars().count();
+        for key in keys.chars() {
+            let (mut buf, _) = VisualText::new(text.clone());
+            buf.caret = remembered;
+            if key == '\u{8}' {
+                if caret > 0 {
+                    buf.delete_char_range(egui::text::CharIndex(caret - 1)..egui::text::CharIndex(caret));
+                    caret -= 1;
+                }
+            } else {
+                caret += buf.insert_text(&key.to_string(), egui::text::CharIndex(caret));
+            }
+            if let Some((shown, c)) = buf.settled() {
+                caret = shown;
+                remembered = Some(Caret { shown, logical: c.logical });
+            }
+            text = buf.logical_text();
+        }
+        text
+    }
+
+    #[test]
+    fn typing_right_to_left_then_backspace_takes_back_the_last_typed_character() {
+        // The review's case (#2233): Backspace right after typing removes the last letter typed.
+        assert_eq!(type_keys("", "مرحبا سلام\u{8}"), "مرحبا سلا");
+        assert_eq!(type_keys("", "שלום עולם\u{8}"), "שלום עול");
+        // Typing goes on where it stopped, also across a space and into a second word.
+        assert_eq!(type_keys("", "שלום עולם"), "שלום עולם");
+        assert_eq!(type_keys("", "مرحبا سلام"), "مرحبا سلام");
+        // Several Backspaces, then more typing, all at the logical end.
+        assert_eq!(type_keys("", "שלום עולם\u{8}\u{8}\u{8}\u{8}חבר"), "שלום חבר");
+        // Mixed direction: Latin and digits typed inside a Hebrew sentence stay in typing order.
+        assert_eq!(type_keys("", "מחיר 120 שקלים"), "מחיר 120 שקלים");
+        assert_eq!(type_keys("", "שלום abc\u{8}d"), "שלום abd");
+        // Left to right text is unaffected.
+        assert_eq!(type_keys("", "hello\u{8}p"), "hellp");
+    }
+
+    #[test]
+    fn one_insert_of_a_whole_sentence_leaves_the_caret_after_its_last_letter() {
+        let (mut buf, _) = VisualText::new(String::new());
+        let egui_caret = buf.insert_text("مرحبا سلام", egui::text::CharIndex(0));
+        // egui would put its caret at display 10, the far end of the reordered string, where
+        // the first word's last letter now shows; the settled caret is after the last letter typed.
+        let (shown, c) = buf.settled().expect("an edit settles the caret");
+        assert_eq!((egui_caret, c.logical), (10, 10));
+        assert_eq!(buf.order.get(shown - 1), Some(&9), "Backspace there removes logical character 9");
+        // A second event in the same frame arrives at egui's unsettled caret and still continues
+        // at the end of what was typed.
+        buf.insert_text("!", egui::text::CharIndex(egui_caret));
+        assert_eq!(buf.logical_text(), "مرحبا سلام!");
+    }
+
+    #[test]
+    fn a_caret_from_an_earlier_text_is_not_reused() {
+        let (mut buf, _) = VisualText::new("שלום".to_owned());
+        buf.insert_text("א", egui::text::CharIndex(4));
+        let (shown, c) = buf.settled().expect("settled");
+        let remembered = RememberedCaret { caret: Caret { shown, logical: c.logical }, text_hash: text_hash(&buf.logical_text()) };
+        // The text changed elsewhere (another frame's edit, undo): the remembered caret is stale.
+        assert_ne!(remembered.text_hash, text_hash("שלום"));
+        // A fresh buffer only adopts it for the same text, and never past its end.
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("caret-test");
+        ctx.data_mut(|d| d.insert_temp(caret_key(id), remembered));
+        let (mut fresh, _) = VisualText::new("שלום".to_owned());
+        fresh.remember(&ctx, id);
+        assert_eq!(fresh.caret, None);
+        let (mut same, _) = VisualText::new(buf.logical_text());
+        same.remember(&ctx, id);
+        assert_eq!(same.caret, Some(remembered.caret));
     }
 
     #[test]
@@ -2029,7 +2231,7 @@ mod tests {
         let doc = app.session.get(app.views[0].id).unwrap();
         let block = doc.text_blocks(0).remove(0);
         let ed = LineEditor {
-            selection: None,
+            selection: Vec::new(),
             font_resource: None,
             page: 0,
             block: 0,
@@ -2069,6 +2271,30 @@ mod tests {
         ed.choose_family(family);
         ed.applied();
         assert_eq!(ed.style().family, None, "an applied choice is the paragraph's font now");
+    }
+
+    #[test]
+    fn formatting_a_selection_across_runs_styles_only_the_selected_characters() {
+        // Review of #2233: display "abc שדה" for logical "שדה abc"; display 1..5 selects
+        // "ש", " " and "bc" — "דה" and "a" between them were styled too when the selection
+        // was widened to one span.
+        let (_app, mut ed) = preview_app();
+        ed.text = "שדה abc".to_owned();
+        let (buf, _) = VisualText::new(ed.text.clone());
+        let byte = |i: usize| ed.text.char_indices().nth(i).map_or(ed.text.len(), |(b, _)| b);
+        ed.selection = buf.logical_ranges(1..5).into_iter().map(|r| byte(r.start)..byte(r.end)).collect();
+        ed.look.color = [1.0, 0.0, 0.0];
+        let style = ed.style();
+        let ranges: Vec<std::ops::Range<usize>> = style.ranges.iter().map(|r| r.range.clone()).collect();
+        let pieces: Vec<&str> = ranges.iter().map(|r| ed.text.get(r.clone()).unwrap_or("?")).collect();
+        assert_eq!(pieces, ["ש", " ", "bc"], "exactly the selected characters");
+        assert!(style.ranges.iter().all(|r| r.color == Some([1.0, 0.0, 0.0])), "every piece gets the colour");
+        assert_eq!(style.color, None, "and not the whole paragraph");
+        // The pieces are disjoint and in order, as BlockStyle::ranges requires.
+        assert!(ranges.windows(2).all(|w| w[0].end <= w[1].start));
+        // A plain one-run selection is still a single range.
+        ed.selection = std::iter::once(byte(4)..byte(6)).collect();
+        assert_eq!(ed.style().ranges.len(), 1);
     }
 
     #[test]

@@ -736,16 +736,19 @@ pub(crate) fn type_box(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
             let r = {
                 // Display order on screen, the logical text written to the PDF (#2101).
                 let (mut buf, _) = crate::edit_text_ui::VisualText::new(t.text.clone());
-                let output = egui::TextEdit::singleline(&mut buf)
+                let input_id = ui.make_persistent_id("fill-text-edit");
+                buf.remember(ui.ctx(), input_id);
+                let mut output = egui::TextEdit::singleline(&mut buf)
                     .font(egui::FontId::proportional((t.size as f32 * zoom).max(8.0)))
                     .desired_width(width)
                     .background_color(Color32::from_rgba_unmultiplied(255, 255, 255, 230))
                     .text_color(Color32::BLACK)
                     .hint_text(tl!("Type text"))
-                    .id_salt("fill-text-edit")
+                    .id(input_id)
                     .show(ui);
                 t.text = buf.logical_text();
-                crate::edit_text_ui::clipboard_in_logical_order(ui, &mut buf, output.cursor_range);
+                let cursor = buf.settle(ui.ctx(), &mut output);
+                crate::edit_text_ui::clipboard_in_logical_order(ui, &mut buf, cursor);
                 output.response
             };
             if t.focus {

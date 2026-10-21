@@ -1947,3 +1947,60 @@ fn fill_and_sign_stores_typed_text_in_reading_order() {
     h.run_steps(2);
     assert_eq!(h.state().views[0].fill_text.as_ref().map(|t| t.text.as_str()), Some("ا ببببب"));
 }
+
+/// Type `keys` into whatever has focus, one control call (one frame's events) per key, as a
+/// person types; `\u{8}` presses Backspace.
+fn type_each(h: &mut Harness<'static, PdfCraftApp>, c: &ControlClient, keys: &str) {
+    for key in keys.chars() {
+        if key == '\u{8}' {
+            ok(h, c, "ui.key", json!({"key": "Backspace"}));
+        } else {
+            ok(h, c, "ui.type", json!({"text": key.to_string()}));
+        }
+        h.run_steps(1);
+    }
+    h.run_steps(1);
+}
+
+/// Review of #2233: Backspace right after typing right-to-left text removes the last character
+/// typed, and typing goes on where it stopped, in the Add text box and in Fill & Sign.
+#[test]
+fn backspace_after_typing_right_to_left_removes_the_last_typed_character() {
+    let draft = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].content.draft.as_ref().map(|d| d.text.clone());
+    let fill = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].fill_text.as_ref().map(|t| t.text.clone());
+    for add_text in [true, false] {
+        let (mut h, c) = harness_pages(1);
+        let place = |h: &mut Harness<'static, PdfCraftApp>, c: &ControlClient| {
+            let state = ok(h, c, "ui.state", json!({}));
+            let page = state["active"]["pages_on_screen"][0]["rect"].clone();
+            let (left, right, top) = (page[0].as_f64().unwrap(), page[2].as_f64().unwrap(), page[1].as_f64().unwrap());
+            let bottom = page[3].as_f64().unwrap().min(state["window"]["height"].as_f64().unwrap() - 200.0);
+            ok(h, c, "ui.click", json!({"x": left + (right - left) * 0.6, "y": top + (bottom - top) * 0.6}));
+            h.run_steps(2);
+        };
+        if add_text {
+            ok(&mut h, &c, "ui.command", json!({"id": "edit.text"}));
+        } else {
+            ok(&mut h, &c, "ui.command", json!({"id": "sign.panel"}));
+            ok(&mut h, &c, "ui.command", json!({"id": "sign.fill.text"}));
+        }
+        place(&mut h, &c);
+        let text = |h: &Harness<'static, PdfCraftApp>| if add_text { draft(h) } else { fill(h) };
+        let what = if add_text { "Add text" } else { "Fill & Sign" };
+        // The reviewer's case: a whole sentence in one go, then Backspace.
+        ok(&mut h, &c, "ui.type", json!({"text": "مرحبا سلام"}));
+        h.run_steps(2);
+        ok(&mut h, &c, "ui.key", json!({"key": "Backspace"}));
+        h.run_steps(2);
+        assert_eq!(text(&h).as_deref(), Some("مرحبا سلا"), "{what}: Backspace removes the last letter typed");
+        // Clear it, then type Hebrew key by key, with Backspaces and retyping along the way.
+        type_each(&mut h, &c, &"\u{8}".repeat(9));
+        assert_eq!(text(&h).as_deref(), Some(""), "{what}");
+        type_each(&mut h, &c, "שלום עולם");
+        assert_eq!(text(&h).as_deref(), Some("שלום עולם"), "{what}: typed key by key, in typing order");
+        type_each(&mut h, &c, "\u{8}\u{8}\u{8}\u{8}חבר");
+        assert_eq!(text(&h).as_deref(), Some("שלום חבר"), "{what}: Backspace then more typing continue at the end");
+        type_each(&mut h, &c, " 120 ₪");
+        assert_eq!(text(&h).as_deref(), Some("שלום חבר 120 ₪"), "{what}: digits and symbols inside Hebrew keep typing order");
+    }
+}
