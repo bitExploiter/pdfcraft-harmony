@@ -881,6 +881,10 @@ fn rgb_triple(v: &serde_json::Value) -> Option<[f64; 3]> {
     Some(out)
 }
 
+pub(crate) fn same_file(a: &str, b: &str) -> bool {
+    a == b || matches!((std::path::absolute(a), std::path::absolute(b)), (Ok(x), Ok(y)) if x == y)
+}
+
 impl PdfCraftApp {
     pub fn new() -> Self {
         Self {
@@ -1692,24 +1696,47 @@ impl PdfCraftApp {
         }
     }
 
+    pub(crate) fn tab_showing(&self, path: &str) -> Option<usize> {
+        self.views
+            .iter()
+            .position(|v| self.session.get(v.id).and_then(|d| d.path.as_deref()).is_some_and(|p| same_file(p, path)))
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) {
+        self.open_path_then(path, None);
+    }
+
+    /// Keep a chosen tool with its file until preparation and any password entry finish.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
+        if let Some(i) = self.tab_showing(path) {
+            self.active = Some(i);
+            if let Some(command) = then {
+                self.execute(command);
+            }
+            return;
+        }
+        if self.pending_opens.iter().any(|p| p.path.as_deref().is_some_and(|p| same_file(p, path))) {
+            return;
+        }
         let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
-        // Taken before reading: a build that rewrites the file meanwhile still counts as a change.
         let stamp = file_watch::Stamp::at(path);
-        // Before the first frame there is no interaction to keep responsive; this also preserves
-        // deterministic inline startup and test flows. Once live, reading and preparation use
-        // the bounded worker and commit on the UI thread.
         if self.ctx.is_none() || self.run_inline {
             match std::fs::read(path) {
                 Ok(bytes) => {
                     let before = self.views.len();
                     if let Err(error) = self.open_bytes(&name, Some(path.to_string()), bytes) {
                         self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
-                    } else if self.views.len() > before
-                        && let Some(doc) = self.views.last().map(|view| view.id)
-                    {
-                        self.watch.known_as(doc, stamp);
+                    } else if let Some(prompt) = self.password_prompt.as_mut().filter(|p| p.path.as_deref() == Some(path)) {
+                        prompt.then = then;
+                    } else if self.views.len() > before {
+                        if let Some(doc) = self.views.last().map(|view| view.id) {
+                            self.watch.known_as(doc, stamp);
+                        }
+                        if let Some(command) = then {
+                            self.execute(command);
+                        }
                     }
                 }
                 Err(error) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &error.to_string())]),
@@ -1726,7 +1753,7 @@ impl PdfCraftApp {
             activate: true,
             after_open: None,
             recovered: None,
-            then: None,
+            then,
         }) {
             self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
         }
@@ -3094,8 +3121,11 @@ impl PdfCraftApp {
         self.combine_thumbs_frame(ctx);
         // Retire hidden documents before admitting the visible document's textures, so the
         // three cache limits apply to the application, regardless of how many tabs are open.
+        // Side by side: the comparison's old file renders alongside the active one.
+        let partner = self.active.and_then(|i| compare_ui::side_by_side(self, i)).map(|(old, _)| old);
         for (i, view) in self.views.iter_mut().enumerate() {
             if Some(i) != self.active
+                && Some(i) != partner
                 && let Some(doc) = self.session.get(view.id)
             {
                 view.suspend_rendering(&doc.renderer);
@@ -3105,6 +3135,13 @@ impl PdfCraftApp {
             && let Some(doc) = self.session.get(view.id)
         {
             view.finish_render_frame(ctx, &doc.info, &doc.renderer);
+        }
+        if let Some(i) = partner {
+            if let Some(view) = self.views.get_mut(i)
+                && let Some(doc) = self.session.get(view.id)
+            {
+                view.finish_render_frame(ctx, &doc.info, &doc.renderer);
+            }
         }
     }
 }
