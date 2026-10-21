@@ -2448,3 +2448,5 @@ animation effects	Off	Ki
 	Your email app couldn't log on to your mailbox.	Az e-mail alkalmazásod nem tudott bejelentkezni a postafiókodba.
 	Your email app didn't open a message. It said: {why}.	Az e-mail alkalmazásod nem nyitott meg üzenetet. Ezt írta: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Nyiss egy új üzenetet nélküle, és a PdfCraft megmutatja a(z) {name} fájlt a mappájában, hogy magad csatolhasd.
+	Less	Kevesebb
+	Other options	Egyéb beállítások

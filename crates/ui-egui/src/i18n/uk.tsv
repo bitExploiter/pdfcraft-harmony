@@ -2471,3 +2471,5 @@ animation effects	Off	Вимкнено
 	Your email app couldn't log on to your mailbox.	Поштовому застосунку не вдалося увійти до вашої поштової скриньки.
 	Your email app didn't open a message. It said: {why}.	Поштовий застосунок не відкрив лист. Повідомлення: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Відкрийте новий лист без файла, і PdfCraft покаже {name} у його теці, щоб ви вклали його самі.
+	Less	Менше
+	Other options	Інші параметри

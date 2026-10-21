@@ -2413,3 +2413,5 @@ animation effects	Off	关
 	Your email app couldn't log on to your mailbox.	邮件应用无法登录你的邮箱。
 	Your email app didn't open a message. It said: {why}.	邮件应用没有打开邮件。它的回复：{why}。
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	请打开一封不带附件的新邮件，PdfCraft 会在文件夹中显示 {name}，以便你自行附加。
+	Less	收起
+	Other options	其他选项

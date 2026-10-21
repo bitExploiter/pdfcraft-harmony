@@ -2726,3 +2726,5 @@ certificate	Version	الإصدار
 	Your email app couldn't log on to your mailbox.	تعذّر على تطبيق البريد تسجيل الدخول إلى صندوق بريدك.
 	Your email app didn't open a message. It said: {why}.	لم يفتح تطبيق البريد رسالة. قال: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	افتح رسالة جديدة بدونه، وسيُظهر PdfCraft الملف {name} في مجلده لتتمكن من إرفاقه بنفسك.
+	Less	أقل
+	Other options	خيارات أخرى

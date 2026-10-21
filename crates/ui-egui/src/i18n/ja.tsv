@@ -2449,3 +2449,5 @@ animation effects	Off	オフ
 	Your email app couldn't log on to your mailbox.	メールアプリがメールボックスにログオンできませんでした。
 	Your email app didn't open a message. It said: {why}.	メールアプリがメッセージを開きませんでした。応答：{why}。
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	ファイルなしで新しいメッセージを開いてください。PdfCraft が {name} をフォルダーに表示するので、ご自身で添付できます。
+	Less	折りたたむ
+	Other options	その他のオプション

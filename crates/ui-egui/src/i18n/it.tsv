@@ -2661,3 +2661,5 @@ certificate	SHA-256 digest	Impronta SHA-256
 	Your email app couldn't log on to your mailbox.	L'app di posta non è riuscita ad accedere alla tua casella.
 	Your email app didn't open a message. It said: {why}.	L'app di posta non ha aperto un messaggio. Ha detto: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Apri un nuovo messaggio senza il file e PdfCraft mostrerà {name} nella sua cartella, così potrai allegarlo tu.
+	Less	Meno
+	Other options	Altre opzioni

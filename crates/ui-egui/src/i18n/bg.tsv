@@ -2412,3 +2412,5 @@ animation effects	Off	Изключени
 	Your email app couldn't log on to your mailbox.	Имейл приложението не можа да влезе в пощенската ви кутия.
 	Your email app didn't open a message. It said: {why}.	Имейл приложението не отвори съобщение. То съобщи: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Отворете ново съобщение без него и PdfCraft ще покаже {name} в папката му, за да го прикачите сами.
+	Less	По-малко
+	Other options	Други опции
