@@ -1423,18 +1423,23 @@ impl<'a> Device<'a> for Renderer {
         self.ctx.set_paint_transform(Affine::IDENTITY);
         self.ctx.set_aliasing_threshold(Some(1));
 
-        let target_width = (transform * Point::new(image.width() as f64, 0.0))
-            .to_vec2()
-            .length()
-            .ceil() as u32;
-        let target_height = (transform * Point::new(0.0, image.height() as f64))
-            .to_vec2()
-            .length()
-            .ceil() as u32;
+        // PdfCraft patch: (#1761, #2423) guard against zero, non-finite, or huge target dimensions
+        // which cause division-by-zero or overflows in image decoders (e.g. hayro-jpeg2000).
+        let target_dimension = {
+            // The linear part only: mapping a corner point would add the translation and inflate
+            // an image placed far from the origin.
+            let c = transform.as_coeffs();
+            let tw = f64::from(image.width()) * (c[0] * c[0] + c[1] * c[1]).sqrt();
+            let th = f64::from(image.height()) * (c[2] * c[2] + c[3] * c[3]).sqrt();
+            if tw.is_finite() && th.is_finite() && tw >= 1.0 && th >= 1.0 && tw <= 16384.0 && th <= 16384.0 {
+                Some((tw.ceil() as u32, th.ceil() as u32))
+            } else {
+                None
+            }
+        };
 
         // PdfCraft patch: previews skip images that would cover only a few device pixels.
-        // Final renders always draw them. (Measured as axis lengths: the `target_*` above
-        // map a point, so they include the translation and only suit the decode hint.)
+        // Final renders always draw them. (Measured as axis lengths, without the translation.)
         if self.preview {
             let c = transform.as_coeffs();
             let tiny_w = (f64::from(image.width()) * (c[0] * c[0] + c[1] * c[1]).sqrt()).ceil() as u32;
@@ -1576,7 +1581,7 @@ impl<'a> Device<'a> for Renderer {
                             }
                         };
                     },
-                    Some((target_width, target_height)),
+                    target_dimension,
                 );
             }
             hayro_interpret::Image::Raster(r) => {
@@ -1587,7 +1592,7 @@ impl<'a> Device<'a> for Renderer {
                         self.ctx.set_transform(transform);
                         self.draw_image(image, alpha);
                     },
-                    Some((target_width, target_height)),
+                    target_dimension,
                 );
             }
         }

@@ -343,8 +343,7 @@ fn contrast(a: Color32, b: Color32) -> f32 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-/// The inline editor's background for text drawn in `text`: white, or a dark box when the text
-/// reads better on that (white or pale text, which would vanish on white).
+/// The inline editor's fallback contrast calculator for text drawn in `text`.
 pub(crate) fn editor_fill(text: Color32) -> Color32 {
     if contrast(text, Color32::WHITE) >= contrast(text, DARK_EDITOR_FILL) { Color32::WHITE } else { DARK_EDITOR_FILL }
 }
@@ -1368,19 +1367,22 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
             }
-            // White, unless the text is too pale to read on white (white text from a coloured
-            // banner, #913): then a dark box, with a caret that shows on it.
-            let fill = if background_ready { Color32::TRANSPARENT } else { editor_fill(text_color) };
-            // Until the background worker finishes, cover the entire source box, including
-            // lines the draft no longer occupies. Shrinking the text must never expose a copy.
+            // Editing is transparent directly on the canvas. Until the textless backdrop is
+            // ready, a wash stands in for it, sized to the draft (`ed.overflow`) rather than just
+            // the source box; the caret then contrasts with that wash, as it does with the page.
+            let wash_rect = if ed.overflow { live } else { ed.rect };
+            let editor_backdrop = if background_ready { Color32::TRANSPARENT } else { editor_fill(text_color) };
             if !background_ready {
-                ui.painter().rect_filled(ed.rect.expand(1.0), CornerRadius::ZERO, fill);
+                ui.painter().rect_filled(wash_rect.expand(1.0), CornerRadius::ZERO, editor_backdrop);
             }
-            egui::Frame::NONE.fill(fill).show(ui, |ui| {
-                // A textless PDF preview keeps its real page background through the transparent editor.
-                // The temporary opaque cover uses the shared caret-contrast rule.
-                ui.visuals_mut().text_cursor.stroke.color =
-                    if background_ready { if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE } } else { caret_color_on(fill) };
+            egui::Frame::NONE.fill(Color32::TRANSPARENT).show(ui, |ui| {
+                // Translucent Acrobat-blue selection highlight, zero black selection boxes
+                ui.visuals_mut().selection.bg_fill = Color32::from_rgba_unmultiplied(0x14, 0x73, 0xE6, 80);
+                ui.visuals_mut().text_cursor.stroke.color = if background_ready {
+                    if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE }
+                } else {
+                    caret_color_on(editor_backdrop)
+                };
                 let rows = 1;
                 let snapshot = ed.clone();
                 let mut layouter =

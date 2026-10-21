@@ -1187,13 +1187,18 @@ impl Document {
         };
         let Object::Stream(s) = &*loaded else { return Err(CosError::MissingObject(num)) };
         let n = s.dict.int(b"N").unwrap_or(0).clamp(0, 1_000_000) as usize;
-        let first = s.dict.int(b"First").unwrap_or(0).max(0) as usize;
+        let first = usize::try_from(s.dict.int(b"First").unwrap_or(0).max(0)).unwrap_or(0);
         let data = s.decoded_within(self.stream_limit)?;
         let mut lx = Lexer::new(&data, 0);
-        let mut index = Vec::with_capacity(n);
+        let mut index = Vec::with_capacity(n.min(100_000));
         for _ in 0..n {
             let (Some(Object::Int(onum)), Some(Object::Int(off))) = (lx.object().ok(), lx.object().ok()) else { break };
-            index.push((onum.max(0) as u32, first + off.max(0) as usize));
+            let Ok(onum) = u32::try_from(onum) else { continue };
+            let Ok(off) = usize::try_from(off.max(0)) else { continue };
+            let Some(target_offset) = first.checked_add(off) else { continue };
+            if target_offset < data.len() {
+                index.push((onum, target_offset));
+            }
         }
         let stm = Arc::new(ObjStm { index, data: Arc::new(data) });
         // Same bound as the object cache: decoded object streams can be megabytes each.
