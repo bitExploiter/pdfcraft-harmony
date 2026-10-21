@@ -20,6 +20,7 @@ pub mod page_labels;
 mod parser;
 mod security;
 mod writer;
+pub mod xmp;
 
 pub use bytes::Bytes;
 pub use document::{Document, ReadState, Revision, SourceIdentity, XrefEntry};
