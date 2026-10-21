@@ -2508,3 +2508,30 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+# Read Out Loud
+	Activate Read Out Loud	Aktivovat hlasité čtení
+	Deactivate Read Out Loud	Deaktivovat hlasité čtení
+	Pause	Pozastavit
+	Pause / resume reading	Pozastavit / pokračovat ve čtení
+	Pause reading	Pozastavit čtení
+	Paused (page {page})	Pozastaveno (stránka {page})
+	Pitch:	Výška tónu:
+	Read Out Loud	Číst nahlas
+	Read Out Loud ({key})	Číst nahlas ({key})
+	Read Out Loud ready	Čtení nahlas připraveno
+	Read this page only	Číst pouze tuto stránku
+	Read to end of document	Číst do konce dokumentu
+	Reading Preferences	Předvolby čtení
+	Reading options…	Možnosti čtení…
+	Reading page {page}…	Čtení stránky {page}…
+	Reading preferences…	Předvolby čtení…
+	Resume	Pokračovat
+	Resume reading	Pokračovat ve čtení
+	Speed:	Rychlost:
+	Stop	Zastavit
+	Stop reading	Zastavit čtení
+	System default	Výchozí nastavení systému
+	Test voice	Vyzkoušet hlas
+	Voice and Speech	Hlas a řeč
+	Voice:	Hlas:
+	Volume:	Hlasitost:

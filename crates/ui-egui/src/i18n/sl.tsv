@@ -2439,3 +2439,30 @@ animation effects	Off	Izklopljeni
 	Make properties default	Nastavi lastnosti kot privzete
 	Pages selected	Izbrane strani
 	Page properties	Lastnosti strani
+# Read Out Loud
+	Activate Read Out Loud	Omogoči glasno branje
+	Deactivate Read Out Loud	Onemogoči glasno branje
+	Pause	Premor
+	Pause / resume reading	Premor / nadaljevanje branja
+	Pause reading	Začasno ustavi branje
+	Paused (page {page})	V premoru (stran {page})
+	Pitch:	Višina glasu:
+	Read Out Loud	Glasno branje
+	Read Out Loud ({key})	Glasno branje ({key})
+	Read Out Loud ready	Glasno branje je pripravljeno
+	Read this page only	Preberi samo to stran
+	Read to end of document	Preberi do konca dokumenta
+	Reading Preferences	Možnosti branja
+	Reading options…	Možnosti branja…
+	Reading page {page}…	Branje strani {page}…
+	Reading preferences…	Možnosti branja…
+	Resume	Nadaljuj
+	Resume reading	Nadaljuj branje
+	Speed:	Hitrost:
+	Stop	Ustavi
+	Stop reading	Ustavi branje
+	System default	Sistemsko privzeto
+	Test voice	Preizkusi glas
+	Voice and Speech	Glas in govor
+	Voice:	Glas:
+	Volume:	Glasnost:

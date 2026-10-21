@@ -6855,3 +6855,99 @@ fn text_box_and_callout_fill_and_border_through_tools() {
         assert_eq!(session.get(saved).unwrap().comment_props(0, index).unwrap().fill, None);
     }
 }
+
+static TTS_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn read_aloud_page_and_document() {
+    let _tts_lock = TTS_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = workdir("read_aloud_page");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+
+    pdfcraft_platform::tts::set_mock(true);
+    pdfcraft_platform::tts::clear_mock_spoken();
+
+    // Read single page
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "page", "page": 1 }));
+    assert_eq!(res["action"], "page");
+    assert_eq!(res["page"], 1);
+    assert_eq!(res["status"], "speaking");
+    assert!(res["text"].as_str().unwrap().contains("Page 1"));
+
+    let spoken = pdfcraft_platform::tts::take_mock_spoken();
+    assert!(!spoken.is_empty());
+    assert!(spoken.iter().any(|s| s.contains("Page 1")));
+
+    // Read to end of document
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "document", "page": 2 }));
+    assert_eq!(res["action"], "document");
+    assert_eq!(res["from_page"], 2);
+    assert_eq!(res["status"], "speaking");
+
+    let spoken = pdfcraft_platform::tts::take_mock_spoken();
+    assert!(!spoken.is_empty());
+    assert!(spoken.iter().any(|s| s.contains("Page 2") || s.contains("Page 3")));
+}
+
+#[test]
+fn read_aloud_playback_controls() {
+    let _tts_lock = TTS_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = workdir("read_aloud_ctrl");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+
+    pdfcraft_platform::tts::set_mock(true);
+    pdfcraft_platform::tts::clear_mock_spoken();
+
+    // Speak custom text
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "speak_text", "text": "Testing playback controls" }));
+    assert_eq!(res["status"], "speaking");
+
+    let st = ok(&mut a, "read_aloud_status", json!({ "doc": doc }));
+    assert_eq!(st["status"], "speaking");
+    assert_eq!(st["current_text"], "Testing playback controls");
+
+    // Pause
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "pause" }));
+    assert_eq!(res["status"], "paused");
+
+    let st = ok(&mut a, "read_aloud_status", json!({ "doc": doc }));
+    assert_eq!(st["status"], "paused");
+
+    // Resume
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "resume" }));
+    assert_eq!(res["status"], "speaking");
+
+    // Stop
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "stop" }));
+    assert_eq!(res["status"], "idle");
+
+    let st = ok(&mut a, "read_aloud_status", json!({ "doc": doc }));
+    assert_eq!(st["status"], "idle");
+}
+
+#[test]
+fn read_aloud_options_and_voices() {
+    let _tts_lock = TTS_TEST_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = workdir("read_aloud_opts");
+    let mut a = auto(&dir);
+
+    pdfcraft_platform::tts::set_mock(true);
+    pdfcraft_platform::tts::clear_mock_spoken();
+
+    let voices = ok(&mut a, "read_aloud_voices", json!({}));
+    assert!(voices["count"].as_u64().unwrap() >= 1);
+    assert!(!voices["voices"].as_array().unwrap().is_empty());
+
+    let opts = ok(&mut a, "read_aloud_options", json!({ "voice": "custom-voice", "rate": 1.25, "pitch": 1.1, "volume": 0.85 }));
+    assert_eq!(opts["voice"], "custom-voice");
+    assert!((opts["rate"].as_f64().unwrap() - 1.25).abs() < 1e-4);
+    assert!((opts["pitch"].as_f64().unwrap() - 1.1).abs() < 1e-4);
+    assert!((opts["volume"].as_f64().unwrap() - 0.85).abs() < 1e-4);
+
+    // Verify read_aloud inherits stored defaults when explicit args are omitted
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let res = ok(&mut a, "read_aloud", json!({ "doc": doc, "action": "speak_text", "text": "Testing inherited options" }));
+    assert_eq!(res["status"], "speaking");
+}

@@ -2343,3 +2343,31 @@ animation effects	Off	ఆఫ్
 	Make properties default	లక్షణాలను డిఫాల్ట్‌గా చేయి
 	Pages selected	ఎంచుకున్న పేజీలు
 	Page properties	పేజీ లక్షణాలు
+
+# Read Out Loud
+	Activate Read Out Loud	బిగ్గరగా చదవడాన్ని సక్రియం చేయండి
+	Deactivate Read Out Loud	బిగ్గరగా చదవడాన్ని నిష్క్రియం చేయండి
+	Pause	విరామం
+	Pause / resume reading	చదవడం పాజ్ చేయండి / పునఃప్రారంభించండి
+	Pause reading	చదవడాన్ని పాజ్ చేయండి
+	Paused (page {page})	పాజ్ చేయబడింది (పేజీ {page})
+	Pitch:	శృతి:
+	Read Out Loud	బిగ్గరగా చదవండి
+	Read Out Loud ({key})	బిగ్గరగా చదవండి ({key})
+	Read Out Loud ready	బిగ్గరగా చదవడం సిద్ధంగా ఉంది
+	Read this page only	ఈ పేజీని మాత్రమే చదవండి
+	Read to end of document	పత్రం చివరి వరకు చదవండి
+	Reading Preferences	పఠన ప్రాధాన్యతలు
+	Reading options…	పఠన ఎంపికలు…
+	Reading page {page}…	పేజీ {page} చదువుతోంది…
+	Reading preferences…	పఠన ప్రాధాన్యతలు…
+	Resume	కొనసాగించు
+	Resume reading	చదవడాన్ని కొనసాగించండి
+	Speed:	వేగం:
+	Stop	ఆపు
+	Stop reading	చదవడం ఆపండి
+	System default	సిస్టమ్ డిఫాల్ట్
+	Test voice	వాయిస్‌ని పరీక్షించండి
+	Voice and Speech	వాయిస్ మరియు ప్రసంగం
+	Voice:	వాయిస్:
+	Volume:	వాల్యూమ్:

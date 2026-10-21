@@ -2456,3 +2456,30 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
+# Read Out Loud
+	Activate Read Out Loud	Увімкнути читання вголос
+	Deactivate Read Out Loud	Вимкнути читання вголос
+	Pause	Пауза
+	Pause / resume reading	Призупинити / відновити читання
+	Pause reading	Призупинити читання
+	Paused (page {page})	Призупинено (сторінка {page})
+	Pitch:	Висота тону:
+	Read Out Loud	Читати вголос
+	Read Out Loud ({key})	Читати вголос ({key})
+	Read Out Loud ready	Читання вголос готове
+	Read this page only	Читати лише цю сторінку
+	Read to end of document	Читати до кінця документа
+	Reading Preferences	Параметри читання
+	Reading options…	Параметри читання…
+	Reading page {page}…	Читання сторінки {page}…
+	Reading preferences…	Параметри читання…
+	Resume	Продовжити
+	Resume reading	Продовжити читання
+	Speed:	Швидкість:
+	Stop	Зупинити
+	Stop reading	Зупинити читання
+	System default	Системний за замовчуванням
+	Test voice	Перевірити голос
+	Voice and Speech	Голос і мовлення
+	Voice:	Голос:
+	Volume:	Гучність:

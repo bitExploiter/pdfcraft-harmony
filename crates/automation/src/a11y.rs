@@ -572,6 +572,148 @@ impl Automation {
         self.session.apply(id, pdfcraft_engine::Edit::MoveTag { object, anchor, placement }).map_err(failed)?;
         self.accessibility_tags(a)
     }
+
+    /// Read PDF content out loud using platform text-to-speech.
+    pub(crate) fn read_aloud(&mut self, a: &Args) -> Result<Value> {
+        let doc = self.doc(a)?;
+        doc.check_accessibility().map_err(failed)?;
+        let action = a.opt_str("action")?.unwrap_or("page");
+        let total_pages = doc.info.pages.len();
+
+        let voice = a.opt_str("voice")?.map(str::to_string).or_else(|| self.read_aloud_options.voice.clone());
+        let rate = a.opt_num("rate")?.map(|r| r as f32).unwrap_or(self.read_aloud_options.rate);
+        let pitch = a.opt_num("pitch")?.map(|p| p as f32).unwrap_or(self.read_aloud_options.pitch);
+        let volume = a.opt_num("volume")?.map(|v| v as f32).unwrap_or(self.read_aloud_options.volume);
+        let options = pdfcraft_platform::SpeechOptions { voice, rate, pitch, volume };
+
+        match action {
+            "page" => {
+                let page_idx = match a.opt_int("page")? {
+                    Some(p) if p >= 1 && (p as usize) <= total_pages => (p - 1) as usize,
+                    Some(p) => return Err(ToolError::InvalidArgs(format!("page {p} is out of range: document has {total_pages} pages"))),
+                    None => 0,
+                };
+                let chunks = doc.read_aloud_page(page_idx);
+                let text = doc.read_aloud_text(page_idx);
+                pdfcraft_platform::tts::speak(&text, &options).map_err(|e| failed(e.to_string()))?;
+                let mut out = json!({
+                    "action": "page",
+                    "page": page_idx + 1,
+                    "chunks_count": chunks.len(),
+                    "status": "speaking"
+                });
+                if doc.check_copying().is_ok() {
+                    out["text"] = json!(text);
+                }
+                Ok(out)
+            }
+            "document" => {
+                let from_page = match a.opt_int("page")? {
+                    Some(p) if p >= 1 && (p as usize) <= total_pages => (p - 1) as usize,
+                    Some(p) => return Err(ToolError::InvalidArgs(format!("page {p} is out of range: document has {total_pages} pages"))),
+                    None => 0,
+                };
+                let chunks = doc.read_aloud_document(from_page);
+                let text = chunks.iter().map(|c| c.text.as_str()).collect::<Vec<_>>().join("\n");
+                pdfcraft_platform::tts::speak(&text, &options).map_err(|e| failed(e.to_string()))?;
+                Ok(json!({
+                    "action": "document",
+                    "from_page": from_page + 1,
+                    "chunks_count": chunks.len(),
+                    "status": "speaking"
+                }))
+            }
+            "speak_text" => {
+                let text = a.str("text")?;
+                pdfcraft_platform::tts::speak(text, &options).map_err(|e| failed(e.to_string()))?;
+                Ok(json!({
+                    "action": "speak_text",
+                    "text": text,
+                    "status": "speaking"
+                }))
+            }
+            "pause" => {
+                pdfcraft_platform::tts::pause().map_err(|e| failed(e.to_string()))?;
+                Ok(json!({ "action": "pause", "status": "paused" }))
+            }
+            "resume" => {
+                pdfcraft_platform::tts::resume().map_err(|e| failed(e.to_string()))?;
+                Ok(json!({ "action": "resume", "status": "speaking" }))
+            }
+            "stop" => {
+                pdfcraft_platform::tts::stop().map_err(|e| failed(e.to_string()))?;
+                Ok(json!({ "action": "stop", "status": "idle" }))
+            }
+            "toggle" => {
+                let current_status = pdfcraft_platform::tts::status();
+                if current_status == pdfcraft_platform::SpeechStatus::Idle {
+                    let chunks = doc.read_aloud_page(0);
+                    let text = doc.read_aloud_text(0);
+                    pdfcraft_platform::tts::speak(&text, &options).map_err(|e| failed(e.to_string()))?;
+                    let mut out = json!({ "action": "toggle", "status": "speaking", "page": 1, "chunks_count": chunks.len() });
+                    if doc.check_copying().is_ok() {
+                        out["text"] = json!(text);
+                    }
+                    Ok(out)
+                } else {
+                    pdfcraft_platform::tts::stop().map_err(|e| failed(e.to_string()))?;
+                    Ok(json!({ "action": "toggle", "status": "idle" }))
+                }
+            }
+            other => {
+                Err(ToolError::InvalidArgs(format!("unknown action {other:?}: expected page, document, pause, resume, stop, toggle, or speak_text")))
+            }
+        }
+    }
+
+    /// Get current speech playback status (idle, speaking, paused) and active text.
+    pub(crate) fn read_aloud_status(&self, a: &Args) -> Result<Value> {
+        let doc = self.doc(a)?;
+        doc.check_accessibility().map_err(failed)?;
+        let status = match pdfcraft_platform::tts::status() {
+            pdfcraft_platform::SpeechStatus::Idle => "idle",
+            pdfcraft_platform::SpeechStatus::Speaking => "speaking",
+            pdfcraft_platform::SpeechStatus::Paused => "paused",
+        };
+        let mut out = json!({
+            "status": status,
+        });
+        if doc.check_copying().is_ok() {
+            out["current_text"] = json!(pdfcraft_platform::tts::current_text());
+        }
+        Ok(out)
+    }
+
+    /// List available text-to-speech voices on the host operating system.
+    pub(crate) fn read_aloud_voices(&self, _a: &Args) -> Result<Value> {
+        let voices = pdfcraft_platform::tts::list_voices();
+        Ok(json!({
+            "count": voices.len(),
+            "voices": voices,
+        }))
+    }
+
+    /// Get or configure speech synthesis options and update automation defaults.
+    pub(crate) fn read_aloud_options(&mut self, a: &Args) -> Result<Value> {
+        if let Some(v) = a.opt_str("voice")? {
+            self.read_aloud_options.voice = Some(v.to_string());
+        }
+        if let Some(r) = a.opt_num("rate")? {
+            self.read_aloud_options.rate = r as f32;
+        }
+        if let Some(p) = a.opt_num("pitch")? {
+            self.read_aloud_options.pitch = p as f32;
+        }
+        if let Some(vol) = a.opt_num("volume")? {
+            self.read_aloud_options.volume = vol as f32;
+        }
+        Ok(json!({
+            "voice": self.read_aloud_options.voice,
+            "rate": self.read_aloud_options.rate,
+            "pitch": self.read_aloud_options.pitch,
+            "volume": self.read_aloud_options.volume,
+        }))
+    }
 }
 
 impl Automation {

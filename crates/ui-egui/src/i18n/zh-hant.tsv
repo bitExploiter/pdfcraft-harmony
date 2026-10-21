@@ -2384,3 +2384,31 @@ animation effects	Off	關
 	Make properties default	將內容設為預設
 	Pages selected	選取的頁面
 	Page properties	頁面屬性
+
+# Read Out Loud
+	Activate Read Out Loud	啟用朗讀
+	Deactivate Read Out Loud	停用朗讀
+	Pause	暫停
+	Pause / resume reading	暫停 / 繼續朗讀
+	Pause reading	暫停朗讀
+	Paused (page {page})	已暫停（第 {page} 頁）
+	Pitch:	音調：
+	Read Out Loud	朗讀
+	Read Out Loud ({key})	朗讀 ({key})
+	Read Out Loud ready	朗讀準備就緒
+	Read this page only	僅朗讀此頁
+	Read to end of document	朗讀到文件末尾
+	Reading Preferences	朗讀偏好設定
+	Reading options…	朗讀選項…
+	Reading page {page}…	正在朗讀第 {page} 頁…
+	Reading preferences…	朗讀偏好設定…
+	Resume	繼續
+	Resume reading	繼續朗讀
+	Speed:	速度：
+	Stop	停止
+	Stop reading	停止朗讀
+	System default	系統預設
+	Test voice	測試語音
+	Voice and Speech	語音與朗讀
+	Voice:	語音：
+	Volume:	音量：

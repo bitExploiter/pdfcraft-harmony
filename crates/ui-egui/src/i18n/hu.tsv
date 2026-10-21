@@ -2433,3 +2433,30 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+# Read Out Loud
+	Activate Read Out Loud	Felolvasás bekapcsolása
+	Deactivate Read Out Loud	Felolvasás kikapcsolása
+	Pause	Szünet
+	Pause / resume reading	Felolvasás szüneteltetése / folytatása
+	Pause reading	Felolvasás szüneteltetése
+	Paused (page {page})	Szüneteltetve ({page}. oldal)
+	Pitch:	Hangmagasság:
+	Read Out Loud	Felolvasás
+	Read Out Loud ({key})	Felolvasás ({key})
+	Read Out Loud ready	Felolvasás kész
+	Read this page only	Csak ezen oldal felolvasása
+	Read to end of document	Felolvasás a dokumentum végéig
+	Reading Preferences	Olvasási beállítások
+	Reading options…	Olvasási lehetőségek…
+	Reading page {page}…	{page}. oldal felolvasása…
+	Reading preferences…	Olvasási beállítások…
+	Resume	Folytatás
+	Resume reading	Felolvasás folytatása
+	Speed:	Sebesség:
+	Stop	Leállítás
+	Stop reading	Felolvasás leállítása
+	System default	Rendszer alapértelmezett
+	Test voice	Hang tesztelése
+	Voice and Speech	Hang és beszéd
+	Voice:	Hang:
+	Volume:	Hangerő:

@@ -2646,3 +2646,30 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+# Read Out Loud
+	Activate Read Out Loud	Attiva lettura a voce alta
+	Deactivate Read Out Loud	Disattiva lettura a voce alta
+	Pause	Pausa
+	Pause / resume reading	Sospendi / riprendi lettura
+	Pause reading	Sospendi lettura
+	Paused (page {page})	In pausa (pagina {page})
+	Pitch:	Tonalità:
+	Read Out Loud	Leggi a voce alta
+	Read Out Loud ({key})	Leggi a voce alta ({key})
+	Read Out Loud ready	Lettura a voce alta pronta
+	Read this page only	Leggi solo questa pagina
+	Read to end of document	Leggi fino alla fine del documento
+	Reading Preferences	Preferenze di lettura
+	Reading options…	Opzioni di lettura…
+	Reading page {page}…	Lettura pagina {page}…
+	Reading preferences…	Preferenze di lettura…
+	Resume	Riprendi
+	Resume reading	Riprendi lettura
+	Speed:	Velocità:
+	Stop	Interrompi
+	Stop reading	Interrompi lettura
+	System default	Predefinito di sistema
+	Test voice	Prova voce
+	Voice and Speech	Voce e sintesi vocale
+	Voice:	Voce:
+	Volume:	Volume:

@@ -980,6 +980,15 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 close = start || cancel;
                 return;
             }
+            Dialog::ReadAloudOptions => {
+                ui.set_width(460.0);
+                let (ok, cancel) = crate::a11y_ui::read_aloud_options_body(ui, app, &t);
+                close = ok || cancel;
+                if close {
+                    app.read_aloud.draft_options = None;
+                }
+                return;
+            }
             Dialog::Export(kind) => {
                 let (apply, cancel) = crate::export_ui::body(ui, app, &t, kind);
                 export_now = apply;
@@ -1383,6 +1392,9 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     // Protect / Remove security replace the Properties dialog.
     let replaces = link_command.is_some_and(|c| c.starts_with("protect.")) || open_revision.is_some();
     if modal.should_close() || close || replaces {
+        if dialog == Dialog::ReadAloudOptions {
+            app.read_aloud.draft_options = None;
+        }
         app.dialog = None;
         app.props_draft = None;
         app.view_draft = None;

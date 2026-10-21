@@ -9,6 +9,12 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Foundation", "Media_SpeechSynthesis", "Media_Playback", "Media_Core", "Storage_Streams"] }
+windows-future = "0.3.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # `write_atomically`: a volume that refuses F_FULLFSYNC gets a plain fsync.

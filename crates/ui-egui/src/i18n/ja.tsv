@@ -2434,3 +2434,30 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+# Read Out Loud
+	Activate Read Out Loud	読み上げを有効にする
+	Deactivate Read Out Loud	読み上げを無効にする
+	Pause	一時停止
+	Pause / resume reading	読み上げを一時停止 / 再開
+	Pause reading	読み上げを一時停止
+	Paused (page {page})	一時停止中 ({page} ページ)
+	Pitch:	ピッチ:
+	Read Out Loud	読み上げ
+	Read Out Loud ({key})	読み上げ ({key})
+	Read Out Loud ready	読み上げの準備完了
+	Read this page only	このページのみ読み上げ
+	Read to end of document	文書の最後まで読み上げ
+	Reading Preferences	読み上げ環境設定
+	Reading options…	読み上げオプション…
+	Reading page {page}…	{page} ページを読み上げ中…
+	Reading preferences…	読み上げ環境設定…
+	Resume	再開
+	Resume reading	読み上げを再開
+	Speed:	速度:
+	Stop	停止
+	Stop reading	読み上げを停止
+	System default	システムデフォルト
+	Test voice	音声をテスト
+	Voice and Speech	音声とスピーチ
+	Voice:	音声:
+	Volume:	音量:

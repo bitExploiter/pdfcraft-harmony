@@ -2435,3 +2435,30 @@ animation effects	Off	Aus
 	Make properties default	Eigenschaften als Standard festlegen
 	Pages selected	Ausgewählte Seiten
 	Page properties	Seiteneigenschaften
+# Read Out Loud
+	Activate Read Out Loud	Sprachausgabe aktivieren
+	Deactivate Read Out Loud	Sprachausgabe deaktivieren
+	Pause	Pause
+	Pause / resume reading	Vorlesen pausieren / fortsetzen
+	Pause reading	Vorlesen pausieren
+	Paused (page {page})	Pausiert (Seite {page})
+	Pitch:	Tonhöhe:
+	Read Out Loud	Laut vorlesen
+	Read Out Loud ({key})	Laut vorlesen ({key})
+	Read Out Loud ready	Laut vorlesen bereit
+	Read this page only	Nur diese Seite vorlesen
+	Read to end of document	Bis zum Ende des Dokuments vorlesen
+	Reading Preferences	Leseeinstellungen
+	Reading options…	Leseoptionen…
+	Reading page {page}…	Seite {page} wird vorgelesen…
+	Reading preferences…	Leseeinstellungen…
+	Resume	Fortsetzen
+	Resume reading	Vorlesen fortsetzen
+	Speed:	Geschwindigkeit:
+	Stop	Stopp
+	Stop reading	Vorlesen beenden
+	System default	Systemstandard
+	Test voice	Stimme testen
+	Voice and Speech	Stimme und Sprache
+	Voice:	Stimme:
+	Volume:	Lautstärke:

@@ -2440,3 +2440,31 @@ animation effects	Off	Ανενεργά
 	Make properties default	Ορισμός ιδιοτήτων ως προεπιλογή
 	Pages selected	Επιλεγμένες σελίδες
 	Page properties	Ιδιότητες σελίδας
+
+# Read Out Loud
+	Activate Read Out Loud	Ενεργοποίηση δυνατής ανάγνωσης
+	Deactivate Read Out Loud	Απενεργοποίηση δυνατής ανάγνωσης
+	Pause	Παύση
+	Pause / resume reading	Παύση / συνέχιση ανάγνωσης
+	Pause reading	Παύση ανάγνωσης
+	Paused (page {page})	Σε παύση (σελίδα {page})
+	Pitch:	Τόνος:
+	Read Out Loud	Δυνατή ανάγνωση
+	Read Out Loud ({key})	Δυνατή ανάγνωση ({key})
+	Read Out Loud ready	Η δυνατή ανάγνωση είναι έτοιμη
+	Read this page only	Ανάγνωση μόνο αυτής της σελίδας
+	Read to end of document	Ανάγνωση μέχρι το τέλος του εγγράφου
+	Reading Preferences	Προτιμήσεις ανάγνωσης
+	Reading options…	Επιλογές ανάγνωσης…
+	Reading page {page}…	Ανάγνωση σελίδας {page}…
+	Reading preferences…	Προτιμήσεις ανάγνωσης…
+	Resume	Συνέχιση
+	Resume reading	Συνέχιση ανάγνωσης
+	Speed:	Ταχύτητα:
+	Stop	Διακοπή
+	Stop reading	Διακοπή ανάγνωσης
+	System default	Προεπιλογή συστήματος
+	Test voice	Δοκιμή φωνής
+	Voice and Speech	Φωνή και ομιλία
+	Voice:	Φωνή:
+	Volume:	Ένταση:

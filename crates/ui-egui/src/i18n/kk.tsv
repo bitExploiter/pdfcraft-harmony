@@ -2432,3 +2432,30 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+# Read Out Loud
+	Activate Read Out Loud	Дауыстап оқуды белсендіру
+	Deactivate Read Out Loud	Дауыстап оқуды өшіру
+	Pause	Кідірту
+	Pause / resume reading	Оқуды кідірту / жалғастыру
+	Pause reading	Оқуды кідірту
+	Paused (page {page})	Кідіртілді ({page}-бет)
+	Pitch:	Үн биіктігі:
+	Read Out Loud	Дауыстап оқу
+	Read Out Loud ({key})	Дауыстап оқу ({key})
+	Read Out Loud ready	Дауыстап оқу дайын
+	Read this page only	Тек осы бетті оқу
+	Read to end of document	Құжаттың соңына дейін оқу
+	Reading Preferences	Оқу баптаулары
+	Reading options…	Оқу параметрлері…
+	Reading page {page}…	{page}-бетті оқу…
+	Reading preferences…	Оқу баптаулары…
+	Resume	Жалғастыру
+	Resume reading	Оқуды жалғастыру
+	Speed:	Жылдамдық:
+	Stop	Тоқтату
+	Stop reading	Оқуды тоқтату
+	System default	Жүйелік әдепкі
+	Test voice	Дауысты тексеру
+	Voice and Speech	Дауыс пен сөйлеу
+	Voice:	Дауыс:
+	Volume:	Дыбыс деңгейі:

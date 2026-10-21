@@ -2434,3 +2434,30 @@ animation effects	Off	Désactivés
 	Make properties default	Définir comme propriétés par défaut
 	Pages selected	Pages sélectionnées
 	Page properties	Propriétés de la page
+# Read Out Loud
+	Activate Read Out Loud	Activer la lecture à voix haute
+	Deactivate Read Out Loud	Désactiver la lecture à voix haute
+	Pause	Pause
+	Pause / resume reading	Mettre en pause / reprendre la lecture
+	Pause reading	Mettre en pause la lecture
+	Paused (page {page})	En pause (page {page})
+	Pitch:	Tonalité :
+	Read Out Loud	Lecture à voix haute
+	Read Out Loud ({key})	Lecture à voix haute ({key})
+	Read Out Loud ready	Lecture à voix haute prête
+	Read this page only	Lire cette page uniquement
+	Read to end of document	Lire jusqu'à la fin du document
+	Reading Preferences	Préférences de lecture
+	Reading options…	Options de lecture…
+	Reading page {page}…	Lecture de la page {page}…
+	Reading preferences…	Préférences de lecture…
+	Resume	Reprendre
+	Resume reading	Reprendre la lecture
+	Speed:	Vitesse :
+	Stop	Arrêter
+	Stop reading	Arrêter la lecture
+	System default	Système par défaut
+	Test voice	Tester la voix
+	Voice and Speech	Voix et synthèse
+	Voice:	Voix :
+	Volume:	Volume :

@@ -2347,3 +2347,30 @@ animation effects	Off	Выкл
 	Make properties default	Сделать свойства стандартными
 	Pages selected	Выделенные страницы
 	Page properties	Свойства страницы
+# Read Out Loud
+	Activate Read Out Loud	Активировать чтение вслух
+	Deactivate Read Out Loud	Деактивировать чтение вслух
+	Pause	Пауза
+	Pause / resume reading	Приостановить / возобновить чтение
+	Pause reading	Приостановить чтение
+	Paused (page {page})	Приостановлено (страница {page})
+	Pitch:	Высота тона:
+	Read Out Loud	Чтение вслух
+	Read Out Loud ({key})	Чтение вслух ({key})
+	Read Out Loud ready	Чтение вслух готово
+	Read this page only	Прочитать только эту страницу
+	Read to end of document	Прочитать до конца документа
+	Reading Preferences	Настройки чтения
+	Reading options…	Параметры чтения…
+	Reading page {page}…	Чтение страницы {page}…
+	Reading preferences…	Настройки чтения…
+	Resume	Продолжить
+	Resume reading	Возобновить чтение
+	Speed:	Скорость:
+	Stop	Остановить
+	Stop reading	Остановить чтение
+	System default	Системный по умолчанию
+	Test voice	Проверить голос
+	Voice and Speech	Голос и речь
+	Voice:	Голос:
+	Volume:	Громкость:

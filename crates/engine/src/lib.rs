@@ -30,6 +30,7 @@ pub mod ocr;
 pub mod optimizer;
 pub mod print_raster;
 pub mod printcheck;
+pub mod read_aloud;
 mod scan_colours;
 mod scan_fields;
 pub mod signature_image;
@@ -39,6 +40,7 @@ mod text_preview;
 pub mod word_count;
 pub mod xfa;
 
+pub use read_aloud::{ReadAloudChunk, ReadAloudKind};
 pub use signature_image::{ImageSignaturePreview, SignatureImage};
 pub use signature_scan::{PhotoRect, ScanError, SignaturePhoto, Turn};
 pub use text_preview::TextEditPreview;
@@ -683,6 +685,16 @@ impl Document {
     /// [`Self::allows_copying`], as the error to report when it isn't.
     pub fn check_copying(&self) -> Result<(), EditError> {
         if self.allows_copying() { Ok(()) } else { Err(EditError::NotPermitted("copying text and images")) }
+    }
+
+    /// Assistive technology extraction is allowed (Table 22, bit 10).
+    pub fn allows_accessibility(&self) -> bool {
+        self.permissions().is_none_or(|p| p.extract_for_accessibility())
+    }
+
+    /// [`Self::allows_accessibility`], as the error to report when it isn't.
+    pub fn check_accessibility(&self) -> Result<(), EditError> {
+        if self.allows_accessibility() { Ok(()) } else { Err(EditError::NotPermitted("accessibility extraction")) }
     }
 
     /// Page changes (insert, delete, rotate, move, extract) are allowed.

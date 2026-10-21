@@ -118,6 +118,8 @@ pub struct Automation {
     renderers: HashMap<DocId, (Arc<Vec<u8>>, PageRenderer)>,
     /// Extracted page text, under one memory budget across all open documents.
     texts: TextCache,
+    /// Configured speech synthesis options for Read Out Loud tools.
+    read_aloud_options: pdfcraft_platform::SpeechOptions,
 }
 
 impl Default for Automation {
@@ -128,7 +130,14 @@ impl Default for Automation {
 
 impl Automation {
     pub fn new() -> Self {
-        Self { session: Session::new(), root: None, roots: None, renderers: HashMap::new(), texts: TextCache::default() }
+        Self {
+            session: Session::new(),
+            root: None,
+            roots: None,
+            renderers: HashMap::new(),
+            texts: TextCache::default(),
+            read_aloud_options: pdfcraft_platform::SpeechOptions::default(),
+        }
     }
 
     /// Confine every path the tools read or write to `root` (relative paths resolve inside it).
@@ -809,6 +818,10 @@ impl Automation {
             "accessibility_set_tag_property" => self.accessibility_set_tag_property(&a)?,
             "accessibility_mark_tag_artifact" => self.accessibility_mark_tag_artifact(&a)?,
             "accessibility_move_tag" => self.accessibility_move_tag(&a)?,
+            "read_aloud" => self.read_aloud(&a)?,
+            "read_aloud_status" => self.read_aloud_status(&a)?,
+            "read_aloud_voices" => self.read_aloud_voices(&a)?,
+            "read_aloud_options" => self.read_aloud_options(&a)?,
             "sign_id_create" => self.sign_id_create(&a)?,
             "sign_document" => self.sign_document(&a)?,
             "sign_keychain_ids" => {

@@ -2711,3 +2711,30 @@ certificate	Version	الإصدار
 	Make properties default	جعل الخصائص افتراضية
 	Pages selected	الصفحات المحددة
 	Page properties	خصائص الصفحة
+# Read Out Loud
+	Activate Read Out Loud	تفعيل القراءة بصوت عالٍ
+	Deactivate Read Out Loud	إلغاء تفعيل القراءة بصوت عالٍ
+	Pause	إيقاف مؤقت
+	Pause / resume reading	إيقاف مؤقت / استئناف القراءة
+	Pause reading	إيقاف القراءة مؤقتًا
+	Paused (page {page})	متوقف مؤقتًا (الصفحة {page})
+	Pitch:	طبقة الصوت:
+	Read Out Loud	القراءة بصوت عالٍ
+	Read Out Loud ({key})	القراءة بصوت عالٍ ({key})
+	Read Out Loud ready	القراءة بصوت عالٍ جاهزة
+	Read this page only	قراءة هذه الصفحة فقط
+	Read to end of document	قراءة حتى نهاية المستند
+	Reading Preferences	تفضيلات القراءة
+	Reading options…	خيارات القراءة…
+	Reading page {page}…	جارٍ قراءة الصفحة {page}…
+	Reading preferences…	تفضيلات القراءة…
+	Resume	استئناف
+	Resume reading	استئناف القراءة
+	Speed:	السرعة:
+	Stop	إيقاف
+	Stop reading	إيقاف القراءة
+	System default	افتراضي النظام
+	Test voice	اختبار الصوت
+	Voice and Speech	الصوت والكلام
+	Voice:	الصوت:
+	Volume:	مستوى الصوت:
