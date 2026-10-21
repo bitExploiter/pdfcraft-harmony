@@ -116,6 +116,34 @@ fn home_removes_one_recent_file_or_clears_them_all() {
 }
 
 #[test]
+fn home_can_disable_recent_file_storage() {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1600.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.recent.push(pdfcraft_ui_egui::RecentFile { name: "existing.pdf".into(), path: "/nowhere/existing.pdf".into(), pages: 1, size: 0 });
+        app
+    });
+    h.run_steps(4);
+    h.get_by_label("Don't save recent files").click();
+    h.run_steps(2);
+
+    assert!(h.state().recent.is_empty(), "enabling the privacy toggle clears existing recent files");
+    let saved = h.state().persist();
+    let value: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert_eq!(value["disable_recent_files"], true);
+    assert_eq!(value["recent"], serde_json::json!([]), "disabled recent paths are not written to settings");
+
+    let mut restored = PdfCraftApp::new();
+    restored.restore(&saved);
+    restored.open_bytes("new.pdf", Some("/nowhere/new.pdf".into()), FIXTURE.to_vec()).expect("fixture opens");
+    assert!(restored.recent.is_empty(), "newly opened files are not remembered while disabled");
+    assert!(restored.set_option("disable_recent_files", "invalid").is_err(), "invalid preference values are rejected");
+    restored.set_option("disable_recent_files", "false").expect("recent-file storage can be re-enabled headlessly");
+    restored.open_bytes("next.pdf", Some("/nowhere/next.pdf".into()), FIXTURE.to_vec()).expect("fixture opens");
+    assert_eq!(restored.recent.len(), 1, "files opened after re-enabling are remembered");
+}
+
+#[test]
 fn every_catalog_tool_is_listed_after_view_more() {
     let mut h = harness(|_| {});
     h.get_by_label("View more").click();

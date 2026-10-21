@@ -567,6 +567,8 @@ pub struct PdfCraftApp {
     pub palette_query: String,
     pub all_tools_expanded: bool,
     pub recent: Vec<RecentFile>,
+    /// Preferences: do not retain files in Home's Recent list.
+    pub disable_recent_files: bool,
     /// Preferences: reopen the files that were open when PdfCraft last closed (#442).
     pub reopen_last_session: bool,
     /// The files open when PdfCraft last closed, read from the settings for
@@ -936,6 +938,7 @@ impl PdfCraftApp {
             palette_query: String::new(),
             all_tools_expanded: false,
             recent: Vec::new(),
+            disable_recent_files: false,
             reopen_last_session: false,
             last_session: Default::default(),
             quit_session: None,
@@ -1365,7 +1368,9 @@ impl PdfCraftApp {
             self.select_mode(self.default_mode);
             self.left_open = left_open;
         }
-        if let Some(p) = path {
+        if !self.disable_recent_files
+            && let Some(p) = path
+        {
             self.recent.retain(|r| r.path != p);
             self.recent.insert(0, RecentFile { name: name.to_string(), path: p, pages, size });
             self.recent.truncate(12);
@@ -2245,6 +2250,7 @@ impl PdfCraftApp {
     /// Serialize the user's persistent state (recent files, theme). Local only.
     pub fn persist(&self) -> String {
         let trusted: Vec<String> = self.session.trusted_certificates().iter().map(pdfcraft_engine::sign::x509::to_pem).collect();
+        let mut state = serde_json::json!({
         let mut v = serde_json::json!({
             "docking": self.docking,
             "docking_left_open": self.left_open,
@@ -2305,6 +2311,11 @@ impl PdfCraftApp {
             "comments_panel_closed": self.comments_panel_closed,
             "right_panel_closed": self.right_panel_closed,
         });
+        if self.disable_recent_files {
+            state["recent"] = serde_json::json!([]);
+        }
+        state["disable_recent_files"] = serde_json::json!(self.disable_recent_files);
+        state.to_string()
         // Set apart: one more key inside the macro above passes serde_json's recursion limit.
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
@@ -2331,7 +2342,12 @@ impl PdfCraftApp {
         if let Some(zoom) = v["combine_zoom"].as_f64() {
             self.set_combine_zoom(zoom as f32);
         }
-        if let Ok(r) = serde_json::from_value::<Vec<RecentFile>>(v["recent"].clone()) {
+        if let Some(disabled) = v["disable_recent_files"].as_bool() {
+            self.set_recent_files_disabled(disabled);
+        }
+        if self.disable_recent_files {
+            self.recent.clear();
+        } else if let Ok(r) = serde_json::from_value::<Vec<RecentFile>>(v["recent"].clone()) {
             // Only keep entries whose files still exist.
             #[cfg(not(target_arch = "wasm32"))]
             let r: Vec<RecentFile> = r.into_iter().filter(|f| std::path::Path::new(&f.path).exists()).collect();
@@ -2482,6 +2498,11 @@ impl PdfCraftApp {
     pub fn set_option(&mut self, key: &str, value: &str) -> Result<(), String> {
         let view = self.active.and_then(|i| self.views.get_mut(i));
         match (key, view) {
+            ("disable_recent_files", _) => match value {
+                "true" => self.set_recent_files_disabled(true),
+                "false" => self.set_recent_files_disabled(false),
+                _ => return Err("disable_recent_files must be true or false".into()),
+            },
             ("language", _) => {
                 let language = i18n::normalize_pref(value).ok_or_else(|| {
                     let codes: Vec<&str> = std::iter::once(i18n::AUTO).chain(i18n::Lang::all().map(i18n::Lang::code)).collect();
@@ -2793,6 +2814,13 @@ impl PdfCraftApp {
             self.pending_panel_reveals.push(docking::Panel::Tools);
         }
         Ok(())
+    }
+
+    pub(crate) fn set_recent_files_disabled(&mut self, disabled: bool) {
+        self.disable_recent_files = disabled;
+        if disabled {
+            self.recent.clear();
+        }
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {

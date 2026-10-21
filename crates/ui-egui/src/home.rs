@@ -129,19 +129,30 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
 
             ui.add_space(26.0);
             let mut clear = false;
+            let mut disable_recent_files = app.disable_recent_files;
+            let mut recent_storage_changed = false;
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new(tl!("Recent")).font(theme::semibold(17.0)));
-                if !app.recent.is_empty() {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    recent_storage_changed = ui.add(widgets::checkbox(&mut disable_recent_files, tl!("Don't save recent files"))).changed();
+                    if !app.recent.is_empty() {
                         let resp = widgets::ghost_button(ui, "trash-2", tl!("Clear"));
                         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Clear Recent Files")));
                         clear = resp.on_hover_text(tl!("Clear Recent Files")).clicked();
-                    });
-                }
+                    }
+                });
             });
+            if recent_storage_changed {
+                app.set_recent_files_disabled(disable_recent_files);
+            }
             ui.add_space(8.0);
             if app.recent.is_empty() {
-                ui.label(egui::RichText::new(tl!("Files you open in PdfCraft appear here. Drop a PDF anywhere to open it.")).color(t.text_muted));
+                let message = if app.disable_recent_files {
+                    tl!("Recent files won't be saved.")
+                } else {
+                    tl!("Files you open in PdfCraft appear here. Drop a PDF anywhere to open it.")
+                };
+                ui.label(egui::RichText::new(message).color(t.text_muted));
             }
             let mut open = None;
             let mut remove = None;
