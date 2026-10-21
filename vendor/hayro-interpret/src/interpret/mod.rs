@@ -193,6 +193,21 @@ pub fn interpret_page<'a>(
                 continue;
             }
 
+            // PdfCraft patch: annotation /OC gates its appearance and Highlight fallback.
+            // Use current layer choices and balance this scope before any later skip.
+            if let Some(oc_dict) = annot.get::<Dict<'_>>(OC) {
+                if let Some(oc_ref) = annot.get_ref(OC) {
+                    context.ocg_state.begin_ocg(&oc_dict, oc_ref.into());
+                } else {
+                    context.ocg_state.begin_ocmd(&oc_dict);
+                }
+                let visible = context.ocg_state.is_visible();
+                context.ocg_state.end_marked_content();
+                if !visible {
+                    continue;
+                }
+            }
+
             // PdfCraft patch: `/N` may be a stream or a dictionary of appearance states selected
             // by `/AS` (checkboxes, radio buttons, …). Upstream only handled the stream form.
             let normal = annot.get::<Dict<'_>>(AP).and_then(|ap| {
@@ -283,9 +298,9 @@ pub fn interpret_page<'a>(
 }
 
 /// PdfCraft patch: the normal appearance of a Highlight annotation that has none (ISO 32000-2
-/// §12.5.6.10), drawn as PdfCraft draws its own highlights (pdfcraft-annot): each /QuadPoints
+/// §12.5.6.10), drawn as PdfCraft draws its own highlights (pdfcraft-annot): each `/QuadPoints`
 /// quadrilateral filled with /C at /CA opacity, blended with Multiply so the marked-up content
-/// stays legible. /QuadPoints that aren't groups of eight numbers, or a /C that isn't a gray, RGB
+/// stays legible. `/QuadPoints` that aren't groups of eight numbers, or a /C that isn't a gray, RGB
 /// or CMYK colour (absent or empty means transparent), draw nothing.
 fn draw_highlight_without_appearance<'a>(
     annot: &Dict<'a>,
