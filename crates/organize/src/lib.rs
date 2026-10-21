@@ -38,6 +38,7 @@ pub use outline::{
 };
 pub use transition::{TRANSITION_DIRECTIONS, TRANSITION_STYLES, Transition, TransitionSpec, set_transition};
 pub use view::{InitialView, displays_doc_title, initial_view, set_initial_view};
+pub use xmp::{XmpField, replace_xmp, set_xmp_field, xmp_field, xmp_packet};
 
 #[derive(Debug, thiserror::Error, PartialEq)]
 pub enum OrganizeError {

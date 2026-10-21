@@ -2432,3 +2432,23 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Қосымша метадеректер
+	Author title	Автордың лауазымы
+	Description writer	Сипаттама авторы
+	Rating	Бағалау
+	Not rated	Бағаланбаған
+	Copyright status	Авторлық құқық күйі
+	Copyrighted	Авторлық құқықпен қорғалған
+	Public domain	Қоғамдық игілік
+	Copyright notice	Авторлық құқық туралы ескерту
+	Copyright info URL	Авторлық құқық туралы ақпарат URL мекенжайы
+	XMP metadata	XMP метадеректері
+	Import…	Импорттау…
+	This document has no XMP metadata.	Бұл құжатта XMP метадеректері жоқ.
+	Export XMP metadata	XMP метадеректерін экспорттау
+	Change additional metadata	Қосымша метадеректерді өзгерту
+	Replace XMP metadata	XMP метадеректерін ауыстыру
+	Delete XMP metadata	XMP метадеректерін жою
+	XML source	XML бастапқы коды

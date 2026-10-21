@@ -2433,3 +2433,23 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	További metaadatok
+	Author title	A szerző beosztása
+	Description writer	A leírás szerzője
+	Rating	Értékelés
+	Not rated	Nincs értékelve
+	Copyright status	Szerzői jogi állapot
+	Copyrighted	Szerzői jog által védett
+	Public domain	Közkincs
+	Copyright notice	Szerzői jogi megjegyzés
+	Copyright info URL	Szerzői jogi információk URL-je
+	XMP metadata	XMP-metaadatok
+	Import…	Importálás…
+	This document has no XMP metadata.	Ennek a dokumentumnak nincsenek XMP-metaadatai.
+	Export XMP metadata	XMP-metaadatok exportálása
+	Change additional metadata	További metaadatok módosítása
+	Replace XMP metadata	XMP-metaadatok cseréje
+	Delete XMP metadata	XMP-metaadatok törlése
+	XML source	XML-forrás

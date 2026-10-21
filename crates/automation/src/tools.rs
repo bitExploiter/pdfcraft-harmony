@@ -158,6 +158,30 @@ pub fn tools() -> Vec<ToolDef> {
         )),
         t("doc_set_info", "Set document metadata", "Set a document information entry such as Title, Author, Subject or Keywords, or a custom property under any other name (no spaces, delimiters, / or #; at most 127 bytes; doc_info lists them under custom); an empty value removes it. When the file has XMP metadata, the matching XMP property (dc:title, dc:creator, dc:description, pdf:Keywords, xmp:CreatorTool, pdf:Producer) is changed too, so viewers that read XMP first show the new value. Undoable.")
             .with(schema(json!({ "doc": doc(), "key": { "type": "string" }, "value": { "type": "string" } }), &["doc", "key", "value"])),
+        t("doc_xmp", "Additional metadata (XMP)", "Read or change Document Properties ▸ Description ▸ Additional Metadata: the XMP properties the document information has no entry for. author_title (photoshop:AuthorsPosition), description_writer (photoshop:CaptionWriter), rating (xmp:Rating: 0 to 5, or -1 for rejected), copyright_status (xmpRights:Marked: unknown, copyrighted or public_domain), copyright_notice (dc:rights) and copyright_url (xmpRights:WebStatement). Only the given ones change, together as one undoable step; an empty string removes one. A file without XMP gets a packet that also carries its title, author, subject, keywords, creator and producer (set those with doc_set_info). packet: true also returns the whole packet as text, and schemas: true its properties grouped by schema as Additional Metadata ▸ Advanced lists them ({prefix, namespace, properties: [{name, value, children}]}, arrays and structures as children). Returns the values as they are after the change.")
+            .with(schema(
+                json!({
+                    "doc": doc(),
+                    "author_title": { "type": "string" },
+                    "description_writer": { "type": "string" },
+                    "rating": { "description": "A whole number from -1 to 5, or an empty string to remove it." },
+                    "copyright_status": { "type": "string", "enum": ["unknown", "copyrighted", "public_domain", ""], "description": "\"unknown\" or an empty string removes it." },
+                    "copyright_notice": { "type": "string" },
+                    "copyright_url": { "type": "string" },
+                    "packet": { "type": "boolean", "description": "Also return the whole XMP packet as text. Default false." },
+                    "schemas": { "type": "boolean", "description": "Also return the packet's properties grouped by schema (null, with schemas_error saying why, when the packet isn't well-formed XMP). Default false." }
+                }),
+                &["doc"],
+            )),
+        t("doc_xmp_replace", "Replace XMP metadata", "Replace the document's whole XMP packet (Additional Metadata ▸ Advanced ▸ Replace): from path, an .xmp file (UTF-8, at most 8 MB), or from packet, the XML as text. It must be well-formed XML holding an rdf:RDF element, without a DTD; an xpacket header and trailer are added when it has none. packet: \"\" removes the XMP metadata. The document information (/Info) is not changed. Undoable.")
+            .destructive()
+            .with(schema(
+                json!({ "doc": doc(), "path": { "type": "string" }, "packet": { "type": "string" } }),
+                &["doc"],
+            )),
+        t("doc_xmp_export", "Export XMP metadata", "Write the document's XMP packet, as stored, to path (Additional Metadata ▸ Advanced ▸ Save), for example an .xmp file that doc_xmp_replace can import into another document. Fails when the document has no XMP metadata. The document is unchanged.")
+            .destructive()
+            .with(schema(json!({ "doc": doc(), "path": { "type": "string" } }), &["doc", "path"])),
         t("page_render", "Render a page", "Render one page to a PNG image (default 96 dpi, at most 600).")
             .ro()
             .with(schema(json!({ "doc": doc(), "page": { "type": "integer", "minimum": 1 }, "dpi": { "type": "number", "minimum": 1, "maximum": 600 },

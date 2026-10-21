@@ -28,6 +28,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let Some(dialog) = app.dialog else {
         app.props_draft = None;
         app.view_draft = None;
+        app.xmp_draft = None;
         return;
     };
     // Properties ▸ Fonts shows the fonts as they are now, after any content edits.
@@ -41,6 +42,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     {
         app.props_draft = Some((id, INFO_KEYS.map(|k| doc.info_value(k).unwrap_or_default())));
         app.view_draft = Some((id, doc.initial_view()));
+    }
+    if let (Dialog::Properties(_), Some((_, id))) = (dialog, app.active_ids())
+        && app.xmp_draft.as_ref().is_none_or(|d| d.doc != id)
+        && let Some(doc) = app.session.get(id)
+    {
+        app.xmp_draft = Some(crate::xmp_ui::XmpDraft::of(id, doc));
     }
     let mut apply = false;
     let mut split_now: Option<crate::SplitPlan> = None;
@@ -76,11 +83,14 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let mut images_now = false;
     let mut stamp_now = false;
     let mut alt_now = false;
+    let mut xmp_action: Option<crate::xmp_ui::Action> = None;
     let t = Tokens::get(ctx);
     let mut close = false;
     let mut next = dialog;
     let modal = widgets::show_modal(ctx, "dialog", |ui| {
         ui.set_width(match dialog {
+            // Wide enough for the XMP tree's namespaces and identifiers.
+            Dialog::Properties(PropsTab::Metadata) => 780.0,
             Dialog::Properties(_) => 640.0,
             Dialog::Print => 820.0,
             Dialog::FieldProps | Dialog::BulkFieldProps => 600.0,
@@ -103,6 +113,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 ui.horizontal_wrapped(|ui| {
                     for (tb, label) in [
                         (PropsTab::Description, tl!("Description")),
+                        (PropsTab::Metadata, tl!("Additional Metadata")),
                         (PropsTab::InitialView, tl!("Initial View")),
                         (PropsTab::Security, tl!("Security")),
                         (PropsTab::Fonts, tl!("Fonts")),
@@ -129,7 +140,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                     });
                     ui.end_row();
                 };
-                egui::ScrollArea::vertical().max_height(460.0).auto_shrink([false, true]).show(ui, |ui| {
+                // Additional Metadata grows with the window, for its XMP tree.
+                let height = match tab {
+                    PropsTab::Metadata => (ui.ctx().content_rect().height() - 260.0).max(460.0),
+                    _ => 460.0,
+                };
+                egui::ScrollArea::vertical().max_height(height).auto_shrink([false, true]).show(ui, |ui| {
                     egui::Grid::new("props").num_columns(2).spacing([18.0, 8.0]).min_col_width(140.0).show(ui, |ui| match tab {
                         PropsTab::Description => {
                             row(ui, "File", crate::bidi::visual(&doc.name).into_owned());
@@ -151,6 +167,9 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                             }
                             row(ui, "Application", i.creator.clone().unwrap_or_default());
                             row(ui, "PDF producer", i.producer.clone().unwrap_or_default());
+                        }
+                        PropsTab::Metadata => {
+                            xmp_action = crate::xmp_ui::tab(ui, doc, app.xmp_draft.as_mut(), &t);
                         }
                         PropsTab::InitialView => {
                             use pdfcraft_engine::{InitialLayout as L, Magnification as M, Navigation as N};
@@ -1386,9 +1405,13 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
         app.dialog = None;
         app.props_draft = None;
         app.view_draft = None;
+        app.xmp_draft = None;
         app.bulk_field_props = None;
     } else {
         app.dialog = Some(next);
+    }
+    if let Some(action) = xmp_action {
+        app.xmp_action(action);
     }
     if let Some(cmd) = link_command {
         app.execute(cmd);
@@ -1436,6 +1459,11 @@ fn draft_changes(app: &PdfCraftApp) -> Option<Vec<Edit>> {
         && *v != doc.initial_view()
     {
         edits.push(Edit::SetInitialView(Box::new(v.clone())));
+    }
+    if let Some(x) = &app.xmp_draft
+        && x.doc == *id
+    {
+        edits.extend(x.changes(doc));
     }
     Some(edits)
 }

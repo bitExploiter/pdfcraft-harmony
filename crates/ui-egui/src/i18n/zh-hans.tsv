@@ -2398,3 +2398,23 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	附加元数据
+	Author title	作者职务
+	Description writer	描述撰写者
+	Rating	评级
+	Not rated	未评级
+	Copyright status	版权状态
+	Copyrighted	受版权保护
+	Public domain	公有领域
+	Copyright notice	版权声明
+	Copyright info URL	版权信息 URL
+	XMP metadata	XMP 元数据
+	Import…	导入…
+	This document has no XMP metadata.	此文档没有 XMP 元数据。
+	Export XMP metadata	导出 XMP 元数据
+	Change additional metadata	更改附加元数据
+	Replace XMP metadata	替换 XMP 元数据
+	Delete XMP metadata	删除 XMP 元数据
+	XML source	XML 源代码

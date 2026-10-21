@@ -3493,11 +3493,11 @@ title = "Additional metadata (XMP) editor"
 area = "D"
 tier = "P2"
 milestone = "M12"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "partial"
+commands = ["file.properties"]
+tools = ["doc_xmp", "doc_xmp_replace", "doc_xmp_export"]
+evidence = ["crates/organize/src/tests.rs::additional_metadata_is_set_read_and_removed", "crates/organize/src/tests.rs::additional_metadata_adds_a_packet_mirroring_the_document_information", "crates/organize/src/tests.rs::the_xmp_packet_is_replaced_wrapped_and_removed", "crates/organize/src/tests.rs::additional_metadata_follows_the_packets_rdf_prefix", "crates/engine/src/tests.rs::an_imported_xmp_packet_is_checked_before_it_replaces_the_old_one", "crates/preflight/src/xmp.rs::packets_are_listed_by_schema_as_acrobat_lists_them", "crates/automation/tests/automation.rs::additional_metadata_is_read_changed_imported_and_exported_through_the_tools", "crates/automation/tests/automation.rs::additional_metadata_reports_a_schema_list_it_cannot_read_after_the_edit", "crates/ui-egui/tests/editing.rs::additional_metadata_is_applied_with_the_description_and_its_packet_exported_deleted_and_imported"]
+notes = "Document Properties ▸ Additional Metadata tab: author title (photoshop:AuthorsPosition), description writer (photoshop:CaptionWriter), rating (xmp:Rating, -1 to 5), copyright status (xmpRights:Marked), copyright notice (dc:rights) and copyright info URL (xmpRights:WebStatement), applied with the Description fields as one undo step; a file without XMP gets a packet that mirrors its document information. The packet is listed read-only as Acrobat's Advanced view lists it (a group per schema with its prefix and namespace, properties as name: value, arrays and structures opening onto their items; doc_xmp schemas: true), with its XML source beside it, and is exported to an .xmp file, deleted, or replaced by an imported one, which must be well-formed XML with an rdf:RDF element and no DTD (checked with the PDF/A parser's limits). Edits change only the property's text and keep the rest of the packet byte for byte; properties are found by their conventional prefixes. Not yet: Acrobat's Append (merging an imported packet into the current one), schema names in words (\"Dublin Core Properties\"; the prefix and namespace are shown), editing or deleting single properties in the tree, editing other schemas or custom namespaces, other languages of dc:rights kept apart, dc:subject mirroring Keywords, xmp:MetadataDate on change, and importing on the web build."
 
 [[feature]]
 id = "organize.document-language"

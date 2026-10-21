@@ -788,6 +788,48 @@ fn batch_is_one_undo_step_and_all_or_nothing() {
 }
 
 #[test]
+fn additional_metadata_edits_are_undoable_and_saved() {
+    let (mut s, id) = session_with(1);
+    assert_eq!(s.get(id).unwrap().xmp_packet(), None);
+    s.apply(id, Edit::SetXmp { field: XmpField::CopyrightNotice, value: "© 2026 Demo".into() }).unwrap();
+    s.apply(id, Edit::SetXmp { field: XmpField::CopyrightStatus, value: "True".into() }).unwrap();
+    let doc = s.get(id).unwrap();
+    assert_eq!(doc.xmp_field(XmpField::CopyrightNotice).as_deref(), Some("© 2026 Demo"));
+    assert!(doc.dirty);
+    assert_eq!(s.undo(id).unwrap().as_str(), "Change additional metadata");
+    assert_eq!(s.get(id).unwrap().xmp_field(XmpField::CopyrightStatus), None);
+    s.redo(id).unwrap();
+    assert_eq!(s.get(id).unwrap().xmp_field(XmpField::CopyrightStatus).as_deref(), Some("True"));
+    // A value the property doesn't take is refused and changes nothing.
+    assert!(s.apply(id, Edit::SetXmp { field: XmpField::Rating, value: "9".into() }).is_err());
+    // Saved and reopened, the packet is the document's.
+    let saved = s.save_bytes(id).unwrap();
+    let reopened = pdfcraft_cos::Document::open(saved).unwrap();
+    assert_eq!(pdfcraft_organize::xmp_field(&reopened, XmpField::CopyrightNotice).as_deref(), Some("© 2026 Demo"));
+}
+
+#[test]
+fn an_imported_xmp_packet_is_checked_before_it_replaces_the_old_one() {
+    let (mut s, id) = session_with(1);
+    s.apply(id, Edit::SetXmp { field: XmpField::AuthorTitle, value: "Editor".into() }).unwrap();
+    let before = s.get(id).unwrap().xmp_packet().unwrap();
+    for bad in ["not xml", "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>", "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"] {
+        assert!(s.apply(id, Edit::ReplaceXmp { packet: bad.into() }).is_err(), "{bad}");
+        assert_eq!(s.get(id).unwrap().xmp_packet().unwrap(), before);
+    }
+    let packet = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+                  <rdf:Description rdf:about=\"\" xmlns:photoshop=\"http://ns.adobe.com/photoshop/1.0/\" photoshop:CaptionWriter=\"Pat\"/></rdf:RDF></x:xmpmeta>";
+    s.apply(id, Edit::ReplaceXmp { packet: packet.into() }).unwrap();
+    let doc = s.get(id).unwrap();
+    assert_eq!((doc.xmp_field(XmpField::DescriptionWriter).as_deref(), doc.xmp_field(XmpField::AuthorTitle)), (Some("Pat"), None));
+    s.apply(id, Edit::ReplaceXmp { packet: String::new() }).unwrap();
+    assert_eq!(s.get(id).unwrap().xmp_packet(), None);
+    assert_eq!(s.undo(id).unwrap().as_str(), "Delete XMP metadata");
+    assert_eq!(s.undo(id).unwrap().as_str(), "Replace XMP metadata");
+    assert_eq!(s.get(id).unwrap().xmp_packet().unwrap(), before);
+}
+
+#[test]
 fn insert_blank_between_pages_keeps_both_neighbours() {
     let (mut s, id) = session_with(2);
     s.apply(id, Edit::InsertBlankPage { at: 1, width: 200.0, height: 300.0 }).unwrap();

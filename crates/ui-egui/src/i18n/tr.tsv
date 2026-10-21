@@ -2430,3 +2430,23 @@ animation effects	Off	Kapalı
 	Make properties default	Özellikleri varsayılan yap
 	Pages selected	Seçilen sayfalar
 	Page properties	Sayfa özellikleri
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Ek Meta Veriler
+	Author title	Yazarın unvanı
+	Description writer	Açıklamayı yazan
+	Rating	Derecelendirme
+	Not rated	Derecelendirilmedi
+	Copyright status	Telif hakkı durumu
+	Copyrighted	Telif hakkıyla korunuyor
+	Public domain	Kamu malı
+	Copyright notice	Telif hakkı bildirimi
+	Copyright info URL	Telif hakkı bilgisi URL'si
+	XMP metadata	XMP meta verileri
+	Import…	İçe aktar…
+	This document has no XMP metadata.	Bu belgede XMP meta verisi yok.
+	Export XMP metadata	XMP meta verilerini dışa aktar
+	Change additional metadata	Ek meta verileri değiştir
+	Replace XMP metadata	XMP meta verilerini yenisiyle değiştir
+	Delete XMP metadata	XMP meta verilerini sil
+	XML source	XML kaynağı

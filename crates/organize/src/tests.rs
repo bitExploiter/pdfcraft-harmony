@@ -531,6 +531,173 @@ fn document_info_edits_leave_files_without_usable_xmp_alone() {
     assert_eq!(xmp_stream(&doc).unwrap().decoded().unwrap(), latin1);
 }
 
+/// The text of the property `local` in namespace `ns`, read with an XML parser: the packet must
+/// be well-formed and every prefix declared.
+fn parsed_value(xmp: &str, ns: &str, local: &str) -> Option<String> {
+    let body = xmp.trim_start_matches(|c| c != '<');
+    let doc = roxmltree::Document::parse(body).unwrap_or_else(|e| panic!("{e}: {xmp}"));
+    let node = doc.descendants().find(|n| n.tag_name().namespace() == Some(ns) && n.tag_name().name() == local)?;
+    let li = node.descendants().find(|n| n.tag_name().name() == "li").unwrap_or(node);
+    li.text().map(str::to_owned)
+}
+
+const RIGHTS: &str = "http://ns.adobe.com/xap/1.0/rights/";
+const PHOTOSHOP: &str = "http://ns.adobe.com/photoshop/1.0/";
+
+#[test]
+fn additional_metadata_is_set_read_and_removed() {
+    let mut doc = doc_with_xmp(LIBREOFFICE_XMP.as_bytes());
+    set_xmp_field(&mut doc, XmpField::CopyrightStatus, "True").unwrap();
+    set_xmp_field(&mut doc, XmpField::CopyrightNotice, "© 2026 Demo & Co <legal>").unwrap();
+    set_xmp_field(&mut doc, XmpField::CopyrightUrl, "https://example.com/terms?a=1&b=2").unwrap();
+    set_xmp_field(&mut doc, XmpField::AuthorTitle, "Editor").unwrap();
+    set_xmp_field(&mut doc, XmpField::DescriptionWriter, "Pat").unwrap();
+    set_xmp_field(&mut doc, XmpField::Rating, " 4 ").unwrap();
+    let mut doc = save_and_reopen(&doc);
+    let xmp = xmp_text(&doc).unwrap();
+    assert_eq!(parsed_value(&xmp, RIGHTS, "Marked").as_deref(), Some("True"));
+    assert_eq!(parsed_value(&xmp, "http://purl.org/dc/elements/1.1/", "rights").as_deref(), Some("© 2026 Demo & Co <legal>"));
+    assert_eq!(parsed_value(&xmp, RIGHTS, "WebStatement").as_deref(), Some("https://example.com/terms?a=1&b=2"));
+    assert_eq!(parsed_value(&xmp, PHOTOSHOP, "AuthorsPosition").as_deref(), Some("Editor"));
+    assert_eq!(parsed_value(&xmp, "http://ns.adobe.com/xap/1.0/", "Rating").as_deref(), Some("4"));
+    // What was there stays.
+    assert_eq!(parsed_value(&xmp, "http://ns.adobe.com/pdf/1.3/", "Producer").as_deref(), Some("Writer 1.0"));
+    assert_eq!(parsed_value(&xmp, "http://purl.org/dc/elements/1.1/", "title").as_deref(), Some("Untitled 1"));
+    // Read back as set, unescaped.
+    let read = |doc: &Document| XmpField::ALL.map(|f| xmp_field(doc, f));
+    assert_eq!(
+        read(&doc).map(|v| v.unwrap_or_default()),
+        ["Editor", "Pat", "4", "True", "© 2026 Demo & Co <legal>", "https://example.com/terms?a=1&b=2"].map(String::from)
+    );
+    // Changed in place, then removed; removing what isn't there changes nothing.
+    set_xmp_field(&mut doc, XmpField::CopyrightStatus, "False").unwrap();
+    assert_eq!(xmp_field(&doc, XmpField::CopyrightStatus).as_deref(), Some("False"));
+    for f in XmpField::ALL {
+        set_xmp_field(&mut doc, f, "").unwrap();
+    }
+    let before = xmp_text(&doc).unwrap();
+    set_xmp_field(&mut doc, XmpField::Rating, "").unwrap();
+    assert_eq!(xmp_text(&doc).unwrap(), before);
+    assert_eq!(read(&doc), [None, None, None, None, None, None]);
+    assert_eq!(parsed_value(&before, "http://purl.org/dc/elements/1.1/", "title").as_deref(), Some("Untitled 1"));
+}
+
+#[test]
+fn additional_metadata_values_are_checked() {
+    let mut doc = doc_with_xmp(LIBREOFFICE_XMP.as_bytes());
+    let before = xmp_text(&doc).unwrap();
+    for (field, value) in [
+        (XmpField::Rating, "6"),
+        (XmpField::Rating, "-2"),
+        (XmpField::Rating, "four"),
+        (XmpField::Rating, "300"),
+        (XmpField::CopyrightStatus, "true"),
+        (XmpField::CopyrightStatus, "Copyrighted"),
+    ] {
+        assert!(matches!(set_xmp_field(&mut doc, field, value), Err(OrganizeError::Invalid(_))), "{field:?} {value}");
+    }
+    assert_eq!(xmp_text(&doc).unwrap(), before);
+    set_xmp_field(&mut doc, XmpField::Rating, "-1").unwrap();
+    assert_eq!(xmp_field(&doc, XmpField::Rating).as_deref(), Some("-1"));
+}
+
+#[test]
+fn additional_metadata_adds_a_packet_mirroring_the_document_information() {
+    // Removing from a file without XMP adds nothing.
+    let mut doc = open(fixture());
+    set_xmp_field(&mut doc, XmpField::CopyrightNotice, "").unwrap();
+    assert_eq!(xmp_text(&doc), None);
+    set_xmp_field(&mut doc, XmpField::CopyrightNotice, "© Demo").unwrap();
+    let doc = save_and_reopen(&doc);
+    let xmp = xmp_text(&doc).unwrap();
+    assert!(xmp.starts_with("<?xpacket begin=") && xmp.ends_with("<?xpacket end=\"w\"?>"), "{xmp}");
+    assert_eq!(parsed_value(&xmp, "http://purl.org/dc/elements/1.1/", "rights").as_deref(), Some("© Demo"));
+    // The fixture's /Info has a title and producer: XMP-first viewers still see them.
+    assert_eq!(parsed_value(&xmp, "http://purl.org/dc/elements/1.1/", "title").as_deref(), Some("Original"));
+    assert_eq!(parsed_value(&xmp, "http://ns.adobe.com/pdf/1.3/", "Producer").as_deref(), Some("fixture"));
+    let dict = xmp_stream(&doc).unwrap().dict;
+    assert_eq!((dict.name(b"Type"), dict.name(b"Subtype"), dict.get(b"Filter")), (Some(&b"Metadata"[..]), Some(&b"XML"[..]), None));
+    // Later document-information edits keep the new packet in step.
+    let mut doc = doc;
+    set_info(&mut doc, "Title", "Renamed").unwrap();
+    assert_eq!(parsed_value(&xmp_text(&doc).unwrap(), "http://purl.org/dc/elements/1.1/", "title").as_deref(), Some("Renamed"));
+}
+
+#[test]
+fn additional_metadata_refuses_packets_it_cannot_edit() {
+    let mut latin1 = LIBREOFFICE_XMP.as_bytes().to_vec();
+    latin1.extend_from_slice(b"<!-- \xE9 -->");
+    let mut doc = doc_with_xmp(&latin1);
+    assert!(matches!(set_xmp_field(&mut doc, XmpField::CopyrightNotice, "x"), Err(OrganizeError::Invalid(_))));
+    assert_eq!(xmp_stream(&doc).unwrap().decoded().unwrap(), latin1);
+    assert_eq!(xmp_packet(&doc).unwrap(), latin1);
+    let mut doc = doc_with_xmp(b"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>");
+    assert!(matches!(set_xmp_field(&mut doc, XmpField::CopyrightNotice, "x"), Err(OrganizeError::Invalid(_))));
+    set_xmp_field(&mut doc, XmpField::CopyrightNotice, "").unwrap();
+}
+
+#[test]
+fn additional_metadata_follows_the_packets_rdf_prefix() {
+    // The RDF namespace bound to `r`, not `rdf`: read, changed and added with the packet's prefix.
+    const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+    let xmp = format!(
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><r:RDF xmlns:r='{RDF}'><r:Description r:about=\"uuid:1\" \
+         xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:rights><r:Alt><r:li xml:lang=\"de\">Alle</r:li>\
+         <r:li xml:lang=\"x-default\">All</r:li></r:Alt></dc:rights></r:Description></r:RDF></x:xmpmeta>"
+    );
+    let mut doc = doc_with_xmp(xmp.as_bytes());
+    assert_eq!(xmp_field(&doc, XmpField::CopyrightNotice).as_deref(), Some("All"));
+    set_xmp_field(&mut doc, XmpField::CopyrightNotice, "© Demo").unwrap();
+    set_xmp_field(&mut doc, XmpField::AuthorTitle, "Editor").unwrap();
+    let doc = save_and_reopen(&doc);
+    let xmp = xmp_text(&doc).unwrap();
+    assert_eq!(parsed_value(&xmp, "http://purl.org/dc/elements/1.1/", "rights").as_deref(), Some("© Demo"));
+    assert_eq!(parsed_value(&xmp, PHOTOSHOP, "AuthorsPosition").as_deref(), Some("Editor"));
+    // The added description describes the same resource as the first.
+    let parsed = roxmltree::Document::parse(&xmp).unwrap_or_else(|e| panic!("{e}: {xmp}"));
+    let about: Vec<_> = parsed.descendants().filter(|n| n.has_tag_name((RDF, "Description"))).map(|n| n.attribute((RDF, "about"))).collect();
+    assert_eq!(about, [Some("uuid:1"); 2]);
+    assert_eq!(
+        [XmpField::CopyrightNotice, XmpField::AuthorTitle].map(|f| xmp_field(&doc, f).unwrap_or_default()),
+        ["© Demo", "Editor"].map(String::from)
+    );
+}
+
+#[test]
+fn the_xmp_packet_is_replaced_wrapped_and_removed() {
+    let mut doc = doc_with_xmp(LIBREOFFICE_XMP.as_bytes());
+    let r = catalog(&doc).reference(b"Metadata").unwrap();
+    let imported = "\u{feff}<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+        <rdf:Description rdf:about=\"\" xmlns:xmpRights=\"http://ns.adobe.com/xap/1.0/rights/\" xmpRights:Marked=\"False\"/></rdf:RDF></x:xmpmeta>\n";
+    replace_xmp(&mut doc, imported).unwrap();
+    let mut doc = save_and_reopen(&doc);
+    // The same stream, now holding the imported packet with a header and trailer.
+    assert_eq!(catalog(&doc).reference(b"Metadata"), Some(r));
+    let xmp = xmp_text(&doc).unwrap();
+    assert!(xmp.starts_with("<?xpacket begin=") && xmp.ends_with("<?xpacket end=\"w\"?>"), "{xmp}");
+    assert!(!xmp.contains("Untitled 1"));
+    assert_eq!(xmp_field(&doc, XmpField::CopyrightStatus).as_deref(), Some("False"));
+    // An .xmp file's XML declaration must come first, so it is dropped rather than wrapped.
+    let declared = format!("\u{feff}<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{}", imported.trim_start_matches('\u{feff}'));
+    replace_xmp(&mut doc, &declared).unwrap();
+    let xmp = xmp_text(&save_and_reopen(&doc)).unwrap();
+    assert!(xmp.starts_with("<?xpacket begin=") && !xmp.contains("<?xml"), "{xmp}");
+    roxmltree::Document::parse(&xmp).unwrap_or_else(|e| panic!("{e}: {xmp}"));
+    assert_eq!(xmp_field(&doc, XmpField::CopyrightStatus).as_deref(), Some("False"));
+    // A packet with its own header is stored as it is.
+    replace_xmp(&mut doc, LIBREOFFICE_XMP).unwrap();
+    assert_eq!(xmp_text(&doc).unwrap(), LIBREOFFICE_XMP);
+    // Empty removes it; removing again changes nothing; a file without one gets one.
+    replace_xmp(&mut doc, "  ").unwrap();
+    assert_eq!(catalog(&doc).get(b"Metadata"), None);
+    replace_xmp(&mut doc, "").unwrap();
+    replace_xmp(&mut doc, LIBREOFFICE_XMP).unwrap();
+    assert_eq!(xmp_text(&save_and_reopen(&doc)).unwrap(), LIBREOFFICE_XMP);
+    // Too large: refused.
+    let huge = "x".repeat(17 << 20);
+    assert!(matches!(replace_xmp(&mut doc, &huge), Err(OrganizeError::Invalid(_))));
+}
+
 #[test]
 fn successive_incremental_saves_stack_revisions() {
     let mut doc = open(fixture());

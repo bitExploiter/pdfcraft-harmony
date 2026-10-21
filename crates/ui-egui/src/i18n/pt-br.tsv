@@ -2448,3 +2448,23 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Metadados adicionais
+	Author title	Cargo do autor
+	Description writer	Autor da descrição
+	Rating	Classificação
+	Not rated	Sem classificação
+	Copyright status	Status do copyright
+	Copyrighted	Protegido por direitos autorais
+	Public domain	Domínio público
+	Copyright notice	Aviso de copyright
+	Copyright info URL	URL de informações de copyright
+	XMP metadata	Metadados XMP
+	Import…	Importar…
+	This document has no XMP metadata.	Este documento não tem metadados XMP.
+	Export XMP metadata	Exportar metadados XMP
+	Change additional metadata	Alterar metadados adicionais
+	Replace XMP metadata	Substituir metadados XMP
+	Delete XMP metadata	Excluir metadados XMP
+	XML source	Código-fonte XML

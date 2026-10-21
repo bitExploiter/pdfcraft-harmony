@@ -2434,3 +2434,23 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	追加メタデータ
+	Author title	作成者の役職
+	Description writer	概要の作成者
+	Rating	評価
+	Not rated	評価なし
+	Copyright status	著作権の状態
+	Copyrighted	著作権あり
+	Public domain	パブリックドメイン
+	Copyright notice	著作権表示
+	Copyright info URL	著作権情報のURL
+	XMP metadata	XMPメタデータ
+	Import…	読み込み…
+	This document has no XMP metadata.	この文書にはXMPメタデータがありません。
+	Export XMP metadata	XMPメタデータを書き出し
+	Change additional metadata	追加メタデータを変更
+	Replace XMP metadata	XMPメタデータを置き換え
+	Delete XMP metadata	XMPメタデータを削除
+	XML source	XMLソース

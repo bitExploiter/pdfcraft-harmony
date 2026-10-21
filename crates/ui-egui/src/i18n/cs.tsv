@@ -2508,3 +2508,23 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Další metadata
+	Author title	Pracovní pozice autora
+	Description writer	Autor popisu
+	Rating	Hodnocení
+	Not rated	Bez hodnocení
+	Copyright status	Stav autorských práv
+	Copyrighted	Chráněno autorským právem
+	Public domain	Volné dílo
+	Copyright notice	Upozornění na autorská práva
+	Copyright info URL	URL s informacemi o autorských právech
+	XMP metadata	Metadata XMP
+	Import…	Importovat…
+	This document has no XMP metadata.	Tento dokument nemá metadata XMP.
+	Export XMP metadata	Exportovat metadata XMP
+	Change additional metadata	Změnit další metadata
+	Replace XMP metadata	Nahradit metadata XMP
+	Delete XMP metadata	Odstranit metadata XMP
+	XML source	Zdrojový kód XML

@@ -1,6 +1,6 @@
 # UI and interaction parity
 
-> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (column select #740, multi-object move #844, Shift-⌘-G #810 fixed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-19 · **Change:** minor (Document Properties ▸ Additional Metadata: XMP fields, view, import, export, delete); earlier: minor (column select #740, multi-object move #844, Shift-⌘-G #810 fixed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 How PdfCraft's tools, panels, shortcuts and feel compare with Acrobat Pro's current interface (the
 2023+ "new Acrobat": All tools pane on the left, quick-action toolbar, Home view). Behaviour is
@@ -72,7 +72,7 @@ No dump of Acrobat's menu tree has been diffed against the registry yet (gap 24)
 | Item | Acrobat | PdfCraft | Status |
 |---|---|---|---|
 | Print dialog with preview | yes | yes | shipped |
-| Document Properties (description, security, fonts, initial view, custom, advanced) | yes | all but Custom and XMP | partial |
+| Document Properties (description, security, fonts, initial view, custom, advanced) | yes | all but Custom; Additional Metadata (XMP) without Append or editing in the schema tree | partial |
 | Field Properties (General, Appearance, Position, Options, Actions, Format, Validate, Calculate, Signed) | yes | all but Signed | partial |
 | Comment properties and properties bar | yes | yes | shipped |
 | Preferences | ≈ 20 pages | Interface language, Documents and view, Identity, Fill & Sign, JavaScript | partial (gap 19) |

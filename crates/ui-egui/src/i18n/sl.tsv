@@ -2439,3 +2439,23 @@ animation effects	Off	Izklopljeni
 	Make properties default	Nastavi lastnosti kot privzete
 	Pages selected	Izbrane strani
 	Page properties	Lastnosti strani
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Dodatni metapodatki
+	Author title	Položaj avtorja
+	Description writer	Avtor opisa
+	Rating	Ocena
+	Not rated	Brez ocene
+	Copyright status	Stanje avtorskih pravic
+	Copyrighted	Zaščiteno z avtorskimi pravicami
+	Public domain	Javna last
+	Copyright notice	Obvestilo o avtorskih pravicah
+	Copyright info URL	URL podatkov o avtorskih pravicah
+	XMP metadata	Metapodatki XMP
+	Import…	Uvozi…
+	This document has no XMP metadata.	Ta dokument nima metapodatkov XMP.
+	Export XMP metadata	Izvozi metapodatke XMP
+	Change additional metadata	Spremeni dodatne metapodatke
+	Replace XMP metadata	Zamenjaj metapodatke XMP
+	Delete XMP metadata	Izbriši metapodatke XMP
+	XML source	Izvorna koda XML

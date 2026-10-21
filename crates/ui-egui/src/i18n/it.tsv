@@ -2646,3 +2646,23 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Metadati aggiuntivi
+	Author title	Qualifica dell'autore
+	Description writer	Autore della descrizione
+	Rating	Valutazione
+	Not rated	Nessuna valutazione
+	Copyright status	Stato del copyright
+	Copyrighted	Protetto da copyright
+	Public domain	Pubblico dominio
+	Copyright notice	Nota sul copyright
+	Copyright info URL	URL informazioni sul copyright
+	XMP metadata	Metadati XMP
+	Import…	Importa…
+	This document has no XMP metadata.	Questo documento non ha metadati XMP.
+	Export XMP metadata	Esporta metadati XMP
+	Change additional metadata	Modifica metadati aggiuntivi
+	Replace XMP metadata	Sostituisci metadati XMP
+	Delete XMP metadata	Elimina metadati XMP
+	XML source	Sorgente XML

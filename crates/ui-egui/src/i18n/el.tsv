@@ -2440,3 +2440,23 @@ animation effects	Off	Ανενεργά
 	Make properties default	Ορισμός ιδιοτήτων ως προεπιλογή
 	Pages selected	Επιλεγμένες σελίδες
 	Page properties	Ιδιότητες σελίδας
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Πρόσθετα μεταδεδομένα
+	Author title	Θέση συντάκτη
+	Description writer	Συντάκτης περιγραφής
+	Rating	Βαθμολογία
+	Not rated	Χωρίς βαθμολογία
+	Copyright status	Κατάσταση πνευματικών δικαιωμάτων
+	Copyrighted	Με πνευματικά δικαιώματα
+	Public domain	Κοινό κτήμα
+	Copyright notice	Σημείωση πνευματικών δικαιωμάτων
+	Copyright info URL	URL πληροφοριών πνευματικών δικαιωμάτων
+	XMP metadata	Μεταδεδομένα XMP
+	Import…	Εισαγωγή…
+	This document has no XMP metadata.	Αυτό το έγγραφο δεν έχει μεταδεδομένα XMP.
+	Export XMP metadata	Εξαγωγή μεταδεδομένων XMP
+	Change additional metadata	Αλλαγή πρόσθετων μεταδεδομένων
+	Replace XMP metadata	Αντικατάσταση μεταδεδομένων XMP
+	Delete XMP metadata	Διαγραφή μεταδεδομένων XMP
+	XML source	Πηγαίος κώδικας XML

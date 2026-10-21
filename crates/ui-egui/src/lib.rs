@@ -105,6 +105,7 @@ mod signature_drag;
 pub mod units;
 mod web_print;
 mod word_count_ui;
+mod xmp_ui;
 pub use print_ui::{Handling as PrintHandling, PrintDraft, PrinterSource, Which as PrintWhich, system_printers};
 mod redact_ui;
 pub use redact_ui::{HiddenDraft, PagesDraft as RedactPagesDraft, RedactPrefs, SearchDraft as RedactSearchDraft, SearchMode as RedactSearchMode};
@@ -359,6 +360,8 @@ pub enum Dialog {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PropsTab {
     Description,
+    /// Description ▸ Additional Metadata: XMP-only properties and the packet.
+    Metadata,
     InitialView,
     Security,
     Fonts,
@@ -631,6 +634,8 @@ pub struct PdfCraftApp {
     pub props_draft: Option<(DocId, [String; 4])>,
     /// Document Properties ▸ Initial View (and reading options) being edited.
     pub view_draft: Option<(DocId, pdfcraft_engine::InitialView)>,
+    /// Document Properties ▸ Additional Metadata fields being edited.
+    pub xmp_draft: Option<xmp_ui::XmpDraft>,
     /// Files picked asynchronously for combine / insert (web).
     pub requests: files::Requests,
     /// Native file pickers in flight (they never block the frame; see `pickers`).
@@ -972,6 +977,7 @@ impl PdfCraftApp {
             pending_overwrite: None,
             save_override: None,
             props_draft: None,
+            xmp_draft: None,
             view_draft: None,
             requests: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -2540,6 +2546,7 @@ impl PdfCraftApp {
             ("dialog", _) => {
                 self.dialog = match value {
                     "properties" => Some(Dialog::Properties(PropsTab::Description)),
+                    "metadata" => Some(Dialog::Properties(PropsTab::Metadata)),
                     "security" => Some(Dialog::Properties(PropsTab::Security)),
                     "fonts" => Some(Dialog::Properties(PropsTab::Fonts)),
                     "advanced" => Some(Dialog::Properties(PropsTab::Advanced)),

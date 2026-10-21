@@ -4246,6 +4246,7 @@ dependencies = [
  "pdfcraft-content",
  "pdfcraft-cos",
  "pdfcraft-oracle",
+ "roxmltree",
  "thiserror 2.0.21",
 ]
 

@@ -43,7 +43,7 @@ pub use signature_image::{ImageSignaturePreview, SignatureImage};
 pub use signature_scan::{PhotoRect, ScanError, SignaturePhoto, Turn};
 pub use text_preview::TextEditPreview;
 
-pub use pdfcraft_organize::{BoxSpec, FieldConflicts, PageBox, SplitBy, Transition, TransitionSpec, split_ranges};
+pub use pdfcraft_organize::{BoxSpec, FieldConflicts, PageBox, SplitBy, Transition, TransitionSpec, XmpField, split_ranges};
 
 /// One file produced by a split: (1-based first page, last page, PDF bytes).
 pub use pdfcraft_organize::LabelStyle;
@@ -247,7 +247,7 @@ fn uses_scripts(edit: &Edit) -> bool {
 
 fn scope_of(edit: &Edit) -> Scope {
     match edit {
-        Edit::SetInfo { .. } => Scope::Metadata,
+        Edit::SetInfo { .. } | Edit::SetXmp { .. } | Edit::ReplaceXmp { .. } => Scope::Metadata,
         // A file attachment also changes the Attachments list.
         Edit::AddAnnotation(a) if matches!(a.shape, Shape::Attachment { .. }) => Scope::Full,
         Edit::AddMeasurement(_)
@@ -831,6 +831,16 @@ impl Document {
         self.editor.as_ref().and_then(|e| pdfcraft_organize::info(&e.cos, key))
     }
 
+    /// The document's XMP packet as stored (decoded), Document Properties ▸ Additional Metadata.
+    pub fn xmp_packet(&self) -> Option<Vec<u8>> {
+        self.editor.as_ref().and_then(|e| pdfcraft_organize::xmp_packet(&e.cos))
+    }
+
+    /// An XMP-only property of Document Properties ▸ Additional Metadata as it is now.
+    pub fn xmp_field(&self, field: pdfcraft_organize::XmpField) -> Option<String> {
+        self.editor.as_ref().and_then(|e| pdfcraft_organize::xmp_field(&e.cos, field))
+    }
+
     /// The custom document properties as they are now (name, text), Document Properties ▸ Custom.
     pub fn custom_info(&self) -> Vec<(String, String)> {
         self.editor.as_ref().map(|e| pdfcraft_organize::custom_info(&e.cos)).unwrap_or_default()
@@ -1310,6 +1320,17 @@ pub enum Edit {
     SetInfo {
         key: String,
         value: String,
+    },
+    /// Document Properties ▸ Additional Metadata: set an XMP-only property (an empty value
+    /// removes it), adding an XMP packet when the file has none.
+    SetXmp {
+        field: pdfcraft_organize::XmpField,
+        value: String,
+    },
+    /// Replace the XMP packet with `packet` (checked to be well-formed XMP first), or remove it
+    /// when `packet` is empty.
+    ReplaceXmp {
+        packet: String,
     },
     /// Insert pages from another PDF (all pages when `pages` is `None`) at position `at`.
     InsertPagesFrom {
@@ -1934,6 +1955,9 @@ pub const EDIT_LABELS: &[&str] = &[
     "Flatten Fill & Sign",
     "Protect with password",
     "Remove security",
+    "Change additional metadata",
+    "Replace XMP metadata",
+    "Delete XMP metadata",
 ];
 
 /// The names of the batches built below L7, which an interface shows in the same places as
@@ -1964,6 +1988,9 @@ impl Edit {
                 "Keywords" => Label::of("Change Keywords"),
                 _ => Label::with("Change {key}", key.as_str()),
             },
+            Edit::SetXmp { .. } => Label::of("Change additional metadata"),
+            Edit::ReplaceXmp { packet } if packet.trim().is_empty() => Label::of("Delete XMP metadata"),
+            Edit::ReplaceXmp { .. } => Label::of("Replace XMP metadata"),
             Edit::InsertPagesFrom { name, .. } => Label::with("Insert pages from {name}", name.as_str()),
             Edit::AddBookmark { .. } => Label::of("Add bookmark"),
             Edit::RenameBookmark { .. } => Label::of("Rename bookmark"),
@@ -2181,6 +2208,8 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
             }
         }
         Edit::SetInfo { .. }
+        | Edit::SetXmp { .. }
+        | Edit::ReplaceXmp { .. }
         | Edit::AddHeaderFooter { .. }
         | Edit::AddWatermark { .. }
         | Edit::AddBackground { .. }
@@ -2337,6 +2366,13 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_organize::insert_blank_page(doc, *at, *width, *height)?;
         }
         Edit::SetInfo { key, value } => pdfcraft_organize::set_info(doc, key, value)?,
+        Edit::SetXmp { field, value } => pdfcraft_organize::set_xmp_field(doc, *field, value)?,
+        Edit::ReplaceXmp { packet } => {
+            if !packet.trim().is_empty() {
+                pdfcraft_preflight::check_xmp(packet).map_err(pdfcraft_organize::OrganizeError::Invalid)?;
+            }
+            pdfcraft_organize::replace_xmp(doc, packet)?;
+        }
         Edit::DuplicatePages { pages, at } => pdfcraft_organize::duplicate_pages(doc, pages, *at)?,
         Edit::ReplacePages { pages, name, bytes, src_pages } => {
             let src = open_source(name, bytes)?;

@@ -2456,3 +2456,23 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Додаткові метадані
+	Author title	Посада автора
+	Description writer	Автор опису
+	Rating	Оцінка
+	Not rated	Без оцінки
+	Copyright status	Статус авторського права
+	Copyrighted	Захищено авторським правом
+	Public domain	Суспільне надбання
+	Copyright notice	Повідомлення про авторське право
+	Copyright info URL	URL-адреса відомостей про авторське право
+	XMP metadata	Метадані XMP
+	Import…	Імпортувати…
+	This document has no XMP metadata.	Цей документ не має метаданих XMP.
+	Export XMP metadata	Експортувати метадані XMP
+	Change additional metadata	Змінити додаткові метадані
+	Replace XMP metadata	Замінити метадані XMP
+	Delete XMP metadata	Видалити метадані XMP
+	XML source	Вихідний код XML

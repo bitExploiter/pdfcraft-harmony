@@ -2687,3 +2687,23 @@ key	Space	Space
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Siêu dữ liệu bổ sung
+	Author title	Chức danh tác giả
+	Description writer	Người viết mô tả
+	Rating	Xếp hạng
+	Not rated	Chưa xếp hạng
+	Copyright status	Trạng thái bản quyền
+	Copyrighted	Có bản quyền
+	Public domain	Phạm vi công cộng
+	Copyright notice	Thông báo bản quyền
+	Copyright info URL	URL thông tin bản quyền
+	XMP metadata	Siêu dữ liệu XMP
+	Import…	Nhập…
+	This document has no XMP metadata.	Tài liệu này không có siêu dữ liệu XMP.
+	Export XMP metadata	Xuất siêu dữ liệu XMP
+	Change additional metadata	Đổi siêu dữ liệu bổ sung
+	Replace XMP metadata	Thay thế siêu dữ liệu XMP
+	Delete XMP metadata	Xóa siêu dữ liệu XMP
+	XML source	Mã nguồn XML

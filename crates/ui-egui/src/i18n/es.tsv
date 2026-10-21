@@ -2574,3 +2574,23 @@ animation effects	Off	Desactivados
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Estás viendo la versión firmada de «{from}» (revisión {rev}). Es una instantánea: los cambios aquí no afectarán al original.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Estás viendo la revisión {rev} de «{from}». Es una instantánea: los cambios aquí no afectarán al original.
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Metadatos adicionales
+	Author title	Cargo del autor
+	Description writer	Autor de la descripción
+	Rating	Valoración
+	Not rated	Sin valorar
+	Copyright status	Estado del copyright
+	Copyrighted	Con copyright
+	Public domain	Dominio público
+	Copyright notice	Aviso de copyright
+	Copyright info URL	URL de información de copyright
+	XMP metadata	Metadatos XMP
+	Import…	Importar…
+	This document has no XMP metadata.	Este documento no tiene metadatos XMP.
+	Export XMP metadata	Exportar metadatos XMP
+	Change additional metadata	Cambiar los metadatos adicionales
+	Replace XMP metadata	Reemplazar los metadatos XMP
+	Delete XMP metadata	Eliminar los metadatos XMP
+	XML source	Código fuente XML

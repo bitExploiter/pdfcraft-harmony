@@ -47,6 +47,180 @@ fn parsed_identifier(xmp: &str, namespace: &str, local: &str) -> Result<Option<S
     Ok(None)
 }
 
+/// Why `xmp` can't be stored as a document's XMP packet, if it can't: it must be well-formed XML
+/// (no DTD) within the parser's limits, holding an `rdf:RDF` element (XMP Specification Part 1
+/// §7.3). A leading byte-order mark and an `xpacket` header and trailer are allowed.
+pub fn check_xmp(xmp: &str) -> Result<(), String> {
+    parse(xmp, |doc| match rdf_root(doc) {
+        Some(_) => Ok(()),
+        None => Err("the XMP packet has no rdf:RDF element".into()),
+    })
+}
+
+/// `xmp` parsed within the limits (no DTD), handed to `then`.
+fn parse<T>(xmp: &str, then: impl FnOnce(&roxmltree::Document) -> Result<T, String>) -> Result<T, String> {
+    let xmp = xmp.trim_start_matches('\u{feff}');
+    if xmp.len() > MAX_XMP_BYTES {
+        return Err(format!("an XMP packet is at most {} MB", MAX_XMP_BYTES >> 20));
+    }
+    if !xml_limits_ok(xmp) {
+        return Err("the XMP packet is nested too deeply or has too many attributes".into());
+    }
+    let options = roxmltree::ParsingOptions { allow_dtd: false, nodes_limit: 100_000 };
+    let doc = roxmltree::Document::parse_with_options(xmp, options).map_err(|e| format!("the XMP packet isn't well-formed XML: {e}"))?;
+    then(&doc)
+}
+
+const RDF: &str = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
+const XML: &str = "http://www.w3.org/XML/1998/namespace";
+
+/// The first `rdf:RDF` element of `doc`.
+fn rdf_root<'a, 'input>(doc: &'a roxmltree::Document<'input>) -> Option<roxmltree::Node<'a, 'input>> {
+    doc.descendants().find(|n| is_rdf(n, "RDF"))
+}
+
+fn is_rdf(n: &roxmltree::Node, local: &str) -> bool {
+    n.is_element() && n.tag_name().namespace() == Some(RDF) && n.tag_name().name() == local
+}
+
+/// The properties of one schema (namespace) of an XMP packet, as Acrobat's Additional Metadata ▸
+/// Advanced lists them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct XmpSchema {
+    /// The prefix the packet binds the namespace to (empty when it has none).
+    pub prefix: String,
+    pub namespace: String,
+    pub properties: Vec<XmpNode>,
+}
+
+/// A property, an array item or a structure field: its name (`dc:title`, or `[1]` for an item,
+/// with its `xml:lang` when it has one), its text, and what it holds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct XmpNode {
+    pub name: String,
+    pub value: Option<String>,
+    pub children: Vec<XmpNode>,
+}
+
+/// How many properties, items and fields [`xmp_schemas`] lists, and how deep it follows them; what
+/// lies beyond is left out, with a `…` node where it was.
+const MAX_NODES: usize = 5_000;
+const MAX_DEPTH: usize = 16;
+
+/// The properties of `xmp` grouped by schema, in the order the packet first uses each: the
+/// properties of every top-level `rdf:Description` (elements and attributes), with arrays
+/// (`rdf:Alt`, `rdf:Seq`, `rdf:Bag`) and structures (`rdf:Description`, `rdf:parseType="Resource"`)
+/// as children (XMP Specification Part 1 §7). Fails when the packet can't be parsed.
+pub fn xmp_schemas(xmp: &str) -> Result<Vec<XmpSchema>, String> {
+    parse(xmp, |doc| {
+        let rdf = rdf_root(doc).ok_or("the XMP packet has no rdf:RDF element")?;
+        let mut schemas: Vec<XmpSchema> = Vec::new();
+        let mut budget = MAX_NODES;
+        for description in rdf.children().filter(|n| is_rdf(n, "Description")) {
+            for (namespace, node) in fields(description, 0, &mut budget) {
+                match schemas.iter_mut().find(|s| s.namespace == namespace) {
+                    Some(s) => s.properties.push(node),
+                    None => {
+                        let prefix = description.lookup_prefix(&namespace).unwrap_or_default().to_owned();
+                        schemas.push(XmpSchema { prefix, namespace, properties: vec![node] });
+                    }
+                }
+            }
+        }
+        Ok(schemas)
+    })
+}
+
+/// The fields of a description or structure: its attributes (other than RDF's and XML's), then its
+/// child elements, each with its namespace.
+fn fields(node: roxmltree::Node, depth: usize, budget: &mut usize) -> Vec<(String, XmpNode)> {
+    let mut out = Vec::new();
+    for a in node.attributes() {
+        let ns = a.namespace().unwrap_or_default();
+        if ns == RDF || ns == XML {
+            continue;
+        }
+        if !take(budget) {
+            out.push((ns.to_owned(), more()));
+            return out;
+        }
+        out.push((ns.to_owned(), XmpNode { name: qualified(node, ns, a.name()), value: Some(a.value().trim().to_owned()), children: Vec::new() }));
+    }
+    for child in node.children().filter(roxmltree::Node::is_element) {
+        let ns = child.tag_name().namespace().unwrap_or_default().to_owned();
+        if !take(budget) {
+            out.push((ns, more()));
+            return out;
+        }
+        let name = qualified(child, &ns, child.tag_name().name());
+        out.push((ns, property(child, name, depth + 1, budget)));
+    }
+    out
+}
+
+/// The property (or item) element `el`, named `name`.
+fn property(el: roxmltree::Node, name: String, depth: usize, budget: &mut usize) -> XmpNode {
+    if depth > MAX_DEPTH {
+        return XmpNode { name, value: None, children: vec![more()] };
+    }
+    if let Some(uri) = el.attribute((RDF, "resource")) {
+        return XmpNode { name, value: Some(uri.trim().to_owned()), children: Vec::new() };
+    }
+    let elements: Vec<_> = el.children().filter(roxmltree::Node::is_element).collect();
+    // An array: its items, numbered from 1 as Acrobat numbers them.
+    if let [array] = elements.as_slice()
+        && (is_rdf(array, "Alt") || is_rdf(array, "Seq") || is_rdf(array, "Bag"))
+    {
+        let mut children = Vec::new();
+        for (i, li) in array.children().filter(|n| is_rdf(n, "li")).enumerate() {
+            if !take(budget) {
+                children.push(more());
+                break;
+            }
+            let label = match li.attribute((XML, "lang")) {
+                Some(lang) => format!("[{}] {lang}", i + 1),
+                None => format!("[{}]", i + 1),
+            };
+            children.push(property(li, label, depth + 1, budget));
+        }
+        return XmpNode { name, value: None, children };
+    }
+    // A structure, written as a nested description or with parseType="Resource"; or a simple
+    // value whose element also carries qualifiers or shorthand fields as attributes.
+    let holder = match elements.as_slice() {
+        [d] if is_rdf(d, "Description") => *d,
+        _ => el,
+    };
+    let text: String = el.children().filter(roxmltree::Node::is_text).filter_map(|t| t.text()).collect();
+    let text = text.trim();
+    let children = fields(holder, depth, budget).into_iter().map(|(_, n)| n).collect();
+    XmpNode { name, value: (!text.is_empty()).then(|| text.to_owned()), children }
+}
+
+/// `prefix:local` for a name in namespace `ns`, as the packet writes it at `node`.
+fn qualified(node: roxmltree::Node, ns: &str, local: &str) -> String {
+    match node.lookup_prefix(ns).filter(|p| !p.is_empty()) {
+        Some(prefix) => format!("{prefix}:{local}"),
+        None => local.to_owned(),
+    }
+}
+
+/// Count one more node against the budget; false when it is spent.
+fn take(budget: &mut usize) -> bool {
+    match budget.checked_sub(1) {
+        Some(left) => {
+            *budget = left;
+            true
+        }
+        None => false,
+    }
+}
+
+/// Where nodes past the limits were left out.
+fn more() -> XmpNode {
+    XmpNode { name: "…".into(), value: None, children: Vec::new() }
+}
+
 /// Reject deep XML and start tags with too many attributes before roxmltree checks duplicates.
 /// Each unquoted `=` in a valid start tag introduces an attribute, including namespace bindings.
 /// Every `b[i]` and `hay[p..]` below is guarded by `i < b.len()` / `p < hay.len()`.
@@ -247,6 +421,100 @@ mod tests {
 #[cfg(test)]
 mod limit_tests {
     use super::*;
+
+    /// The shape Acrobat's own packets have: one description per schema, element and attribute
+    /// forms, a language alternative, an ordered array, a structure and a custom namespace.
+    #[test]
+    fn packets_are_listed_by_schema_as_acrobat_lists_them() {
+        let xmp = "<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+            <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">\
+            <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\">\
+              <xmp:CreateDate>2026-02-13T15:35:27+07:00</xmp:CreateDate><xmp:CreatorTool> Writer &amp; Co </xmp:CreatorTool></rdf:Description>\
+            <rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\">\
+              <dc:title><rdf:Alt><rdf:li xml:lang=\"x-default\">Report</rdf:li><rdf:li xml:lang=\"th\">รายงาน</rdf:li></rdf:Alt></dc:title>\
+              <dc:creator><rdf:Seq><rdf:li>Pat</rdf:li></rdf:Seq></dc:creator></rdf:Description>\
+            <rdf:Description rdf:about=\"\" xmlns:xmp=\"http://ns.adobe.com/xap/1.0/\" xmp:ModifyDate=\"2026-02-14\"/>\
+            <rdf:Description rdf:about=\"\" xmlns:xmpMM=\"http://ns.adobe.com/xap/1.0/mm/\" xmlns:stRef=\"http://ns.adobe.com/xap/1.0/sType/ResourceRef#\">\
+              <xmpMM:DerivedFrom rdf:parseType=\"Resource\"><stRef:documentID>uuid:1</stRef:documentID></xmpMM:DerivedFrom>\
+              <xmpMM:History><rdf:Seq><rdf:li><rdf:Description stRef:instanceID=\"uuid:2\"/></rdf:li></rdf:Seq></xmpMM:History></rdf:Description>\
+            <rdf:Description rdf:about=\"\" xmlns:pm=\"https://example.invalid/ns/stamp/1.0/\" pm:CopyType=\"CUSTODIAN\" pm:Origin=\"Thailand\"/>\
+            </rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        let leaf = |name: &str, value: &str| XmpNode { name: name.into(), value: Some(value.into()), children: vec![] };
+        let schemas = xmp_schemas(xmp).unwrap();
+        let heads: Vec<_> = schemas.iter().map(|s| (s.prefix.as_str(), s.namespace.as_str(), s.properties.len())).collect();
+        assert_eq!(
+            heads,
+            [
+                ("xmp", "http://ns.adobe.com/xap/1.0/", 3),
+                ("dc", "http://purl.org/dc/elements/1.1/", 2),
+                ("xmpMM", "http://ns.adobe.com/xap/1.0/mm/", 2),
+                ("pm", "https://example.invalid/ns/stamp/1.0/", 2)
+            ]
+        );
+        // A schema written in two descriptions is one group, in the packet's order.
+        assert_eq!(
+            schemas[0].properties,
+            [leaf("xmp:CreateDate", "2026-02-13T15:35:27+07:00"), leaf("xmp:CreatorTool", "Writer & Co"), leaf("xmp:ModifyDate", "2026-02-14")]
+        );
+        let title = &schemas[1].properties[0];
+        assert_eq!((title.name.as_str(), &title.value), ("dc:title", &None));
+        assert_eq!(title.children, [leaf("[1] x-default", "Report"), leaf("[2] th", "รายงาน")]);
+        assert_eq!(schemas[1].properties[1].children, [leaf("[1]", "Pat")]);
+        // Structures: parseType="Resource", and a description inside an item.
+        assert_eq!(schemas[2].properties[0].children, [leaf("stRef:documentID", "uuid:1")]);
+        assert_eq!(schemas[2].properties[1].children[0].children, [leaf("stRef:instanceID", "uuid:2")]);
+        assert_eq!(schemas[3].properties, [leaf("pm:CopyType", "CUSTODIAN"), leaf("pm:Origin", "Thailand")]);
+    }
+
+    #[test]
+    fn listing_is_bounded_and_refuses_what_it_cannot_parse() {
+        let rdf = |body: &str| format!("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" xmlns:a=\"urn:a\">{body}</rdf:RDF>");
+        assert_eq!(xmp_schemas(&rdf("")), Ok(vec![]));
+        assert!(xmp_schemas("<x/>").is_err());
+        assert!(xmp_schemas("not xml").is_err());
+        // Wide: the budget ends the list with a marker.
+        let many = rdf(&format!("<rdf:Description>{}</rdf:Description>", "<a:p>v</a:p>".repeat(MAX_NODES + 10)));
+        let props = &xmp_schemas(&many).unwrap()[0].properties;
+        assert_eq!(props.len(), MAX_NODES + 1);
+        assert_eq!(props.last().unwrap().name, "…");
+        // Deep: structures past the depth limit are cut.
+        let deep = rdf(&format!(
+            "<rdf:Description>{}v{}</rdf:Description>",
+            "<a:s rdf:parseType=\"Resource\">".repeat(40).replace("Resource\">", "Resource\"><a:t>"),
+            "</a:t></a:s>".repeat(40)
+        ));
+        let mut node = &xmp_schemas(&deep).unwrap()[0].properties[0];
+        let mut levels = 0;
+        while let Some(next) = node.children.first() {
+            node = next;
+            levels += 1;
+        }
+        assert!(levels <= 2 * MAX_DEPTH && node.name == "…", "{levels} {node:?}");
+    }
+
+    #[test]
+    fn packets_are_checked_before_they_are_stored() {
+        let ok = "\u{feff}<?xpacket begin=\"\u{feff}\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>\n<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">\
+                  <rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>\n<?xpacket end=\"w\"?>";
+        assert_eq!(check_xmp(ok), Ok(()));
+        // Another prefix for the same namespace is the same element.
+        assert_eq!(check_xmp("<r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>"), Ok(()));
+        for bad in [
+            "",
+            "plain text",
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"/>",
+            "<rdf:RDF/>",
+            "<rdf:RDF xmlns:rdf=\"urn:other\"/>",
+            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">",
+            "<!DOCTYPE x [<!ENTITY e \"e\">]><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/>",
+        ] {
+            assert!(check_xmp(bad).is_err(), "{bad}");
+        }
+        let deep =
+            format!("<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">{}{}</rdf:RDF>", "<a>".repeat(2000), "</a>".repeat(2000));
+        assert!(check_xmp(&deep).unwrap_err().contains("deeply"));
+        assert!(check_xmp(&"x".repeat(9 << 20)).unwrap_err().contains("MB"));
+    }
 
     #[test]
     fn attribute_and_namespace_budgets_bound_parser_work() {

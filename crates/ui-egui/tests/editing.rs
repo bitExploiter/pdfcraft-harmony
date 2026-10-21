@@ -926,6 +926,97 @@ fn cancelling_properties_discards_the_draft() {
 }
 
 #[test]
+fn additional_metadata_is_applied_with_the_description_and_its_packet_exported_deleted_and_imported() {
+    use pdfcraft_engine::XmpField;
+    let xmp = std::env::temp_dir().join(format!("pdfcraft-ui-xmp-{}.xmp", std::process::id()));
+    let _ = std::fs::remove_file(&xmp);
+    let mut h = harness(1, |app| app.set_option("dialog", "properties").unwrap());
+    let title = h.get_by_role_and_label(Role::TextInput, "Title");
+    title.focus();
+    title.type_text("Annual report");
+    h.run_steps(2);
+    h.get_by_label("Additional Metadata").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("This document has no XMP metadata.").is_some());
+    let position = h.get_by_role_and_label(Role::TextInput, "Author title");
+    position.focus();
+    position.type_text("Editor");
+    h.run_steps(2);
+    let notice = h.get_by_role_and_label(Role::MultilineTextInput, "Copyright notice");
+    notice.focus();
+    notice.type_text("© 2026 Finance team");
+    h.run_steps(2);
+    h.get_by_value("Unknown").click(); // the copyright status menu
+    h.run_steps(3);
+    h.get_by_label("Copyrighted").click();
+    h.run_steps(3);
+    // The Description draft is kept across tabs: one OK applies both, as one step.
+    h.get_by_label("OK").click();
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.info_value("Title").as_deref(), Some("Annual report"));
+    assert_eq!(doc.xmp_field(XmpField::AuthorTitle).as_deref(), Some("Editor"));
+    assert_eq!(doc.xmp_field(XmpField::CopyrightNotice).as_deref(), Some("© 2026 Finance team"));
+    assert_eq!(doc.xmp_field(XmpField::CopyrightStatus).as_deref(), Some("True"));
+    assert_eq!(doc.can_undo(), Some("Change document properties"));
+    assert!(app.dialog.is_none() && app.xmp_draft.is_none());
+
+    // Export writes the packet; Delete removes it; Import brings it back.
+    h.state_mut().save_override = Some(xmp.to_string_lossy().into_owned());
+    h.state_mut().set_option("dialog", "properties").unwrap();
+    h.run_steps(2);
+    h.get_by_label("Additional Metadata").click();
+    // The dialog grows while the XMP tree's groups open (about eight frames), and egui centers it
+    // from the previous frame's size: a click before then lands where the button was.
+    h.run_steps(12);
+    h.get_by_label("Export…").click();
+    h.run_steps(3);
+    // The packet is listed by schema, as Acrobat's Advanced view lists it.
+    assert!(h.query_by_label_contains("http://purl.org/dc/elements/1.1/").is_some());
+    assert!(h.query_by_label("dc:title").is_some());
+    let written = std::fs::read_to_string(&xmp).unwrap();
+    assert!(written.contains("© 2026 Finance team") && written.contains(">Annual report<"), "{written}");
+    h.get_by_label("Delete").click();
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.xmp_packet(), None);
+    assert_eq!(doc.can_undo(), Some("Delete XMP metadata"));
+    assert!(h.query_by_label("This document has no XMP metadata.").is_some(), "the tab shows the document as it is now");
+    h.get_by_label("Import…").click();
+    h.run_steps(3);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!(doc.xmp_field(XmpField::CopyrightStatus).as_deref(), Some("True"));
+    assert_eq!(doc.can_undo(), Some("Replace XMP metadata"));
+    let _ = std::fs::remove_file(&xmp);
+
+    // Larger than the packet check takes, and what isn't a regular file (a FIFO would block the
+    // frame), are refused before they are read, changing nothing.
+    let dir = std::env::temp_dir().join(format!("pdfcraft-ui-xmp-refused-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(dir.join("folder.xmp")).unwrap();
+    std::fs::write(dir.join("big.xmp"), vec![b' '; (8 << 20) + 1]).unwrap();
+    let mut refused = vec![("big.xmp", "larger than 8 MB"), ("folder.xmp", "not a regular file")];
+    #[cfg(unix)]
+    if std::process::Command::new("mkfifo").arg(dir.join("pipe.xmp")).status().is_ok_and(|s| s.success()) {
+        refused.push(("pipe.xmp", "not a regular file"));
+    }
+    for (name, why) in refused {
+        h.state_mut().toast = None;
+        h.state_mut().save_override = Some(dir.join(name).to_string_lossy().into_owned());
+        h.get_by_label("Import…").click();
+        h.run_steps(3);
+        let toast = h.state().toast.as_ref().map(|t| t.0.clone()).unwrap_or_default();
+        assert!(toast.contains(why), "{name}: {toast}");
+        let app = h.state();
+        assert_eq!(app.session.get(app.views[0].id).unwrap().can_undo(), Some("Replace XMP metadata"), "{name}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn edit_menu_names_the_step_to_undo() {
     let mut h = harness(2, |app| {
         app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });

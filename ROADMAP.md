@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M12, PR #3486: Document Properties ▸ Additional Metadata (XMP) and the `doc_xmp` tools; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M6: CSV tab-containing headers; estimates unchanged)
@@ -172,6 +173,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-19 (M12, Additional Metadata):** Document Properties ▸ Additional Metadata edits the XMP-only properties (author title, description writer, rating, copyright status, notice and info URL) with the Description fields as one undo step, adding a packet that mirrors the document information when the file has none; the packet is listed by schema and property as Acrobat's Advanced view lists it, and can be exported, deleted or replaced by an imported .xmp file that is checked to be well-formed XMP first. Headless tools doc_xmp, doc_xmp_replace and doc_xmp_export (read and write roots honoured). Not yet: Append, editing single properties in the tree, the web build's import. Estimates unchanged.
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.

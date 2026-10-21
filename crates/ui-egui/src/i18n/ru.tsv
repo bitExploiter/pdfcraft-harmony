@@ -2347,3 +2347,23 @@ animation effects	Off	Выкл
 	Make properties default	Сделать свойства стандартными
 	Pages selected	Выделенные страницы
 	Page properties	Свойства страницы
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	Дополнительные метаданные
+	Author title	Должность автора
+	Description writer	Автор описания
+	Rating	Оценка
+	Not rated	Без оценки
+	Copyright status	Статус авторского права
+	Copyrighted	Защищено авторским правом
+	Public domain	Общественное достояние
+	Copyright notice	Уведомление об авторском праве
+	Copyright info URL	URL-адрес сведений об авторском праве
+	XMP metadata	Метаданные XMP
+	Import…	Импортировать…
+	This document has no XMP metadata.	В этом документе нет метаданных XMP.
+	Export XMP metadata	Экспортировать метаданные XMP
+	Change additional metadata	Изменить дополнительные метаданные
+	Replace XMP metadata	Заменить метаданные XMP
+	Delete XMP metadata	Удалить метаданные XMP
+	XML source	Исходный код XML

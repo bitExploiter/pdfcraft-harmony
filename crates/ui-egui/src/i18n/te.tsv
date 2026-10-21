@@ -2343,3 +2343,23 @@ animation effects	Off	ఆఫ్
 	Make properties default	లక్షణాలను డిఫాల్ట్‌గా చేయి
 	Pages selected	ఎంచుకున్న పేజీలు
 	Page properties	పేజీ లక్షణాలు
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	అదనపు మెటాడేటా
+	Author title	రచయిత హోదా
+	Description writer	వివరణ రచయిత
+	Rating	రేటింగ్
+	Not rated	రేటింగ్ లేదు
+	Copyright status	కాపీరైట్ స్థితి
+	Copyrighted	కాపీరైట్ చేయబడింది
+	Public domain	పబ్లిక్ డొమైన్
+	Copyright notice	కాపీరైట్ నోటీసు
+	Copyright info URL	కాపీరైట్ సమాచార URL
+	XMP metadata	XMP మెటాడేటా
+	Import…	దిగుమతి చేయి…
+	This document has no XMP metadata.	ఈ పత్రంలో XMP మెటాడేటా లేదు.
+	Export XMP metadata	XMP మెటాడేటాను ఎగుమతి చేయి
+	Change additional metadata	అదనపు మెటాడేటాను మార్చు
+	Replace XMP metadata	XMP మెటాడేటాను భర్తీ చేయి
+	Delete XMP metadata	XMP మెటాడేటాను తొలగించు
+	XML source	XML మూలం

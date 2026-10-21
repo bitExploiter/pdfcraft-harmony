@@ -24,6 +24,8 @@
 pub mod icc;
 mod xmp;
 
+pub use xmp::{XmpNode, XmpSchema, check_xmp, xmp_schemas};
+
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
 
 /// The PDF/A part and conformance level.

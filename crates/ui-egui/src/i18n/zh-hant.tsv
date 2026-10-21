@@ -2384,3 +2384,23 @@ animation effects	Off	關
 	Make properties default	將內容設為預設
 	Pages selected	選取的頁面
 	Page properties	頁面屬性
+
+# Document Properties ▸ Additional Metadata (XMP)
+	Additional Metadata	附加中繼資料
+	Author title	作者職稱
+	Description writer	描述撰寫者
+	Rating	評等
+	Not rated	未評等
+	Copyright status	版權狀態
+	Copyrighted	受版權保護
+	Public domain	公有領域
+	Copyright notice	版權聲明
+	Copyright info URL	版權資訊 URL
+	XMP metadata	XMP 中繼資料
+	Import…	匯入…
+	This document has no XMP metadata.	此文件沒有 XMP 中繼資料。
+	Export XMP metadata	匯出 XMP 中繼資料
+	Change additional metadata	變更附加中繼資料
+	Replace XMP metadata	取代 XMP 中繼資料
+	Delete XMP metadata	刪除 XMP 中繼資料
+	XML source	XML 原始碼

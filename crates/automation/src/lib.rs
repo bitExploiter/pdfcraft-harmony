@@ -77,6 +77,51 @@ impl std::error::Error for ToolError {}
 
 type Result<T> = std::result::Result<T, ToolError>;
 
+/// The Additional Metadata properties as `doc_xmp` names them.
+const XMP_FIELDS: [(&str, pdfcraft_engine::XmpField); 6] = {
+    use pdfcraft_engine::XmpField as F;
+    [
+        ("author_title", F::AuthorTitle),
+        ("description_writer", F::DescriptionWriter),
+        ("rating", F::Rating),
+        ("copyright_status", F::CopyrightStatus),
+        ("copyright_notice", F::CopyrightNotice),
+        ("copyright_url", F::CopyrightUrl),
+    ]
+};
+
+/// The largest .xmp file `doc_xmp_replace` reads: the size the packet check accepts.
+const MAX_XMP_FILE: u64 = 8 << 20;
+
+/// Read the .xmp file at `path` (already resolved) for `doc_xmp_replace`: a regular UTF-8 file of
+/// at most [`MAX_XMP_FILE`] bytes. A directory, a device or a FIFO is refused before it is opened,
+/// and a file that grows past the cap while it is read is refused too.
+fn read_xmp_file(path: &Path) -> Result<String> {
+    use std::io::Read;
+    let shown = path.display();
+    let io = |e: std::io::Error| failed(format!("{shown}: {e}"));
+    let too_large = || failed(format!("{shown}: an XMP file is at most {} MB", MAX_XMP_FILE >> 20));
+    let not_a_file = || failed(format!("{shown}: not a regular file"));
+    let meta = std::fs::metadata(path).map_err(io)?;
+    if !meta.is_file() {
+        return Err(not_a_file());
+    }
+    if meta.len() > MAX_XMP_FILE {
+        return Err(too_large());
+    }
+    let file = std::fs::File::open(path).map_err(io)?;
+    // Checked again on what was opened, in case the path was replaced after the check above.
+    if !file.metadata().map_err(io)?.is_file() {
+        return Err(not_a_file());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_XMP_FILE + 1).read_to_end(&mut bytes).map_err(io)?;
+    if bytes.len() as u64 > MAX_XMP_FILE {
+        return Err(too_large());
+    }
+    String::from_utf8(bytes).map_err(|_| failed(format!("{shown}: an XMP file must be UTF-8 text")))
+}
+
 fn failed(e: impl std::fmt::Display) -> ToolError {
     ToolError::Failed(e.to_string())
 }
@@ -205,6 +250,26 @@ impl Automation {
             "doc_set_info" => {
                 let edit = Edit::SetInfo { key: a.str("key")?.into(), value: a.str("value")?.into() };
                 self.apply(&a, edit)?
+            }
+            "doc_xmp" => self.doc_xmp(&a)?,
+            "doc_xmp_replace" => {
+                let packet = match (a.opt_str("packet")?, a.opt_str("path")?) {
+                    (Some(packet), None) => packet.to_owned(),
+                    (None, Some(path)) => read_xmp_file(&self.resolve(path, false)?)?,
+                    _ => {
+                        return Err(ToolError::InvalidArgs(
+                            "give either path (an .xmp file to import) or packet (the XML as text; \"\" removes the XMP metadata)".into(),
+                        ));
+                    }
+                };
+                self.apply(&a, Edit::ReplaceXmp { packet })?
+            }
+            "doc_xmp_export" => {
+                // The path is checked first, so a refusal for the roots never hides behind this one.
+                let path = self.resolve(a.str("path")?, true)?;
+                let packet = self.doc(&a)?.xmp_packet().ok_or_else(|| failed("the document has no XMP metadata to export"))?;
+                write_atomic(&path, &packet)?;
+                json!({ "path": path.to_string_lossy(), "bytes": packet.len() })
             }
             "page_render" => return self.page_render(&a).map(|c| vec![c]),
             "comment_image_preview" => return self.comment_image_preview(&a),
@@ -1063,6 +1128,81 @@ impl Automation {
             "language": v.language,
             "binding": if v.right_to_left { "right" } else { "left" },
         });
+        Ok(out)
+    }
+
+    /// Document Properties ▸ Description ▸ Additional Metadata: the XMP-only properties, the given
+    /// ones changed as one undoable step.
+    fn doc_xmp(&mut self, a: &Args) -> Result<Value> {
+        use pdfcraft_engine::XmpField as F;
+        let bad = |m: String| ToolError::InvalidArgs(m);
+        let mut edits = Vec::new();
+        for (key, field) in XMP_FIELDS {
+            let value = match (field, a.get(key)) {
+                (_, None) => continue,
+                (F::Rating, Some(Value::Number(n))) => {
+                    n.as_i64().map(|n| n.to_string()).ok_or_else(|| bad(format!("rating is a whole number from -1 to 5, not {n}")))?
+                }
+                (F::CopyrightStatus, Some(Value::String(s))) => match s.as_str() {
+                    "unknown" | "" => String::new(),
+                    "copyrighted" => "True".into(),
+                    "public_domain" => "False".into(),
+                    o => return Err(bad(format!("copyright_status is unknown, copyrighted or public_domain, not {o:?}"))),
+                },
+                (_, Some(Value::String(s))) => s.clone(),
+                (_, Some(o)) => return Err(bad(format!("{key} is text, not {o}"))),
+            };
+            // Only what changes, so asking for the current value adds no undo step.
+            if self.doc(a)?.xmp_field(field).unwrap_or_default() != value.trim() {
+                edits.push(Edit::SetXmp { field, value });
+            }
+        }
+        let mut out = match edits.len() {
+            0 => json!({}),
+            1 => self.apply(a, edits.remove(0))?,
+            _ => self.apply(a, Edit::Batch { label: "Change additional metadata".into(), edits })?,
+        };
+        let doc = self.doc(a)?;
+        let mut xmp = serde_json::Map::new();
+        for (key, field) in XMP_FIELDS {
+            let v = doc.xmp_field(field);
+            let shown = match field {
+                F::CopyrightStatus => json!(match v.as_deref() {
+                    Some("True") => "copyrighted",
+                    Some("False") => "public_domain",
+                    _ => "unknown",
+                }),
+                F::Rating => {
+                    v.and_then(|r| r.parse::<i64>().map(Value::from).or_else(|_| r.parse::<f64>().map(Value::from)).ok()).unwrap_or(Value::Null)
+                }
+                _ => json!(v),
+            };
+            xmp.insert(key.into(), shown);
+        }
+        let packet = doc.xmp_packet();
+        xmp.insert("has_xmp".into(), json!(packet.is_some()));
+        if a.opt_bool("schemas")?.unwrap_or(false) {
+            fn node(n: &pdfcraft_engine::pdfa::XmpNode) -> Value {
+                json!({ "name": n.name, "value": n.value, "children": n.children.iter().map(node).collect::<Vec<_>>() })
+            }
+            let schemas = match packet.as_deref().map(|p| pdfcraft_engine::pdfa::xmp_schemas(&String::from_utf8_lossy(p))) {
+                None => json!([]),
+                Some(Ok(schemas)) => schemas
+                    .iter()
+                    .map(|s| json!({ "prefix": s.prefix, "namespace": s.namespace, "properties": s.properties.iter().map(node).collect::<Vec<_>>() }))
+                    .collect(),
+                // Any fields asked for are already changed, so the call still succeeds.
+                Some(Err(e)) => {
+                    xmp.insert("schemas_error".into(), json!(e));
+                    Value::Null
+                }
+            };
+            xmp.insert("schemas".into(), schemas);
+        }
+        if a.opt_bool("packet")?.unwrap_or(false) {
+            xmp.insert("packet".into(), json!(packet.map(|p| String::from_utf8_lossy(&p).into_owned())));
+        }
+        out["xmp"] = Value::Object(xmp);
         Ok(out)
     }
 
