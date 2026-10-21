@@ -13,6 +13,7 @@ use pdfcraft_engine::Edit;
 
 use crate::canvas::ViewAction;
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{LeftPanel, PdfCraftApp, icons, widgets};
 
 /// Whether the left panel is Organize pages: the tool is chosen, or the active view shows the grid.
@@ -209,7 +210,7 @@ fn row(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str, availability: Ava
     }
     match availability {
         Availability::Ready => theme::hand(resp),
-        Availability::Later => resp.on_hover_text(tl!("Planned")),
+        Availability::Later => resp.on_hover_paragraph(tl!("Planned")),
     }
 }
 

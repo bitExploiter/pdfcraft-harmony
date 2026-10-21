@@ -14,6 +14,7 @@ use pdfcraft_render::DocInfo;
 
 use crate::canvas::{DocView, PageXform};
 use crate::theme::Tokens;
+use crate::widgets::HoverParagraph as _;
 
 const FOCUS_BLUE: Color32 = Color32::from_rgb(0x14, 0x73, 0xE6);
 /// Background of the in-place text field editor, the same in every theme.
@@ -279,7 +280,7 @@ fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &st
         .show(ctx, |ui| {
             egui::Frame::popup(ui.style()).show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.small_button("‹").on_hover_text(tl!("Previous month")).clicked() {
+                    if ui.small_button("‹").on_hover_paragraph(tl!("Previous month")).clicked() {
                         (y, m) = if m == 1 { (y - 1, 12) } else { (y, m - 1) };
                     }
                     ui.label(
@@ -289,7 +290,7 @@ fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &st
                         ))
                         .strong(),
                     );
-                    if ui.small_button("›").on_hover_text(tl!("Next month")).clicked() {
+                    if ui.small_button("›").on_hover_paragraph(tl!("Next month")).clicked() {
                         (y, m) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
                     }
                 });

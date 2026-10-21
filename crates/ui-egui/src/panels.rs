@@ -6,6 +6,7 @@ use pdfcraft_engine::catalog::{self, Availability, TOOL_GROUPS, ToolGroup, ToolI
 use pdfcraft_render::{DocInfo, FieldKind, OutlineItem};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{LeftPanel, PdfCraftApp, RightPanel, icons, widgets};
 
 const COLLAPSED_TOOLS: usize = 14;
@@ -46,7 +47,7 @@ fn panel_header(ui: &mut egui::Ui, t: &Tokens, title: &str, back: bool) -> (bool
         // must never expand the fixed-width sidebar or push the Close control off-screen.
         let title_width = (ui.available_width() - 26.0 - ui.spacing().item_spacing.x).max(1.0);
         ui.add_sized([title_width, 26.0], egui::Label::new(egui::RichText::new(tl!(title)).font(theme::semibold(15.5)).color(t.text)).truncate())
-            .on_hover_text(tl!(title));
+            .on_hover_paragraph(tl!(title));
         if icons::button(ui, "x", 26.0, false, tl!("Close panel")).clicked() {
             close = true;
         }
@@ -179,7 +180,9 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
     if g.id == "form" {
         ui.horizontal(|ui| {
             let label = if app.form_preview { "Edit fields" } else { "Preview" };
-            if widgets::pill_button(ui, tl!(label), app.form_preview).on_hover_text(tl!("Try the form as people filling it in will see it")).clicked()
+            if widgets::pill_button(ui, tl!(label), app.form_preview)
+                .on_hover_paragraph(tl!("Try the form as people filling it in will see it"))
+                .clicked()
             {
                 app.form_preview = !app.form_preview;
                 if app.form_preview {

@@ -10,6 +10,7 @@ use pdfcraft_engine::DocId;
 use pdfcraft_engine::a11y::{Category, Options, Report, Rule, Status};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{Dialog, PdfCraftApp, PropsTab, RightPanel, icons, widgets};
 
 /// The options dialog's settings (kept for the session, like Acrobat's).
@@ -197,7 +198,7 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, state: &mut A11yState, doc: D
             if widgets::pill_button(ui, tl!("Check again"), false).clicked() {
                 action = Some(PanelAction::CheckAgain);
             }
-            if widgets::pill_button(ui, tl!("Report"), false).on_hover_text(tl!("Show the accessibility report")).clicked() {
+            if widgets::pill_button(ui, tl!("Report"), false).on_hover_paragraph(tl!("Show the accessibility report")).clicked() {
                 action = Some(PanelAction::ShowReport);
             }
         });
@@ -326,11 +327,11 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, state: &mut A11yState, doc: D
                         let said = f.said(&crate::i18n::words);
                         let l = ui.add(egui::Label::new(egui::RichText::new(said).small().color(t.text_muted)).sense(egui::Sense::click()));
                         if let Some(object) = f.object {
-                            if l.on_hover_text(tl!("Tags")).clicked() {
+                            if l.on_hover_paragraph(tl!("Tags")).clicked() {
                                 action = Some(PanelAction::GoToTag(object, f.page, f.bbox));
                             }
                         } else if let Some(p) = f.page
-                            && l.on_hover_text(tl!("Go to the page")).clicked()
+                            && l.on_hover_paragraph(tl!("Go to the page")).clicked()
                         {
                             action = Some(PanelAction::GoTo(p, f.bbox));
                         }

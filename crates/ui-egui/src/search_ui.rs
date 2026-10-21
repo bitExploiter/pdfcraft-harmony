@@ -7,6 +7,7 @@ use egui::{Color32, FontId, TextFormat};
 use crate::canvas::DocView;
 use crate::theme::{self, Tokens};
 use crate::widgets;
+use crate::widgets::HoverParagraph as _;
 
 /// Glyphs of context shown on each side of a match.
 const CONTEXT: usize = 36;
@@ -88,7 +89,7 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, view: &mut DocView, pages: us
         job.append(&format!(" {}…", flat(after)), 0.0, plain);
         job.wrap.max_width = ui.available_width();
         let selected = find.current == Some(i);
-        let resp = ui.add(egui::Button::selectable(selected, job).wrap()).on_hover_text(tl!("Go to this result"));
+        let resp = ui.add(egui::Button::selectable(selected, job).wrap()).on_hover_paragraph(tl!("Go to this result"));
         if resp.clicked() {
             go = Some(i);
         }

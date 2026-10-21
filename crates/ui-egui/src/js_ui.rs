@@ -6,6 +6,7 @@ use pdfcraft_engine::js::{JsOutput, Request};
 use pdfcraft_engine::{DocId, Edit};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, widgets};
 
 /// The JavaScript console: the input and the output so far.
@@ -398,7 +399,7 @@ pub(crate) fn preferences_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
     // Only where the app draws the title bar (GNOME on Wayland); elsewhere the desktop draws it.
     if app.window_controls.is_some() {
         ui.add(widgets::checkbox(&mut app.system_title_bar, tl!("Use system title bar")))
-            .on_hover_text(tl!("Show a basic title bar for the window buttons instead of the tab strip. GNOME doesn't draw title bars for apps, so this one doesn't follow its theme."));
+            .on_hover_paragraph(tl!("Show a basic title bar for the window buttons instead of the tab strip. GNOME doesn't draw title bars for apps, so this one doesn't follow its theme."));
     }
     ui.add_space(8.0);
     // Reading colours (Acrobat: Replace Document Colors): solid text and line-art paints are

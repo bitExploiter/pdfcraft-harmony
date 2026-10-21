@@ -7,6 +7,7 @@ use egui::{Align, Layout};
 use serde::{Deserialize, Serialize};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{Dialog, PdfCraftApp, QuickTool, widgets};
 
 /// Stamp files larger than this aren't kept in the library (it lives in the app's settings).
@@ -123,7 +124,7 @@ pub(crate) fn palette_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Toke
         app.quick_tool = QuickTool::Select;
     }
     ui.add_space(4.0);
-    if widgets::pill_button(ui, tl!("Create custom stamp…"), false).on_hover_text(tl!("From a PDF page or an image")).clicked() {
+    if widgets::pill_button(ui, tl!("Create custom stamp…"), false).on_hover_paragraph(tl!("From a PDF page or an image")).clicked() {
         app.pick_stamp_file();
     }
 }

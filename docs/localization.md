@@ -43,7 +43,7 @@ egui joins the letters of an Arabic word and runs them right to left, but it pla
 What Arabic does not have yet:
 
 - **The layout is not mirrored.** Panels, menus, toolbars and alignment are as in the left-to-right languages, with Arabic labels in them.
-- **A wrapped paragraph breaks at the wrong end.** A label too long for its line continues on the next line with its *first* words, so wrapped descriptions and tooltips read from the last line up. Single-line labels are right.
+- **Some wrapped labels break at the wrong end.** egui wraps the display-order text, so a label too long for its line continues on the next line with its *first* words and reads from the last line up. Tooltips, dialog messages (save prompt, passwords, Full Screen, unreadable files, print errors), signature details and the Home cards' descriptions go through `widgets::paragraph`, which takes the catalog's own text back (`i18n::logical`) and wraps it from the first words, each line against the right edge; other wrapping labels are still wrong. Single-line labels are right.
 - **Text you type into a field** (search, comments, form values) has joined letters but its words run left to right while you edit it. What is stored is correct.
 - Labels built by joining translated pieces in code (a list such as `A · B · C`) keep the code's left-to-right order.
 

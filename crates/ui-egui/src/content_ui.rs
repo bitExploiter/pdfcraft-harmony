@@ -10,6 +10,7 @@ use pdfcraft_render::DocInfo;
 use crate::canvas::{DocView, PageXform};
 use crate::theme::Tokens;
 use crate::widgets;
+use crate::widgets::HoverParagraph as _;
 
 /// The colour of the warning under text the standard fonts can't draw.
 pub(crate) const UNDRAWABLE: Color32 = Color32::from_rgb(0xD7, 0x37, 0x3F);
@@ -624,10 +625,10 @@ pub(crate) fn format_panel(ui: &mut egui::Ui, t: &Tokens, style: &AddedText) -> 
         });
     });
     ui.horizontal(|ui| {
-        if ui.selectable_label(s.bold, egui::RichText::new("B").strong()).on_hover_text(tl!("Bold")).clicked() {
+        if ui.selectable_label(s.bold, egui::RichText::new("B").strong()).on_hover_paragraph(tl!("Bold")).clicked() {
             s.bold = !s.bold;
         }
-        if ui.selectable_label(s.italic, egui::RichText::new("I").italics()).on_hover_text(tl!("Italic")).clicked() {
+        if ui.selectable_label(s.italic, egui::RichText::new("I").italics()).on_hover_paragraph(tl!("Italic")).clicked() {
             s.italic = !s.italic;
         }
         ui.separator();

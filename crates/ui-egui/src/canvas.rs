@@ -13,6 +13,7 @@ use pdfcraft_engine::{DocId, Edit};
 use pdfcraft_render::{DestView, DocInfo, LayerOp, LinkTarget, PRINT_TAG, PageText, RenderPool, RenderRequest, RequestKind, Tile, device_pixels};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, QuickTool, RightPanel, comments, icons, widgets};
 
 /// Logical pixels per PDF point at 100% (96 dpi, like browsers).
@@ -4865,12 +4866,12 @@ fn organize_toolbar(view: &mut DocView, info: &DocInfo, editable: bool, dirty: b
                 }
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if widgets::ghost_button(ui, "x", tl!("Close")).on_hover_text(tl!("Back to the document")).clicked() {
+                if widgets::ghost_button(ui, "x", tl!("Close")).on_hover_paragraph(tl!("Back to the document")).clicked() {
                     view.organize = false;
                 }
                 // What the grid shows is what is saved.
                 let save = ui.add_enabled_ui(dirty, |ui| widgets::pill_button(ui, tl!("Save pages"), true)).inner;
-                if save.on_hover_text(tl!("Save these pages as one PDF")).on_disabled_hover_text(tl!("No changes to save")).clicked() {
+                if save.on_hover_paragraph(tl!("Save these pages as one PDF")).on_disabled_hover_text(tl!("No changes to save")).clicked() {
                     view.pending_action = Some(ViewAction::Save);
                 }
                 ui.add_space(8.0);
@@ -4887,7 +4888,7 @@ fn organize_toolbar(view: &mut DocView, info: &DocInfo, editable: bool, dirty: b
                     .frame(false);
                 let percent = ui.add_sized([44.0, 30.0], percent);
                 percent.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Reset page size")));
-                if percent.on_hover_text(tl!("Reset page size")).clicked() {
+                if percent.on_hover_paragraph(tl!("Reset page size")).clicked() {
                     view.grid_zoom_request = Some(1.0);
                 }
                 if ui

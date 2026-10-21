@@ -172,6 +172,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-21 (community, M14, Arabic wrapped labels):** In the Arabic interface, long tooltips, dialog messages (save prompt, passwords, Full Screen, unreadable files, print errors), signature details and the Home cards' descriptions wrapped from their last words, so they read from the bottom line up (the catalog is in display order for egui's one-line layout). The catalog now remembers what it wrote behind each display-order translation (`i18n::logical`), and `widgets::paragraph` / `on_hover_paragraph` wrap that logical text with the comments' bidi wrapper, from the first words, each line against the right edge; a tooltip stays as narrow as its longest line. Other wrapping labels, the mirrored layout and text typed into fields are still open (`misc.rtl-ui`). Estimates unchanged.
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.

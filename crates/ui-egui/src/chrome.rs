@@ -4,6 +4,7 @@ use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, Sense, Stroke, ve
 
 use crate::canvas::{DocView, Fit, PageLayout};
 use crate::theme::{self, ThemePreference, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{Dialog, Mode, PdfCraftApp, PropsTab, RightPanel, icons, widgets, window_controls};
 
 /// Height of the tab strip when it doubles as the macOS title bar (#789). AppKit draws the traffic
@@ -717,7 +718,7 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     .text_color(t.text_muted)
                     .frame(egui::Frame::NONE)
                     .margin(vec2(2.0, 2.0));
-                let r = ui.add(edit).on_hover_text(tl!("Zoom — type a percentage and press Enter"));
+                let r = ui.add(edit).on_hover_paragraph(tl!("Zoom — type a percentage and press Enter"));
                 ui.ctx().accesskit_node_builder(id, |node| node.set_label(tl!("Zoom")));
                 if r.gained_focus() {
                     let mut state = egui::TextEdit::load_state(ui.ctx(), id).unwrap_or_default();
@@ -779,7 +780,7 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     .corner_radius(CornerRadius::same(5))
                     .show(ui, |ui| ui.add(edit))
                     .inner
-                    .on_hover_text(tl!("Current page — type a page number or label (such as iv) and press Enter"));
+                    .on_hover_paragraph(tl!("Current page — type a page number or label (such as iv) and press Enter"));
                 if r.lost_focus() {
                     if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                         // A page label first (logical page numbers, as Acrobat), then a number.

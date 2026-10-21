@@ -1252,13 +1252,13 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, sigs: &[SignatureInfo], expan
             for detail in &s.details {
                 // Each detail is a whole sentence of ours plus what the signature itself says; said
                 // here in the panel's language, with the signature's own words left as they are.
-                let line = detail.said(&crate::i18n::words);
-                ui.add(egui::Label::new(egui::RichText::new(format!("• {line}")).font(theme::regular(11.5)).color(t.text_muted)).wrap());
+                let line = detail.said(&|wording| crate::i18n::logical(&crate::i18n::words(wording)).to_owned());
+                widgets::paragraph(ui, &format!("• {line}"), theme::regular(11.5), t.text_muted);
             }
             ui.add_space(4.0);
             ui.label(egui::RichText::new(tl!("Signature Details")).font(theme::semibold(12.0)));
             let row = |ui: &mut egui::Ui, k: &str, v: &str| {
-                ui.add(egui::Label::new(egui::RichText::new(format!("{}: {v}", tl!(k))).font(theme::regular(11.5))).wrap());
+                widgets::paragraph(ui, &format!("{}: {v}", crate::i18n::logical(tl!(k))), theme::regular(11.5), t.text);
             };
             if let Some(r) = &s.reason {
                 row(ui, "Reason", r);

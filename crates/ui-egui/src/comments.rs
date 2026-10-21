@@ -18,6 +18,7 @@ use pdfcraft_render::{Annotation, DocInfo, PageInfo, PageText};
 
 use crate::canvas::{DocView, PageXform};
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{QuickTool, icons};
 
 /// Acrobat's selection blue for annotation frames and handles (11-visual-spec §5).
@@ -1871,7 +1872,7 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
     ui.painter().circle_filled(r.center(), 9.0, color32(style.color));
     ui.painter().circle_stroke(r.center(), 9.0, Stroke::new(1.0, Color32::from_black_alpha(50)));
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Colour")));
-    let resp = resp.on_hover_text(tl!("Colour"));
+    let resp = resp.on_hover_paragraph(tl!("Colour"));
     egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
         if let Some(c) = swatch_grid(ui, Some(style.color)) {
             prefs.set_color(tool, c);

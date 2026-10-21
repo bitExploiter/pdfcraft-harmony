@@ -473,6 +473,15 @@ pub fn t(s: &str) -> &str {
     tr(current(), s)
 }
 
+/// `text` as the catalog wrote it. A right-to-left language's translation ([`LangInfo::rtl`])
+/// comes out of [`t`] in display order for egui's one-line layout; a widget that breaks the text
+/// into lines itself ([`crate::widgets::paragraph`]) needs the logical order back, or the lines
+/// read from the last one up. Any other text, including a label [`fmt`] has already filled in,
+/// comes back unchanged.
+pub fn logical(text: &str) -> &str {
+    current().catalog().logical(text).unwrap_or(text)
+}
+
 /// The name of a keyboard key, distinct from a command such as Delete. Missing key-name
 /// translations use the English key name, never a plain command translation.
 pub fn key_name(s: &str) -> &str {
@@ -605,6 +614,28 @@ pub fn trn(lang: Lang, n: u64, one: &str, other: &str) -> String {
 mod tests {
     use super::catalog::{Entry, parse_entries, placeholders};
     use super::*;
+
+    /// Arabic translations are handed out in display order; `logical` gives the catalog's own
+    /// text back for the widgets that wrap it, and leaves everything else alone.
+    #[test]
+    fn arabic_display_order_goes_back_to_the_catalog_text() {
+        let ar = Lang::from_code("ar").expect("ar registered");
+        let source = "Click to sort, drag to move the column. Drag its edge to resize it.";
+        let written =
+            ar.0.source
+                .lines()
+                .find_map(|line| {
+                    let mut columns = line.split('\t');
+                    (columns.next()?.is_empty() && columns.next()? == source).then(|| columns.next())?
+                })
+                .expect("the Arabic catalog translates the tooltip");
+        let shown = tr(ar, source);
+        assert_ne!(shown, written, "the catalog is put into display order when it loads");
+        assert_eq!(ar.catalog().logical(shown), Some(written));
+        assert_eq!(ar.catalog().logical(source), None, "English and unknown text are not in the table");
+        assert_eq!(tr(JA(), "Save"), JA().catalog().plain("Save").unwrap_or("Save"));
+        assert!(JA().catalog().logical(tr(JA(), "Save")).is_none(), "a left-to-right catalog rewrites nothing");
+    }
 
     const JA: fn() -> Lang = || Lang::from_code("ja").expect("ja registered");
     // These physical key-cap names remain English in several keyboard layouts. Only their
