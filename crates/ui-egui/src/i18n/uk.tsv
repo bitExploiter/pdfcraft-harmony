@@ -2456,3 +2456,12 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
+	Lines	Лінії
+	Line colour	Колір лінії
+	Delete line	Видалити лінію
+	Delete lines	Видалити лінії
+	Format line	Форматувати лінію
+	Format lines	Форматувати лінії
+	Move line point	Перемістити точку лінії
+	Drag a point to reshape the line. Delete removes it.	Перетягніть точку, щоб змінити форму лінії. Delete видаляє її.
+	This point could not be moved. Try a smaller move.	Цю точку не вдалося перемістити. Спробуйте менше зміщення.

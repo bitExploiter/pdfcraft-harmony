@@ -2434,3 +2434,7 @@ animation effects	Off	Désactivés
 	Make properties default	Définir comme propriétés par défaut
 	Pages selected	Pages sélectionnées
 	Page properties	Propriétés de la page
+	Lines	Lignes
+	Line colour	Couleur de ligne
+	Drag a point to reshape the line. Delete removes it.	Faites glisser un point pour modifier la forme de la ligne. La touche Suppr la supprime.
+	This point could not be moved. Try a smaller move.	Impossible de déplacer ce point. Essayez un déplacement plus petit.

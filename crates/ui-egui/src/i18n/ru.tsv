@@ -2347,3 +2347,7 @@ animation effects	Off	Выкл
 	Make properties default	Сделать свойства стандартными
 	Pages selected	Выделенные страницы
 	Page properties	Свойства страницы
+	Lines	Линии
+	Line colour	Цвет линии
+	Drag a point to reshape the line. Delete removes it.	Перетащите точку, чтобы изменить форму линии. Клавиша Delete удаляет линию.
+	This point could not be moved. Try a smaller move.	Не удалось переместить эту точку. Попробуйте меньшее смещение.

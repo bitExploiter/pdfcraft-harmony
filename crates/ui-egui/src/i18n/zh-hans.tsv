@@ -2398,3 +2398,7 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+	Lines	线条
+	Line colour	线条颜色
+	Drag a point to reshape the line. Delete removes it.	拖动点可改变线条形状。按 Delete 键删除。
+	This point could not be moved. Try a smaller move.	无法移动此点。请尝试较小的移动。
