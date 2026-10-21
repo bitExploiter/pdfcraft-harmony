@@ -131,10 +131,10 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, state: &Option<CompareState>,
     });
     ui.separator();
     for (pi, pc) in c.page_changes.iter().enumerate() {
-        let (kind, text) = match pc.kind {
-            PageKind::Moved => (Kind::Replaced, format!("Page {} → Page {}", pc.old_page + 1, pc.new_page + 1)),
-            PageKind::Inserted => (Kind::Inserted, format!("+ Page {}", pc.new_page + 1)),
-            PageKind::Deleted => (Kind::Deleted, format!("− Page {}", pc.old_page + 1)),
+        let (kind, page, text) = match pc.kind {
+            PageKind::Moved => (Kind::Replaced, pc.new_page, format!("Page {} → Page {}", pc.old_page + 1, pc.new_page + 1)),
+            PageKind::Inserted => (Kind::Inserted, pc.new_page, format!("+ Page {}", pc.new_page + 1)),
+            PageKind::Deleted => (Kind::Deleted, pc.old_page, format!("− Page {}", pc.old_page + 1)),
         };
         let r = ui.push_id(("page-change", pi), |ui| {
             ui.horizontal(|ui| {
@@ -144,7 +144,7 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, state: &Option<CompareState>,
                     ui.label(
                         egui::RichText::new(crate::i18n::fmt(
                             tl!("{kind} · page {p}"),
-                            &[("kind", tl!(kind.label())), ("p", &(pc.new_page + 1).to_string())],
+                            &[("kind", tl!(pc.kind.label())), ("p", &(page + 1).to_string())],
                         ))
                         .small()
                         .color(t.text_muted),
