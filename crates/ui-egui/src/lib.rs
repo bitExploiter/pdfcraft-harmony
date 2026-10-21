@@ -87,6 +87,7 @@ mod files;
 pub mod fill_sign;
 mod fling;
 pub mod folders_ui;
+pub mod form_detection_ui;
 pub mod forms_ui;
 mod home;
 mod icon_data;
@@ -658,6 +659,7 @@ pub struct PdfCraftApp {
     /// Scan & OCR: the Recognize Text choices, the running job, and (tests) run it inline.
     pub ocr_draft: ocr_ui::OcrDraft,
     pub ocr_run: Option<ocr_ui::OcrRun>,
+    pub form_detection: form_detection_ui::State,
     pub ocr_batch: Option<std::sync::Arc<std::sync::Mutex<ocr_ui::BatchProgress>>>,
     /// Background jobs (OCR, actions, listing pinned folders) run inline instead (tests).
     pub run_inline: bool,
@@ -989,6 +991,7 @@ impl PdfCraftApp {
             a11y_options: a11y_ui::A11yOptions::default(),
             ocr_draft: ocr_ui::OcrDraft::default(),
             ocr_run: None,
+            form_detection: Default::default(),
             ocr_batch: None,
             run_inline: false,
             custom_actions: Vec::new(),
@@ -1936,6 +1939,7 @@ impl PdfCraftApp {
     /// on the document underneath it.
     pub(crate) fn modal_open(&self) -> bool {
         self.dialog.is_some()
+            || self.form_detection.is_open()
             || self.close_request.is_some()
             || self.password_prompt.is_some()
             || self.unlock_prompt.is_some()
@@ -3110,6 +3114,7 @@ impl eframe::App for PdfCraftApp {
         }
         self.poll_export();
         self.poll_ocr();
+        self.poll_form_detection();
         self.poll_optimize();
         self.poll_action();
         self.process_file_requests();
