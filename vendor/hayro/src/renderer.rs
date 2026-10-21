@@ -427,6 +427,11 @@ fn snap_minified_image(
     (w.abs_diff(planned.0) <= 1 && h.abs_diff(planned.1) <= 1).then_some((w, h, x0, y0))
 }
 
+/// PdfCraft patch (21): the largest group, in device pixels, blended in CMYK (2^24, a 4096 ×
+/// 4096 square). Each pixel costs about 20 bytes more than drawing the group as before (two
+/// pass canvases, its tints, their RGB and the result); a larger group is drawn as before.
+const MAX_CMYK_GROUP_PIXELS: u64 = 1 << 24;
+
 pub(crate) struct Renderer {
     pub(crate) ctx: RenderContext,
     /// PdfCraft patch: when set, solid text and line-art paint colours are remapped
@@ -448,6 +453,50 @@ pub(crate) struct Renderer {
     pub(crate) preview: bool,
     // TODO: Remove this once vello_cpu bug with non-transparent images is fixed
     image_transparency_stack: Vec<bool>,
+    /// PdfCraft patch (21): set while this renderer draws one ink pass of a group blending
+    /// in `DeviceCMYK` (see [`Renderer::draw_isolated_cmyk_group`]).
+    ink: InkState,
+}
+
+/// PdfCraft patch (21): which inks a pass of a `DeviceCMYK` group draws, and whether the
+/// group asked for something a pass can't draw.
+///
+/// A pass paints the complement of ink tints as colour — no ink is white — so the RGB blend
+/// functions compute ISO 32000-2 §11.3.4's subtractive blend, `1 − B(1 − cb, 1 − cs)`, and
+/// complementing the pixels back gives the tints. The cyan, magenta and yellow pass paints
+/// them as red, green and blue, which is also how §11.3.5.3 has the nonseparable modes treat
+/// them. The black pass paints black ink as a grey, so a separable mode blends it like any
+/// tint, and of the nonseparable modes Hue, Saturation and Color keep the backdrop's grey
+/// while Luminosity takes the source's: §11.3.5.3's rule for the K component.
+#[derive(Clone, Copy, Default)]
+struct InkState {
+    pass: Option<InkPass>,
+    /// Something in the group has no ink tints (an RGB colour, a pattern, an image): the
+    /// group is drawn as before instead.
+    unsupported: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InkPass {
+    /// Cyan, magenta and yellow as red, green and blue.
+    Cmy,
+    /// Black as grey.
+    K,
+}
+
+impl InkState {
+    /// The colour a pass paints for `color`; transparent, with the group marked unsupported,
+    /// when the colour has no ink tints.
+    fn paint(&mut self, pass: InkPass, color: &Color) -> AlphaColor<Srgb> {
+        let Some(([c, m, y, k], alpha)) = color.ink_tints() else {
+            self.unsupported = true;
+            return AlphaColor::TRANSPARENT;
+        };
+        match pass {
+            InkPass::Cmy => AlphaColor::new([1.0 - c, 1.0 - m, 1.0 - y, alpha]),
+            InkPass::K => AlphaColor::new([1.0 - k, 1.0 - k, 1.0 - k, alpha]),
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -478,6 +527,7 @@ impl Renderer {
             scaler: Scaler::new(ResamplingFunction::CatmullRom),
             preview,
             image_transparency_stack: Vec::new(),
+            ink: InkState::default(),
         }
     }
 
@@ -579,6 +629,7 @@ impl Renderer {
                 scaler: self.scaler,
                 preview: self.preview,
                 image_transparency_stack: Vec::new(),
+                ink: InkState::default(),
             };
             let mut mask_pix = Pixmap::new(self.ctx.width(), self.ctx.height());
             let rgb_data = ImageData::Rgb(RgbData {
@@ -1014,6 +1065,45 @@ impl Renderer {
             .fill_rect(&Rect::new(0.0, 0.0, width as f64, height as f64));
     }
 
+    /// PdfCraft patch (21): one ink pass of `group` (see [`InkState`]) on a `width` × `height`
+    /// canvas whose corner is device point `offset`; `None` when the group holds something the
+    /// pass has no tints for.
+    fn ink_pass(
+        &self,
+        group: &hayro_interpret::CmykGroup<'_, '_>,
+        pass: InkPass,
+        offset: (f64, f64),
+        width: u16,
+        height: u16,
+    ) -> Option<Pixmap> {
+        let mut renderer = Self {
+            ctx: RenderContext::new_with(width, height, derive_settings(self.ctx.render_settings())),
+            color_replacement: None,
+            in_annotations: self.in_annotations,
+            inside_pattern: self.inside_pattern,
+            soft_mask_cache: HashMap::default(),
+            outline_cache: self.outline_cache.clone(),
+            cur_mask: None,
+            in_type3_glyph: false,
+            scaler: Scaler::new(ResamplingFunction::CatmullRom),
+            preview: self.preview,
+            image_transparency_stack: Vec::new(),
+            ink: InkState {
+                pass: Some(pass),
+                unsupported: false,
+            },
+        };
+        group.interpret(&mut renderer, offset);
+        if renderer.ink.unsupported {
+            return None;
+        }
+        let mut pix = Pixmap::new(width, height);
+        renderer.ctx.flush();
+        let mut resources = vello_cpu::Resources::default();
+        renderer.ctx.render_to_pixmap(&mut resources, &mut pix);
+        Some(pix)
+    }
+
     /// PdfCraft patch: remaps a solid paint colour through `color_replacement`, if one is
     /// set. `Paint::Pattern` (images, shadings, tiling patterns) always passes through
     /// untouched.
@@ -1042,6 +1132,20 @@ impl Renderer {
     fn set_paint(&mut self, paint: &Paint<'_>, path: &BezPath, is_stroke: bool) -> Option<BezPath> {
         let mut paint_transform = Affine::IDENTITY;
         let mut clip_path = None;
+
+        // PdfCraft patch (21): an ink pass paints tints, and has none for a pattern.
+        if let Some(pass) = self.ink.pass {
+            let color = match paint {
+                Paint::Color(c) => self.ink.paint(pass, c),
+                Paint::Pattern(_) => {
+                    self.ink.unsupported = true;
+                    AlphaColor::TRANSPARENT
+                }
+            };
+            self.ctx.set_paint_transform(Affine::IDENTITY);
+            self.ctx.set_paint(color);
+            return None;
+        }
 
         let paint: PaintType = match paint.clone() {
             Paint::Color(c) => {
@@ -1171,6 +1275,7 @@ impl Renderer {
                                 scaler: self.scaler,
                                 preview: self.preview,
                                 image_transparency_stack: Vec::new(),
+                                ink: InkState::default(),
                             };
                             let initial_transform = Affine::translate((BORDER, BORDER))
                                 * Affine::scale_non_uniform(xs as f64, ys as f64)
@@ -1225,6 +1330,7 @@ impl Renderer {
                             scaler: self.scaler,
                             preview: self.preview,
                             image_transparency_stack: Vec::new(),
+                            ink: InkState::default(),
                         };
                         let mut initial_transform = Affine::scale_non_uniform(xs as f64, ys as f64)
                             * Affine::translate((-bbox.x0, -bbox.y0));
@@ -1410,6 +1516,12 @@ impl Renderer {
 
 impl<'a> Device<'a> for Renderer {
     fn draw_image(&mut self, image: hayro_interpret::Image<'a, '_>, mut transform: Affine) {
+        // PdfCraft patch (21): an image's pixels are converted to RGB before they reach the
+        // device, so an ink pass has no tints for them; the group is drawn as before.
+        if self.ink.pass.is_some() {
+            self.ink.unsupported = true;
+            return;
+        }
         // PdfCraft patch: see `may_paint_rect`. Checked before decoding: off-canvas images
         // cost nothing, so a tile no longer decodes every image on its page.
         if !may_paint_rect(
@@ -1541,6 +1653,7 @@ impl<'a> Device<'a> for Renderer {
                                         scaler: self.scaler,
                                         preview: self.preview,
                                         image_transparency_stack: Vec::new(),
+                                        ink: InkState::default(),
                                     };
                                     let mut sub_pix = Pixmap::new(width, height);
                                     sub_renderer.ctx.set_transform(transform);
@@ -1597,6 +1710,77 @@ impl<'a> Device<'a> for Renderer {
 
     fn push_clip_path(&mut self, clip_path: &ClipPath) {
         self.push_clip_path_inner(&clip_path.path, clip_path.fill);
+    }
+
+    /// PdfCraft patch (21), with hayro-interpret patch (45): an isolated group that blends in
+    /// `DeviceCMYK` (ISO 32000-2 §11.3.4). Its contents are drawn twice on canvases of their own,
+    /// as cyan-magenta-yellow and as black (see [`InkState`]), and the tints those passes leave
+    /// are converted to RGB through the CMYK profile solid CMYK colour is drawn with. The
+    /// result goes into the layer the interpreter pushed for the group, which composites it
+    /// with the group's opacity, soft mask and blend mode as before. Declined (and so drawn as
+    /// before) under reading colours, inside a pass (a nested group then blends in the pass's
+    /// own CMYK), and for contents a pass has no tints for.
+    fn draw_isolated_cmyk_group(&mut self, group: &hayro_interpret::CmykGroup<'a, '_>) -> bool {
+        if self.color_replacement.is_some() || self.ink.pass.is_some() {
+            return false;
+        }
+        let canvas = Rect::new(0.0, 0.0, f64::from(self.ctx.width()), f64::from(self.ctx.height()));
+        let area = group.device_bbox().intersect(canvas);
+        if !(area.width() > 0.0 && area.height() > 0.0) {
+            // Nothing of the group is on the canvas (a NaN box lands here too).
+            return true;
+        }
+        let (x0, y0) = (area.x0.floor(), area.y0.floor());
+        // Within the canvas, so the sides fit its u16 ones.
+        let width = (area.x1.ceil() - x0) as u16;
+        let height = (area.y1.ceil() - y0) as u16;
+        if width == 0 || height == 0 {
+            return true;
+        }
+        if u64::from(width) * u64::from(height) > MAX_CMYK_GROUP_PIXELS {
+            return false;
+        }
+
+        let Some(cmy) = self.ink_pass(group, InkPass::Cmy, (x0, y0), width, height) else {
+            return false;
+        };
+        let Some(k) = self.ink_pass(group, InkPass::K, (x0, y0), width, height) else {
+            return false;
+        };
+
+        // A tint is a pass's premultiplied colour un-premultiplied and complemented.
+        let ink = |premul: u8, alpha: u8| {
+            if alpha == 0 {
+                return 0;
+            }
+            let straight = (u32::from(premul) * 255 + u32::from(alpha) / 2) / u32::from(alpha);
+            255 - straight.min(255) as u8
+        };
+        let pixels = usize::from(width) * usize::from(height);
+        let mut tints = Vec::with_capacity(pixels * 4);
+        for (p, q) in cmy.data().iter().zip(k.data()) {
+            // Both passes draw the same shapes at the same opacities, so they cover the same
+            // pixels by the same amounts; each pass's own alpha un-premultiplies its colour.
+            tints.extend_from_slice(&[ink(p.r, p.a), ink(p.g, p.a), ink(p.b, p.a), ink(q.r, q.a)]);
+        }
+        let mut rgb = vec![0u8; pixels * 3];
+        if hayro_interpret::color::cmyk_to_srgb8(&tints, &mut rgb).is_none() {
+            return false;
+        }
+
+        let mut result = Pixmap::new(width, height);
+        for ((px, rgb), coverage) in result.data_mut().iter_mut().zip(rgb.chunks_exact(3)).zip(cmy.data()) {
+            let a = u32::from(coverage.a);
+            let premul = |v: u8| ((u32::from(v) * a + 127) / 255) as u8;
+            *px = PremulRgba8 { r: premul(rgb[0]), g: premul(rgb[1]), b: premul(rgb[2]), a: coverage.a };
+        }
+
+        // The group's own soft mask and blend mode are on its layer; what the contents set
+        // must not apply to the finished pixels a second time.
+        self.set_soft_mask(None);
+        self.set_blend_mode(BlendMode::Normal);
+        self.draw_pixmap(Arc::new(result), ImageQuality::Low, Affine::translate((x0, y0)));
+        true
     }
 
     fn push_transparency_group(
@@ -1837,6 +2021,7 @@ fn draw_soft_mask(mask: &SoftMask<'_>, settings: RenderSettings, width: u16, hei
         scaler: Scaler::new(ResamplingFunction::CatmullRom),
         preview,
         image_transparency_stack: Vec::new(),
+        ink: InkState::default(),
     };
 
     let bg_color = mask.background_color().to_rgba();

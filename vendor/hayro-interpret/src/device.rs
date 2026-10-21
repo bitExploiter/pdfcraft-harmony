@@ -1,3 +1,4 @@
+use crate::cmyk_group::CmykGroup;
 use crate::font::Glyph;
 use crate::soft_mask::SoftMask;
 use crate::{BlendMode, ClipPath, Image};
@@ -73,6 +74,13 @@ pub trait Device<'a> {
     fn begin_annotations(&mut self) {}
     /// PdfCraft patch (29): the page's annotations are done; what follows is page content.
     fn end_annotations(&mut self) {}
+    /// PdfCraft patch (45): draw the contents of an isolated transparency group that blends
+    /// in `DeviceCMYK` (ISO 32000-2 §11.3.4), already inside the layer it is composited
+    /// through. Return `true` when the device drew them; on `false` (the default) the
+    /// interpreter draws the contents into the device as for any other group.
+    fn draw_isolated_cmyk_group(&mut self, _group: &CmykGroup<'a, '_>) -> bool {
+        false
+    }
 }
 
 /// A device that discards all drawing operations.
