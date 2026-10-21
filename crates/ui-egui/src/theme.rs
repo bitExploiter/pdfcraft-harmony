@@ -218,6 +218,8 @@ pub fn install_fonts_for(ctx: &egui::Context, cjk: CjkPreference) {
 pub const SYSTEM_FALLBACK: &str = "system-fallback";
 /// The name of the installed Devanagari (Hindi) face [`installed_font_definitions`] may add.
 pub const SYSTEM_DEVANAGARI_FALLBACK: &str = "system-devanagari-fallback";
+/// The name of the installed Hangul (Korean) face [`installed_font_definitions`] may add.
+pub const SYSTEM_HANGUL_FALLBACK: &str = "system-hangul-fallback";
 /// The name of the installed Telugu face [`installed_font_definitions`] may add.
 pub const SYSTEM_TELUGU_FALLBACK: &str = "system-telugu-fallback";
 /// The name of the installed Sinhala face [`installed_font_definitions`] may add.
@@ -240,6 +242,11 @@ pub const SYSTEM_TAMIL_FALLBACK: &str = "system-tamil-fallback";
 /// before that one, so Hindi, Telugu (#1531), Sinhala and Tamil (#1688) text, such as a file
 /// name, draws in a build without such faces.
 ///
+/// An installed Hangul face (Malgun Gothic on Windows) follows it when no face already in the
+/// definitions maps every Hangul syllable, whatever the interface language: a Korean file name,
+/// tab, recent file, bookmark title or search result is otherwise tofu. It stays after the
+/// Japanese and Chinese faces, since it also has kana and Han characters they draw.
+///
 /// `PDFCRAFT_SYSTEM_FONTS=0` leaves them out.
 pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
     #[cfg_attr(target_arch = "wasm32", expect(unused_mut))]
@@ -260,6 +267,9 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
                 stack.push(name.to_owned());
             }
         }
+        if let Some(data) = crate::system_fonts::hangul_fallback() {
+            add_hangul_fallback(&mut fonts, data);
+        }
         let need = match cjk {
             _ if !pdfcraft_fonts::ui_chinese_fonts().is_empty() => Need::Other,
             CjkPreference::SimplifiedChinese => Need::Hans,
@@ -279,6 +289,22 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
         }
     }
     fonts
+}
+
+/// Adds `data` as [`SYSTEM_HANGUL_FALLBACK`] at the end of every family, unless a face already in
+/// `fonts` maps every Hangul syllable (a craft-fonts Korean face) or it is there already. Returns
+/// whether it was added.
+#[cfg(not(target_arch = "wasm32"))]
+fn add_hangul_fallback(fonts: &mut FontDefinitions, data: Arc<FontData>) -> bool {
+    let covered = fonts.font_data.values().any(|f| crate::system_fonts::covers_hangul(&f.font, f.index));
+    if covered || fonts.font_data.contains_key(SYSTEM_HANGUL_FALLBACK) {
+        return false;
+    }
+    fonts.font_data.insert(SYSTEM_HANGUL_FALLBACK.to_owned(), data);
+    for stack in fonts.families.values_mut() {
+        stack.push(SYSTEM_HANGUL_FALLBACK.to_owned());
+    }
+    true
 }
 
 /// The interface fonts: Inter (and JetBrains Mono for code) first, then egui's defaults, then
@@ -591,6 +617,46 @@ mod tests {
             },
             font_definitions_for_platform(false, platform),
         )
+    }
+
+    /// The Hangul face goes once at the end of every family, after the app's own faces and the
+    /// craft-fonts CJK faces, and leaves the faces before it alone. Inter stands in for the face.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn hangul_fallback_ends_every_family_once() {
+        let mut fonts = font_definitions_for_platform(false, FontPolicyPlatform::Windows);
+        let before = fonts.families.clone();
+        let stand_in = Arc::new(FontData::from_static(pdfcraft_fonts::INTER_REGULAR));
+        let covered = fonts.font_data.values().any(|f| crate::system_fonts::covers_hangul(&f.font, f.index));
+        assert_eq!(add_hangul_fallback(&mut fonts, stand_in.clone()), !covered);
+        if covered {
+            assert_eq!(fonts.families, before, "a bundled Hangul face makes the installed one unnecessary");
+            return;
+        }
+        for (family, stack) in &fonts.families {
+            assert_eq!(stack.last().map(String::as_str), Some(SYSTEM_HANGUL_FALLBACK), "{family:?}");
+            assert_eq!(stack[..stack.len() - 1], before[family][..], "{family:?}");
+        }
+        // Installing again (a language change) does not add a second copy.
+        assert!(!add_hangul_fallback(&mut fonts, stand_in));
+        assert!(fonts.families.values().all(|s| s.iter().filter(|n| *n == SYSTEM_HANGUL_FALLBACK).count() == 1));
+    }
+
+    /// A face already in the definitions that maps every Hangul syllable makes the installed one
+    /// unnecessary. Needs an installed Hangul face (Malgun Gothic on Windows) to stand in.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn a_face_that_covers_hangul_keeps_the_installed_one_out() {
+        let Some(hangul) = crate::system_fonts::hangul_fallback() else {
+            eprintln!("skipping a_face_that_covers_hangul_keeps_the_installed_one_out: no installed Hangul face (or PDFCRAFT_SYSTEM_FONTS=0)");
+            return;
+        };
+        let mut fonts = font_definitions_for_platform(false, FontPolicyPlatform::Windows);
+        fonts.font_data.insert("bundled-hangul".to_owned(), hangul.clone());
+        let before = fonts.families.clone();
+        assert!(!add_hangul_fallback(&mut fonts, hangul));
+        assert_eq!(fonts.families, before);
+        assert!(!fonts.font_data.contains_key(SYSTEM_HANGUL_FALLBACK));
     }
 
     /// The baseline of each glyph of `text` laid out by egui at `size` points, in points from the
