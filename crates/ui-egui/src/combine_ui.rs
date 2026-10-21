@@ -2560,7 +2560,7 @@ impl PdfCraftApp {
     }
 
     /// Add files named by the operating system or the command line (`--combine`, the file
-    /// manager's "Combine files" entry, #585) to the Combine files list, in the order given, and
+    /// manager's "Combine files" entry, #585) to the Combine files list, in the order given (a sorted list stays sorted), and
     /// show it. Images and text files become PDFs as they join (#569). Nothing is combined until
     /// Combine is pressed. A file that can't be read is said and left out; the others still join,
     /// as one undo step.
