@@ -229,8 +229,43 @@ fn glyph_outlines(p: &Page) -> (Vec<bool>, Vec<Ink>) {
     (claimed, inks)
 }
 
+/// `p` on a slide `w` × `h` points: as it is when it is that size, else scaled to fit (keeping its
+/// proportions) and centred, since a presentation's slides share one size.
+fn fit(p: &Page, w: f64, h: f64) -> std::borrow::Cow<'_, Page> {
+    let usable = |v: f64| v.is_finite() && v > 0.0;
+    if !(usable(p.width) && usable(p.height) && usable(w) && usable(h)) || ((p.width - w).abs() < 0.5 && (p.height - h).abs() < 0.5) {
+        return std::borrow::Cow::Borrowed(p);
+    }
+    let k = (w / p.width).min(h / p.height);
+    let (dx, dy) = ((w - p.width * k) / 2.0, (h - p.height * k) / 2.0);
+    let at = |x: f64, y: f64| [x * k + dx, y * k + dy];
+    let rect = |r: [f64; 4]| {
+        let ([x0, y0], [x1, y1]) = (at(r[0], r[1]), at(r[2], r[3]));
+        [x0, y0, x1, y1]
+    };
+    let mut q = p.clone();
+    (q.width, q.height) = (w, h);
+    for b in &mut q.blocks {
+        b.rect = rect(b.rect);
+        b.size *= k;
+        b.indent *= k;
+    }
+    for im in &mut q.images {
+        im.rect = rect(im.rect);
+        im.size = im.size.map(|v| v * k);
+    }
+    for s in &mut q.shapes {
+        for pt in s.paths.iter_mut().flatten() {
+            *pt = at(pt[0], pt[1]);
+        }
+        s.line_width *= k;
+    }
+    std::borrow::Cow::Owned(q)
+}
+
 /// A PowerPoint presentation of `pages`, each page a slide with its shapes, pictures and text
-/// where they are on the page. The slides take the first page's size (a presentation has one).
+/// where they are on the page. The slides take the first page's size (a presentation has one);
+/// a page of another size is scaled to fit and centred.
 /// No pages give one blank slide, so the package stays valid.
 pub fn pptx_positioned(pages: &[Page], title: &str) -> Vec<u8> {
     let dummy = [Page::default()];
@@ -238,8 +273,10 @@ pub fn pptx_positioned(pages: &[Page], title: &str) -> Vec<u8> {
     let (sw, sh) = pages.first().map_or((9144000, 6858000), |p| (emu(p.width, 720.0), emu(p.height, 540.0)));
     let mut media: Vec<(String, &Image)> = Vec::new();
     let mut slides = Vec::with_capacity(pages.len());
-    for p in pages {
-        let page_h = if p.height.is_finite() && p.height > 0.0 { p.height } else { sh as f64 / 12700.0 };
+    let (slide_w, slide_h) = (sw as f64 / 12700.0, sh as f64 / 12700.0);
+    let fitted: Vec<std::borrow::Cow<'_, Page>> = pages.iter().map(|p| fit(p, slide_w, slide_h)).collect();
+    for p in fitted.iter().map(|p| &**p) {
+        let page_h = if p.height.is_finite() && p.height > 0.0 { p.height } else { slide_h };
         let mut shapes = String::new();
         let mut rels = Vec::new();
         let mut id = 2usize;
@@ -342,6 +379,20 @@ mod tests {
         let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
         // Without a colour, the shape would take the theme's.
         assert_eq!(slide.matches("<a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill>").count(), 2, "{slide}");
+    }
+
+    #[test]
+    fn a_page_of_another_size_fits_the_slide() {
+        // A portrait page after a landscape one: scaled by 0.75 to the slide's height and centred.
+        let mut portrait = Page { width: 540.0, height: 720.0, ..Page::default() };
+        portrait.blocks = vec![block("Top line", [72.0, 700.0, 300.0, 712.0], 12.0), block("Bottom line", [72.0, 20.0, 300.0, 32.0], 12.0)];
+        let slide = part(&pptx_positioned(&[page(), portrait], "Deck"), "ppt/slides/slide2.xml");
+        // 712 × 0.75 = 534 pt up: 6 pt from the top; x = 72 × 0.75 + (720 − 405) / 2 = 211.5 pt.
+        assert!(slide.contains(&format!("<a:off x=\"{}\" y=\"{}\"/>", 2_686_050, 6 * EMU)), "{slide}");
+        assert!(slide.contains("sz=\"900\""), "12 pt type at 0.75: {slide}");
+        // Nothing falls below the slide.
+        let offs: Vec<i64> = slide.split("<a:off ").skip(1).filter_map(|r| r.split("y=\"").nth(1)?.split('"').next()?.parse().ok()).collect();
+        assert!(offs.iter().all(|y| *y < 540 * EMU), "{offs:?}");
     }
 
     #[test]
