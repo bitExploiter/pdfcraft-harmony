@@ -2598,7 +2598,10 @@ mod tests {
         // A clock before 1970 reads as the epoch, as the old `unwrap_or(0)` did.
         assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH - Duration::from_secs(5)), "1970-01-01 00:00 UTC");
         // Past chrono's range reads as the epoch instead of panicking.
-        assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH + Duration::from_secs(u64::MAX / 2)), "1970-01-01 00:00 UTC");
+        // Windows' SystemTime can't hold this instant, so it is only checked where it exists.
+        if let Some(far) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::MAX / 2)) {
+            assert_eq!(utc_stamp(far), "1970-01-01 00:00 UTC");
+        }
         // Years past 9999 keep the plain zero-padded year (no `+`).
         assert_eq!(at(253_402_300_800), "10000-01-01 00:00 UTC");
     }
