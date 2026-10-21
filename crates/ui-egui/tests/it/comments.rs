@@ -1399,6 +1399,11 @@ fn drawn_pressure(h: &Harness<'static, PdfCraftApp>) -> Option<(usize, Vec<f32>)
 /// One frame of a pen as egui-winit reports it: a touch carrying the pressure, mirrored as the
 /// primary pointer (pressed on `Start`, released and gone on `End`).
 fn pen_frame(h: &mut Harness<'static, PdfCraftApp>, phase: egui::TouchPhase, pos: Pos2, force: f32) {
+    pen_frame_with(h, phase, pos, force, Vec::new());
+}
+
+/// [`pen_frame`] with `after` (another contact's touch events) following the pen's.
+fn pen_frame_with(h: &mut Harness<'static, PdfCraftApp>, phase: egui::TouchPhase, pos: Pos2, force: f32, after: Vec<egui::Event>) {
     use egui::Event;
     let touch = Event::Touch { device_id: egui::TouchDeviceId(7), id: egui::TouchId(1 << 32), phase, pos, force: Some(force) };
     let button = |pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
@@ -1407,7 +1412,7 @@ fn pen_frame(h: &mut Harness<'static, PdfCraftApp>, phase: egui::TouchPhase, pos
         egui::TouchPhase::Move => vec![touch, Event::PointerMoved(pos)],
         egui::TouchPhase::End | egui::TouchPhase::Cancel => vec![touch, button(false), Event::PointerGone],
     };
-    h.input_mut().events.extend(events);
+    h.input_mut().events.extend(events.into_iter().chain(after));
     h.run_steps(1);
 }
 
@@ -1459,6 +1464,36 @@ fn a_pen_stroke_records_its_pressure_at_every_point() {
     let (points, pressure) = drawn_pressure(&h).expect("drawing");
     assert!(points >= 2 && pressure.is_empty(), "{points} points, pressure {pressure:?}");
     h.drop_at(d);
+    h.run_steps(3);
+}
+
+/// A second contact while a pen draws (another pen, or a hand on a screen that reports force)
+/// is a second touch. egui-winit keeps the pointer on the first, and so does the stroke's
+/// pressure: the other touch landing, pressing and lifting, even after the pen's own events in
+/// a frame, never changes it.
+#[test]
+fn a_second_touch_does_not_change_the_pen_strokes_pressure() {
+    let mut h = harness(|app| app.set_option("quick", "ink").unwrap());
+    let (a, b) = (at(&h, 40.0, 60.0), at(&h, 200.0, 140.0));
+    let far = at(&h, 300.0, 300.0);
+    let other = |phase| vec![egui::Event::Touch { device_id: egui::TouchDeviceId(7), id: egui::TouchId(2), phase, pos: far, force: Some(0.9) }];
+    h.hover_at(a);
+    h.run_steps(1);
+    pen_frame(&mut h, egui::TouchPhase::Start, a, 0.5);
+    for k in 1..=8 {
+        // The other touch lands, presses and lifts in the middle of the stroke.
+        let after = match k {
+            3 => other(egui::TouchPhase::Start),
+            4 | 5 => other(egui::TouchPhase::Move),
+            6 => other(egui::TouchPhase::End),
+            _ => Vec::new(),
+        };
+        pen_frame_with(&mut h, egui::TouchPhase::Move, a + (b - a) * (k as f32 / 8.0), 0.5, after);
+    }
+    let (points, pressure) = drawn_pressure(&h).expect("drawing");
+    assert!(points >= 5, "the stroke has points: {points}");
+    assert_eq!(pressure, vec![0.5; points], "the pen's pressure at every point");
+    pen_frame(&mut h, egui::TouchPhase::End, b, 0.0);
     h.run_steps(3);
 }
 

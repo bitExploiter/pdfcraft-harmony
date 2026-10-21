@@ -490,9 +490,9 @@ pub struct CommentView {
     /// The selected comment: (page, index in `/Annots`).
     pub selected: Option<(usize, usize)>,
     pub gesture: Option<Gesture>,
-    /// The pressure of the pen touching the screen or tablet, from egui's touch events; `None`
-    /// for a mouse and once the pen lifts.
-    pub(crate) pen_force: Option<f32>,
+    /// The touch driving the pointer and its pen pressure, from egui's touch events; `None` for
+    /// a mouse and once that touch lifts.
+    pub(crate) pen: Option<PenTouch>,
     /// Drawings just released: shown from their points until the page raster that includes the
     /// committed annotation arrives, so the stroke never vanishes in between (#1858).
     pub(crate) settling: Vec<Settling>,
@@ -819,7 +819,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
     let over_page = pointer.is_some_and(|p| page_rect.contains(p));
     // Follow the pen whatever the tool, so a pressure seen while another tool was active
     // never outlives the touch. Every page reads the same events, so repeating it is harmless.
-    view.comments.pen_force = ui.input(|i| pen_force(&i.events, view.comments.pen_force));
+    view.comments.pen = ui.input(|i| follow_pen(&i.events, view.comments.pen));
     let fill_grab = fill_grabs(ui, cx, view);
     let draw_grab = draw_grabs(ui, cx, view);
     let caret_text = if cx.tool == QuickTool::Comment(CommentTool::Caret) { view.page_text(cx.page) } else { None };
@@ -855,10 +855,11 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             {
                 // A stroke has pressure when its pen reports it from the start.
                 let touching = ui.input(|i| i.any_touches());
-                let pressure = cv.pen_force.filter(|_| tool == CommentTool::Ink && touching).into_iter().collect();
+                let pressure = cv.pen_force().filter(|_| tool == CommentTool::Ink && touching).into_iter().collect();
                 cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)], pressure });
                 cv.selected = None;
             }
+            let force = cv.pen_force();
             if let Some(Gesture::Draw { page, tool, points, pressure }) = cv.gesture.as_mut()
                 && *page == cx.page
                 && let Some(p) = pointer
@@ -869,7 +870,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     let last = points.last().map(|l| cx.to_screen(*l)).unwrap_or(p);
                     if last.distance(p) >= 1.5 {
                         points.push(u);
-                        push_pressure(pressure, cv.pen_force);
+                        push_pressure(pressure, force);
                     }
                 } else {
                     points.truncate(1);
@@ -1484,15 +1485,34 @@ fn with_pressure(shape: Shape, pressure: &[f32]) -> Shape {
     }
 }
 
-/// The pen pressure after this frame's touch events: that of the last touch still down, `None`
-/// once it lifts or for a touch without pressure, `current` when the frame has no touch events.
-fn pen_force(events: &[egui::Event], current: Option<f32>) -> Option<f32> {
-    events.iter().fold(current, |force, event| match event {
-        egui::Event::Touch { phase: egui::TouchPhase::Start | egui::TouchPhase::Move, force, .. } => {
-            force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0))
-        }
-        egui::Event::Touch { phase: egui::TouchPhase::End | egui::TouchPhase::Cancel, .. } => None,
-        _ => force,
+/// The touch that drives egui's pointer, and its pen pressure (0 to 1; `None` for a touch that
+/// reports none, such as a finger on most screens).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct PenTouch {
+    id: egui::TouchId,
+    force: Option<f32>,
+}
+
+impl CommentView {
+    /// The pen pressure of the touch driving the pointer, if it reports one.
+    fn pen_force(&self) -> Option<f32> {
+        self.pen.and_then(|p| p.force)
+    }
+}
+
+/// The pointer's touch after this frame's touch events. Like egui-winit, which drives the
+/// pointer with a touch while no other is (from its start until it lifts) and ignores the rest,
+/// so a second contact, such as a palm on the screen or another pen, never changes the
+/// pressure of the stroke the pointer draws. `current` stays when the frame has no touch events.
+fn follow_pen(events: &[egui::Event], current: Option<PenTouch>) -> Option<PenTouch> {
+    events.iter().fold(current, |pen, event| match event {
+        egui::Event::Touch { id, phase, force, .. } if pen.is_none_or(|p| p.id == *id) => match phase {
+            egui::TouchPhase::Start | egui::TouchPhase::Move => {
+                Some(PenTouch { id: *id, force: force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0)) })
+            }
+            egui::TouchPhase::End | egui::TouchPhase::Cancel => None,
+        },
+        _ => pen,
     })
 }
 
@@ -2492,8 +2512,18 @@ mod tests {
         assert_eq!(with_pressure(line.clone(), &[0.25, 0.5]), line);
     }
 
+    fn touch_of(id: u64, phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
+        egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(id), phase, pos: pos2(1.0, 1.0), force }
+    }
+
     fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
-        egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos: pos2(1.0, 1.0), force }
+        touch_of(1, phase, force)
+    }
+
+    /// The pressure of the pointer's touch after `events`, starting from pen 1 at `current`.
+    fn pen_force(events: &[egui::Event], current: Option<f32>) -> Option<f32> {
+        let pen = current.map(|force| PenTouch { id: egui::TouchId(1), force: Some(force) });
+        follow_pen(events, pen).and_then(|p| p.force)
     }
 
     #[test]
@@ -2510,6 +2540,21 @@ mod tests {
         assert_eq!(pen_force(&[touch(Move, None)], Some(0.6)), None);
         assert_eq!(pen_force(&[touch(Move, Some(f32::NAN))], None), None);
         assert_eq!(pen_force(&[touch(Move, Some(3.0))], None), Some(1.0));
+    }
+
+    /// A second contact during a stroke (a palm, another pen) neither sets nor clears the
+    /// pressure of the touch driving the pointer; once that lifts, the next touch takes over.
+    #[test]
+    fn only_the_pointers_touch_sets_the_pen_pressure() {
+        use egui::TouchPhase::{End, Move, Start};
+        let palm = |phase| touch_of(2, phase, None);
+        let other_pen = |phase, f| touch_of(3, phase, Some(f));
+        let events = [touch(Start, Some(0.2)), palm(Start), other_pen(Start, 0.9), touch(Move, Some(0.4)), palm(Move), other_pen(Move, 1.0)];
+        let pen = follow_pen(&events, None);
+        assert_eq!(pen, Some(PenTouch { id: egui::TouchId(1), force: Some(0.4) }));
+        assert_eq!(follow_pen(&[palm(End), other_pen(End, 0.0)], pen), pen, "the others lifting leaves it");
+        let after = follow_pen(&[touch(End, Some(0.0)), other_pen(Move, 0.7)], pen);
+        assert_eq!(after, Some(PenTouch { id: egui::TouchId(3), force: Some(0.7) }));
     }
 
     #[test]
