@@ -2646,7 +2646,13 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
-	Paragraph spacing	Spaziatura paragrafi
 	Between paragraphs: press Enter in the box to start one	Tra i paragrafi: premi Invio nella casella per iniziarne uno
+	Font	Carattere
+	Bulleted list	Elenco puntato
+	Numbered list	Elenco numerato
+	Alignment	Allineamento
+	Superscript	Apice
+	Subscript	Pedice
+	Paragraph spacing	Spaziatura paragrafi
 	Less	Meno
 	Other options	Altre opzioni

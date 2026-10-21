@@ -2456,7 +2456,13 @@ animation effects	Off	Вимкнено
 	Make properties default	Зробити властивості типовими
 	Pages selected	Вибрані сторінки
 	Page properties	Властивості сторінки
-	Paragraph spacing	Інтервал між абзацами
 	Between paragraphs: press Enter in the box to start one	Між абзацами: натисніть Enter у полі, щоб почати новий
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
 	Less	Менше
 	Other options	Інші параметри

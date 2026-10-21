@@ -2508,7 +2508,13 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
-	Paragraph spacing	Mezera mezi odstavci
 	Between paragraphs: press Enter in the box to start one	Mezi odstavci: stiskněte Enter v poli a začněte nový
+	Font	Písmo
+	Bulleted list	Odrážkový seznam
+	Numbered list	Číslovaný seznam
+	Alignment	Zarovnání
+	Superscript	Horní index
+	Subscript	Dolní index
+	Paragraph spacing	Mezera mezi odstavci
 	Less	Méně
 	Other options	Další možnosti

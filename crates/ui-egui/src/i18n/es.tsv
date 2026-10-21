@@ -2570,11 +2570,17 @@ animation effects	Off	Desactivados
 	Make properties default	Usar como propiedades predeterminadas
 	Pages selected	Páginas seleccionadas
 	Page properties	Propiedades de página
+	Font	Fuente
+	Bulleted list	Lista con viñetas
+	Numbered list	Lista numerada
+	Alignment	Alineación
+	Superscript	Superíndice
+	Subscript	Subíndice
+	Paragraph spacing	Espaciado entre párrafos
 	Less	Menos
 	Other options	Otras opciones
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Estás viendo la versión firmada de «{from}» (revisión {rev}). Es una instantánea: los cambios aquí no afectarán al original.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Estás viendo la revisión {rev} de «{from}». Es una instantánea: los cambios aquí no afectarán al original.
-	Paragraph spacing	Espacio entre párrafos
 	Between paragraphs: press Enter in the box to start one	Entre párrafos: pulsa Intro en el cuadro para empezar uno
