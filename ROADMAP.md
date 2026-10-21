@@ -1,6 +1,7 @@
 # PdfCraft roadmap
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
+> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** candidate (M14, #1465: signed status appears on first render while unsigned signature validation stays deferred; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -177,6 +178,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
 
 - **2026-10-18 (M10, #3120):** Export to Word, PowerPoint, HTML and RTF reads text from form XObjects nested as deep as the renderer draws them (50 levels), and up to 50 000 forms a page (the renderer's budget for nested ones); it stopped at 12 levels and 4 096 forms and left the rest out silently. A page past those limits is listed in `doc_export_office`'s `truncated_pages`, with a warning. Estimates unchanged.
+
+- **2026-10-18 (M14, #1465 candidate):** Signed documents show signature status and rail presence on first render; unsigned documents keep deferred validation, and malformed signature fields remain visibly unresolved. Estimates unchanged.
 
 - **2026-10-18 (M5, PR #1971 review):** Nested FDF annotation values that identify a source `/Page` or `/Pages` dictionary become null at every copy depth. A synthetic three-page PDF saved and reopened before export verifies that destination actions cannot pull source page content into the FDF, while unrelated nested metadata and shared references remain intact. FDF import semantics, copied-graph limits and estimates are unchanged.
 - **2026-10-15 (M5, PR #1971 refresh):** Nested FDF annotation values retain shared or cyclic copied graphs. Discovery borrows direct values and records annotation positions with lazy array owners; retained entries are budgeted before cloning. Synthetic stress fixtures include repeated aliases and saved-PDF cache eviction. Limits cover the copied graph; source parsing and page discovery retain their existing limits, with no total source-memory bound. FDF import semantics and estimates are unchanged.

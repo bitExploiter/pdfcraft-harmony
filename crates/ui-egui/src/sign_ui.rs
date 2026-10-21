@@ -1122,10 +1122,15 @@ fn sign_as(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
 /// The message bar for signed documents: (icon, colour, template, argument).
 /// The template renders through [`crate::i18n::tr_fmt`] at the call site, so the bar follows
 /// the UI language; names inside `argument` stay as they are.
-pub(crate) fn banner(sigs: &[SignatureInfo]) -> Option<(&'static str, Color32, &'static str, String)> {
+pub(crate) fn banner(sigs: &[SignatureInfo], has_signatures: bool) -> Option<(&'static str, Color32, &'static str, String)> {
     let signed: Vec<&SignatureInfo> = sigs.iter().filter(|s| s.signed).collect();
     if signed.is_empty() {
-        return None;
+        return has_signatures.then_some((
+            "triangle-alert",
+            Color32::from_rgb(0xE6, 0x86, 0x19),
+            "At least one signature has problems.",
+            String::new(),
+        ));
     }
     if let Some(c) = signed.iter().find(|s| s.certify.is_some())
         && c.status == SignatureStatus::Valid
@@ -1184,7 +1189,7 @@ pub enum PanelAction {
 }
 
 /// The Signatures panel body.
-pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, sigs: &[SignatureInfo], expanded: &mut Vec<String>) -> Option<PanelAction> {
+pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, sigs: &[SignatureInfo], has_signatures: bool, expanded: &mut Vec<String>) -> Option<PanelAction> {
     let mut action = None;
     ui.horizontal(|ui| {
         if widgets::pill_button(ui, tl!("Validate all"), false).clicked() {
@@ -1197,7 +1202,8 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, sigs: &[SignatureInfo], expan
         ui.vertical_centered(|ui| {
             ui.add(icons::image("signature", 32.0, t.text_faint));
             ui.add_space(6.0);
-            ui.label(egui::RichText::new(tl!("This document has no signatures.")).color(t.text_muted));
+            let message = if has_signatures { tl!("At least one signature has problems.") } else { tl!("This document has no signatures.") };
+            ui.label(egui::RichText::new(message).color(t.text_muted));
         });
         return action;
     }
