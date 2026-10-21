@@ -18,9 +18,10 @@ impl Automation {
     pub(crate) fn scan_acquire(&self, args: &Args) -> Result<Value> {
         let out = args.str("out")?;
         let folder = self.resolve(out, true)?;
-        std::fs::create_dir_all(&folder).map_err(|error| failed(format!("{out}: {error}")))?;
+        // Every argument is validated before the folder exists, so an invalid one leaves nothing behind (the CLI does the same).
         let settings = scan_settings_from_args(args)?;
         settings.checked().map_err(|error| failed(error.to_string()))?;
+        std::fs::create_dir_all(&folder).map_err(|error| failed(format!("{out}: {error}")))?;
         match scan::acquire(&settings) {
             Ok(acquired) => finish_acquire_json(&folder, &settings, &acquired, false, None),
             Err(error) => acquire_failure(&folder, &settings, error),

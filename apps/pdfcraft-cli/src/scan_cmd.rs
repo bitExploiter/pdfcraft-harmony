@@ -158,7 +158,14 @@ pub fn run(spec: Run) -> Result<(), CliError> {
                     write_error = Some(error);
                     job.cancel(now());
                 }
-                journal.save(&job)?;
+                // The job file cannot be written (disk full, folder gone): stop the transfer like a failed page write, and let
+                // the loop join the worker; returning here would end the process with the scanner still feeding.
+                if let Err(error) = journal.save(&job)
+                    && write_error.is_none()
+                {
+                    write_error = Some(error.to_string());
+                    job.cancel(now());
+                }
             }
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -169,7 +176,12 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         {
             write_error = Some(error);
         }
-        journal.save(&job)?;
+        // The worker has ended: a failed write is reported with the pages saved so far, not by dropping the result.
+        if let Err(error) = journal.save(&job)
+            && write_error.is_none()
+        {
+            write_error = Some(error.to_string());
+        }
         match job.retry_advice() {
             RetryAdvice::RetryNow if write_error.is_none() && !job.state().is_terminal() => {
                 eprintln!("pdfcraft-cli: trying again ({})", job.snapshot().summary_line())
@@ -219,7 +231,7 @@ pub fn run(spec: Run) -> Result<(), CliError> {
         return Ok(());
     }
     let (message, json) = match (&write_error, &snapshot.last_error) {
-        (Some(error), _) => (format!("scan: could not save a page: {error}"), None),
+        (Some(error), _) => (format!("scan: could not save the scan: {error}"), None),
         (None, Some(failure)) => {
             let info = error_line(&failure.info);
             (format!("scan: {}", failure.info.message), Some(info))
@@ -695,6 +707,9 @@ mod tests {
         JamAfter(usize),
         /// The link drops with no page in hand.
         Offline,
+        /// All pages arrive, but first the job file in this folder is replaced by a directory, so the next write of it fails.
+        /// The transfer then stays open until it is cancelled (or five seconds pass), and records that it ended.
+        BreakTheJournal(PathBuf),
     }
 
     static SCRIPT: Mutex<VecDeque<Step>> = Mutex::new(VecDeque::new());
@@ -702,6 +717,8 @@ mod tests {
     /// Sheets fed so far in a test: each page's bytes are its feed number, so tests can see where it landed.
     static FED: Mutex<u8> = Mutex::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
+    /// Set by the mock when its transfer has ended: a run that returns while this is still false left the scanner feeding.
+    static WORKER_ENDED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
     struct Mock;
 
@@ -787,6 +804,21 @@ mod tests {
                     })
                 }
                 Step::Offline => Err(ScanError::Native { kind: InterruptKind::Offline, native: None, message: "The scanner went offline.".into() }),
+                Step::BreakTheJournal(folder) => {
+                    let job_file = folder.join(scan_jobs::JOB_FILE);
+                    let _ = std::fs::remove_file(&job_file);
+                    std::fs::create_dir(&job_file).expect("a directory where the job file was");
+                    for _ in 0..wanted {
+                        progress.push_page(page(0));
+                    }
+                    let cancel = settings.cancel.clone().expect("the job gives every attempt a cancel token");
+                    let waited = std::time::Instant::now();
+                    while !cancel.is_requested() && waited.elapsed() < Duration::from_secs(5) {
+                        std::thread::sleep(Duration::from_millis(20));
+                    }
+                    WORKER_ENDED.store(true, std::sync::atomic::Ordering::SeqCst);
+                    Err(ScanError::Native { kind: InterruptKind::Cancelled, native: None, message: "The scan was cancelled.".into() })
+                }
             }
         }
     }
@@ -802,6 +834,7 @@ mod tests {
         SCRIPT.lock().unwrap().clear();
         ASKED.lock().unwrap().clear();
         *FED.lock().unwrap() = 0;
+        WORKER_ENDED.store(false, std::sync::atomic::Ordering::SeqCst);
         guard
     }
 
@@ -843,6 +876,26 @@ mod tests {
     /// The message with which a fresh scan into `dir` is refused.
     fn refuse(dir: &Path) -> String {
         crate::refuse_a_folder_that_has_a_job(dir).unwrap_err().to_string()
+    }
+
+    #[test]
+    fn a_job_file_that_cannot_be_written_stops_the_transfer_and_ends_the_worker_before_run_returns() {
+        let _serial = mock_lock();
+        let dir = fresh("journal-write-fails");
+        script(vec![Step::BreakTheJournal(dir.clone())]);
+        let result = start(&dir, 3);
+        // Returning on the failed write used to end the process with the transfer still running.
+        assert!(WORKER_ENDED.load(std::sync::atomic::Ordering::SeqCst), "run returned while the scanner was still feeding");
+        match result {
+            Err(CliError::Exit { code, message, .. }) => {
+                assert_ne!(code, 0);
+                assert!(message.contains("could not save the scan"), "{message}");
+            }
+            other => panic!("expected a failed job, got {other:?}"),
+        }
+        // The pages that arrived before the failure are on disk.
+        assert!(names(&dir).iter().any(|n| n.starts_with("page-")), "{:?}", names(&dir));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

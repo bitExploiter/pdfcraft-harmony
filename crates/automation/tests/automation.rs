@@ -666,6 +666,15 @@ fn scan_acquire_is_destructive_and_requires_out() {
 }
 
 #[test]
+fn scan_acquire_validates_its_arguments_before_it_creates_the_folder() {
+    let dir = workdir("scan_acquire_invalid");
+    let mut a = auto(&dir);
+    let err = a.call("scan_acquire", &json!({ "out": "made", "device": "none", "color": "purple" }));
+    assert!(err.is_err(), "an unknown colour is refused");
+    assert!(!dir.join("made").exists(), "an argument that did not parse must not leave an empty folder behind");
+}
+
+#[test]
 fn open_inspect_render_and_find() {
     let dir = workdir("inspect");
     let mut a = auto(&dir);

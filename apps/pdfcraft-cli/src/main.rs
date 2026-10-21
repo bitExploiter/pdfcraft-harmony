@@ -1238,7 +1238,8 @@ fn scan(args: &[String]) -> Result<(), CliError> {
     if args.iter().any(|arg| arg == "--continue") {
         return scan_continue(args);
     }
-    if args.iter().any(|arg| arg == "devices") {
+    // By position, like `check`, `jobs` and `job`: `scan --out devices --yes` names a folder, it is not the subcommand.
+    if args.first().map(String::as_str) == Some("devices") {
         let dump = args.iter().any(|arg| arg == "--dump");
         let details = args.iter().any(|arg| arg == "--details");
         let filter = option_value(args, "--device")?;

@@ -160,6 +160,21 @@ fn a_fresh_scan_will_not_start_in_a_folder_that_already_has_a_job() {
 }
 
 #[test]
+fn a_folder_named_devices_is_a_folder_not_the_devices_subcommand() {
+    // Run from a scratch folder so that the relative name `devices` is literally the argument. `--dpi nope` fails in the option
+    // parser, which a fresh scan reaches before it creates anything; the `devices` subcommand would instead complain that
+    // `--out` and `--yes` are not its options.
+    let dir = folder("named-devices");
+    let out = Command::new(BIN).current_dir(&dir).args(["scan", "--out", "devices", "--yes", "--dpi", "nope"]).output().expect("run cli");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{stderr}");
+    assert!(stderr.contains("--dpi is a whole number"), "a fresh scan parses its options: {stderr}");
+    assert!(!stderr.contains("scan devices takes only"), "routed to the subcommand: {stderr}");
+    assert!(!dir.join("devices").exists(), "a bad option leaves no folder behind");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_usage_lists_the_job_commands_and_exit_codes() {
     let (code, stdout, _) = run(&["--help"]);
     assert_eq!(code, Some(0));
