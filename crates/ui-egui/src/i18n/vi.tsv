@@ -2684,6 +2684,25 @@ key	Space	Space
 	“{name}” changed on disk after it was opened or last saved. Saving now replaces that newer version with this one.	“{name}” đã thay đổi trên đĩa sau khi được mở hoặc lưu lần cuối. Lưu lúc này sẽ thay thế phiên bản mới hơn đó bằng phiên bản này.
 @id	file.word_count	Đếm từ…
 
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Trích xuất PDF gốc…
+	Opened from a CAdES signature envelope — read-only.	Đã mở từ một phong bì ký CAdES — chỉ đọc.
+	Opened from a detached CAdES signature — read-only.	Đã mở từ một chữ ký CAdES tách rời — chỉ đọc.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Ký bởi {signer} lúc {time}; nội dung khớp với nội dung được ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Ký bởi {signer} lúc {time}; nội dung không khớp với nội dung được ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Ký bởi {signer}; nội dung khớp với nội dung được ký; độ tin cậy của người ký chưa được kiểm tra.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Ký bởi {signer}; nội dung không khớp với nội dung được ký; độ tin cậy của người ký chưa được kiểm tra.
+	CAdES signature envelope	Phong bì ký CAdES
+	CAdES signature (.p7m, .p7s)	Chữ ký CAdES (.p7m, .p7s)
+	Integrity	Toàn vẹn
+	Matches what was signed	Khớp với nội dung được ký
+	Does not match what was signed	Không khớp với nội dung được ký
+	Signers	Người ký
+	{signers} signers; details of the first are shown	{signers} người ký; hiển thị chi tiết của người đầu tiên
+	Quirks	Điểm đặc biệt
+	Detached signature file	Tệp chữ ký tách rời
+	Couldn't extract the original PDF: {e}	Không thể trích xuất PDF gốc: {e}
+
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Bạn đang xem phiên bản đã ký của “{from}” (bản sửa đổi {rev}). Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Bạn đang xem bản sửa đổi {rev} của “{from}”. Đây là ảnh nhanh: các thay đổi ở đây không được áp dụng đến bản gốc.

@@ -2396,6 +2396,24 @@ animation effects	Off	Desativados
 	This document is trying to open a local file:	Este documento está tentando abrir um arquivo local:
 	Move tag earlier	Mover tag para antes
 	Move tag later	Mover tag para depois
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Extrair o PDF original…
+	Opened from a CAdES signature envelope — read-only.	Aberto a partir de um envelope de assinatura CAdES — somente leitura.
+	Opened from a detached CAdES signature — read-only.	Aberto a partir de uma assinatura CAdES desanexada — somente leitura.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Assinado por {signer} em {time}; o conteúdo corresponde ao que foi assinado; a confiança do signatário não foi verificada.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Assinado por {signer} em {time}; o conteúdo não corresponde ao que foi assinado; a confiança do signatário não foi verificada.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Assinado por {signer}; o conteúdo corresponde ao que foi assinado; a confiança do signatário não foi verificada.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Assinado por {signer}; o conteúdo não corresponde ao que foi assinado; a confiança do signatário não foi verificada.
+	CAdES signature envelope	Envelope de assinatura CAdES
+	CAdES signature (.p7m, .p7s)	Assinatura CAdES (.p7m, .p7s)
+	Integrity	Integridade
+	Matches what was signed	Corresponde ao que foi assinado
+	Does not match what was signed	Não corresponde ao que foi assinado
+	Signers	Signatários
+	{signers} signers; details of the first are shown	{signers} signatários; os detalhes do primeiro são exibidos
+	Quirks	Particularidades
+	Detached signature file	Arquivo de assinatura desanexada
+	Couldn't extract the original PDF: {e}	Não foi possível extrair o PDF original: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Você está vendo a versão assinada de “{from}” (revisão {rev}). É um instantâneo: as alterações aqui não afetarão o original.

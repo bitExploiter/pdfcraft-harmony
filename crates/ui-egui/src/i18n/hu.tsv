@@ -2381,6 +2381,24 @@ animation effects	Off	Ki
 	This document is trying to open a local file:	Ez a dokumentum egy helyi fájlt próbál megnyitni:
 	Move tag earlier	Címke korábbra helyezése
 	Move tag later	Címke későbbre helyezése
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Eredeti PDF kinyerése…
+	Opened from a CAdES signature envelope — read-only.	CAdES aláírás-borítékból megnyitva — csak olvasható.
+	Opened from a detached CAdES signature — read-only.	CAdES különálló aláírásból megnyitva — csak olvasható.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Aláírta: {signer}, {time}; a tartalom megegyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Aláírta: {signer}, {time}; a tartalom nem egyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom megegyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Aláírta: {signer}; a tartalom nem egyezik az aláírttal; az aláíró megbízhatóságát nem ellenőriztük.
+	CAdES signature envelope	CAdES aláírás-boríték
+	CAdES signature (.p7m, .p7s)	CAdES aláírás (.p7m, .p7s)
+	Integrity	Integritás
+	Matches what was signed	Megegyezik az aláírttal
+	Does not match what was signed	Nem egyezik az aláírttal
+	Signers	Aláírók
+	{signers} signers; details of the first are shown	{signers} aláíró; az első részletei jelennek meg
+	Quirks	Sajátosságok
+	Detached signature file	Különálló aláírási fájl
+	Couldn't extract the original PDF: {e}	Az eredeti PDF-et nem sikerült kinyerni: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	A(z) „{from}“ aláírt változatát (a {rev}. változatot) tekinti meg. Ez egy pillanatkép: az itteni módosítások nem érintik az eredetit.

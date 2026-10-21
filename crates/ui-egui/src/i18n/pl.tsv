@@ -2362,6 +2362,24 @@ animation effects	Off	Wyłączone
 	This document is trying to open a local file:	Ten dokument próbuje otworzyć plik lokalny:
 	Move tag earlier	Przenieś znacznik wcześniej
 	Move tag later	Przenieś znacznik później
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Wyodrębnij oryginalny plik PDF…
+	Opened from a CAdES signature envelope — read-only.	Otwarto z koperty podpisu CAdES — tylko do odczytu.
+	Opened from a detached CAdES signature — read-only.	Otwarto z odłączonego podpisu CAdES — tylko do odczytu.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Podpisane przez {signer} w dniu {time}; treść odpowiada temu, co podpisano; zaufanie do podpisującego nie zostało sprawdzone.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Podpisane przez {signer} w dniu {time}; treść nie odpowiada temu, co podpisano; zaufanie do podpisującego nie zostało sprawdzone.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podpisane przez {signer}; treść odpowiada temu, co podpisano; zaufanie do podpisującego nie zostało sprawdzone.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podpisane przez {signer}; treść nie odpowiada temu, co podpisano; zaufanie do podpisującego nie zostało sprawdzone.
+	CAdES signature envelope	Koperta podpisu CAdES
+	CAdES signature (.p7m, .p7s)	Podpis CAdES (.p7m, .p7s)
+	Integrity	Integralność
+	Matches what was signed	Odpowiada temu, co podpisano
+	Does not match what was signed	Nie odpowiada temu, co podpisano
+	Signers	Podpisujący
+	{signers} signers; details of the first are shown	Podpisujących: {signers}; pokazane są szczegóły pierwszego
+	Quirks	Specyfika
+	Detached signature file	Plik odłączonego podpisu
+	Couldn't extract the original PDF: {e}	Nie udało się wyodrębnić oryginalnego pliku PDF: {e}
 	Turn upside down (180°)	Obróć do góry nogami (180°)
 	4 x 6 in label (101.6 x 152.4 mm)	Etykieta 4 × 6 cali (101,6 × 152,4 mm)
 	Cuts each page to its printed area, turns it upright and fits it to the sheet without stretching. One label per sheet.	Przycina każdą stronę do zadrukowanego obszaru, obraca ją pionowo i dopasowuje do arkusza bez rozciągania. Jedna etykieta na arkusz.

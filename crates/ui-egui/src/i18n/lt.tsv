@@ -2626,6 +2626,24 @@ key	Space	Tarpas
 	This document is trying to open a local file:	Šis dokumentas bando atverti vietinį failą:
 	Move tag earlier	Perkelti žymą anksčiau
 	Move tag later	Perkelti žymą vėliau
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Išskirti originalų PDF…
+	Opened from a CAdES signature envelope — read-only.	Atverta iš CAdES parašo voko — tik skaityti.
+	Opened from a detached CAdES signature — read-only.	Atverta iš atskiro CAdES parašo — tik skaityti.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Pasirašė {signer} {time}; turinys atitinka tai, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Pasirašė {signer} {time}; turinys neatitinka to, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys atitinka tai, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Pasirašė {signer}; turinys neatitinka to, kas buvo pasirašyta; pasirašiusiojo patikimumas netikrintas.
+	CAdES signature envelope	CAdES parašo vokas
+	CAdES signature (.p7m, .p7s)	CAdES parašas (.p7m, .p7s)
+	Integrity	Vientisumas
+	Matches what was signed	Atitinka tai, kas buvo pasirašyta
+	Does not match what was signed	Neatitinka to, kas buvo pasirašyta
+	Signers	Pasirašiusieji
+	{signers} signers; details of the first are shown	Pasirašiusiųjų: {signers}; rodoma pirmojo išsami informacija
+	Quirks	Ypatumai
+	Detached signature file	Atskiro parašo failas
+	Couldn't extract the original PDF: {e}	Nepavyko išskirti originalaus PDF: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Jūs peržiūrite pasirašytą „{from}“ versiją ({rev} versija). Tai momentinė kopija: čia atlikti pakeitimai originalo nepaveiks.

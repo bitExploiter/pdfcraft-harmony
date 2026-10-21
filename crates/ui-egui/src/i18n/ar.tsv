@@ -2403,6 +2403,24 @@ animation effects	Off	معطّلة
 	This document is trying to open a local file:	يحاول هذا المستند فتح ملف محلي:
 	Move tag earlier	نقل العلامة للأعلى
 	Move tag later	نقل العلامة للأسفل
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	استخراج ملف PDF الأصلي…
+	Opened from a CAdES signature envelope — read-only.	فُتح من مغلف توقيع CAdES — للقراءة فقط.
+	Opened from a detached CAdES signature — read-only.	فُتح من توقيع CAdES منفصل — للقراءة فقط.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	وقّعه {signer} في {time}؛ المحتوى يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	وقّعه {signer} في {time}؛ المحتوى لا يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	وقّعه {signer}؛ المحتوى يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	وقّعه {signer}؛ المحتوى لا يطابق ما تم توقيعه؛ لم يُتحقق من ثقة الموقِّع.
+	CAdES signature envelope	مغلف توقيع CAdES
+	CAdES signature (.p7m, .p7s)	توقيع CAdES (.p7m, .p7s)
+	Integrity	السلامة
+	Matches what was signed	يطابق ما تم توقيعه
+	Does not match what was signed	لا يطابق ما تم توقيعه
+	Signers	الموقِّعون
+	{signers} signers; details of the first are shown	عدد الموقِّعين {signers}؛ تظهر تفاصيل الأول منهم
+	Quirks	ملاحظات خاصة
+	Detached signature file	ملف توقيع منفصل
+	Couldn't extract the original PDF: {e}	تعذّر استخراج ملف PDF الأصلي: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	أنت تعرض النسخة الموقعة من “{from}” (المراجعة {rev}). هذه لقطة: التغييرات هنا لن تؤثر على الأصل.

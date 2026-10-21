@@ -2387,6 +2387,24 @@ animation effects	Off	Izklopljeni
 	This document is trying to open a local file:	Ta dokument poskuša odpreti lokalno datoteko:
 	Move tag earlier	Premakni oznako prej
 	Move tag later	Premakni oznako pozneje
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Izvleci izvorni PDF…
+	Opened from a CAdES signature envelope — read-only.	Odprto iz ovoja podpisa CAdES — samo za branje.
+	Opened from a detached CAdES signature — read-only.	Odprto iz ločenega podpisa CAdES — samo za branje.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Podpisano: {signer} {time}; vsebina se ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Podpisano: {signer} {time}; vsebina se ne ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Podpisano: {signer}; vsebina se ne ujema s podpisanim; zaupanje podpisniku ni bilo preverjeno.
+	CAdES signature envelope	Ovoj podpisa CAdES
+	CAdES signature (.p7m, .p7s)	Podpis CAdES (.p7m, .p7s)
+	Integrity	Celovitost
+	Matches what was signed	Se ujema s podpisanim
+	Does not match what was signed	Se ne ujema s podpisanim
+	Signers	Podpisniki
+	{signers} signers; details of the first are shown	Podpisnikov: {signers}; prikazane so podrobnosti prvega
+	Quirks	Posebnosti
+	Detached signature file	Datoteka ločenega podpisa
+	Couldn't extract the original PDF: {e}	Izvornega PDF-ja ni bilo mogoče izvleči: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Ogledate si podpisano različico dokumenta „{from}“ (revizija {rev}). To je posnetek: spremembe tukaj ne bodo vplivale na izvirnik.

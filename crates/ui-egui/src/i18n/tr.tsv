@@ -2378,6 +2378,24 @@ animation effects	Off	Kapalı
 	This document is trying to open a local file:	Bu belge yerel bir dosya açmaya çalışıyor:
 	Move tag earlier	Etiketi daha erken taşı
 	Move tag later	Etiketi daha geç taşı
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Özgün PDF'yi ayıkla…
+	Opened from a CAdES signature envelope — read-only.	CAdES imza zarfından açıldı — salt okunur.
+	Opened from a detached CAdES signature — read-only.	CAdES ayrık imzadan açıldı — salt okunur.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} tarafından {time} tarihinde imzalandı; içerik imzalananla eşleşiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} tarafından {time} tarihinde imzalandı; içerik imzalananla eşleşmiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşiyor; imzalayanın güveni denetlenmedi.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} tarafından imzalandı; içerik imzalananla eşleşmiyor; imzalayanın güveni denetlenmedi.
+	CAdES signature envelope	CAdES imza zarfı
+	CAdES signature (.p7m, .p7s)	CAdES imzası (.p7m, .p7s)
+	Integrity	Bütünlük
+	Matches what was signed	İmzalananla eşleşiyor
+	Does not match what was signed	İmzalananla eşleşmiyor
+	Signers	İmzalayanlar
+	{signers} signers; details of the first are shown	İmzalayan sayısı: {signers}; ilkinin ayrıntıları gösteriliyor
+	Quirks	Özel durumlar
+	Detached signature file	Ayrık imza dosyası
+	Couldn't extract the original PDF: {e}	Özgün PDF ayıklanamadı: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	“{from}” belgesinin imzalanmış sürümünü (düzeltme {rev}) görüntülüyorsunuz. Bu bir anlık görüntüdür: buradaki değişiklikler özgün belgeyi etkilemez.

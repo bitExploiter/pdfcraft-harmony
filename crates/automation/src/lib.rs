@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use pdfcraft_engine::{CombineSource, DocId, Document, Edit, Session, commands};
+use pdfcraft_engine::{CombineSource, DocId, Document, Edit, FileReadRefusal, Session, commands};
 use pdfcraft_platform::staging::{StagingName, staging_suffixes};
 use pdfcraft_render::{PageRenderer, PageText, RenderConfig, RenderRequest, RequestKind};
 use serde_json::{Value, json};
@@ -138,6 +138,7 @@ impl Automation {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "the root must be a folder"));
         }
         self.root = Some(root);
+        self.confine_sibling_reads();
         Ok(self)
     }
 
@@ -146,7 +147,37 @@ impl Automation {
     /// are set.
     pub fn with_automation_roots(mut self, roots: Option<Arc<file_access::AutomationRoots>>) -> Self {
         self.roots = roots;
+        self.confine_sibling_reads();
         self
+    }
+
+    /// Hold the engine's own reads beside an opened file — the document a `.p7s` signs — to the
+    /// same roots as every tool path. The engine derives that path itself, so without this a
+    /// link inside the root pointing out of it would hand it a file the tools would refuse to
+    /// open (#2129, AGENTS.md §3). The guard opens the file itself, beside its checks, and the
+    /// engine reads from the handle it gets back: the path is never resolved again after the
+    /// checks. The open still follows a link swapped in during the window between check and
+    /// open; closing that would need no-follow opens (`cap-std`), which the workspace does not
+    /// carry as a dependency.
+    fn confine_sibling_reads(&mut self) {
+        let (root, roots) = (self.root.clone(), self.roots.clone());
+        self.session = std::mem::take(&mut self.session).with_file_read_guard(Arc::new(move |path| {
+            // A sibling that cannot be resolved is the read's business: its error says the
+            // document was "not found beside it", which names nothing outside the root.
+            if let Some(root) = &root
+                && path.canonicalize().is_ok_and(|real| !real.starts_with(root))
+            {
+                return Err(FileReadRefusal::Refused(format!("{} is outside the allowed directory {}", path.display(), root.display())));
+            }
+            if let Some(roots) = &roots {
+                let shown = path.to_string_lossy().into_owned();
+                roots.check_path(&shown, path, file_access::Access::Read).map_err(FileReadRefusal::Refused)?;
+            }
+            // The confined open, next to the checks that authorize it. Every way it can fail
+            // says the same thing, so it cannot be used to probe the directory around the
+            // signature.
+            std::fs::File::open(path).map_err(|_| FileReadRefusal::Unreadable)
+        }));
     }
 
     /// Use a fixed clock for saves (deterministic output in tests).
@@ -202,6 +233,42 @@ impl Automation {
             }
             "doc_close" => self.doc_close(&a)?,
             "doc_save" => self.doc_save(&a)?,
+            "doc_extract_original" => {
+                let id = self.doc(&a)?.id;
+                // The envelope's own file is remembered so an output naming it is refused:
+                // extraction hands out the PDF inside, and replacing that file would destroy
+                // the signature the document was opened from.
+                let source = self.session.get(id).and_then(|d| d.envelope.as_ref().and_then(|e| e.source.clone()));
+                // `out` resolves before anything is opened, so a refused output leaves the
+                // session as it was.
+                let target = match a.opt_str("out")? {
+                    Some(p) => {
+                        let path = self.resolve(p, true)?;
+                        if source.as_deref().is_some_and(|s| same_file(Path::new(s), &path)) {
+                            return Err(failed(format!("{p} is the CAdES envelope this document was opened from; extraction cannot write over it")));
+                        }
+                        Some(path)
+                    }
+                    None => None,
+                };
+                // A detached signature carries nothing: its document is the file beside it,
+                // which opens on its own (#2129).
+                let copy = self.session.extract_original(id).map_err(failed)?;
+                let mut out = summary(self.session.get(copy).ok_or_else(|| failed("the document vanished"))?);
+                if let Some(path) = target {
+                    let bytes = self.session.get(copy).ok_or_else(|| failed("the document vanished"))?.bytes.clone();
+                    if let Err(e) = write_atomic(&path, &bytes) {
+                        // The session is as it was before the call: the copy closes with the
+                        // failed write, so repeated attempts open nothing extra.
+                        self.session.close(copy);
+                        self.renderers.remove(&copy);
+                        self.texts.remove(&copy);
+                        return Err(e);
+                    }
+                    out["written"] = json!(path.to_string_lossy().into_owned());
+                }
+                out
+            }
             "doc_set_info" => {
                 let edit = Edit::SetInfo { key: a.str("key")?.into(), value: a.str("value")?.into() };
                 self.apply(&a, edit)?
@@ -2384,6 +2451,21 @@ fn security(d: &Document) -> Value {
     }
 }
 
+/// The CAdES envelope a document was opened from (issue #1449), if so. `detached` says a
+/// `.p7s` whose document was read from beside it (issue #2129), not carried inside.
+fn envelope(d: &Document) -> Option<Value> {
+    d.envelope.as_ref().map(|e| {
+        json!({
+            "detached": e.detached,
+            "signer": e.signer,
+            "signing_time": e.signing_time,
+            "digest_ok": e.digest_ok,
+            "signers": e.signers,
+            "quirks": e.quirks,
+        })
+    })
+}
+
 /// What every tool that changes a document returns.
 fn summary(d: &Document) -> Value {
     json!({
@@ -2394,6 +2476,7 @@ fn summary(d: &Document) -> Value {
         "dirty": d.dirty,
         "editable": d.read_only_reason.is_none(),
         "read_only_reason": d.read_only_reason,
+        "envelope": envelope(d),
         "encrypted": d.info.encrypted,
         "undo": d.can_undo(),
         "redo": d.can_redo(),
@@ -2491,6 +2574,7 @@ fn info(d: &Document) -> Value {
         })).collect::<Vec<_>>(),
         "warnings": i.warnings,
         "repairs": d.repair_log(),
+        "envelope": envelope(d),
     })
 }
 
@@ -2589,6 +2673,16 @@ fn unused(dir: &Path, stem: &str) -> PathBuf {
 /// power loss. Filesystems that refuse sync cause the save to fail before publication.
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     write_atomic_with(path, bytes, staging_suffixes())
+}
+
+/// Whether `a` and `b` name the same file: links followed where the files exist, so an output
+/// that reaches its target by another name is caught, and paths that no longer resolve compare
+/// as each was resolved.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
 }
 
 /// [`write_atomic`], trying the staging names that `suffixes` give.

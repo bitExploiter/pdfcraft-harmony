@@ -2295,6 +2295,24 @@ animation effects	Off	ఆఫ్
 	This document is trying to open a local file:	ఈ పత్రం ఒక స్థానిక ఫైల్‌ను తెరవడానికి ప్రయత్నిస్తోంది:
 	Move tag earlier	ట్యాగ్‌ను ముందుకు తరలించు
 	Move tag later	ట్యాగ్‌ను వెనుకకు తరలించు
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	అసలైన PDF ను వేరు తీయి…
+	Opened from a CAdES signature envelope — read-only.	CAdES సంతక లకోట నుండి తెరవబడింది — చదవడానికి మాత్రమే.
+	Opened from a detached CAdES signature — read-only.	CAdES వేరు చేసిన సంతకం నుండి తెరవబడింది — చదవడానికి మాత్రమే.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} {time} నాటికి సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలుతుంది; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} {time} నాటికి సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలడు; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలుతుంది; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} సంతకం చేశారు; కంటెంట్ సంతకం చేసిన దానికి సరిపోలడు; సంతకదారు విశ్వసనీయత తనిఖీ చేయబడలేదు.
+	CAdES signature envelope	CAdES సంతక లకోట
+	CAdES signature (.p7m, .p7s)	CAdES సంతకం (.p7m, .p7s)
+	Integrity	సమగ్రత
+	Matches what was signed	సంతకం చేసిన దానికి సరిపోలుతుంది
+	Does not match what was signed	సంతకం చేసిన దానికి సరిపోలడు
+	Signers	సంతకదారులు
+	{signers} signers; details of the first are shown	{signers} మంది సంతకదారులు; మొదటి వారి వివరాలు చూపబడ్డాయి
+	Quirks	ప్రత్యేకతలు
+	Detached signature file	వేరు చేసిన సంతక ఫైల్
+	Couldn't extract the original PDF: {e}	అసలైన PDF ను వేరు తీయలేకపోయింది: {e}
 	Turn upside down (180°)	తలకిందులుగా తిప్పు (180°)
 	4 x 6 in label (101.6 x 152.4 mm)	4 × 6 అం. లేబుల్ (101.6 × 152.4 మి.మీ.)
 	Cuts each page to its printed area, turns it upright and fits it to the sheet without stretching. One label per sheet.	ప్రతి పేజీని ముద్రిత ప్రాంతానికి కత్తిరించి, నిటారుగా తిప్పి, సాగదీయకుండా షీట్‌కు సరిపెడుతుంది. ఒక్కో షీట్‌కు ఒక లేబుల్.

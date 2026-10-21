@@ -165,6 +165,7 @@ pub fn merge_data_files(files: &[(String, Vec<u8>)]) -> Result<String, String> {
 
 pub type SplitPart = (usize, usize, Arc<Vec<u8>>);
 
+use std::io::Read;
 use std::sync::{Arc, OnceLock};
 
 #[cfg(test)]
@@ -355,6 +356,31 @@ impl Editor {
     }
 }
 
+/// What the CAdES envelope a document was opened from says about it (issue #1449). Present
+/// only on documents opened from a `.p7m` or a `.p7s` pair; see [`Session::open`] and
+/// [`Session::extract_original`].
+#[derive(Clone, Debug)]
+pub struct EnvelopeInfo {
+    /// Whether the envelope is a detached signature (a `.p7s`) whose document was read from
+    /// the file beside it, rather than carried inside the envelope.
+    pub detached: bool,
+    /// The signer's name as their certificate shows it.
+    pub signer: String,
+    /// When the signer says they signed, as "YYYY-MM-DD HH:MM UTC" (an envelope without a
+    /// signing-time attribute has none).
+    pub signing_time: Option<String>,
+    /// Whether the content still matches what was signed. Trust is never checked here.
+    pub digest_ok: bool,
+    /// How many signers the envelope carries (details of the first are shown).
+    pub signers: usize,
+    /// Encoding irregularities that were tolerated while reading the envelope.
+    pub quirks: Vec<String>,
+    /// The file the envelope was opened from (a `.p7m`, or the `.p7s` of a detached pair),
+    /// when it was opened from disk. Extraction hands out the PDF inside, never a rewrite of
+    /// this file: a host that writes an output refuses one naming it.
+    pub source: Option<String>,
+}
+
 pub struct Document {
     pub id: DocId,
     pub name: String,
@@ -376,6 +402,8 @@ pub struct Document {
     snapshot_generation: u64,
     /// Why the document cannot be edited (e.g. encryption), if so.
     pub read_only_reason: Option<String>,
+    /// The CAdES envelope the document was opened from (read-only by nature), if so.
+    pub envelope: Option<EnvelopeInfo>,
     /// Interactive form fields of the current state (empty without a form).
     pub form: Arc<Vec<pdfcraft_forms::Field>>,
     marker_scan: OnceLock<pdfcraft_edit::MarkerScan>,
@@ -2789,6 +2817,47 @@ fn renderer_password(bytes: &[u8]) -> String {
     }
 }
 
+/// A display name without one trailing `.p7m` (any case): what the PDF inside the envelope is
+/// called. Anything else is kept as it is.
+fn strip_p7m(name: &str) -> String {
+    // The matched suffix is ASCII, so cutting it off stays on a char boundary.
+    if name.len() >= 4 && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".p7m") {
+        name[..name.len() - 4].to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// The document a detached signature (a `.p7s`) signs: the file name without one trailing
+/// `.p7s` (any case). `None` when the name does not end in `.p7s`, so no sibling is looked
+/// for at all — a detached signature is only a pair under that name.
+fn strip_p7s(name: &str) -> Option<String> {
+    // The matched suffix is ASCII, so cutting it off stays on a char boundary.
+    if name.len() >= 4 && name.as_bytes()[name.len() - 4..].eq_ignore_ascii_case(b".p7s") {
+        // A file literally called ".p7s" signs no document.
+        let stripped = &name[..name.len() - 4];
+        (!stripped.is_empty()).then(|| stripped.to_string())
+    } else {
+        None
+    }
+}
+
+/// The plain error for a detached signature whose document is not at hand (issue #2129):
+/// nothing is carried inside the file, and without a path there is nowhere to look for it.
+const DETACHED_ALONE: &str = "this is a detached CAdES signature; the signed document is not inside the file";
+
+/// Where the document of a detached signature lives (issue #2129): beside the `.p7s` it was
+/// opened from, under the same name without the suffix. `None` when `path` does not name a
+/// `.p7s` file, so no sibling is looked for at all. Gives the sibling's path, its file name
+/// (the document's display name) and the signature's file name (for the error messages).
+fn detached_sibling(path: &str) -> Option<(std::path::PathBuf, String, String)> {
+    let path = std::path::Path::new(path);
+    let file_name = path.file_name()?.to_str()?;
+    let doc_name = strip_p7s(file_name)?;
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new(""));
+    Some((dir.join(&doc_name), doc_name, file_name.to_string()))
+}
+
 /// The last-resort guard (AGENTS.md §4): run `f`, turning a panic that escapes it into an error
 /// message, so one bad file or edit can't take the app and its other documents down. It is a
 /// safety net for bugs, not a substitute for returning errors.
@@ -2935,6 +3004,9 @@ pub struct Session {
     date_format: Option<String>,
     /// Preferences ▸ Date format ▸ Language, when not following the interface language.
     date_language: Option<String>,
+    /// Confinement for the engine's own reads besides the file it was handed (see
+    /// [`FileReadGuard`]). Set by hosts that hold every path to a root (AGENTS.md §3).
+    file_read_guard: Option<FileReadGuard>,
 }
 
 /// Immutable session state needed while a document is prepared away from its owning thread.
@@ -2943,6 +3015,31 @@ pub struct OpenContext {
     now: Option<i64>,
     js_off: bool,
     trust: Arc<TrustStore>,
+    /// The session's [`FileReadGuard`], which opens a file read besides the one the host
+    /// handed over.
+    file_read_guard: Option<FileReadGuard>,
+}
+
+/// Confinement for a file the engine reads on its own besides the one it was given: today the
+/// document beside a detached signature (`.p7s`, #2129). The guard performs the open itself,
+/// under the host's rules, and hands back the handle; the engine reads only from that, so the
+/// path is never resolved again after the host's check — a sibling (or a folder above it)
+/// swapped for a link after the guard returns cannot steer the engine's read to a file the
+/// host would refuse. What remains is the window inside the guard, between its check and its
+/// open; closing that needs no-follow opens, which the workspace does not carry a crate for.
+/// Hosts that hold every path to a root install one (AGENTS.md §3); the desktop UI, where the
+/// user picked the file themselves, has none.
+pub type FileReadGuard = Arc<dyn Fn(&std::path::Path) -> std::result::Result<std::fs::File, FileReadRefusal> + Send + Sync>;
+
+/// Why a [`FileReadGuard`] handed back no file. `Unreadable` carries no detail on purpose:
+/// every cause reads the same to whoever asked for the file, so the engine's caller cannot
+/// use it to probe the directory around the file it was given.
+#[derive(Debug)]
+pub enum FileReadRefusal {
+    /// The host's rules refuse this path; the message says why and becomes the open error.
+    Refused(String),
+    /// The file could not be opened at all: missing, unreadable, not a file.
+    Unreadable,
 }
 
 /// A fully prepared document that has not yet been registered in a session.
@@ -2960,6 +3057,13 @@ impl OpenContext {
         password: Option<&str>,
     ) -> Result<PreparedDocument, OpenError> {
         let name = name.into();
+        // A CAdES envelope (.p7m, issue #1449; .p7s, issue #2129) opens as the document it
+        // signs, read-only. The DER object is structurally disjoint from any PDF (a PDF starts
+        // with `%`, DER with a SEQUENCE), so this one sniff decides which reader sees the bytes.
+        if pdfcraft_sign::p7m::is_cms_envelope(&bytes) {
+            return guard(|| Session::prepare_envelope(self, name, path, bytes, password))
+                .unwrap_or_else(|m| Err(OpenError::Invalid(format!("reading it failed unexpectedly ({m})"))));
+        }
         guard(|| Session::prepare_open_unguarded(self, name, path, bytes, password))
             .unwrap_or_else(|m| Err(OpenError::Invalid(format!("reading it failed unexpectedly ({m})"))))
     }
@@ -3277,6 +3381,15 @@ impl Session {
         self
     }
 
+    /// Confine the engine's own reads besides the opened file (the document beside a detached
+    /// signature) with `guard`, which performs the confined open itself and hands the engine
+    /// the handle. Automation installs its root check, so a `.p7s` cannot reach a file the
+    /// tools themselves would refuse to open.
+    pub fn with_file_read_guard(mut self, guard: FileReadGuard) -> Self {
+        self.file_read_guard = Some(guard);
+        self
+    }
+
     /// Seconds to add to UTC for the local time of this session: the injected zone, else 0 under
     /// the test clock (which is already local), else the system's.
     fn local_offset(&self) -> i64 {
@@ -3337,7 +3450,7 @@ impl Session {
 
     /// Snapshot the session state that affects open-time scripts, dates and signature trust.
     pub fn open_context(&self) -> OpenContext {
-        OpenContext { now: self.now(), js_off: self.js_off, trust: self.trust.clone() }
+        OpenContext { now: self.now(), js_off: self.js_off, trust: self.trust.clone(), file_read_guard: self.file_read_guard.clone() }
     }
 
     /// Prepare a document without adding it to this session.
@@ -3359,6 +3472,90 @@ impl Session {
         document.id = id;
         self.docs.push(document);
         id
+    }
+
+    /// Prepare the document a CMS envelope signs: read-only, with the signer identified. An
+    /// attached envelope (`.p7m`) carries the document inside; a detached one (`.p7s`) opened
+    /// from disk has it beside it, and the signature is verified over those bytes. A detached
+    /// signature without its document and non-PDF content are actionable errors (never a repair).
+    fn prepare_envelope(
+        context: &OpenContext,
+        name: String,
+        path: Option<String>,
+        bytes: Arc<Vec<u8>>,
+        password: Option<&str>,
+    ) -> Result<PreparedDocument, OpenError> {
+        let mut env = pdfcraft_sign::p7m::read(&bytes).map_err(|e| OpenError::Invalid(e.to_string()))?;
+        let mut detached = false;
+        let (content, doc_name, reason) = match env.content.take() {
+            Some(content) => {
+                if !content.starts_with(b"%PDF-") {
+                    let kind = if content.starts_with(b"<?xml") || content.starts_with(b"<") { "XML data" } else { "non-PDF data" };
+                    return Err(OpenError::Unsupported(format!("the CAdES envelope contains {kind}, not a PDF")));
+                }
+                (
+                    content,
+                    strip_p7m(&name),
+                    "This document is inside a CAdES signature envelope (.p7m); extracting the original PDF makes an editable copy.".to_string(),
+                )
+            }
+            // A detached signature has its document beside it, not inside: opening the file
+            // alone has nothing to show and nothing to verify the signature against. Opened
+            // from disk as a `.p7s`, that document is the like-named file in the same
+            // directory, and the signature is verified over its bytes.
+            None => {
+                let Some((sibling_path, doc_name, sig_name)) = path.as_deref().and_then(detached_sibling) else {
+                    return Err(OpenError::Unsupported(DETACHED_ALONE.into()));
+                };
+                // The sibling is a file of its own, one the host never resolved when it
+                // confined the `.p7s`: the host's guard opens it under its rules and hands
+                // back the handle, and the engine reads only from that. Nothing resolves
+                // the path a second time after the check (#2202 review), so a sibling or a
+                // folder above it swapped for a link once the guard has opened cannot move
+                // the bytes the engine verifies; the window that remains is inside the
+                // guard, between its check and its open. Without a guard — the desktop UI,
+                // where the user picked the file themselves — the engine opens the sibling
+                // itself. Every way the open or the read can fail — missing, unreadable,
+                // not a file — says the same thing, so opening a `.p7s` cannot be used to
+                // probe the directory around it.
+                let not_found = || OpenError::Unsupported(format!("{sig_name} signs {doc_name}, which was not found beside it"));
+                let mut sibling = Vec::new();
+                let mut opened = match &context.file_read_guard {
+                    Some(guard) => match guard(&sibling_path) {
+                        Ok(handle) => handle,
+                        Err(FileReadRefusal::Refused(message)) => return Err(OpenError::Unsupported(message)),
+                        Err(FileReadRefusal::Unreadable) => return Err(not_found()),
+                    },
+                    None => std::fs::File::open(&sibling_path).map_err(|_| not_found())?,
+                };
+                opened.read_to_end(&mut sibling).map_err(|_| not_found())?;
+                if !sibling.starts_with(b"%PDF-") {
+                    let kind = if sibling.starts_with(b"<?xml") || sibling.starts_with(b"<") { "XML data" } else { "non-PDF data" };
+                    return Err(OpenError::Unsupported(format!("the detached signature's document is {kind}, not a PDF")));
+                }
+                env = pdfcraft_sign::p7m::verify_detached(&bytes, &sibling).map_err(|e| OpenError::Invalid(e.to_string()))?;
+                detached = true;
+                (sibling, doc_name, "This document was opened from a detached CAdES signature (.p7s); open the PDF itself to edit it.".to_string())
+            }
+        };
+        // `path` stays None: Save writes a read-only document in full to its path, and that
+        // file is the envelope or the signature, which is never rewritten.
+        let mut prepared = Self::prepare_open_unguarded(context, doc_name, None, Arc::new(content), password)?;
+        // The user's file is not the PDF (it is the envelope, or the signature beside it): the
+        // document keeps the opened bytes (what Extract hands out) and no editor of its own.
+        prepared.document.editor = None;
+        prepared.document.read_only_reason = Some(reason);
+        prepared.document.envelope = Some(EnvelopeInfo {
+            detached,
+            signer: env.signer_name,
+            signing_time: env.signing_time.map(|t| format!("{:04}-{:02}-{:02} {:02}:{:02} UTC", t.year, t.month, t.day, t.hour, t.minute)),
+            digest_ok: env.digest_ok,
+            signers: env.signers,
+            quirks: env.quirks.iter().map(|q| (*q).to_string()).collect(),
+            source: path,
+        });
+        prepared.document.dirty = false;
+        Ok(prepared)
     }
 
     /// Synchronous convenience API used by the CLI and automation.
@@ -3613,6 +3810,7 @@ impl Session {
             generation: 0,
             snapshot_generation: 0,
             read_only_reason,
+            envelope: None,
             form: Arc::new(form),
             marker_scan: OnceLock::new(),
             links: OnceLock::new(),
@@ -4704,6 +4902,22 @@ impl Session {
             d.generation += 1;
         }
         Ok(id)
+    }
+
+    /// Extract the original PDF from a CAdES envelope document as a new, editable, unsaved
+    /// copy (the envelope itself is never changed). Refuses plain documents, and a detached
+    /// signature: its document is the file beside it, which opens on its own (#2129).
+    pub fn extract_original(&mut self, id: DocId) -> Result<DocId, String> {
+        let doc = self.get(id).ok_or("no such document")?;
+        match &doc.envelope {
+            None => return Err("this document is not inside a CAdES envelope".into()),
+            Some(e) if e.detached => {
+                return Err("a detached signature has nothing to extract; open the PDF itself to edit it.".into());
+            }
+            Some(_) => {}
+        }
+        let (name, bytes) = (doc.name.clone(), doc.bytes.clone());
+        self.open_new(name, bytes).map_err(|e| e.to_string())
     }
 
     fn cos(&self, id: DocId) -> Result<&pdfcraft_cos::Document, EditError> {

@@ -2404,6 +2404,24 @@ animation effects	Off	Вимкнено
 	This document is trying to open a local file:	Цей документ намагається відкрити локальний файл:
 	Move tag earlier	Перемістити тег раніше
 	Move tag later	Перемістити тег пізніше
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Видобути початковий PDF…
+	Opened from a CAdES signature envelope — read-only.	Відкрито з конверта підпису CAdES — лише для читання.
+	Opened from a detached CAdES signature — read-only.	Відкрито з від'єднаного підпису CAdES — лише для читання.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Підписано {signer} {time}; вміст відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Підписано {signer} {time}; вміст не відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Підписано {signer}; вміст відповідає підписаному; довіру до підписувача не перевірено.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Підписано {signer}; вміст не відповідає підписаному; довіру до підписувача не перевірено.
+	CAdES signature envelope	Конверт підпису CAdES
+	CAdES signature (.p7m, .p7s)	Підпис CAdES (.p7m, .p7s)
+	Integrity	Цілісність
+	Matches what was signed	Відповідає підписаному
+	Does not match what was signed	Не відповідає підписаному
+	Signers	Підписувачі
+	{signers} signers; details of the first are shown	Підписувачів: {signers}; показано відомості про першого
+	Quirks	Особливості
+	Detached signature file	Файл від'єднаного підпису
+	Couldn't extract the original PDF: {e}	Не вдалося видобути початковий PDF: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Ви переглядаєте підписану версію документа «{from}» (редакція {rev}). Це знімок: зміни тут не вплинуть на оригінал.

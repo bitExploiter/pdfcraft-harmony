@@ -2416,6 +2416,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         Some(Notice::Reload) => app.watch.reload_request = Some(view.id),
         #[cfg(target_arch = "wasm32")]
         Some(Notice::Reload) => {}
+        // `doc` is still borrowed here, so the command runs next frame (like deferred shortcuts).
+        Some(Notice::EnvelopeExtract) => app.deferred_commands.push(("file.extract_original", app.active_ids().map(|(_, id)| id))),
         Some(Notice::Repairs) => app.dialog = Some(crate::Dialog::Properties(crate::PropsTab::Advanced)),
         Some(Notice::Security) => app.dialog = Some(crate::Dialog::Properties(crate::PropsTab::Security)),
         Some(Notice::Unlock) => app.unlock_prompt = Some(crate::UnlockPrompt::new(doc, None)),
@@ -4411,6 +4413,8 @@ enum Notice {
     Security,
     Signatures,
     Repairs,
+    /// Extract the original PDF from the CAdES envelope the document was opened from.
+    EnvelopeExtract,
     /// Highlight fields was turned on or off.
     FieldHighlights(bool),
     /// Open the JavaScript console (the form's scripts were turned off; the error is there).
@@ -4422,8 +4426,8 @@ enum Notice {
 }
 
 /// The notice bar above the pages: a file changed on disk first, then what a historical
-/// snapshot is, then the signature status bar, a form's scripts having been turned
-/// off, security, forms and warnings.
+/// snapshot is, then a CAdES envelope's read-only status, then the signature status bar, a
+/// form's scripts having been turned off, security, forms and warnings.
 fn notices(
     view: &mut DocView,
     doc: &pdfcraft_engine::Document,
@@ -4481,6 +4485,57 @@ fn notices(
         if close {
             return Some(Notice::Close);
         }
+    }
+    // A document opened from a CAdES envelope (.p7m, issue #1449) is the envelope's to describe:
+    // its bar comes ahead of every other notice about the document, the wrapped PDF's own
+    // signature banner included (the Signatures panel still has that signature).
+    if let Some(env) = &doc.envelope {
+        if view.notice_dismissed {
+            return None;
+        }
+        let signer = env.signer.as_str();
+        let detail = match (env.digest_ok, env.signing_time.as_deref()) {
+            (true, Some(time)) => crate::i18n::fmt(
+                tl!("Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked."),
+                &[("signer", signer), ("time", time)],
+            ),
+            (false, Some(time)) => crate::i18n::fmt(
+                tl!("Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked."),
+                &[("signer", signer), ("time", time)],
+            ),
+            (true, None) => crate::i18n::fmt(
+                tl!("Signed by {signer}; the content matches what was signed; the signer's trust was not checked."),
+                &[("signer", signer)],
+            ),
+            (false, None) => crate::i18n::fmt(
+                tl!("Signed by {signer}; the content does not match what was signed; the signer's trust was not checked."),
+                &[("signer", signer)],
+            ),
+        };
+        // A detached signature (.p7s, issue #2129) says the same thing about its pair, minus
+        // Extract: nothing is carried inside, and the signed PDF beside the signature is
+        // already the editable copy.
+        let mut text = if env.detached {
+            format!("{} {detail}", tl!("Opened from a detached CAdES signature — read-only."))
+        } else {
+            format!("{} {detail}", tl!("Opened from a CAdES signature envelope — read-only."))
+        };
+        if !info.warnings.is_empty() {
+            // Damage of the PDF inside surfaces on the same bar (an envelope never "repairs").
+            text.push(' ');
+            text.push_str(&info.warnings.join("; "));
+            text.push('.');
+        }
+        let mut extract = false;
+        notice_bar(ui, t, if env.digest_ok { "file-lock-2" } else { "triangle-alert" }, t.accent_text, text, |ui| {
+            if icons::button(ui, "x", 22.0, false, tl!("Dismiss")).clicked() {
+                view.notice_dismissed = true;
+            }
+            if !env.detached && crate::widgets::pill_button(ui, tl!("Extract the original PDF…"), false).clicked() {
+                extract = true;
+            }
+        });
+        return extract.then_some(Notice::EnvelopeExtract);
     }
     if let Some((icon, color, template, arg)) = signed {
         let mut open = false;

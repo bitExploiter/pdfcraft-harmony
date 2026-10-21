@@ -2380,6 +2380,24 @@ animation effects	Off	Өшірулі
 	This document is trying to open a local file:	Бұл құжат жергілікті файлды ашуға әрекеттеніп жатыр:
 	Move tag earlier	Тегті ертерек жылжыту
 	Move tag later	Тегті кейінірек жылжыту
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Түпнұсқа PDF файлын шығарып алу…
+	Opened from a CAdES signature envelope — read-only.	CAdES қолтаңба конвертінен ашылды — тек оқуға арналған.
+	Opened from a detached CAdES signature — read-only.	CAdES бөлек қолтаңбасынан ашылды — тек оқуға арналған.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} {time} уақытында қол қойған; мазмұн қол қойылған нәрсеге сәйкес келеді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} {time} уақытында қол қойған; мазмұн қол қойылған нәрсеге сәйкес келмейді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} қол қойған; мазмұн қол қойылған нәрсеге сәйкес келеді; қол қоюшының сенімділігі тексерілмеген.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} қол қойған; мазмұн қол қойылған нәрсеге сәйкес келмейді; қол қоюшының сенімділігі тексерілмеген.
+	CAdES signature envelope	CAdES қолтаңба конверті
+	CAdES signature (.p7m, .p7s)	CAdES қолтаңбасы (.p7m, .p7s)
+	Integrity	Тұтастық
+	Matches what was signed	Қол қойылған нәрсеге сәйкес келеді
+	Does not match what was signed	Қол қойылған нәрсеге сәйкес келмейді
+	Signers	Қол қоюшылар
+	{signers} signers; details of the first are shown	Қол қоюшылар саны: {signers}; біріншісінің мәліметтері көрсетілген
+	Quirks	Ерекшеліктер
+	Detached signature file	Бөлек қолтаңба файлы
+	Couldn't extract the original PDF: {e}	Түпнұсқа PDF файлын шығарып алу мүмкін болмады: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Сіз „{from}“ құжатының қол қойылған нұсқасын ({rev} нұсқа) қарап отырсыз. Бұл сақталған көшірме: мұндағы өзгерістер түпнұсқаға әсер етпейді.

@@ -2391,6 +2391,24 @@ animation effects	Off	Disattivati
 	This document is trying to open a local file:	Questo documento sta tentando di aprire un file locale:
 	Move tag earlier	Sposta tag prima
 	Move tag later	Sposta tag dopo
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Estrai il PDF originale…
+	Opened from a CAdES signature envelope — read-only.	Aperto da una busta di firma CAdES — sola lettura.
+	Opened from a detached CAdES signature — read-only.	Aperto da una firma CAdES separata — sola lettura.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Firmato da {signer} il {time}; il contenuto corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Firmato da {signer} il {time}; il contenuto non corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Firmato da {signer}; il contenuto non corrisponde a quanto firmato; l'attendibilità del firmatario non è stata verificata.
+	CAdES signature envelope	Busta di firma CAdES
+	CAdES signature (.p7m, .p7s)	Firma CAdES (.p7m, .p7s)
+	Integrity	Integrità
+	Matches what was signed	Corrisponde a quanto firmato
+	Does not match what was signed	Non corrisponde a quanto firmato
+	Signers	Firmatari
+	{signers} signers; details of the first are shown	{signers} firmatari; sono mostrati i dettagli del primo
+	Quirks	Particolarità
+	Detached signature file	File di firma separata
+	Couldn't extract the original PDF: {e}	Impossibile estrarre il PDF originale: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Stai visualizzando la versione firmata di “{from}” (revisione {rev}). È un'istantanea: le modifiche qui non influiscono sull'originale.

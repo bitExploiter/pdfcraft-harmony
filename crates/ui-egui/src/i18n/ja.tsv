@@ -2382,6 +2382,24 @@ animation effects	Off	オフ
 	This document is trying to open a local file:	この文書はローカルファイルを開こうとしています：
 	Move tag earlier	タグを前へ移動
 	Move tag later	タグを後へ移動
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	元のPDFを抽出…
+	Opened from a CAdES signature envelope — read-only.	CAdES署名エンベロープから開いています — 読み取り専用。
+	Opened from a detached CAdES signature — read-only.	CAdES分離署名から開いています — 読み取り専用。
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	{signer} が {time} に署名しました。内容は署名されたものと一致しています。署名者の信頼性は確認されていません。
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	{signer} が {time} に署名しました。内容は署名されたものと一致していません。署名者の信頼性は確認されていません。
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致しています。署名者の信頼性は確認されていません。
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	{signer} が署名しました。内容は署名されたものと一致していません。署名者の信頼性は確認されていません。
+	CAdES signature envelope	CAdES署名エンベロープ
+	CAdES signature (.p7m, .p7s)	CAdES署名 (.p7m, .p7s)
+	Integrity	整合性
+	Matches what was signed	署名されたものと一致しています
+	Does not match what was signed	署名されたものと一致していません
+	Signers	署名者の数
+	{signers} signers; details of the first are shown	署名者は {signers} 人です。先頭の署名者の詳細を表示しています。
+	Quirks	特記事項
+	Detached signature file	分離署名ファイル
+	Couldn't extract the original PDF: {e}	元のPDFを抽出できませんでした: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	「{from}」の署名済みバージョン（リビジョン {rev}）を表示しています。これはスナップショットであり、ここでの変更は元の文書に影響しません。

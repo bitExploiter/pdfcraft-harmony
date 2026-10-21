@@ -2345,6 +2345,24 @@ animation effects	Off	Изключени
 	This document is trying to open a local file:	Този документ се опитва да отвори локален файл:
 	Move tag earlier	Преместване на етикета по-рано
 	Move tag later	Преместване на етикета по-късно
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Извлечи оригиналния PDF…
+	Opened from a CAdES signature envelope — read-only.	Отворено от плик с подпис CAdES — само за четене.
+	Opened from a detached CAdES signature — read-only.	Отворено от отделен подпис CAdES — само за четене.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Подписано от {signer} на {time}; съдържанието съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Подписано от {signer} на {time}; съдържанието не съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Подписано от {signer}; съдържанието съответства на подписаното; доверието към подписалия не е проверено.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Подписано от {signer}; съдържанието не съответства на подписаното; доверието към подписалия не е проверено.
+	CAdES signature envelope	Плик с подпис CAdES
+	CAdES signature (.p7m, .p7s)	Подпис CAdES (.p7m, .p7s)
+	Integrity	Цялостност
+	Matches what was signed	Съответства на подписаното
+	Does not match what was signed	Не съответства на подписаното
+	Signers	Подписали
+	{signers} signers; details of the first are shown	Подписали: {signers}; показани са подробностите за първия
+	Quirks	Особености
+	Detached signature file	Файл с отделен подпис
+	Couldn't extract the original PDF: {e}	Не успя да се извлече оригиналният PDF: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Разглеждате подписаната версия на „{from}“ (редакция {rev}). Това е моментна снимка: промените тук няма да засегнат оригинала.

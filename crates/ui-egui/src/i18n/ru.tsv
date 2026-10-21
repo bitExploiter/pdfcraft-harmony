@@ -2295,6 +2295,24 @@ animation effects	Off	Выкл
 	This document is trying to open a local file:	Этот документ пытается открыть локальный файл:
 	Move tag earlier	Переместить тег раньше
 	Move tag later	Переместить тег позже
+# CAdES signature envelopes (issue #1449).
+	Extract the original PDF…	Извлечь исходный PDF…
+	Opened from a CAdES signature envelope — read-only.	Открыт из конверта подписи CAdES — только для чтения.
+	Opened from a detached CAdES signature — read-only.	Открыт из отсоединённой подписи CAdES — только для чтения.
+	Signed by {signer} on {time}; the content matches what was signed; the signer's trust was not checked.	Подписано {signer} {time}; содержимое соответствует подписанному; доверие к подписавшему не проверялось.
+	Signed by {signer} on {time}; the content does not match what was signed; the signer's trust was not checked.	Подписано {signer} {time}; содержимое не соответствует подписанному; доверие к подписавшему не проверялось.
+	Signed by {signer}; the content matches what was signed; the signer's trust was not checked.	Подписано {signer}; содержимое соответствует подписанному; доверие к подписавшему не проверялось.
+	Signed by {signer}; the content does not match what was signed; the signer's trust was not checked.	Подписано {signer}; содержимое не соответствует подписанному; доверие к подписавшему не проверялось.
+	CAdES signature envelope	Конверт подписи CAdES
+	CAdES signature (.p7m, .p7s)	Подпись CAdES (.p7m, .p7s)
+	Integrity	Целостность
+	Matches what was signed	Соответствует подписанному
+	Does not match what was signed	Не соответствует подписанному
+	Signers	Подписавшие
+	{signers} signers; details of the first are shown	Подписавших: {signers}; показаны сведения о первом
+	Quirks	Особенности
+	Detached signature file	Файл отсоединённой подписи
+	Couldn't extract the original PDF: {e}	Не удалось извлечь исходный PDF: {e}
 
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Вы просматриваете подписанную версию документа «{from}» (ревизия {rev}). Это снимок: изменения здесь не затронут оригинал.

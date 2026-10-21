@@ -393,6 +393,37 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                 }
                                 ui.end_row();
                             }
+                            // What the CAdES envelope a document was opened from says (issue #1449).
+                            if let Some(env) = &doc.envelope {
+                                row(ui, "Signer", env.signer.clone());
+                                row(ui, "Signing time", env.signing_time.clone().unwrap_or_default());
+                                row(
+                                    ui,
+                                    "Integrity",
+                                    if env.digest_ok {
+                                        tl!("Matches what was signed").to_string()
+                                    } else {
+                                        tl!("Does not match what was signed").to_string()
+                                    },
+                                );
+                                if env.signers > 1 {
+                                    row(
+                                        ui,
+                                        "Signers",
+                                        crate::i18n::fmt(
+                                            tl!("{signers} signers; details of the first are shown"),
+                                            &[("signers", &env.signers.to_string())],
+                                        ),
+                                    );
+                                }
+                                row(ui, "Quirks", if env.quirks.is_empty() { tl!("None").to_string() } else { env.quirks.join("; ") });
+                                if env.detached {
+                                    // The signature is a file of its own, beside the document:
+                                    // name it (issue #2129). The engine keeps the sibling as the
+                                    // document's name, so the signature is that name plus .p7s.
+                                    row(ui, "Detached signature file", format!("{}.p7s", doc.name));
+                                }
+                            }
                             // What was repaired while reading a damaged file (fidelity: never silent).
                             let repairs = doc.repair_log();
                             row(ui, "Repairs", if repairs.is_empty() { tl!("None").to_string() } else { repairs.len().to_string() });
