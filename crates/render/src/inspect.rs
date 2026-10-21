@@ -386,6 +386,17 @@ pub struct Annotation {
     /// A Fill & Sign mark: typed text, a check, cross, dot or line, or a typed, drawn or picture
     /// signature or initials (the rules of `pdfcraft_annot::is_fill_sign`).
     pub fill_sign: bool,
+    /// The comment's pop-up window (`/Popup`): where it sits and whether it is open.
+    pub popup: Option<Popup>,
+}
+
+/// A comment's pop-up window (ISO 32000-2 §12.5.6.14).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Popup {
+    /// `/Rect` of the `/Popup` annotation, in user space.
+    pub rect: [f32; 4],
+    /// `/Open`: shown open.
+    pub open: bool,
 }
 
 impl Annotation {
@@ -1149,6 +1160,20 @@ impl<'a> Inspector<'a> {
                 };
                 let in_reply_to = d.get(b"IRT").ok().and_then(|o| self.dict(o)).and_then(|p| self.text(p, b"NM"));
                 let fill_sign = self.is_fill_sign(d, &subtype);
+                // Only the comment's own pop-up: a pop-up annotation whose /Parent, if any, is a
+                // reference to this comment (keep in step with `pdfcraft_annot::summaries`).
+                let own = a.as_reference().ok();
+                let is_own = |p: &&Dictionary| {
+                    self.name(p, b"Subtype").as_deref() == Some("Popup")
+                        && p.get(b"Parent").map_or(true, |parent| parent.as_reference().ok().is_some_and(|id| Some(id) == own))
+                };
+                let popup = d.get(b"Popup").ok().and_then(|o| self.dict(o)).filter(is_own).map(|p| {
+                    let [x0, y0, x1, y1] = rect4(self.resolve(p.get(b"Rect").unwrap_or(&Object::Null)));
+                    Popup {
+                        rect: [x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1)],
+                        open: p.get(b"Open").ok().and_then(|o| self.resolve(o).as_bool().ok()).unwrap_or(false),
+                    }
+                });
                 info.annotations.push(Annotation {
                     page,
                     subtype,
@@ -1167,6 +1192,7 @@ impl<'a> Inspector<'a> {
                     locked: d.get(b"F").ok().and_then(|f| self.resolve(f).as_i64().ok()).unwrap_or(0) & 128 != 0,
                     intent: self.name(d, b"IT"),
                     fill_sign,
+                    popup,
                 });
             }
         }
@@ -2893,6 +2919,33 @@ trailer << /Root 1 0 R >>
 
         let info = inspect(Arc::new(bytes), None).expect("opens");
         assert_eq!(info.annotations[0].contents.as_deref(), Some("one\n\ntwo\nthree"));
+    }
+
+    /// A comment's pop-up (`/Popup`) is read with its place and state; one without reads none.
+    #[test]
+    fn a_comments_pop_up_is_read_with_its_place_and_state() {
+        let bytes = b"%PDF-1.7\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 200 300] /Annots [4 0 R 5 0 R 6 0 R] >> endobj\n4 0 obj << /Type /Annot /Subtype /Text /Rect [20 260 40 280] /Contents (Hi) /Popup 5 0 R /Open true >> endobj\n5 0 obj << /Type /Annot /Subtype /Popup /Rect [190 160 50 280] /Parent 4 0 R /Open true >> endobj\n6 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 60 60] >> endobj\ntrailer << /Root 1 0 R >>\n%%EOF\n";
+        let info = inspect(Arc::new(bytes.to_vec()), None).expect("opens");
+        let note = info.annotations.iter().find(|a| a.subtype == "Text").expect("the note");
+        assert_eq!(note.popup, Some(Popup { rect: [50.0, 160.0, 190.0, 280.0], open: true }), "normalised, and open");
+        let square = info.annotations.iter().find(|a| a.subtype == "Square").expect("the square");
+        assert_eq!(square.popup, None);
+        assert!(info.annotations.iter().all(|a| a.subtype != "Popup"), "the pop-up is not a comment of its own");
+
+        // #2137 review: a /Popup naming another annotation, a pop-up of another comment, or one
+        // whose /Parent isn't a reference isn't this comment's pop-up; one without /Parent is.
+        for (target, extra, own) in [
+            ("6 0 R", "", false),
+            ("7 0 R", "7 0 obj << /Type /Annot /Subtype /Popup /Rect [0 0 50 50] /Parent 6 0 R >> endobj\n", false),
+            ("7 0 R", "7 0 obj << /Type /Annot /Subtype /Popup /Rect [0 0 50 50] /Parent << >> >> endobj\n", false),
+            ("7 0 R", "7 0 obj << /Type /Annot /Subtype /Popup /Rect [0 0 50 50] >> endobj\n", true),
+        ] {
+            let text =
+                String::from_utf8_lossy(bytes).replace("/Popup 5 0 R", &format!("/Popup {target}")).replace("trailer", &format!("{extra}trailer"));
+            let info = inspect(Arc::new(text.into_bytes()), None).expect("opens");
+            let note = info.annotations.iter().find(|a| a.subtype == "Text").expect("the note");
+            assert_eq!(note.popup.is_some(), own, "/Popup {target} {extra}");
+        }
     }
 
     #[test]

@@ -184,6 +184,7 @@ impl Automation {
                 "modified": c.modified,
                 "rect": rect_to_view(p, c.rect),
                 "color": c.color.map(hex),
+                "popup": c.popup.map(|w| json!({ "rect": rect_to_view(p, w.rect), "open": w.open })),
             })
         };
         let roots: Vec<Value> = all
@@ -578,6 +579,17 @@ impl Automation {
         let marked = a.opt_bool("marked")?.unwrap_or(true);
         let author = a.opt_str("author")?.unwrap_or(DEFAULT_AUTHOR).to_string();
         self.apply(a, Edit::MarkAnnotation { page, index, marked, author })
+    }
+
+    pub(crate) fn comment_popup(&mut self, a: &Args) -> Result<Value> {
+        let (page, index) = self.comment_target(a)?;
+        let info = self.doc(a)?.info.pages[page].clone();
+        let open = a.opt_bool("open")?;
+        let rect = a.nums::<4>("rect")?.map(|r| rect_to_user(&info, r));
+        if open.is_none() && rect.is_none() {
+            return Err(ToolError::InvalidArgs("nothing to change: pass open and/or rect".into()));
+        }
+        self.apply(a, Edit::SetAnnotationPopup { page, index, rect, open })
     }
 
     pub(crate) fn comment_lock(&mut self, a: &Args) -> Result<Value> {

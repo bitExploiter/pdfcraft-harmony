@@ -687,6 +687,11 @@ impl DocView {
         self.auto_scroll.panning()
     }
 
+    /// Where the pages are on screen this frame, with their transforms.
+    pub(crate) fn page_xforms(&self) -> Vec<(usize, PageXform)> {
+        self.screen_xforms.iter().map(|(p, xf)| (*p, *xf)).collect()
+    }
+
     /// Pages that could not be rendered, with the reason (for automation; 0-based pages).
     pub fn page_errors(&self) -> Vec<(usize, &str)> {
         let mut v: Vec<(usize, &str)> = self.errors.iter().map(|(p, e)| (*p, e.as_str())).collect();
@@ -3514,9 +3519,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 for a in info.annotations.iter().filter(|a| a.page == i && !gesturing) {
                     let sr = xf.user_rect(info, i, a.rect);
                     let hidden = prefs.hide_empty_highlight_hover && a.subtype == "Highlight" && a.contents.as_deref().is_none_or(str::is_empty);
+                    // An open pop-up already shows the comment: no tooltip over it.
                     if sr.contains(p)
                         && hover_text.is_none()
                         && !hidden
+                        && !a.popup.is_some_and(|w| w.open)
                         && let Some(text) = annotation_hover_text(a)
                     {
                         hover_text = Some((p, text));
@@ -3892,6 +3899,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         crate::camera_ui::bar(ui.ctx(), view, avail, &t, can_modify);
     }
     if let Some(e) = comments::composer(ui.ctx(), view, info, prefs) {
+        view.pending_edit = Some(e);
+    }
+    if let Some(e) = comments::popups(ui.ctx(), view, info, comments_hidden, allowed) {
         view.pending_edit = Some(e);
     }
     if let Some(e) = crate::edit_text_ui::overlay(ui.ctx(), view, info) {
@@ -5392,6 +5402,7 @@ mod tests {
             locked: false,
             intent: None,
             fill_sign,
+            popup: None,
         }
     }
 
