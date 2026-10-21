@@ -196,8 +196,17 @@ pub fn convert(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted
 fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted, Error> {
     let data = Arc::new(bytes.to_vec());
     let password = opts.password.as_deref();
-    let info = pdfcraft_render::inspect(data.clone(), password).map_err(open_error)?;
-    let cos = pdfcraft_cos::Document::open_with_password(data, password).map_err(|e| Error::Damaged(e.to_string()))?;
+    let cos = pdfcraft_cos::Document::open_with_password(data.clone(), password);
+    // The renderer authenticates on its own and cannot use the owner password of R2–R4 files:
+    // give it the user password that owner authentication recovers (as the engine does).
+    let info = match pdfcraft_render::inspect(data.clone(), password) {
+        Err(pdfcraft_render::OpenError::WrongPassword) => {
+            let user = cos.as_ref().ok().and_then(|d| d.security()).and_then(|s| s.recovered_user_password()).ok_or(Error::WrongPassword)?;
+            pdfcraft_render::inspect(data, Some(&renderer_password(&user))).map_err(open_error)?
+        }
+        other => other.map_err(open_error)?,
+    };
+    let cos = cos.map_err(|e| Error::Damaged(e.to_string()))?;
     let page_count = info.pages.len();
     if let Some(only) = &opts.pages
         && let Some(missing) = only.iter().find(|&&p| p >= page_count)
@@ -209,6 +218,14 @@ fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Con
     let image_only_pages = pages.iter().zip(&indices).filter(|(p, _)| p.blocks.is_empty() && !p.images.is_empty()).map(|(_, &i)| i).collect();
     let title = opts.title.clone().or_else(|| info.title.clone()).unwrap_or_default();
     Ok(Converted { bytes: write(&pages, target, &title), page_count, truncated_pages, image_only_pages })
+}
+
+/// A recovered user password as the renderer takes it: UTF-8 when it is, else PDFDocEncoding.
+pub fn renderer_password(bytes: &[u8]) -> String {
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => bytes.iter().map(|b| pdfcraft_cos::pdfdoc_char(*b)).collect(),
+    }
 }
 
 fn open_error(e: pdfcraft_render::OpenError) -> Error {
