@@ -2425,5 +2425,12 @@ animation effects	Off	Wyłączone
 	Your email app couldn't log on to your mailbox.	Aplikacja pocztowa nie mogła zalogować się do skrzynki pocztowej.
 	Your email app didn't open a message. It said: {why}.	Aplikacja pocztowa nie otworzyła wiadomości. Komunikat: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Otwórz nową wiadomość bez niego, a PdfCraft pokaże {name} w folderze, aby można go było załączyć ręcznie.
+	Font	Czcionka
+	Bulleted list	Lista punktowana
+	Numbered list	Lista numerowana
+	Alignment	Wyrównanie
+	Superscript	Indeks górny
+	Subscript	Indeks dolny
+	Paragraph spacing	Odstęp między akapitami
 	Less	Mniej
 	Other options	Inne opcje

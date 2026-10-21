@@ -2700,5 +2700,11 @@ theme	Appearance	Išvaizda
 	Your email app couldn't log on to your mailbox.	El. pašto programai nepavyko prisijungti prie jūsų pašto dėžutės.
 	Your email app didn't open a message. It said: {why}.	El. pašto programa neatvėrė laiško. Ji pranešė: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Atverkite naują laišką be jo, ir PdfCraft parodys {name} jo aplanke, kad galėtumėte pridėti patys.
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys

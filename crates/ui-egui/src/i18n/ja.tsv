@@ -2449,5 +2449,12 @@ animation effects	Off	オフ
 	Your email app couldn't log on to your mailbox.	メールアプリがメールボックスにログオンできませんでした。
 	Your email app didn't open a message. It said: {why}.	メールアプリがメッセージを開きませんでした。応答：{why}。
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	ファイルなしで新しいメッセージを開いてください。PdfCraft が {name} をフォルダーに表示するので、ご自身で添付できます。
+	Font	フォント
+	Bulleted list	箇条書き
+	Numbered list	番号付きリスト
+	Alignment	配置
+	Superscript	上付き
+	Subscript	下付き
+	Paragraph spacing	段落間隔
 	Less	折りたたむ
 	Other options	その他のオプション

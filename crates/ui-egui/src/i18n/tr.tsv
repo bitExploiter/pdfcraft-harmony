@@ -2445,5 +2445,12 @@ animation effects	Off	Kapalı
 	Your email app couldn't log on to your mailbox.	E-posta uygulamanız posta kutunuzda oturum açamadı.
 	Your email app didn't open a message. It said: {why}.	E-posta uygulamanız bir ileti açmadı. Yanıtı: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Dosya olmadan yeni bir ileti açın; PdfCraft, {name} dosyasını klasöründe gösterecek, böylece kendiniz ekleyebilirsiniz.
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
 	Less	Daha az
 	Other options	Diğer seçenekler

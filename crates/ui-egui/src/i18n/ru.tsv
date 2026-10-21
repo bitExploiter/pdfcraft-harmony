@@ -2362,5 +2362,12 @@ animation effects	Off	Выкл
 	Your email app couldn't log on to your mailbox.	Почтовому приложению не удалось войти в ваш почтовый ящик.
 	Your email app didn't open a message. It said: {why}.	Почтовое приложение не открыло письмо. Сообщение: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Откройте новое письмо без файла, и PdfCraft покажет {name} в его папке, чтобы вы прикрепили его сами.
+	Font	Шрифт
+	Bulleted list	Маркированный список
+	Numbered list	Нумерованный список
+	Alignment	Выравнивание
+	Superscript	Надстрочный
+	Subscript	Подстрочный
+	Paragraph spacing	Интервал между абзацами
 	Less	Меньше
 	Other options	Другие параметры

@@ -2463,5 +2463,12 @@ animation effects	Off	Desativados
 	Your email app couldn't log on to your mailbox.	Seu aplicativo de e-mail não conseguiu entrar na sua caixa de correio.
 	Your email app didn't open a message. It said: {why}.	Seu aplicativo de e-mail não abriu uma mensagem. Ele disse: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Abra uma nova mensagem sem ele, e o PdfCraft mostrará {name} na pasta dele para que você o anexe.
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
 	Less	Menos
 	Other options	Outras opções

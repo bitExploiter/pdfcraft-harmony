@@ -2454,5 +2454,12 @@ animation effects	Off	Izklopljeni
 	Your email app couldn't log on to your mailbox.	E-poštni program se ni mogel prijaviti v vaš poštni predal.
 	Your email app didn't open a message. It said: {why}.	E-poštni program ni odprl sporočila. Sporočil je: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Odprite novo sporočilo brez nje in PdfCraft bo prikazal {name} v njeni mapi, da jo priložite sami.
+	Font	Pisava
+	Bulleted list	Označen seznam
+	Numbered list	Oštevilčen seznam
+	Alignment	Poravnava
+	Superscript	Nadpisano
+	Subscript	Podpisano
+	Paragraph spacing	Razmik med odstavki
 	Less	Manj
 	Other options	Druge možnosti

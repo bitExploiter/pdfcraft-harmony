@@ -2523,5 +2523,12 @@ animation effects	Off	Vypnuto
 	Your email app couldn't log on to your mailbox.	E-mailová aplikace se nemohla přihlásit k vaší poštovní schránce.
 	Your email app didn't open a message. It said: {why}.	E-mailová aplikace neotevřela zprávu. Uvedla: {why}.
 	Open a new message without it, and PdfCraft will show {name} in its folder so you can attach it yourself.	Otevřete novou zprávu bez něj a PdfCraft zobrazí {name} v jeho složce, abyste jej mohli přiložit sami.
+	Font	Písmo
+	Bulleted list	Odrážkový seznam
+	Numbered list	Číslovaný seznam
+	Alignment	Zarovnání
+	Superscript	Horní index
+	Subscript	Dolní index
+	Paragraph spacing	Mezera mezi odstavci
 	Less	Méně
 	Other options	Další možnosti
