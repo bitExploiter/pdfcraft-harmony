@@ -2242,6 +2242,57 @@ fn headers_watermarks_and_backgrounds_through_tools() {
 }
 
 #[test]
+fn printer_marks_go_on_report_what_did_not_fit_and_come_off_again() {
+    let dir = workdir("printer-marks");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let size = |a: &mut Automation, d: u64| -> (f64, f64) {
+        let info = ok(a, "doc_info", json!({ "doc": d }));
+        let p = &info["pages"][0];
+        (p["width"].as_f64().unwrap(), p["height"].as_f64().unwrap())
+    };
+    let before = size(&mut a, doc);
+
+    // Asking for no marks at all is refused rather than quietly doing nothing.
+    assert!(matches!(a.call("doc_printer_marks", &json!({ "doc": doc })), Err(ToolError::Failed(_))));
+
+    // The fixture has no trim box, so the marks go round the whole sheet and fall off it. That
+    // is reported, and the marks are still written.
+    let out = ok(&mut a, "doc_printer_marks", json!({ "doc": doc, "pages": [1], "crop": true, "registration": true }));
+    assert_eq!(out["marks"], 8, "four corners and four targets: {out}");
+    assert_eq!(out["clipped"], json!([1]), "{out}");
+    assert_eq!(out["grown"], json!([]), "{out}");
+    assert_eq!(size(&mut a, doc), before, "the sheet is left alone without grow_media");
+
+    // Growing the sheet fits them, and the bleed marks are skipped with a reason.
+    ok(&mut a, "doc_remove_printer_marks", json!({ "doc": doc, "pages": [1] }));
+    let out = ok(
+        &mut a,
+        "doc_printer_marks",
+        json!({ "doc": doc, "pages": [1], "crop": true, "bleed": true, "color_bars": true, "info_name": "a.pdf", "grow_media": true }),
+    );
+    assert_eq!(out["grown"], json!([1]), "{out}");
+    assert_eq!(out["clipped"], json!([]), "{out}");
+    assert_eq!(out["no_bleed"], json!([1]), "no bleed box of its own: {out}");
+    assert_eq!(out["marks"], 6, "four corners, a colour bar and the page information: {out}");
+    let grown = size(&mut a, doc);
+    assert!(grown.0 > before.0 && grown.1 > before.1, "{before:?} → {grown:?}");
+
+    // They survive a save and reopen, and come off the reopened file in one go, sheet and all.
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "marked.pdf" }));
+    let copy = ok(&mut a, "doc_open", json!({ "path": "marked.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(size(&mut a, copy), grown);
+    let out = ok(&mut a, "doc_remove_printer_marks", json!({ "doc": copy }));
+    assert_eq!(out["marks"], 0, "{out}");
+    assert_eq!(size(&mut a, copy), before, "removal puts the sheet back");
+    assert!(matches!(a.call("doc_remove_printer_marks", &json!({ "doc": copy })), Err(ToolError::Failed(_))), "nothing left to remove");
+
+    // A box that is not a page box, and page information the standard fonts cannot draw.
+    assert!(matches!(a.call("doc_printer_marks", &json!({ "doc": doc, "crop": true, "reference": "spine" })), Err(ToolError::Failed(_))));
+    assert!(matches!(a.call("doc_printer_marks", &json!({ "doc": doc, "info_name": "Dvořák" })), Err(ToolError::Failed(_))));
+}
+
+#[test]
 fn watermarks_move_from_the_page_centre_through_tools() {
     let dir = workdir("wm-offset");
     let mut a = auto(&dir);

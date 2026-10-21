@@ -4128,6 +4128,7 @@ dependencies = [
  "pdfcraft-optimize",
  "pdfcraft-organize",
  "pdfcraft-preflight",
+ "pdfcraft-prepress",
  "pdfcraft-print",
  "pdfcraft-redact",
  "pdfcraft-render",
@@ -4268,6 +4269,18 @@ dependencies = [
  "pdfcraft-cos",
  "pdfcraft-model",
  "roxmltree",
+]
+
+[[package]]
+name = "pdfcraft-prepress"
+version = "0.10.1"
+dependencies = [
+ "pdfcraft-cos",
+ "pdfcraft-fonts",
+ "pdfcraft-model",
+ "pdfcraft-testkit",
+ "serde",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

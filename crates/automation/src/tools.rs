@@ -916,6 +916,41 @@ pub fn tools() -> Vec<ToolDef> {
         t("doc_remove_marks", "Remove header & footer, watermark or background", "Remove every header and footer, watermark or background PdfCraft (or a compatible tool) added. Undoable.")
             .destructive()
             .with(schema(json!({ "doc": doc(), "kind": { "type": "string", "enum": ["header_footer", "watermark", "background"] } }), &["doc", "kind"])),
+        t(
+            "doc_printer_marks",
+            "Add printer marks",
+            "Add printer marks around a page box for commercial printing, as printer's mark annotations: crop (cut) marks at the corners, bleed marks at the bleed box, registration targets on each side, a CMYK colour bar and a page-information line. Pick at least one of crop, bleed, registration, color_bars and info_name/info_stamp. `reference` is the box they go around (default trim). Marks sit outside that box, so they need room on the sheet: grow_media: true enlarges the media box to fit them, otherwise pages whose marks fall outside are listed in `clipped` and the marks will not print. Crop, bleed and registration marks and the page information are drawn in the All separation, so they appear on every plate. Undoable, and doc_remove_printer_marks takes them off again.",
+        )
+        .cmd("print.printer_marks")
+        .with(schema(
+            json!({
+                "doc": doc(),
+                "pages": pages("to mark (default: all)"),
+                "crop": { "type": "boolean", "description": "Cut marks at the corners of the reference box." },
+                "bleed": { "type": "boolean", "description": "Cut marks at the corners of the bleed box. Skipped on pages whose bleed box matches the reference box." },
+                "registration": { "type": "boolean", "description": "Registration targets centred on each side." },
+                "color_bars": { "type": "boolean", "description": "A row of solid CMYK, overprint and black-tint patches." },
+                "info_name": { "type": "string", "description": "Left of the page-information line, usually the file name. Western European characters only." },
+                "info_stamp": { "type": "string", "description": "Right of the page-information line, usually a date you format. Western European characters only." },
+                "reference": { "type": "string", "enum": ["media", "crop", "bleed", "trim", "art"] },
+                "weight": { "type": "number", "minimum": 0, "description": "Line weight in points (default 0.25)." },
+                "length": { "type": "number", "exclusiveMinimum": 0, "description": "Length of a corner mark's arm in points (default 18)." },
+                "offset": { "type": "number", "minimum": 0, "description": "Gap between the box and its marks in points (default 6)." },
+                "radius": { "type": "number", "exclusiveMinimum": 0, "description": "Registration target radius in points (default 4)." },
+                "patch": { "type": "number", "exclusiveMinimum": 0, "description": "Colour-bar patch size in points (default 12)." },
+                "font_size": { "type": "number", "exclusiveMinimum": 0, "description": "Page-information text size in points (default 7)." },
+                "grow_media": { "type": "boolean" },
+            }),
+            &["doc"],
+        )),
+        t(
+            "doc_remove_printer_marks",
+            "Remove printer marks",
+            "Remove the printer marks PdfCraft added, and put back any media box it enlarged for them. Printer marks another program wrote are left alone. Undoable.",
+        )
+        .cmd("print.printer_marks.remove")
+        .destructive()
+        .with(schema(json!({ "doc": doc(), "pages": pages("to clear (default: all)") }), &["doc"])),
         t("doc_export_images", "Export pages as images", "Write pages as PNG, JPEG or TIFF files (`<name>_page_<n>.png|jpg|tif`) into a folder, at a resolution (default 150 dpi). JPEG and TIFF are flattened onto white paper. A page too large for the renderer at that resolution is drawn at the most it allows, listed in `lower_dpi` ({page, dpi}). Includes unsaved edits.")
             .cmd("export.image")
             .with(schema(
