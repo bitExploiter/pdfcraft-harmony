@@ -2440,3 +2440,5 @@ animation effects	Off	Kapalı
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	Metin, okuyucunun ekranına ve yazı tipi boyutuna göre akar; bölümlere ayrılır, yer imleri içindekiler olur.
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	Her sayfa göründüğü gibi, metni aranabilir kalır. Düzeni önemli olan belgeler için.
 	Exported {name}	{name} dışa aktarıldı
+	Less	Daha az
+	Other options	Diğer seçenekler

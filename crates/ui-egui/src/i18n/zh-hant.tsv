@@ -2394,3 +2394,5 @@ animation effects	Off	關
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	文字會隨讀者的螢幕和字型大小重排，分為章節，書籤作為目錄。
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	每頁保持原樣，文字仍可搜尋。適合版面重要的文件。
 	Exported {name}	已匯出 {name}
+	Less	收起
+	Other options	其他選項

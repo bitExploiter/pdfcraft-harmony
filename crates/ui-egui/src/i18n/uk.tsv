@@ -2466,3 +2466,5 @@ animation effects	Off	Вимкнено
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	Текст підлаштовується під екран і розмір шрифту читача, поділений на розділи, закладки стають змістом.
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	Кожна сторінка такою, як виглядає, а її текст лишається доступним для пошуку. Для документів, де важливий макет.
 	Exported {name}	Експортовано {name}
+	Less	Менше
+	Other options	Інші параметри
