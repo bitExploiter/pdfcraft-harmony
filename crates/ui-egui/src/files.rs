@@ -9,9 +9,16 @@ use pdfcraft_engine::{DocId, Edit, SplitBy};
 
 use crate::PdfCraftApp;
 
+/// The formats accepted by Add image and by image drops into an open document.
+pub(crate) const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "gif", "bmp", "jp2", "j2k", "jpx"];
+
 /// Why files were picked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FilePurpose {
+    /// Add images to an existing page, centred and selected like Edit ▸ Add image.
+    AddImages {
+        page: usize,
+    },
     TextFont {
         page: usize,
     },
@@ -60,6 +67,9 @@ pub(crate) fn installed_font_files(ctx: &egui::Context) -> Option<Vec<pdfcraft_e
 /// The picker for `purpose`: PDFs, and for Create and Insert also what they convert.
 fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
     let dialog = rfd::AsyncFileDialog::new();
+    if matches!(purpose, FilePurpose::AddImages { .. }) {
+        return dialog.add_filter(tl!("Images"), IMAGE_EXTENSIONS);
+    }
     if matches!(purpose, FilePurpose::TextFont { .. }) {
         return dialog.add_filter("TrueType / OpenType font", &["ttf", "otf"]);
     }
@@ -93,9 +103,9 @@ pub struct ReplaceDraft {
 }
 
 impl FilePurpose {
-    /// Insert and Replace edit the active document, at its selection.
+    /// Whether the result must remain bound to the active document and its edit generation.
     pub(crate) fn edits_active_document(self) -> bool {
-        matches!(self, Self::InsertPages | Self::ReplacePages | Self::TextFont { .. })
+        matches!(self, Self::InsertPages | Self::ReplacePages | Self::TextFont { .. } | Self::AddImages { .. })
     }
 }
 
@@ -431,8 +441,59 @@ impl PdfCraftApp {
         });
     }
 
+    /// Images dropped in the editor become page content. Specialized drop targets (the
+    /// signature pad, Organize grid and Pages panel) take their files before this runs.
+    pub(crate) fn drop_images(&mut self, dropped: Vec<egui::DroppedFileHandle>, ctx: &egui::Context) -> Vec<egui::DroppedFileHandle> {
+        let Some(view) = self.active.and_then(|i| self.views.get(i)) else { return dropped };
+        if view.organize || self.dialog.is_some() || self.password_prompt.is_some() || self.image_import.is_some() {
+            return dropped;
+        }
+        let purpose = FilePurpose::AddImages { page: view.current };
+        let (images, rest): (Vec<_>, Vec<_>) = dropped.into_iter().partition(|f| {
+            f.path().extension().and_then(|e| e.to_str()).is_some_and(|e| IMAGE_EXTENSIONS.iter().any(|ext| e.eq_ignore_ascii_case(ext)))
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let _ = ctx;
+            // Read and insert one file at a time, keeping a batch from retaining all its bytes.
+            for file in images {
+                if file.path().is_absolute() {
+                    self.use_paths(purpose, &[file.path().to_path_buf()]);
+                    continue;
+                }
+                let name = file.path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                match file.bytes() {
+                    Ok(bytes) => self.use_files(purpose, vec![(name, bytes)]),
+                    Err(e) => self.notify_fmt("Couldn't read {name}: {e}", &[("name", &name), ("e", &e)]),
+                }
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        if !images.is_empty() {
+            let request = self.file_request(purpose, Vec::new());
+            let requests = self.requests.clone();
+            let failures = self.failed_inbox.clone();
+            let ctx = ctx.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                let mut files = Vec::new();
+                for file in images {
+                    let name = file.path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    match file.bytes_async().await {
+                        Ok(bytes) => files.push((name, bytes)),
+                        Err(e) => failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push((name, e)),
+                    }
+                }
+                // Validate the target once for the whole batch: the first image changes its
+                // generation. Capturing it before reading also prevents edits to another tab.
+                requests.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(FileRequest { files, ..request });
+                ctx.request_repaint();
+            });
+        }
+        rest
+    }
+
     /// A request to use `files` for `purpose`, bound to the document it will edit: the active
-    /// one now, for Insert and Replace. Browsers make it when the picker opens and queue it on
+    /// one now, for Insert, Replace and Add images. Browsers make it before reading and queue it on
     /// `requests` once the files are read; it is used on a later frame.
     pub fn file_request(&self, purpose: FilePurpose, files: Vec<(String, Vec<u8>)>) -> FileRequest {
         let target = if purpose.edits_active_document() { self.pick_target(self.active_ids().map(|(_, id)| id)) } else { None };
@@ -474,6 +535,11 @@ impl PdfCraftApp {
     /// Use picked files (also the entry point for tests and automation).
     pub fn use_files(&mut self, purpose: FilePurpose, files: Vec<(String, Vec<u8>)>) {
         match purpose {
+            FilePurpose::AddImages { page } => {
+                for (name, bytes) in files {
+                    self.add_image_on_page(page, name, bytes);
+                }
+            }
             FilePurpose::TextFont { page } => {
                 let Some((_, bytes)) = files.into_iter().next() else { return };
                 let bytes = Arc::new(bytes);
