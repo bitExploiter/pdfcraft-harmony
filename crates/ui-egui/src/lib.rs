@@ -2403,9 +2403,7 @@ impl PdfCraftApp {
             self.fill_text_size = size;
         }
         // Settings are untrusted: unknown tool ids are dropped, and a value that isn't a list hides nothing.
-        if let Some(hidden) = tool_visibility::HiddenTools::from_json(&v["hidden_tools"]) {
-            self.hidden_tools = hidden;
-        }
+        self.hidden_tools = tool_visibility::HiddenTools::from_json(&v["hidden_tools"]).unwrap_or_default();
         if let Some(prefs) = RedactPrefs::from_json(&v["redact_prefs"]) {
             self.redact_prefs = prefs.clone();
             self.redact_defaults = prefs;

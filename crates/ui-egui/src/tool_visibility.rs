@@ -192,5 +192,8 @@ mod tests {
         let mut old = PdfCraftApp::new();
         old.restore(r#"{"hidden_tools": "compress"}"#);
         assert_eq!(old.hidden_tools, HiddenTools::default());
+        // Even in an app that already hides tools.
+        restored.restore(r#"{"hidden_tools": "compress"}"#);
+        assert_eq!(restored.hidden_tools, HiddenTools::default());
     }
 }
