@@ -332,7 +332,13 @@ mod tests {
     #[test]
     fn black_artwork_stays_black() {
         let mut p = page();
-        p.shapes = vec![Shape { paths: vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]], closed: true, fill: Some([0.0; 3]), stroke: Some([0.0; 3]), line_width: 1.0 }];
+        p.shapes = vec![Shape {
+            paths: vec![vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0]]],
+            closed: true,
+            fill: Some([0.0; 3]),
+            stroke: Some([0.0; 3]),
+            line_width: 1.0,
+        }];
         let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
         // Without a colour, the shape would take the theme's.
         assert_eq!(slide.matches("<a:solidFill><a:srgbClr val=\"000000\"/></a:solidFill>").count(), 2, "{slide}");

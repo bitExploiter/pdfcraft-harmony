@@ -764,16 +764,48 @@ fn same_row<'a>(list: &[Item<'a>], at: usize) -> Vec<&'a Block> {
     row
 }
 
-/// One Word paragraph for `pieces` on one line: tab stops where each piece starts, and, when the
-/// last piece runs on over more lines, a hanging indent that brings them back under it.
+/// What goes between two pieces of a line: nothing when the second touches the first (a
+/// superscript, a word split by a style change), a space for a word space up to [`INLINE_GAP`]
+/// (a bold word or a link inside a sentence), else a tab.
+#[derive(Clone, Copy, PartialEq)]
+enum Join {
+    Touch,
+    Space,
+    Tab,
+}
+
+fn join(a: &Block, b: &Block) -> Join {
+    let gap = b.rect[0] - a.rect[2];
+    let size = a.size.max(b.size).max(1.0);
+    if gap <= size * 0.12 {
+        Join::Touch
+    } else if gap <= size * INLINE_GAP {
+        Join::Space
+    } else {
+        Join::Tab
+    }
+}
+
+/// One Word paragraph for `pieces` on one line: runs of one sentence joined as they read, tab
+/// stops where pieces set apart start, and, when the last piece is set apart and runs on over
+/// more lines, a hanging indent that brings them back under it.
 fn row_paragraph(pieces: &[&Block], column: Option<[f64; 4]>, above: Option<f64>, run: &dyn Fn(&Block) -> String) -> String {
     let left = column.map_or(0.0, |c| c[0]);
     let tw = |pt: f64| (pt.max(0.0) * 20.0).round() as i64;
     let Some(first) = pieces.first() else { return String::new() };
     let start = first.rect[0] - left;
+    let joins: Vec<Join> = pieces.windows(2).map(|w| join(w[0], w[1])).collect();
     let mut ppr = String::new();
-    let stops: Vec<String> = pieces.iter().skip(1).map(|p| format!("<w:tab w:val=\"left\" w:pos=\"{}\"/>", tw(p.rect[0] - left))).collect();
-    ppr.push_str(&format!("<w:tabs>{}</w:tabs>", stops.concat()));
+    let stops: Vec<String> = pieces
+        .iter()
+        .skip(1)
+        .zip(&joins)
+        .filter(|(_, j)| **j == Join::Tab)
+        .map(|(p, _)| format!("<w:tab w:val=\"left\" w:pos=\"{}\"/>", tw(p.rect[0] - left)))
+        .collect();
+    if !stops.is_empty() {
+        ppr.push_str(&format!("<w:tabs>{}</w:tabs>", stops.concat()));
+    }
     if let Some(prev_bottom) = above {
         let gap = prev_bottom - first.rect[3] - first.size * 0.3;
         if gap.is_finite() && gap > 2.0 {
@@ -781,15 +813,24 @@ fn row_paragraph(pieces: &[&Block], column: Option<[f64; 4]>, above: Option<f64>
         }
     }
     match pieces.last() {
-        Some(last) if pieces.len() == 2 && last.lines >= 2 => {
+        Some(last) if pieces.len() == 2 && last.lines >= 2 && joins.first() == Some(&Join::Tab) => {
             let at = tw(last.rect[0] - left);
             ppr.push_str(&format!("<w:ind w:left=\"{at}\" w:hanging=\"{}\"/>", at - tw(start)));
         }
         _ if start > first.size * 0.6 => ppr.push_str(&format!("<w:ind w:left=\"{}\"/>", tw(start))),
         _ => {}
     }
-    let runs: Vec<String> = pieces.iter().map(|p| run(p)).collect();
-    format!("<w:p><w:pPr>{ppr}</w:pPr>{}</w:p>", runs.join("<w:r><w:tab/></w:r>"))
+    let mut runs = String::new();
+    for (k, p) in pieces.iter().enumerate() {
+        match k.checked_sub(1).and_then(|j| joins.get(j)) {
+            Some(Join::Tab) => runs.push_str("<w:r><w:tab/></w:r>"),
+            Some(Join::Space) => runs.push_str("<w:r><w:t xml:space=\"preserve\"> </w:t></w:r>"),
+            _ => {}
+        }
+        runs.push_str(&run(p));
+    }
+    let ppr = if ppr.is_empty() { String::new() } else { format!("<w:pPr>{ppr}</w:pPr>") };
+    format!("<w:p>{ppr}{runs}</w:p>")
 }
 
 /// How a paragraph sat in its page's text column: alignment, left indent, the space above it
@@ -1308,6 +1349,23 @@ mod tests {
         assert!(skills.contains("Penetration testing") && skills.contains("<w:tab/>"), "{xml}");
         // The value's second line comes back under its first: a hanging indent at the value.
         assert!(skills.contains("w:hanging=\"1560\"") && skills.contains("w:left=\"1560\""), "{skills}");
+    }
+
+    #[test]
+    fn style_runs_of_a_sentence_stay_a_sentence() {
+        // "This is bold text" set as three blocks (the middle one bold), a word space apart, and a
+        // superscript touching its number.
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("This is", [72.0, 700.0, 110.0, 712.0], 1),
+            Block { bold: true, ..piece("bold", [113.0, 700.0, 135.0, 712.0], 1) },
+            piece("text, 10", [138.0, 700.0, 180.0, 712.0], 1),
+            piece("3", [180.5, 706.0, 184.0, 712.0], 1),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let para = para_with(&xml, "This is");
+        assert!(para.contains("bold") && para.contains("text, 10") && !para.contains("<w:tab/>"), "{para}");
+        assert_eq!(para.matches("<w:t xml:space=\"preserve\"> </w:t>").count(), 2, "a space between words, none before the 3: {para}");
     }
 
     #[test]
