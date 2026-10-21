@@ -10,6 +10,7 @@ use sctk::reexports::client::protocol::wl_seat::WlSeat;
 use sctk::reexports::client::protocol::wl_touch::WlTouch;
 use sctk::reexports::client::{Connection, Proxy, QueueHandle};
 use sctk::reexports::protocols::wp::relative_pointer::zv1::client::zwp_relative_pointer_v1::ZwpRelativePointerV1;
+use sctk::reexports::protocols::wp::tablet::zv2::client::zwp_tablet_seat_v2::ZwpTabletSeatV2;
 use sctk::reexports::protocols::wp::text_input::zv3::client::zwp_text_input_v3::ZwpTextInputV3;
 
 use sctk::seat::pointer::{ThemeSpec, ThemedPointer};
@@ -21,11 +22,13 @@ use crate::platform_impl::wayland::state::WinitState;
 
 mod keyboard;
 mod pointer;
+mod tablet;
 mod text_input;
 mod touch;
 
 pub use pointer::relative_pointer::RelativePointerState;
 pub use pointer::{PointerConstraintsState, WinitPointerData, WinitPointerDataExt};
+pub use tablet::{bind_cursor_shape_manager, retain_tablet_cursors, TabletManager, TabletToolCursor};
 pub use text_input::{TextInputState, ZwpTextInputV3Ext};
 
 use keyboard::{KeyboardData, KeyboardState};
@@ -48,6 +51,9 @@ pub struct WinitSeatState {
 
     /// The relative pointer bound on the seat.
     relative_pointer: Option<ZwpRelativePointerV1>,
+
+    /// PdfCraft patch (14): the tablets, tools and pads of the seat.
+    pub tablet_seat: Option<ZwpTabletSeatV2>,
 
     /// The keyboard bound on the seat.
     keyboard_state: Option<KeyboardState>,
@@ -203,10 +209,14 @@ impl SeatHandler for WinitState {
     fn new_seat(
         &mut self,
         _connection: &Connection,
-        _queue_handle: &QueueHandle<Self>,
+        queue_handle: &QueueHandle<Self>,
         seat: WlSeat,
     ) {
-        self.seats.insert(seat.id(), WinitSeatState::new());
+        let mut seat_state = WinitSeatState::new();
+        // PdfCraft patch (14): tablets are per seat but not a seat capability.
+        seat_state.tablet_seat =
+            self.tablet_manager.as_ref().map(|manager| manager.tablet_seat(&seat, queue_handle));
+        self.seats.insert(seat.id(), seat_state);
     }
 
     fn remove_seat(
@@ -218,6 +228,9 @@ impl SeatHandler for WinitState {
         if let Some(mut seat_state) = self.seats.remove(&seat.id()) {
             if let Some(text_input) = seat_state.text_input.take() {
                 text_input.destroy();
+            }
+            if let Some(tablet_seat) = seat_state.tablet_seat.take() {
+                tablet_seat.destroy();
             }
         }
         self.on_keyboard_destroy(&seat.id());

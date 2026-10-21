@@ -40,6 +40,7 @@ use crate::platform_impl::{PlatformCustomCursor, WindowId};
 use crate::window::{CursorGrabMode, CursorIcon, ImePurpose, ResizeDirection, Theme};
 
 use crate::platform_impl::wayland::seat::{
+    retain_tablet_cursors, TabletToolCursor,
     PointerConstraintsState, WinitPointerData, WinitPointerDataExt, ZwpTextInputV3Ext,
 };
 use crate::platform_impl::wayland::state::{WindowCompositorUpdate, WinitState};
@@ -68,6 +69,9 @@ pub struct WindowState {
 
     /// The pointers observed on the window.
     pub pointers: Vec<Weak<ThemedPointer<WinitPointerData>>>,
+
+    /// PdfCraft patch (14): the cursors of tablet tools in proximity of the window.
+    tablet_cursors: Vec<Weak<TabletToolCursor>>,
 
     selected_cursor: SelectedCursor,
 
@@ -206,6 +210,7 @@ impl WindowState {
             resize_increments: None,
             pointer_constraints,
             pointers: Default::default(),
+            tablet_cursors: Default::default(),
             queue_handle: queue_handle.clone(),
             resizable: true,
             scale_factor: 1.,
@@ -617,6 +622,25 @@ impl WindowState {
         let _ = self.set_cursor_grab_inner(mode);
     }
 
+    /// PdfCraft patch (14): a tablet tool came into proximity of the top-level.
+    pub fn tablet_tool_entered(&mut self, added: Weak<TabletToolCursor>) {
+        retain_tablet_cursors(&mut self.tablet_cursors, None);
+        self.tablet_cursors.push(added);
+        self.reload_cursor_style();
+    }
+
+    /// PdfCraft patch (14): a tablet tool left the proximity of the top-level.
+    pub fn tablet_tool_left(&mut self, removed: &Arc<TabletToolCursor>) {
+        retain_tablet_cursors(&mut self.tablet_cursors, Some(removed));
+    }
+
+    /// PdfCraft patch (14): show `icon` on the tablet tools in proximity.
+    fn set_tablet_cursors(&self, icon: CursorIcon) {
+        for cursor in self.tablet_cursors.iter().filter_map(Weak::upgrade) {
+            cursor.set_icon(icon);
+        }
+    }
+
     /// Pointer has left the top-level.
     pub fn pointer_left(&mut self, removed: Weak<ThemedPointer<WinitPointerData>>) {
         let mut new_pointers = Vec::new();
@@ -737,7 +761,8 @@ impl WindowState {
             if pointer.set_cursor(&self.connection, cursor_icon).is_err() {
                 warn!("Failed to set cursor to {:?}", cursor_icon);
             }
-        })
+        });
+        self.set_tablet_cursors(cursor_icon);
     }
 
     /// Set the custom cursor icon.
@@ -776,6 +801,8 @@ impl WindowState {
     }
 
     fn apply_custom_cursor(&self, cursor: &CustomCursor) {
+        // PdfCraft patch (14): tablet tools show named cursors only; a custom one is the default.
+        self.set_tablet_cursors(CursorIcon::Default);
         self.apply_on_pointer(|pointer, data| {
             let surface = pointer.surface();
 
@@ -974,6 +1001,9 @@ impl WindowState {
                 let latest_enter_serial = pointer.pointer().winit_data().latest_enter_serial();
 
                 pointer.pointer().set_cursor(latest_enter_serial, None, 0, 0);
+            }
+            for cursor in self.tablet_cursors.iter().filter_map(Weak::upgrade) {
+                cursor.hide();
             }
         }
     }

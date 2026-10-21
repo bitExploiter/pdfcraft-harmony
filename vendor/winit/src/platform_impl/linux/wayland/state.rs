@@ -26,9 +26,10 @@ use sctk::subcompositor::SubcompositorState;
 use crate::platform_impl::wayland::event_loop::sink::EventSink;
 use crate::platform_impl::wayland::output::MonitorHandle;
 use crate::platform_impl::wayland::seat::{
-    PointerConstraintsState, RelativePointerState, TextInputState, WinitPointerData,
-    WinitPointerDataExt, WinitSeatState,
+    bind_cursor_shape_manager, PointerConstraintsState, RelativePointerState, TabletManager,
+    TextInputState, WinitPointerData, WinitPointerDataExt, WinitSeatState,
 };
+use sctk::reexports::protocols::wp::cursor_shape::v1::client::wp_cursor_shape_manager_v1::WpCursorShapeManagerV1;
 use crate::platform_impl::wayland::types::kwin_blur::KWinBlurManager;
 use crate::platform_impl::wayland::types::wp_fractional_scaling::FractionalScalingManager;
 use crate::platform_impl::wayland::types::wp_viewporter::ViewporterState;
@@ -109,6 +110,12 @@ pub struct WinitState {
     /// KWin blur manager.
     pub kwin_blur_manager: Option<KWinBlurManager>,
 
+    /// PdfCraft patch (14): the tablet manager, when tablets are handled here.
+    pub tablet_manager: Option<TabletManager>,
+
+    /// PdfCraft patch (14): cursor shapes for tablet tools (sctk sets the mouse pointer's).
+    pub cursor_shape_manager: Option<WpCursorShapeManagerV1>,
+
     /// Loop handle to re-register event sources, such as keyboard repeat.
     pub loop_handle: LoopHandle<'static, Self>,
 
@@ -143,9 +150,18 @@ impl WinitState {
 
         let seat_state = SeatState::new(globals, queue_handle);
 
+        // PdfCraft patch (14): bind tablets before the seats, which each get a tablet seat.
+        let tablet_manager = TabletManager::new(globals, queue_handle);
+        let cursor_shape_manager = tablet_manager
+            .as_ref()
+            .and_then(|_| bind_cursor_shape_manager(globals, queue_handle));
+
         let mut seats = AHashMap::default();
         for seat in seat_state.seats() {
-            seats.insert(seat.id(), WinitSeatState::new());
+            let mut winit_seat = WinitSeatState::new();
+            winit_seat.tablet_seat =
+                tablet_manager.as_ref().map(|manager| manager.tablet_seat(&seat, queue_handle));
+            seats.insert(seat.id(), winit_seat);
         }
 
         let (viewporter_state, fractional_scaling_manager) =
@@ -177,6 +193,8 @@ impl WinitState {
             viewporter_state,
             fractional_scaling_manager,
             kwin_blur_manager: KWinBlurManager::new(globals, queue_handle).ok(),
+            tablet_manager,
+            cursor_shape_manager,
 
             seats,
             text_input_state: TextInputState::new(globals, queue_handle).ok(),
