@@ -32,6 +32,7 @@ mod a11y_ui;
 mod actions_ui;
 mod appearance;
 pub mod canvas;
+pub mod canvas_selection;
 mod chrome;
 mod combine_grid;
 mod image_pick;
@@ -75,6 +76,7 @@ pub use link_ui::LinkDraft;
 pub use optimize_ui::{OptimizeDraft, OptimizeTab};
 pub use sign_ui::{DigitalIdEntry, SignDraft, SignGraphic, SignStep};
 mod autoscroll;
+pub mod barcode_hud;
 mod bidi;
 pub mod bulk_fields;
 mod dialogs;
@@ -102,6 +104,7 @@ mod pickers;
 pub mod prepare;
 mod print_ui;
 mod signature_drag;
+pub mod symbol_palette;
 pub mod units;
 mod web_print;
 mod word_count_ui;
@@ -151,7 +154,7 @@ mod open_worker_tests;
 
 use pdfcraft_engine::{DocId, Session};
 
-pub use canvas::{DocView, RasterMemory};
+pub use canvas::{DocView, RasterMemory, ReadingBgState};
 pub use editing::{CloseRequest, SaveTarget};
 pub use files::{ExtractDraft, FilePurpose, FileRequest, RotateDraft, SplitDraft, SplitMode, SplitPlan};
 pub use recovery::{AUTOSAVE_SECS, RecoveryMeta, RecoveryStore};
@@ -214,6 +217,8 @@ pub enum RightPanel {
 pub enum QuickTool {
     Select,
     Hand,
+    /// Click a barcode or QR code on the page to open its HUD.
+    QrBarcode,
     /// A commenting tool (Add comments).
     Comment(comments::CommentTool),
     Measure(measure_ui::Tool),
@@ -529,6 +534,8 @@ pub struct PdfCraftApp {
     /// The reading-colours preference (Preferences ▸ Reading colours): applied to every open
     /// document, and documents open with it (Acrobat's Replace Document Colors).
     pub reading_colors: pdfcraft_render::ReadingColors,
+    /// Session-persistent eye-strain reading background preference and tint settings.
+    pub reading_bg: ReadingBgState,
     /// The Linux portal is enabled only by the native host, and starts on the first System choice.
     #[cfg(target_os = "linux")]
     desktop_theme: Option<pdfcraft_platform::desktop_theme::DesktopTheme>,
@@ -914,6 +921,7 @@ impl PdfCraftApp {
             theme: ThemeKind::Light,
             theme_preference: ThemePreference::Light,
             reading_colors: Default::default(),
+            reading_bg: Default::default(),
             #[cfg(target_os = "linux")]
             desktop_theme: None,
             #[cfg(target_os = "linux")]
@@ -1123,9 +1131,11 @@ impl PdfCraftApp {
             M::Default => {}
             M::ActualSize => view.set_zoom(1.0),
             M::Percent(p) => view.set_zoom((p / 100.0) as f32),
+            // The zoom mode is set directly: `set_fit` would also choose a continuous mode and
+            // override the /PageLayout the PDF asked for.
             M::FitPage | M::FitVisible => view.fit = canvas::Fit::Page,
-            M::FitWidth => view.fit = canvas::Fit::Width,
-            M::FitHeight => view.fit = canvas::Fit::Height,
+            M::FitWidth => view.set_fit(canvas::Fit::Width),
+            M::FitHeight => view.set_fit(canvas::Fit::Height),
         }
         if v.page > 0 && v.page < pages {
             view.go_to_page(v.page);
@@ -2694,6 +2704,7 @@ impl PdfCraftApp {
                     "marquee-zoom" => QuickTool::MarqueeZoom,
                     "snapshot" => QuickTool::Snapshot,
                     "column-select" => QuickTool::ColumnSelect,
+                    "qr-barcode" => QuickTool::QrBarcode,
                     "certify" => QuickTool::SignArea { certify: true },
                     custom if custom.starts_with("custom-stamp-") => {
                         let i: usize = custom[13..].parse().map_err(|_| format!("bad stamp {custom}"))?;

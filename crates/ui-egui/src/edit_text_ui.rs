@@ -145,17 +145,17 @@ pub struct LineEditor {
     pub block: usize,
     pub text: String,
     original: String,
-    rect: Rect,
+    pub rect: Rect,
     /// The original PDF rectangle, in user space. It is converted again each frame so the editor
     /// stays attached while the page is zoomed, scrolled, or rotated.
-    source_rect: [f32; 4],
+    pub source_rect: [f32; 4],
     multiline: bool,
     source: Option<(pdfcraft_engine::TextBlock, Vec<pdfcraft_engine::TextLine>)>,
     pub(crate) fonts: BTreeMap<String, String>,
     /// The draft extends outside the source container; its frame follows the live draft bounds.
     pub overflow: bool,
     /// The initial source container width in screen pixels.
-    max_width: f32,
+    pub max_width: f32,
     /// Current screen-space size. Recomputed from the current page transform before painting.
     size: f32,
     focus: bool,
@@ -343,8 +343,7 @@ fn contrast(a: Color32, b: Color32) -> f32 {
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
-/// The inline editor's background for text drawn in `text`: white, or a dark box when the text
-/// reads better on that (white or pale text, which would vanish on white).
+/// The inline editor's fallback contrast calculator for text drawn in `text`.
 pub(crate) fn editor_fill(text: Color32) -> Color32 {
     if contrast(text, Color32::WHITE) >= contrast(text, DARK_EDITOR_FILL) { Color32::WHITE } else { DARK_EDITOR_FILL }
 }
@@ -1154,9 +1153,14 @@ pub(crate) fn install_source_fonts(ctx: &egui::Context, doc: &pdfcraft_engine::D
 
 fn editor_job(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: f32) -> egui::text::LayoutJob {
     let mut job = egui::text::LayoutJob::default();
-    // An unchanged PDF row already has an authoritative line break. Do not rewrap it
-    // because font rounding or a fallback face measures a fraction of a pixel wider.
-    job.wrap.max_width = if text == ed.original && ed.look == ed.look0 && ed.extras == ed.extras0 { f32::INFINITY } else { width };
+    // An unchanged PDF row or single-line text already has an authoritative line break or flows horizontally.
+    // Do not wrap single-line entries down onto adjacent rows.
+    let is_single_line = !ed.multiline && !text.contains('\n');
+    job.wrap.max_width = if is_single_line || (text == ed.original && ed.look == ed.look0 && ed.extras == ed.extras0) {
+        f32::INFINITY
+    } else {
+        width
+    };
     if let Some((block, lines)) = &ed.source {
         let lefts: Vec<_> = block.rows.iter().filter_map(|r| r.first().and_then(|i| lines.get(*i)).map(|l| l.rect[0])).collect();
         let left_span = lefts.iter().copied().fold(f64::NEG_INFINITY, f64::max) - lefts.iter().copied().fold(f64::INFINITY, f64::min);
@@ -1344,18 +1348,19 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             // extent: single rows grow toward the page edge, paragraphs rewrap at their
             // source width, and the visible frame grows/shrinks vertically with their rows.
             // An OCR phrase (several stretched words on one scanned line) also grows rightwards.
-            let single_run = ed.source.as_ref().is_some_and(|(block, _)| block.rows.len() == 1 || block.invisible);
-            let width = if !ed.multiline && single_run && !ed.text.contains('\n') && ed.has_changes() {
+            let is_single_line = !ed.multiline && !ed.text.contains('\n');
+            let width = if ed.has_changes() || is_single_line {
                 let job = editor_job(ui, ed, &ed.text, scale, f32::INFINITY);
                 let natural = ui.fonts_mut(|f| f.layout_job(job)).size().x;
-                natural.max(ed.size * 0.4).min((xf.rect.right() - ed.rect.left() - 36.0 * scale).max(ed.rect.width()))
+                let max_avail = (xf.rect.right() - ed.rect.left() - 10.0 * scale).max(ed.rect.width());
+                natural.max(ed.size * 0.4).min(max_avail).max(ed.rect.width())
             } else {
                 ed.rect.width().max(1.0)
             };
             ui.set_width(width);
             let measured = editor_galley(ui, ed, &ed.text, scale, width);
             ed.overflow = ed.has_changes() && (measured.rect.width() > ed.rect.width() + 1.5 || measured.rect.height() > ed.rect.height() + 1.5);
-            let visible = Rect::from_min_size(ed.rect.min, measured.rect.size().max(egui::vec2(1.0, 1.0)));
+            let visible = Rect::from_min_size(ed.rect.min, egui::vec2(width.max(measured.rect.width()), measured.rect.height().max(1.0)));
             // Unsupported source programs use an interface fallback whose glyph advances
             // can differ from the PDF's. Keep every visible row inside the growing frame.
             let live = draft_rect.map_or(visible, |bounds| bounds.union(visible));
@@ -1368,20 +1373,27 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
             }
-            // White, unless the text is too pale to read on white (white text from a coloured
-            // banner, #913): then a dark box, with a caret that shows on it.
-            let fill = if background_ready { Color32::TRANSPARENT } else { editor_fill(text_color) };
-            // Until the background worker finishes, cover the entire source box, including
-            // lines the draft no longer occupies. Shrinking the text must never expose a copy.
+            // Editing is transparent directly on the canvas. Until the textless backdrop is
+            // ready, a subtle wash stands in for the original text bounds without blanking outside areas.
+            let wash_rect = ed.rect;
+            let editor_backdrop = if background_ready {
+                Color32::TRANSPARENT
+            } else {
+                let fill = editor_fill(text_color);
+                Color32::from_rgba_unmultiplied(fill.r(), fill.g(), fill.b(), 160)
+            };
             if !background_ready {
-                ui.painter().rect_filled(ed.rect.expand(1.0), CornerRadius::ZERO, fill);
+                ui.painter().rect_filled(wash_rect.expand(1.0), CornerRadius::ZERO, editor_backdrop);
             }
-            egui::Frame::NONE.fill(fill).show(ui, |ui| {
-                // A textless PDF preview keeps its real page background through the transparent editor.
-                // The temporary opaque cover uses the shared caret-contrast rule.
-                ui.visuals_mut().text_cursor.stroke.color =
-                    if background_ready { if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE } } else { caret_color_on(fill) };
-                let rows = 1;
+            egui::Frame::NONE.fill(Color32::TRANSPARENT).show(ui, |ui| {
+                // Translucent Acrobat-blue selection highlight, zero black selection boxes
+                ui.visuals_mut().selection.bg_fill = Color32::from_rgba_unmultiplied(0x14, 0x73, 0xE6, 80);
+                ui.visuals_mut().text_cursor.stroke.color = if background_ready {
+                    if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE }
+                } else {
+                    caret_color_on(editor_backdrop)
+                };
+                let rows = ed.text.lines().count().max(1);
                 let snapshot = ed.clone();
                 let mut layouter =
                     |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| editor_galley(ui, &snapshot, text.as_str(), scale, wrap_width);
@@ -1430,7 +1442,16 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
 
 /// The edit a closed paragraph editor applies, or `None` when nothing in it changed.
 pub(crate) fn finished_edit(ed: LineEditor) -> Option<Edit> {
-    let style = ed.style();
+    let mut style = ed.style();
+    let current_user_w = (ed.source_rect[2] - ed.source_rect[0]).abs() as f64;
+    if current_user_w > 1.0 && style.width.is_none()
+        && let Some((block, _)) = &ed.source
+    {
+        let orig_w = (block.rect[2] - block.rect[0]).abs();
+        if (current_user_w - orig_w).abs() > 1.0 {
+            style.width = Some(current_user_w);
+        }
+    }
     (ed.text != ed.original || style != pdfcraft_engine::BlockStyle::default()).then_some(Edit::EditTextBlock {
         page: ed.page,
         block: ed.block,

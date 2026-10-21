@@ -14,6 +14,7 @@
 
 pub mod actions;
 pub mod autotag;
+pub mod barcode_scan;
 pub mod build_info;
 pub mod camera;
 pub mod camera_clean;
@@ -30,6 +31,7 @@ pub mod ocr;
 pub mod optimizer;
 pub mod print_raster;
 pub mod printcheck;
+pub mod qr;
 mod scan_colours;
 mod scan_fields;
 pub mod signature_image;
@@ -39,6 +41,7 @@ mod text_preview;
 pub mod word_count;
 pub mod xfa;
 
+pub use barcode_scan::{CodeKind, ScannedCode};
 pub use signature_image::{ImageSignaturePreview, SignatureImage};
 pub use signature_scan::{PhotoRect, ScanError, SignaturePhoto, Turn};
 pub use text_preview::TextEditPreview;
@@ -53,7 +56,8 @@ pub use pdfcraft_cos::Algorithm;
 pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
 pub use pdfcraft_edit::added::{text_rect as added_text_rect, text_width as added_text_width};
 pub use pdfcraft_edit::{
-    Added, AddedImage, AddedText, Align as TextAlign, Background, Content as AddedContent, Family as FontFamily, HeaderFooter, MarkKind, Watermark,
+    Added, AddedImage, AddedText, Align as TextAlign, Background, Content as AddedContent, Family as FontFamily, HeaderFooter, LineSegment,
+    MarkKind, Watermark, set_line_properties, update_line_endpoints,
 };
 pub use pdfcraft_forms::{
     BorderStyle, CheckStyle, Field as FormField, FieldAction, FieldChange, FieldFont, FieldKind as FormFieldKind, FieldProps, FieldValue,
@@ -272,6 +276,8 @@ fn scope_of(edit: &Edit) -> Scope {
         // Page content, resources and added content/marks only: the page tree, annotations,
         // fields, links and document metadata are untouched (see `refresh_content`).
         Edit::MoveObjects { .. }
+        | Edit::UpdateLineEndpoints { .. }
+        | Edit::SetLineProperties { .. }
         | Edit::EditTextLine { .. }
         | Edit::EditTextBlock { .. }
         | Edit::EditPageImage { .. }
@@ -508,6 +514,12 @@ impl Document {
     pub fn editable_objects(&self, page: usize) -> Result<Vec<EditableObject>, String> {
         let editor = self.editor.as_ref().ok_or("the document can't be read")?;
         pdfcraft_edit::editable_objects(&editor.cos, page).map_err(|e| e.to_string())
+    }
+
+    /// Stroked vector line segments on one page.
+    pub fn editable_lines(&self, page: usize) -> Result<Vec<LineSegment>, String> {
+        let editor = self.editor.as_ref().ok_or("the document can't be read")?;
+        pdfcraft_edit::editable_lines(&editor.cos, page).map_err(|e| e.to_string())
     }
 
     /// Displayed top-left-origin motion to a user-space vector. Use the linear map only,
@@ -1597,6 +1609,21 @@ pub enum Edit {
         objects: Vec<ObjectTarget>,
         offset: [f64; 2],
     },
+    /// Update vector line segment endpoints on `page`.
+    UpdateLineEndpoints {
+        page: usize,
+        target: ObjectTarget,
+        new_start: [f64; 2],
+        new_end: [f64; 2],
+    },
+    /// Set vector line properties (stroke color, stroke width, dash pattern).
+    SetLineProperties {
+        page: usize,
+        target: ObjectTarget,
+        color: Option<[f64; 3]>,
+        width: Option<f64>,
+        dash: Option<Vec<f64>>,
+    },
     /// Edit text in a paragraph box: replace paragraph `block` (from `Document::text_blocks`),
     /// rewrapped to the box's width.
     EditTextBlock {
@@ -1899,6 +1926,8 @@ pub const EDIT_LABELS: &[&str] = &[
     "Load document font",
     "Move object",
     "Move objects",
+    "Edit line endpoints",
+    "Change line properties",
     "Move image",
     "Rotate image",
     "Flip image",
@@ -2030,6 +2059,8 @@ impl Edit {
             Edit::EditTextLine { .. } | Edit::EditTextBlock { .. } => Label::of("Edit text"),
             Edit::RegisterTextFont { .. } => Label::of("Load document font"),
             Edit::MoveObjects { objects, .. } => plural("Move object", "Move objects", objects.len()),
+            Edit::UpdateLineEndpoints { .. } => Label::of("Edit line endpoints"),
+            Edit::SetLineProperties { .. } => Label::of("Change line properties"),
             Edit::EditPageImage { change, .. } => Label::of(match change {
                 ImageEdit::Move(_) => "Move image",
                 ImageEdit::Rotate(_) => "Rotate image",
@@ -2191,6 +2222,8 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::AddImage { .. }
         | Edit::UpdateContent { .. }
         | Edit::MoveObjects { .. }
+        | Edit::UpdateLineEndpoints { .. }
+        | Edit::SetLineProperties { .. }
         | Edit::DeleteContent { .. }
         | Edit::ReplaceImage { .. }
         | Edit::ClearRedactions
@@ -2560,6 +2593,12 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_edit::change_image(doc, *page, *index, &c)?;
         }
         Edit::MoveObjects { page, objects, offset } => pdfcraft_edit::move_objects(doc, *page, objects, *offset)?,
+        Edit::UpdateLineEndpoints { page, target, new_start, new_end } => {
+            pdfcraft_edit::update_line_endpoints(doc, *page, *target, *new_start, *new_end)?;
+        }
+        Edit::SetLineProperties { page, target, color, width, dash } => {
+            pdfcraft_edit::set_line_properties(doc, *page, *target, *color, *width, dash.clone())?;
+        }
         Edit::EditTextBlock { page, block, text, style } => {
             pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), style)?;
         }
@@ -3633,6 +3672,13 @@ impl Session {
 
     fn doc_mut(&mut self, id: DocId) -> Result<&mut Document, EditError> {
         self.docs.iter_mut().find(|d| d.id == id).ok_or(EditError::NoDocument)
+    }
+
+    /// Generate a QR code encoding `text` and place it onto `page` at `rect`.
+    pub fn add_qr_code(&mut self, id: DocId, page: usize, text: &str, rect: Option<[f64; 4]>) -> Result<(), EditError> {
+        let matrix = qr::QrCode::encode_text(text).map_err(|e| EditError::Invalid(e.to_string()))?;
+        let png_bytes = matrix.to_png_bytes(8, 2).map_err(|e| EditError::Invalid(e.to_string()))?;
+        self.apply(id, Edit::AddImage { page, rect, name: "QRCode.png".into(), bytes: Arc::new(png_bytes) })
     }
 
     /// Apply an edit. On success the previous state is undoable and the view data is refreshed.
