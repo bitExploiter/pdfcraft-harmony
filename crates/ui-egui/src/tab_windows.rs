@@ -62,8 +62,12 @@ impl PdfCraftApp {
         self.fonts_cjk = source.fonts_cjk;
         self.fonts_ready = source.fonts_ready;
         self.styled = source.styled;
-        let _ = self.session.set_date_format(source.session.date_format());
-        let _ = self.session.set_date_language(source.session.date_language());
+        if self.session.date_format() != source.session.date_format() {
+            let _ = self.session.set_date_format(source.session.date_format());
+        }
+        if self.session.date_language() != source.session.date_language() {
+            let _ = self.session.set_date_language(source.session.date_language());
+        }
         if self.session.javascript() != source.session.javascript() {
             self.session.set_javascript(source.session.javascript());
         }
@@ -485,6 +489,7 @@ mod tests {
         child.set_option("language", "fr").unwrap();
         child.set_option("theme", "dark").unwrap();
         child.set_option("date-format", "yyyy-mm-dd").unwrap();
+        child.session.set_date_language(Some("fr")).unwrap();
         child.ui_scale = Some(1.25);
         child.comment_prefs.author = "Synthetic author".into();
         child.signature = Some(crate::fill_sign::SavedSig::Typed("Test".into()));
@@ -496,6 +501,8 @@ mod tests {
         next.copy_shared_settings_from(&host.root);
         assert_eq!(next.language, "fr");
         assert_eq!(next.ui_scale, Some(1.25));
+        assert_eq!(next.session.date_format(), "yyyy-mm-dd");
+        assert_eq!(next.session.date_language(), Some("fr"));
         assert_eq!(next.comment_prefs.author, "Synthetic author");
         assert_eq!(next.signature, child.signature);
         assert!(!next.session.javascript());
