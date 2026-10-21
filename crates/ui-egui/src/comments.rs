@@ -1500,16 +1500,18 @@ impl CommentView {
     }
 }
 
-/// The pointer's touch after this frame's touch events. Like egui-winit, which drives the
-/// pointer with a touch while no other is (from its start until it lifts) and ignores the rest,
-/// so a second contact, such as a palm on the screen or another pen, never changes the
-/// pressure of the stroke the pointer draws. `current` stays when the frame has no touch events.
+/// The pointer's touch after this frame's touch events. Like egui-winit, which claims the
+/// pointer for a touch that starts while no other holds it, keeps it until that touch lifts and
+/// ignores the rest, so a second contact, such as a palm on the screen or another pen, never
+/// changes the pressure of the stroke the pointer draws. A touch already down when the pointer
+/// is released is never claimed: only a new start is. `current` stays when the frame has no
+/// touch events.
 fn follow_pen(events: &[egui::Event], current: Option<PenTouch>) -> Option<PenTouch> {
-    events.iter().fold(current, |pen, event| match event {
-        egui::Event::Touch { id, phase, force, .. } if pen.is_none_or(|p| p.id == *id) => match phase {
-            egui::TouchPhase::Start | egui::TouchPhase::Move => {
-                Some(PenTouch { id: *id, force: force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0)) })
-            }
+    let force_of = |force: &Option<f32>| force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0));
+    events.iter().fold(current, |pen, event| match (event, pen) {
+        (egui::Event::Touch { id, phase: egui::TouchPhase::Start, force, .. }, None) => Some(PenTouch { id: *id, force: force_of(force) }),
+        (egui::Event::Touch { id, phase, force, .. }, Some(p)) if p.id == *id => match phase {
+            egui::TouchPhase::Start | egui::TouchPhase::Move => Some(PenTouch { id: *id, force: force_of(force) }),
             egui::TouchPhase::End | egui::TouchPhase::Cancel => None,
         },
         _ => pen,
@@ -2539,11 +2541,11 @@ mod tests {
         // A touch without pressure (a finger on most screens), or a nonsense one, has none.
         assert_eq!(pen_force(&[touch(Move, None)], Some(0.6)), None);
         assert_eq!(pen_force(&[touch(Move, Some(f32::NAN))], None), None);
-        assert_eq!(pen_force(&[touch(Move, Some(3.0))], None), Some(1.0));
+        assert_eq!(pen_force(&[touch(Start, Some(3.0))], None), Some(1.0));
     }
 
     /// A second contact during a stroke (a palm, another pen) neither sets nor clears the
-    /// pressure of the touch driving the pointer; once that lifts, the next touch takes over.
+    /// pressure of the touch driving the pointer.
     #[test]
     fn only_the_pointers_touch_sets_the_pen_pressure() {
         use egui::TouchPhase::{End, Move, Start};
@@ -2553,8 +2555,22 @@ mod tests {
         let pen = follow_pen(&events, None);
         assert_eq!(pen, Some(PenTouch { id: egui::TouchId(1), force: Some(0.4) }));
         assert_eq!(follow_pen(&[palm(End), other_pen(End, 0.0)], pen), pen, "the others lifting leaves it");
-        let after = follow_pen(&[touch(End, Some(0.0)), other_pen(Move, 0.7)], pen);
-        assert_eq!(after, Some(PenTouch { id: egui::TouchId(3), force: Some(0.7) }));
+    }
+
+    /// Once the pointer's touch lifts, a contact still held is not claimed by moving: the next
+    /// touch to start is, as egui-winit hands it the pointer, and the stroke it draws gets its
+    /// pressure, not the held contact's.
+    #[test]
+    fn only_a_starting_touch_takes_over_the_pointer() {
+        use egui::TouchPhase::{End, Move, Start};
+        let held = |phase, f| touch_of(3, phase, Some(f));
+        let pen = follow_pen(&[touch(Start, Some(0.2)), held(Start, 0.9)], None);
+        let lifted = follow_pen(&[touch(End, Some(0.0)), held(Move, 0.7)], pen);
+        assert_eq!(lifted, None, "a held contact moving is not claimed");
+        let next = follow_pen(&[touch_of(4, Start, Some(0.3)), held(Move, 0.8)], lifted);
+        assert_eq!(next, Some(PenTouch { id: egui::TouchId(4), force: Some(0.3) }));
+        // A touch that was down before has no say until it starts again.
+        assert_eq!(follow_pen(&[held(End, 0.0)], next), next);
     }
 
     #[test]

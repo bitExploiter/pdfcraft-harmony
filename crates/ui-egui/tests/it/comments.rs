@@ -1497,6 +1497,35 @@ fn a_second_touch_does_not_change_the_pen_strokes_pressure() {
     h.run_steps(3);
 }
 
+/// A contact held through the end of a stroke (a hand resting on a screen that reports force)
+/// and moving afterwards does not take over: egui-winit hands the pointer only to a touch that
+/// starts, so the pen's next stroke has the pen's pressure, not the held contact's.
+#[test]
+fn a_held_touch_does_not_lend_its_pressure_to_the_next_stroke() {
+    let mut h = harness(|app| app.set_option("quick", "ink").unwrap());
+    let far = at(&h, 300.0, 300.0);
+    let held = |phase| egui::Event::Touch { device_id: egui::TouchDeviceId(7), id: egui::TouchId(2), phase, pos: far, force: Some(0.9) };
+    let stroke = |h: &mut Harness<'static, PdfCraftApp>, y: f32, force: f32, first: Vec<egui::Event>, last: Vec<egui::Event>| {
+        let (a, b) = (at(h, 40.0, y), at(h, 200.0, y + 40.0));
+        h.hover_at(a);
+        h.run_steps(1);
+        pen_frame_with(h, egui::TouchPhase::Start, a, force, first);
+        for k in 1..=6 {
+            pen_frame(h, egui::TouchPhase::Move, a + (b - a) * (k as f32 / 6.0), force);
+        }
+        let drawn = drawn_pressure(h).expect("drawing");
+        pen_frame_with(h, egui::TouchPhase::End, b, 0.0, last);
+        h.run_steps(3);
+        drawn
+    };
+    // The hand lands with the first stroke and moves once the pen has lifted, which egui-winit
+    // reports as a pointer move.
+    stroke(&mut h, 60.0, 0.5, vec![held(egui::TouchPhase::Start)], vec![held(egui::TouchPhase::Move), egui::Event::PointerMoved(far)]);
+    let (points, pressure) = stroke(&mut h, 160.0, 0.3, Vec::new(), Vec::new());
+    assert!(points >= 4, "the stroke has points: {points}");
+    assert_eq!(pressure, vec![0.3; points], "the pen's pressure, not the held contact's");
+}
+
 fn drawn_points(h: &Harness<'static, PdfCraftApp>) -> usize {
     match &h.state().views[0].comments.gesture {
         Some(pdfcraft_ui_egui::comments::Gesture::Draw { points, .. }) => points.len(),
