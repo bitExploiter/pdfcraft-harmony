@@ -2309,6 +2309,8 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        // The freehand Draw tool's stabilizer string length (0 = off).
+        v["draw_rope"] = serde_json::json!(self.comment_prefs.rope);
         v.to_string()
     }
 
@@ -2412,6 +2414,9 @@ impl PdfCraftApp {
         }
         if let Some(hide) = v["hide_empty_highlight_hover"].as_bool() {
             self.comment_prefs.hide_empty_highlight_hover = hide;
+        }
+        if let Some(rope) = v["draw_rope"].as_f64() {
+            self.comment_prefs.set_rope(rope);
         }
         // Per-tool comment styles (#340): each field goes through its clamping setter, so a
         // malformed or hostile entry is clamped or ignored rather than trusted.

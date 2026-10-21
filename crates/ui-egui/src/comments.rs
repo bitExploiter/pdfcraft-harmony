@@ -226,6 +226,11 @@ impl CommentTool {
     }
 }
 
+/// The thickest line a tool can be set to, in points: the slider stops at 12, a typed number goes further.
+pub const MAX_WIDTH: f64 = 100.0;
+/// The longest stabilizer string, in screen points.
+pub const MAX_ROPE: f64 = 500.0;
+
 /// The comment swatches (our palette, close to Acrobat's quick colours).
 pub const SWATCHES: [(&str, Rgb); 10] = [
     ("Yellow", [1.0, 0.94, 0.0]),
@@ -257,6 +262,9 @@ pub struct CommentPrefs {
     pub group_tool: [CommentTool; 3],
     /// Hide hover previews on highlight annotations when they contain no comment text beyond the author.
     pub hide_empty_highlight_hover: bool,
+    /// Length of the stabilizer string of the freehand Draw tool, in screen points: the pencil hangs
+    /// on the end of a string of this length that the pointer drags. 0 draws straight under the pointer.
+    pub rope: f64,
 }
 
 impl Default for CommentPrefs {
@@ -267,6 +275,7 @@ impl Default for CommentPrefs {
             pinned: false,
             group_tool: [CommentTool::Note, CommentTool::Highlight, CommentTool::Ink],
             hide_empty_highlight_hover: false,
+            rope: 0.0,
         }
     }
 }
@@ -289,7 +298,14 @@ impl CommentPrefs {
 
     pub fn set_width(&mut self, tool: CommentTool, w: f64) {
         if let Some((_, s)) = self.styles.iter_mut().find(|(t, _)| *t == tool) {
-            s.width = w.clamp(tool.min_width(), 12.0);
+            s.width = w.clamp(tool.min_width(), MAX_WIDTH);
+        }
+    }
+
+    /// The stabilizer string length (0 = off), kept within [`MAX_ROPE`]; not a number leaves it as it was.
+    pub fn set_rope(&mut self, length: f64) {
+        if length.is_finite() {
+            self.rope = length.clamp(0.0, MAX_ROPE);
         }
     }
 
@@ -478,6 +494,8 @@ pub struct CommentView {
     /// The selected comment: (page, index in `/Annots`).
     pub selected: Option<(usize, usize)>,
     pub gesture: Option<Gesture>,
+    /// Where the pencil is at the end of the stabilizer string while a freehand stroke is drawn (user space).
+    pub(crate) rope_tip: Option<[f64; 2]>,
     /// Drawings just released: shown from their points until the page raster that includes the
     /// committed annotation arrives, so the stroke never vanishes in between (#1858).
     pub(crate) settling: Vec<Settling>,
@@ -770,6 +788,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 && let Some(o) = origin
             {
                 cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)] });
+                cv.rope_tip = Some(cx.to_user(o));
                 cv.selected = None;
             }
             if let Some(Gesture::Draw { page, tool, points }) = cv.gesture.as_mut()
@@ -779,9 +798,20 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 let p = clamp_to(page_rect, p);
                 let u = cx.to_user(p);
                 if matches!(*tool, CommentTool::Ink | CommentTool::Eraser) {
-                    let last = points.last().map(|l| cx.to_screen(*l)).unwrap_or(p);
-                    if last.distance(p) >= 1.5 {
-                        points.push(u);
+                    // With a stabilizer string the pencil hangs on its end and the pointer drags it:
+                    // the pencil moves only while the string is taut, so wobble and corners come out smooth.
+                    let rope = if *tool == CommentTool::Ink { cx.prefs.rope } else { 0.0 };
+                    let at = if rope > 0.0 {
+                        let tip = cv.rope_tip.map_or(p, |t| cx.to_screen(t));
+                        let pulled = pull_rope(tip, p, rope as f32);
+                        cv.rope_tip = Some(cx.to_user(pulled));
+                        pulled
+                    } else {
+                        p
+                    };
+                    let last = points.last().map(|l| cx.to_screen(*l)).unwrap_or(at);
+                    if last.distance(at) >= 1.5 {
+                        points.push(if rope > 0.0 { cx.to_user(at) } else { u });
                     }
                 } else {
                     points.truncate(1);
@@ -1253,7 +1283,26 @@ fn paint_gesture(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
         && *page == cx.page
     {
         paint_draw(painter, cx, tool, points);
+        // The stabilizer string: from the pencil to the pointer that drags it.
+        if *tool == CommentTool::Ink
+            && cx.prefs.rope > 0.0
+            && let Some(tip) = view.comments.rope_tip
+            && let Some(pointer) = painter.ctx().input(|i| i.pointer.hover_pos())
+        {
+            let tip = cx.to_screen(tip);
+            painter.line_segment([tip, pointer], Stroke::new(1.0, SELECT_BLUE.gamma_multiply(0.7)));
+            painter.circle_filled(tip, 2.5, SELECT_BLUE);
+            painter.circle_stroke(pointer, 4.0, Stroke::new(1.0, SELECT_BLUE));
+        }
     }
+}
+
+/// Where the pencil is when the pointer is at `pointer` and the pencil hangs on a string `length`
+/// long (screen points): it stays while the string is slack and is pulled along it once taut.
+fn pull_rope(tip: Pos2, pointer: Pos2, length: f32) -> Pos2 {
+    let d = pointer - tip;
+    let distance = d.length();
+    if !distance.is_finite() || distance <= length.max(0.0) || distance == 0.0 { tip } else { tip + d * ((distance - length) / distance) }
 }
 
 /// A drawing tool's shape from its points (a live drag, or a released one still settling).
@@ -1904,12 +1953,43 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
             ui.set_min_width(180.0);
             let mut w = style.width;
             ui.label(egui::RichText::new(tl!("Line thickness")).font(theme::semibold(12.0)));
-            if ui.add(egui::Slider::new(&mut w, tool.min_width()..=12.0).step_by(0.5).suffix(" pt")).changed() {
+            if slider_with_number(ui, &mut w, tool.min_width()..=12.0, MAX_WIDTH, 0.5, " pt") {
                 prefs.set_width(tool, w);
             }
         });
     }
+    // The stabilizer of the freehand tool: the pencil hangs on a string the pointer drags.
+    if tool == CommentTool::Ink {
+        let resp = icons::button(ui, "spline", 32.0, prefs.rope > 0.0, tl!("Stabilizer"));
+        egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).show(|ui| {
+            ui.set_min_width(240.0);
+            ui.label(egui::RichText::new(tl!("Stabilizer")).font(theme::semibold(12.0)));
+            ui.label(tl!("String length (0 turns it off)"));
+            let mut length = prefs.rope;
+            if slider_with_number(ui, &mut length, 0.0..=100.0, MAX_ROPE, 1.0, " px") {
+                prefs.set_rope(length);
+            }
+        });
+    }
     selected_color
+}
+
+/// A slider with a number box beside it. The slider covers `slider`; the box takes any value up
+/// to `max`, for when the slider's range is not enough. Returns whether `value` changed.
+fn slider_with_number(ui: &mut egui::Ui, value: &mut f64, slider: std::ops::RangeInclusive<f64>, max: f64, step: f64, suffix: &str) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        let mut on_slider = value.min(*slider.end());
+        if ui.add(egui::Slider::new(&mut on_slider, slider.clone()).step_by(step).show_value(false)).changed() {
+            *value = on_slider;
+            changed = true;
+        }
+        let number = egui::DragValue::new(value).range(*slider.start()..=max).speed(step).suffix(suffix).max_decimals(2);
+        if ui.add(number).changed() {
+            changed = true;
+        }
+    });
+    changed
 }
 
 /// The quick bar's fill button: a filled square in the fill colour, or a crossed-out outline
@@ -2167,5 +2247,65 @@ mod tests {
         let long = text_box_rect([0.0, 500.0], &"word ".repeat(80), 12.0, 0);
         assert_eq!(long[2], 300.0);
         assert!(long[3] - long[1] > 50.0);
+    }
+
+    #[test]
+    fn the_pencil_stays_while_the_string_is_slack_and_follows_it_when_taut() {
+        let start = Pos2::new(100.0, 100.0);
+        // Within the string's reach the pencil does not move: the wobble of the hand is absorbed.
+        for pointer in [start, Pos2::new(108.0, 100.0), Pos2::new(100.0, 90.0), Pos2::new(106.0, 106.0)] {
+            assert_eq!(pull_rope(start, pointer, 20.0), start);
+        }
+        // Past it the pencil is pulled until the string is exactly taut, on the line to the pointer.
+        let pulled = pull_rope(start, Pos2::new(160.0, 100.0), 20.0);
+        assert!((pulled.x - 140.0).abs() < 1e-4 && (pulled.y - 100.0).abs() < 1e-4, "{pulled:?}");
+        let pulled = pull_rope(start, Pos2::new(100.0, 40.0), 20.0);
+        assert!(pulled.distance(Pos2::new(100.0, 60.0)) < 1e-4, "{pulled:?}");
+        // A zero-length string is no string; a broken length or pointer leaves the pencil alone.
+        assert_eq!(pull_rope(start, Pos2::new(130.0, 100.0), 0.0), Pos2::new(130.0, 100.0));
+        assert_eq!(pull_rope(start, Pos2::new(f32::NAN, 0.0), 20.0), start);
+    }
+
+    #[test]
+    fn a_dragged_pencil_cuts_corners_and_lags_behind_by_the_string_length() {
+        // The pointer goes right 100 px, then straight down 100 px: a sharp corner. The pencil
+        // follows on a 30 px string, so it never reaches the corner and rounds it.
+        let mut tip = Pos2::new(0.0, 0.0);
+        let mut path = vec![tip];
+        let moves = (1..=100).map(|x| Pos2::new(x as f32, 0.0)).chain((1..=100).map(|y| Pos2::new(100.0, y as f32)));
+        let mut pointer = tip;
+        for p in moves {
+            pointer = p;
+            tip = pull_rope(tip, p, 30.0);
+            path.push(tip);
+        }
+        let end = *path.last().unwrap();
+        assert!((end.distance(pointer) - 30.0).abs() < 1e-3, "the pencil ends one string length behind: {end:?}");
+        assert!(path.iter().all(|p| p.x <= 100.0 && p.y >= 0.0));
+        // The corner at (100, 0) is never visited: the pencil comes no closer than the string allows.
+        assert!(path.iter().all(|p| p.distance(Pos2::new(100.0, 0.0)) > 5.0), "the corner was cut");
+        // A hand wobbling ±4 px around a spot does not move a 20 px string's pencil at all.
+        let still = Pos2::new(50.0, 50.0);
+        let wobble = [(4.0, 0.0), (-4.0, 3.0), (0.0, -4.0), (3.0, 3.0), (-3.0, -3.0)];
+        assert!(wobble.iter().all(|(dx, dy)| pull_rope(still, still + egui::vec2(*dx, *dy), 20.0) == still));
+    }
+
+    #[test]
+    fn the_string_and_the_thickness_have_limits_a_typed_number_can_not_pass() {
+        let mut prefs = CommentPrefs::default();
+        assert_eq!(prefs.rope, 0.0, "off until the user turns it on");
+        prefs.set_rope(35.0);
+        assert_eq!(prefs.rope, 35.0);
+        prefs.set_rope(10_000.0);
+        assert_eq!(prefs.rope, MAX_ROPE);
+        prefs.set_rope(-3.0);
+        assert_eq!(prefs.rope, 0.0);
+        prefs.set_rope(f64::NAN);
+        assert_eq!(prefs.rope, 0.0, "a number that isn't one leaves it as it was");
+        // The slider stops at 12 pt, the number box goes on to MAX_WIDTH.
+        prefs.set_width(CommentTool::Ink, 40.0);
+        assert_eq!(prefs.style(CommentTool::Ink).width, 40.0);
+        prefs.set_width(CommentTool::Ink, 5_000.0);
+        assert_eq!(prefs.style(CommentTool::Ink).width, MAX_WIDTH);
     }
 }
