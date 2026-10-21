@@ -66,6 +66,12 @@ pub trait Device<'a> {
     fn actual_text(&mut self, _text: &[u8]) {}
     /// Called at the end of a marked content sequence (EMC).
     fn end_marked_content(&mut self) {}
+    /// PdfCraft patch: a Tj, TJ, single-quote or double-quote text-show operation begins.
+    /// Devices may measure its spacing; this notification does not change rendering.
+    fn begin_text_run(&mut self) {}
+    /// PdfCraft patch: one string operand begins, including each string within TJ.
+    /// This distinguishes Tw advances from positioning between unrelated string operands.
+    fn begin_text_string(&mut self) {}
     /// PdfCraft patch (29): the page's annotations are about to be drawn (until
     /// `end_annotations`), as page content finishes. Devices can use this to treat their
     /// paints as annotation colours rather than document colours — the reading-colours

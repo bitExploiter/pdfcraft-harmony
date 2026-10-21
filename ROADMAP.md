@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M2/M3, PR #3676: distinguish prose columns from justified spaces, lists, forms and sparse table rows; estimates unchanged)
+
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -171,6 +173,13 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-20 (M2/M3, PR #3676 heading audit):** Local word-space advances protect larger spanning headings. Retained subdivision structure joins compatible column bands across paragraph whitespace beneath headings and above footers, with partial headings and table-row barriers preserved. Both newly reproduced defects have synthetic regression coverage. Estimates unchanged.
+- **2026-10-20 (M2/M3, PR #3676 follow-up review):** Repeated visual spacing protects per-word Tj prose without show hints, while short/staggered columns remain supported. Rectangular copying measures physical empty gaps before grouping bidi logical text, preserving RTL rows with numbers and Latin runs and real RTL cell gaps. Estimates unchanged.
+- **2026-10-20 (M2/M3, PR #3676 contributor review):** Column cuts require adjacent filled prose on both sides. Text-show provenance and actual space advances protect justified TJ/Tw text; hanging labels, forms and sparse table cells retain row order. Synthetic regressions include normal mouse copying in both directions at four zoom levels; semantic tag-tree ordering remains future work. Estimates unchanged.
+- **2026-10-20 (M2/M3, PR #3676 review):** Supported continuous column gutters take precedence over aligned paragraph whitespace. Regressions cover normal ranges, search/highlight bounds and plain mouse copying in both directions across paragraph breaks; spanning headings and section layout changes remain covered. New layout helpers and regression contracts are documented. Estimates unchanged.
+
+- **2026-10-20 (M2/M3):** Normal selection and copying respect persistent whitespace regions before line merging. Narrow and staggered columns, spanning headings, changing layouts, tracking and rotated text have focused regressions; the existing shared selection/clipboard path is retained. See [text reading order](docs/text-reading-order.md) for scope and geometric limitations. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 

@@ -14,6 +14,8 @@ pub(crate) fn show_text_string<'a>(
     resources: &Resources<'a>,
     text: &object::String<'_>,
 ) {
+    // PdfCraft patch: retain string boundaries as well as complete show boundaries.
+    device.begin_text_string();
     let Some(font) = ctx.get().text_state.font.clone() else {
         warn!("tried to show text without active font");
 

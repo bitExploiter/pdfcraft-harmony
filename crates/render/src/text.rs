@@ -36,7 +36,9 @@ impl TextFilter {
     }
 }
 
+mod regions;
 mod search;
+mod spacing;
 
 /// One glyph on the page.
 #[derive(Clone, Debug, PartialEq)]
@@ -73,11 +75,11 @@ pub fn fold_case(s: &str) -> String {
     out
 }
 
-/// The text of one page, in content order, with line structure.
+/// The text of one page, in reconstructed reading order, with line structure.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PageText {
     pub glyphs: Vec<TextGlyph>,
-    /// For each glyph: its line index (lines are in reading order, top to bottom).
+    /// For each glyph: its line index (top to bottom within each reading region).
     pub line_of: Vec<u32>,
     /// `true` when a word break precedes the glyph on the same line.
     pub space_before: Vec<bool>,
@@ -270,13 +272,23 @@ impl PageText {
     /// turned by `/Rotate`) rows mean nothing, and the lines come out one per row in reading order
     /// instead.
     pub fn column_text(&self, glyphs: &[usize]) -> String {
+        let cell_breaks = self.cell_breaks(glyphs);
         // The selected glyphs of each line, with their box: (glyphs, bbox).
         let mut lines: Vec<(Vec<usize>, [f32; 4])> = Vec::new();
         let mut line_ids: Vec<u32> = Vec::new();
         for &i in glyphs {
             let (Some(g), Some(&line)) = (self.glyphs.get(i), self.line_of.get(i)) else { continue };
+            // Test empty space in visual order, not distance between logical neighbours:
+            // an RTL/number transition can jump over other glyphs in the same physical cell.
+            let cell_gap = cell_breaks.get(&line).is_some_and(|cuts| {
+                lines
+                    .last()
+                    .and_then(|(ids, _)| ids.last())
+                    .and_then(|&last| self.glyphs.get(last))
+                    .is_some_and(|previous| cuts.partition_point(|&x| x < g.rect[0]) != cuts.partition_point(|&x| x < previous.rect[0]))
+            });
             match (lines.last_mut(), line_ids.last()) {
-                (Some((members, bb)), Some(&l)) if l == line => {
+                (Some((members, bb)), Some(&l)) if l == line && !cell_gap => {
                     members.push(i);
                     union(bb, &g.rect);
                 }
@@ -324,7 +336,15 @@ impl PageText {
         let mut out = Vec::with_capacity(rows.len());
         for (_, _, mut members) in rows {
             let right_to_left = members.iter().all(|&k| lines.get(k).is_some_and(|(m, _)| rtl(m)));
+            let shared_line =
+                members.first().and_then(|&k| line_ids.get(k)).is_some_and(|line| members.iter().all(|&k| line_ids.get(k) == Some(line)));
             members.sort_by(|a, b| {
+                // Cell pieces of one reconstructed line already have a logical order.
+                // A neutral number cell must not reverse that line's bidi base direction.
+                if shared_line {
+                    let first = |k: usize| lines.get(k).and_then(|(ids, _)| ids.first()).copied().unwrap_or(usize::MAX);
+                    return first(*a).cmp(&first(*b));
+                }
                 let x = |k: usize| lines.get(k).map_or(0.0, |(_, bb)| bb[0]);
                 if right_to_left { x(*b).total_cmp(&x(*a)) } else { x(*a).total_cmp(&x(*b)) }
             });
@@ -332,6 +352,45 @@ impl PageText {
             out.push(cells.join("\t"));
         }
         out.join("\n")
+    }
+
+    /// Empty horizontal projection gaps between cells of the same logical line. Bidi order
+    /// can move between distant x coordinates while intervening ink keeps the line connected.
+    /// Compute geometry first, preserving the existing logical order within every piece.
+    fn cell_breaks(&self, selected: &[usize]) -> HashMap<u32, Vec<f32>> {
+        let mut rows: HashMap<u32, Vec<&TextGlyph>> = HashMap::new();
+        for &id in selected {
+            let (Some(g), Some(&line)) = (self.glyphs.get(id), self.line_of.get(id)) else { continue };
+            if g.direction[1].abs() > WORD_GAP {
+                return HashMap::new();
+            }
+            rows.entry(line).or_default().push(g);
+        }
+        let mut result = HashMap::new();
+        for (line, mut glyphs) in rows {
+            if glyphs.iter().any(|g| !g.rect.iter().all(|v| v.is_finite())) {
+                continue;
+            }
+            glyphs.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+            let mut right: Option<&TextGlyph> = None;
+            let mut cuts = Vec::new();
+            for g in glyphs {
+                if let Some(p) = right {
+                    let gap = g.rect[0] - p.rect[2];
+                    let h = (g.rect[3] - g.rect[1]).min(p.rect[3] - p.rect[1]);
+                    if h > 0.0 && gap > h * 1.2 && !p.text.chars().any(char::is_whitespace) && !g.text.chars().any(char::is_whitespace) {
+                        cuts.push(p.rect[2] * 0.5 + g.rect[0] * 0.5);
+                    }
+                }
+                if right.is_none_or(|p| g.rect[2] >= p.rect[2]) {
+                    right = Some(g);
+                }
+            }
+            if !cuts.is_empty() {
+                result.insert(line, cuts);
+            }
+        }
+        result
     }
 }
 
@@ -345,12 +404,21 @@ const DIRECTION_TOLERANCE: f64 = WORD_GAP as f64;
 const WORD_GAP: f32 = 0.15;
 
 /// A glyph with its writing direction to the nearest quarter turn (right, down, left, up) and as
-/// a unit vector.
-type Drawn = (usize, [f64; 2], TextGlyph);
+/// a unit vector, followed by its source text-show operation (zero when unknown).
+type Drawn = (usize, [f64; 2], TextGlyph, TextRun);
+
+/// Show and string provenance; zero means the corresponding boundary is unavailable.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+struct TextRun {
+    show: usize,
+    string: usize,
+}
 
 struct TextDevice {
     /// Every glyph in content order.
     glyphs: Vec<Drawn>,
+    /// The current PDF text-show operation; zero means provenance is unavailable.
+    run: TextRun,
     /// How many marked content sequences are open.
     depth: usize,
     /// The outermost open `/ActualText` replacement: its depth, text and the glyphs drawn inside
@@ -421,13 +489,15 @@ fn merge(drawn: &[Drawn], text: String) -> Option<Drawn> {
     let rect = quad.iter().fold([f32::INFINITY, f32::INFINITY, f32::NEG_INFINITY, f32::NEG_INFINITY], |r, p| {
         [r[0].min(p[0]), r[1].min(p[1]), r[2].max(p[0]), r[3].max(p[1])]
     });
-    Some((quarter, u, TextGlyph { text, rect, quad, direction: first.2.direction }))
+    let run = if drawn.iter().all(|g| g.3 == first.3) { first.3 } else { TextRun::default() };
+    Some((quarter, u, TextGlyph { text, rect, quad, direction: first.2.direction }, run))
 }
 
 impl TextDevice {
     fn new() -> Self {
         TextDevice {
             glyphs: Vec::new(),
+            run: TextRun::default(),
             depth: 0,
             actual: None,
             replaced: Vec::new(),
@@ -550,6 +620,12 @@ impl TextDevice {
 }
 
 impl<'a> Device<'a> for TextDevice {
+    fn begin_text_run(&mut self) {
+        self.run.show = self.run.show.checked_add(1).unwrap_or(0);
+    }
+    fn begin_text_string(&mut self) {
+        self.run.string = self.run.string.checked_add(1).unwrap_or(0);
+    }
     fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
     fn set_blend_mode(&mut self, _: BlendMode) {}
     fn draw_path(&mut self, _: &BezPath, _: Affine, _: &Paint<'a>, _: &PathDrawMode) {}
@@ -633,8 +709,8 @@ impl<'a> Device<'a> for TextDevice {
             direction: direction.map(|d| d as f32),
         };
         match &mut self.actual {
-            Some((_, _, drawn)) => drawn.push((dir, direction, glyph)),
-            None => self.glyphs.push((dir, direction, glyph)),
+            Some((_, _, drawn)) => drawn.push((dir, direction, glyph, self.run)),
+            None => self.glyphs.push((dir, direction, glyph, self.run)),
         }
     }
     fn draw_image(&mut self, _: Image<'a, '_>, _: Affine) {}
@@ -709,7 +785,7 @@ pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &Interpret
         start = end;
     }
     let mut quarters: [Vec<usize>; 4] = Default::default();
-    for (i, (quarter, u, _)) in glyphs.iter().enumerate() {
+    for (i, (quarter, u, _, _)) in glyphs.iter().enumerate() {
         if in_curve[i] {
             continue;
         }
@@ -732,7 +808,7 @@ pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &Interpret
             .filter(|(_, ids)| !ids.is_empty())
             .map(|(quarter, ids)| {
                 let rects = ids.iter().map(|&i| to_upright(glyphs[i].2.rect, quarter as u8, w, h)).collect();
-                arrange_flow(&glyphs, ids, rects, Some(quarter as u8))
+                arrange_flow(&glyphs, ids, rects, Some(quarter as u8), true)
             })
             .collect();
         flows.sort_by(|a, b| a.top.total_cmp(&b.top));
@@ -749,7 +825,11 @@ pub(crate) fn extract_page_filtered(pdf: &Pdf, page: usize, settings: &Interpret
                 Some(u) => ids.iter().map(|&i| along_baseline(&glyphs[i].2.quad, u).map(|c| c as f32)).collect(),
                 None => unrolled(ids.iter().map(|&i| &glyphs[i])),
             };
-            arrange_flow(&glyphs, ids, rects, None)
+            // A shared frame may contain slightly different directions (curved or decorative
+            // labels). Such approximate frames retain their established run placement; only
+            // a uniform straight baseline supports a new two-dimensional region analysis.
+            let uniform = u.is_some_and(|u| ids.iter().filter_map(|&i| glyphs.get(i)).all(|g| (u[0] * g.1[1] - u[1] * g.1[0]).abs() < 1e-6));
+            arrange_flow(&glyphs, ids, rects, None, uniform)
         })
         .collect();
     // Turned text takes the place in the reading order where laying it out among the nearest
@@ -815,10 +895,17 @@ struct Flow {
 }
 
 /// Lay out the page's glyphs `ids`, giving each the box at the same position in `rects`.
-fn arrange_flow(glyphs: &[Drawn], ids: Vec<usize>, rects: Vec<[f32; 4]>, quarter: Option<u8>) -> Flow {
+fn arrange_flow(glyphs: &[Drawn], ids: Vec<usize>, rects: Vec<[f32; 4]>, quarter: Option<u8>, subdivide: bool) -> Flow {
     let top = ids.iter().filter_map(|&i| glyphs.get(i)).map(|g| g.2.rect[1]).fold(f32::INFINITY, f32::min);
     let framed: Vec<TextGlyph> = ids.iter().zip(rects).filter_map(|(&i, rect)| glyphs.get(i).map(|g| TextGlyph { rect, ..g.2.clone() })).collect();
-    let (order, line_of, space_before) = arrange(&framed);
+    // A detected curved run already has continuity evidence establishing one text flow.
+    // Its approximate unrolled boxes must not be reinterpreted as neighbouring columns.
+    let (order, line_of, space_before) = if subdivide {
+        let spaces = spacing::estimates(glyphs, &ids, &framed);
+        arrange_with_spaces(&framed, &spaces)
+    } else {
+        arrange_region(&framed.iter().collect::<Vec<_>>(), false)
+    };
     let ids = order.into_iter().filter_map(|k| ids.get(k).copied()).collect();
     Flow { top, quarter, ids, line_of, space_before }
 }
@@ -828,7 +915,7 @@ fn arrange_flow(glyphs: &[Drawn], ids: Vec<usize>, rects: Vec<[f32; 4]>, quarter
 fn unrolled<'g>(run: impl Iterator<Item = &'g Drawn>) -> Vec<[f32; 4]> {
     let mut pen = [0.0, 0.0];
     let mut previous: Option<([f64; 2], [f64; 4])> = None;
-    run.map(|(_, u, g)| {
+    run.map(|(_, u, g, _)| {
         let b = along_baseline(&g.quad, *u);
         if let Some((pu, pb)) = previous {
             let at = along_baseline(&g.quad, pu);
@@ -1400,13 +1487,17 @@ fn union(a: &mut [f32; 4], b: &[f32; 4]) {
 /// numbered in that order, and word gaps are inferred per line.
 ///
 /// Heuristics (documented so they can be tuned and tested; plan/architecture.md §8):
-/// 1. *Segments:* consecutive glyphs (content order) on one baseline with no column-sized gap.
+/// 1. *Regions:* subdivide along persistent whitespace before joining any glyphs. Region
+///    boundaries constrain both content-order runs and later geometric merging. Continuous
+///    columns take priority over paragraph gaps; spanning content exposes local column layouts
+///    through horizontal cuts (see `text/regions.rs`).
+/// 2. *Segments:* consecutive glyphs (content order) on one baseline within one region.
 ///    A smaller glyph right next to the previous one (a sub- or superscript) stays in the segment.
 ///    Segments on the same baseline that nearly touch are merged (text drawn out of order).
-/// 2. *Blocks:* segments stacked with line-sized gaps and overlapping horizontally.
-/// 3. *Block order:* repeatedly take the top-most remaining block, preferring a block to its left
+/// 3. *Blocks:* segments stacked with line-sized gaps and overlapping horizontally.
+/// 4. *Block order:* repeatedly take the top-most remaining block, preferring a block to its left
 ///    that overlaps it vertically (so columns read left, then right).
-/// 4. Within a segment glyphs run left to right; runs of right-to-left script are reversed so the
+/// 5. Within a segment glyphs run left to right; runs of right-to-left script are reversed so the
 ///    text comes out in logical order.
 pub fn layout(glyphs: Vec<TextGlyph>) -> PageText {
     let (order, line_of, space_before) = arrange(&glyphs);
@@ -1418,6 +1509,29 @@ pub fn layout(glyphs: Vec<TextGlyph>) -> PageText {
 
 /// [`layout`] as the reading order of indices into `glyphs`, with each one's line and word gap.
 fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
+    arrange_with_spaces(glyphs, &[])
+}
+
+/// Reconstruct with optional, em-normalized spacing measurements from PDF text-show runs.
+fn arrange_with_spaces(glyphs: &[TextGlyph], spaces_from_shows: &[f32]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
+    let mut order = Vec::with_capacity(glyphs.len());
+    let mut lines: Vec<u32> = Vec::with_capacity(glyphs.len());
+    let mut spaces = Vec::with_capacity(glyphs.len());
+    for region in regions::partition(glyphs, spaces_from_shows) {
+        let ids = region.ids;
+        let local: Vec<_> = ids.iter().filter_map(|&i| glyphs.get(i)).collect();
+        let (placed, line_of, space_before) = arrange_region(&local, region.join_row);
+        let offset = lines.last().copied().map_or(0u32, |n| n.saturating_add(1));
+        order.extend(placed.into_iter().filter_map(|i| ids.get(i).copied()));
+        lines.extend(line_of.into_iter().map(|n| n.saturating_add(offset)));
+        spaces.extend(space_before);
+    }
+    (order, lines, spaces)
+}
+
+/// Line reconstruction confined to a whitespace region. Keep the original glyph references
+/// and paint order: no text/quad copies, and no loss of the run evidence used to remove redraws.
+fn arrange_region(glyphs: &[&TextGlyph], join_row: bool) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
     // Drop "fake bold" duplicates: the same character redrawn at (almost) the same place. A redraw
     // also overlaps most of its own width: a narrow letter in condensed text (80 Tz and below) sits
     // closer than a fifth of its height to its double, as the second "l" of "Alle" (#1467).
@@ -1436,7 +1550,7 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
         }
     }
     let kept: Vec<usize> = (0..glyphs.len()).filter(|i| keep[*i]).collect();
-    let glyphs: Vec<&TextGlyph> = kept.iter().map(|i| &glyphs[*i]).collect();
+    let glyphs: Vec<&TextGlyph> = kept.iter().map(|i| glyphs[*i]).collect();
     let n = glyphs.len();
     if n == 0 {
         return Default::default();
@@ -1530,7 +1644,7 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
                 let (sa, sb) = (&segs[a], &segs[b]);
                 let h = sa.h.min(sb.h);
                 let gap = (sb.bbox[0] - sa.bbox[2]).max(sa.bbox[0] - sb.bbox[2]);
-                if (sa.cy() - sb.cy()).abs() < h * 0.3 && (sa.h / sb.h - 1.0).abs() < 0.35 && gap < h * 1.2 {
+                if (sa.cy() - sb.cy()).abs() < h * 0.3 && (sa.h / sb.h - 1.0).abs() < 0.35 && (join_row || gap < h * 1.2) {
                     let sb = segs.remove(b);
                     let a = if b < a { a - 1 } else { a };
                     segs[a].merge(sb);
@@ -1814,7 +1928,7 @@ mod tests {
         const N: usize = 100_000;
         let glyph = |text: &str| {
             let quad = [[100.0, 110.0], [110.0, 110.0], [110.0, 100.0], [100.0, 100.0]];
-            (0, [1.0, 0.0], TextGlyph { text: text.into(), rect: [100.0, 100.0, 110.0, 110.0], quad, direction: [1.0, 0.0] })
+            (0, [1.0, 0.0], TextGlyph { text: text.into(), rect: [100.0, 100.0, 110.0, 110.0], quad, direction: [1.0, 0.0] }, TextRun::default())
         };
         let mut dev = TextDevice::new();
         // A genuine redraw first: it is still deduplicated within the budget.
@@ -2187,12 +2301,51 @@ mod tests {
         assert_eq!(t.plain_text(), "Left1\nLeft2\nRight1\nRight2");
     }
 
+    /// Normal ranges follow whole columns regardless of column-major, row-major or reverse draws.
+    #[test]
+    fn narrow_columns_are_read_in_full_in_every_paint_order() {
+        for paint in 0..3 {
+            let mut cells = Vec::new();
+            for col in 0..3 {
+                for row in 0..4 {
+                    let label = format!("{}{:02}{}", ["L", "M", "R"][col], row, "x".repeat(23));
+                    let mut glyphs = Vec::new();
+                    word(&mut glyphs, &label, 60.0 + col as f32 * 165.67, 565.72 + row as f32 * 11.75, 6.0);
+                    cells.push(glyphs);
+                }
+            }
+            let expected = cells.iter().map(|c| c.iter().map(|g| g.text.as_str()).collect::<String>()).collect::<Vec<_>>().join("\n");
+            let glyphs = match paint {
+                0 => cells.concat(),
+                1 => (0..4).flat_map(|row| (0..3).map(move |col| col * 4 + row)).flat_map(|i| cells[i].clone()).collect(),
+                _ => cells.iter().rev().flat_map(|c| c.iter().cloned()).collect(),
+            };
+            let t = layout(glyphs);
+            assert_eq!(t.plain_text(), expected, "paint order {paint}");
+            // Normal selection is a contiguous range between pointer anchors, in either direction.
+            let a = t.nearest(61.0, 570.0).unwrap();
+            let b = t.nearest(210.0, 605.0).unwrap();
+            let selected = t.text_of(a.min(b)..a.max(b) + 1);
+            assert!(!selected.contains('M') && !selected.contains('R'), "{selected}");
+            assert_eq!(t.line_rects(a.min(b)..a.max(b) + 1).len(), 4);
+        }
+    }
+
     #[test]
     fn tracked_text_keeps_letters_together() {
         let mut v = Vec::new();
         word(&mut v, "CHAPTER", 10.0, 10.0, 9.0); // 3pt tracking between 6pt-wide letters
         word(&mut v, "FOUR", 10.0 + 7.0 * 9.0 + 5.0, 10.0, 9.0);
         assert_eq!(layout(v).plain_text(), "CHAPTER FOUR");
+    }
+
+    /// Repeated tracking gaps remain letter spacing even when they exceed a normal word gap.
+    #[test]
+    fn widely_tracked_lines_are_not_mistaken_for_letter_columns() {
+        let mut glyphs = Vec::new();
+        word(&mut glyphs, "TRACKED", 10.0, 10.0, 18.0);
+        word(&mut glyphs, "LETTERS", 10.0, 24.0, 18.0);
+        assert_eq!(layout(glyphs).plain_text(), "TRACKED\nLETTERS");
     }
 
     #[test]
@@ -2231,14 +2384,21 @@ mod tests {
                 word(&mut v, w, x, 10.0, 6.0);
                 x += w.chars().count() as f32 * 6.0 + 6.0;
             }
-            layout(v).plain_text()
+            layout(v)
         };
         // Each line as drawn, left to right.
-        assert_eq!(line(&["םילקש", "120", "ריחמ"]), "מחיר 120 שקלים");
-        assert_eq!(line(&[".הקידב", "ךמסמ", "והז", ":תירבע"]), "עברית: זהו מסמך בדיקה.");
-        assert_eq!(line(&["باتك", "12.5", "ددع"]), "عدد 12.5 كتاب");
-        assert_eq!(line(&["םלוע", "םולש"]), "שלום עולם");
-        assert_eq!(line(&["Total", "םולש", "price"]), "Total שלום price");
+        let cases: &[(&[&str], &str)] = &[
+            (&["םילקש", "120", "ריחמ"], "מחיר 120 שקלים"),
+            (&[".הקידב", "ךמסמ", "והז", ":תירבע"], "עברית: זהו מסמך בדיקה."),
+            (&["باتك", "12.5", "ددع"], "عدد 12.5 كتاب"),
+            (&["םלוע", "םולש"], "שלום עולם"),
+            (&["Total", "םולש", "price"], "Total שלום price"),
+        ];
+        for (drawn, expected) in cases {
+            let t = line(drawn);
+            assert_eq!(t.plain_text(), *expected);
+            assert_eq!(t.column_text(&(0..t.glyphs.len()).collect::<Vec<_>>()), *expected, "rectangular copy of {expected}");
+        }
     }
 
     /// Two lines, "ab cd" and "e fg": words stop at blank glyphs, word gaps and line ends.
