@@ -3355,6 +3355,17 @@ usage = "Vietnamese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
 sha256 = "95b5fc6d10f7bc8371688772741870448de716fa2dd9af62fdfe4e009d269b45"
 
 [[asset]]
+path = "crates/ui-egui/src/i18n/dv.tsv"
+title = "Dhivehi interface translation catalog"
+author = "PdfCraft contributors"
+source = "Contributor-original: clean-room, AI-assisted translations of PdfCraft's English UI labels into Dhivehi (Thaana script), written from the meaning of the English text; not yet reviewed by a native Dhivehi speaker"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "translation"
+usage = "Dhivehi UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
+sha256 = "b6b3ffea210119a9acf4bfa4c05c03bddfabdce7c1e6cfd5ce2ba818ded12929"
+
+[[asset]]
 path = "crates/ui-egui/src/i18n/sl.tsv"
 title = "Slovene interface translation catalog"
 author = "PdfCraft contributors"

@@ -1,0 +1,2695 @@
+# Dhivehi (dv) catalog. Columns, separated by a TAB:  context <TAB> source <TAB> translation
+#
+#   context  empty                a plain UI string; `source` is the English text in the code
+#            @id                  a command id (e.g. file.saveAs): wins over the English text for
+#                                 that menu item, so one id can read differently from its twin
+#            @plural              `source` is "one|other" (English forms); Dhivehi lists one form
+#                                 (`plural_none` in i18n/mod.rs): a noun after a numeral keeps its form
+#            anything else        a disambiguating context passed to `tr_ctx`
+#   escapes  \n  \t  \  inside a column. `{name}` placeholders must appear in both columns.
+#   lines starting with # and blank lines are ignored.
+#
+# Clean-room: every entry was written from the plain meaning of the English label using ordinary
+# Dhivehi computing vocabulary, in Thaana script. No proprietary localisation resource, string
+# table or product UI (Acrobat's included) was consulted or copied; add entries the same way.
+# Product and technology names (PdfCraft, PDF, Acrobat JavaScript ...) stay in Latin letters;
+# the trailing "…" of dialog commands is kept. Digits are Western (0-9).
+#
+# Write every entry in logical (typing) order. The interface draws text left to right, so
+# i18n/mod.rs puts each entry into display order when it loads the catalog (bidi::display_rtl);
+# spaces and a colon at either end of an entry stay at that end, next to what the code appends.
+
+	Menu	މެނޫ
+	Edit	އެޑިޓް
+	Pages	ޞަފްޙާތައް
+	View	ބަލާ
+	Help	އެހީ
+	Zoom	ޒޫމް
+	Actual size	އަސްލު ސައިޒު
+	Zoom to page level	ޞަފްޙާގެ މިންވަރަށް ޒޫމްކުރޭ
+	Zoom — type a percentage and press Enter	ޒޫމް — ޕަސެންޓެއް ލިޔެ Enter ފިތާލާ
+	Fit to width	ފުޅާމިނަށް ފިޓްކުރޭ
+	Display theme	ޑިސްޕްލޭ ތީމް
+	Side panels	ކައިރީގެ ޕެނަލްތައް
+	Preferences	ސެޓިންގްސް
+	Preferences…	ސެޓިންގްސް…
+	Interface language	އިންޓަރފޭސްގެ ބަސް
+	Interface size	އިންޓަރފޭސްގެ ސައިޒު
+	Auto ({percent}%)	އޮޓޯ ({percent}%)
+	Identity	ހުވިއްޔަތު
+	Name on new comments	އާ ކޮމެންޓްތަކުގައި ފެންނަ ނަން
+	Hide hover previews for highlights without comment text	ކޮމެންޓް ލިޔުމެއް ނެތް ހައިލައިޓްތަކުގެ ހޯވަރ ޕްރިވިއު ފޮރުވާ
+	Open…	ހުޅުވާ…
+	Open Recent	ފަހުގެ ފައިލްތައް ހުޅުވާ
+	Clear Recent Files	ފަހުގެ ފައިލްތަކުގެ ލިސްޓު ސާފުކުރޭ
+	Remove from Recent	ފަހުގެ ލިސްޓުން ނައްތާލާ
+	No recent files	ފަހުގެ ފައިލެއް ނެތް
+	New blank PDF	ހުސް އާ PDF
+	Create PDF from file…	ފައިލަކުން PDF ހަދާ…
+	Create PDF from images…	ފޮޓޯތަކުން PDF ހަދާ…
+	Create PDF from multiple files…	އެތައް ފައިލަކުން PDF ހަދާ…
+	Create separate PDFs…	ވަކިވަކި PDF ހަދާ…
+	Create PDF from clipboard	ކްލިޕްބޯޑުން PDF ހަދާ
+	Combine files…	ފައިލްތައް ގުޅާ…
+	Save	ރައްކާކުރޭ
+	Save as…	އެހެން ނަމެއްގައި ރައްކާކުރޭ…
+	Close file	ފައިލް ބަންދުކުރޭ
+	Close all	ހުރިހާ އެއްޗެއް ބަންދުކުރޭ
+	Revert	ކުރީގެ ހާލަތަށް ރައްދުކުރޭ
+	Print…	ޕްރިންޓްކުރޭ…
+	Document properties…	ޑޮކިއުމަންޓްގެ ޕްރޮޕަޓީޒް…
+	Find…	ހޯދާ…
+	Advanced search…	އެޑްވާންސްޑް ހޯދުން…
+	Copy	ކޮޕީކުރޭ
+	Cut	ކަޓްކުރޭ
+	Paste	ޕޭސްޓްކުރޭ
+	Delete	ފޮހެލާ
+	Select all	ހުރިހާ އެއްޗެއް ޚިޔާރުކުރޭ
+	Cancel	ކެންސަލް
+	OK	ރަނގަޅު
+	Apply	ހިންގާ
+	Close	ބަންދުކުރޭ
+	Back	ފަހަތަށް
+	Next	ކުރިއަށް
+	Previous	ކުރީގެ
+	Name	ނަން
+	File name	ފައިލްގެ ނަން
+	Location	ތަން
+	Browse…	ބްރައުޒްކުރޭ…
+	Choose…	ޚިޔާރުކުރޭ…
+	Search	ހޯދާ
+	Clear	ސާފުކުރޭ
+	Refresh	ރިފްރެޝްކުރޭ
+	Loading…	ލޯޑުވަނީ…
+	Save changes?	ބަދަލުތައް ރައްކާކުރަންތޯ؟
+	Don't save	ރައްކާނުކުރާ
+	Page	ޞަފްޙާ
+	Page {n}	ޞަފްޙާ {n}
+	of	ގެ ތެރެއިން
+	Fit one full page	އެއް ފުރިހަމަ ޞަފްޙާ ފިޓްކުރޭ
+	Single page	އެއް ޞަފްޙާ
+	Two-page view	ދެ ޞަފްޙާގެ ވިއު
+	Continuous scrolling	ކެނޑުމެއްނެތި ސްކްރޯލްކުރުން
+	Page display	ޞަފްޙާ ދައްކާ ގޮތް
+	Default page display	ޑިފޯލްޓް ޞަފްޙާ ދައްކާ ގޮތް
+	Default zoom	ޑިފޯލްޓް ޒޫމް
+	Full screen mode	ފުލްސްކްރީން މޯޑް
+	Read mode	ކިޔާ މޯޑް
+	Comments	ކޮމެންޓްތައް
+	Comment	ކޮމެންޓް
+	Add comment	ކޮމެންޓް އިތުރުކުރޭ
+	Delete comment	ކޮމެންޓް ފޮހެލާ
+	Reply	ޖަވާބުދޭ
+	Highlight	ހައިލައިޓް
+	Underline	އަންޑަރލައިން
+	Strikethrough	ސްޓްރައިކްތްރޫ
+	Text	ލިޔުން
+	Font	ފޮންޓް
+	Size	ސައިޒު
+	Color	ކުލަ
+	Opacity	އޮޕޭސިޓީ
+	Width	ފުޅާމިން
+	Height	އުސްމިން
+	Rotation	އަނބުރުން
+	More	އިތުރަށް
+	Settings	ސެޓިންގްސް
+	General	އާންމު
+	Language	ބަސް
+	Appearance	ފެންނަ ގޮތް
+theme	Appearance	ފެންނަ ގޮތް
+	Theme	ތީމް
+	Light	އަލި
+	Dark	އަނދިރި
+	System	ސިސްޓަމް
+	Open file	ފައިލް ހުޅުވާ
+	Save file	ފައިލް ރައްކާކުރޭ
+	Export	އެކްސްޕޯޓްކުރޭ
+	Import	އިމްޕޯޓްކުރޭ
+	Export to image…	ފޮޓޯއަކަށް އެކްސްޕޯޓްކުރޭ…
+	Export to text…	ލިޔުމަށް އެކްސްޕޯޓްކުރޭ…
+	Export to Word…	Word އަށް އެކްސްޕޯޓްކުރޭ…
+	Export to HTML…	HTML އަށް އެކްސްޕޯޓްކުރޭ…
+	Export to RTF…	RTF އަށް އެކްސްޕޯޓްކުރޭ…
+	Reduce file size…	ފައިލްގެ ސައިޒު ކުޑަކުރޭ…
+	Optimize PDF…	PDF އޮޕްޓިމައިޒްކުރޭ…
+	Protect using password…	ޕާސްވޯޑެއް ބޭނުންކޮށް ހިމާޔަތްކުރޭ…
+	Remove security	ސެކިއުރިޓީ ނައްތާލާ
+	Security properties…	ސެކިއުރިޓީ ޕްރޮޕަޓީޒް…
+	Organize pages	ޞަފްޙާތައް ތަރުތީބުކުރޭ
+	Rotate pages…	ޞަފްޙާތައް އަނބުރާ…
+	Delete pages	ޞަފްޙާތައް ފޮހެލާ
+	Insert blank page	ހުސް ޞަފްޙާއެއް ވައްދާ
+	Insert pages from file…	ފައިލަކުން ޞަފްޙާތައް ވައްދާ…
+	Replace pages…	ޞަފްޙާތައް ބަދަލުކުރޭ…
+	Extract pages…	ޞަފްޙާތައް ވަކިކޮށް ނަގާ…
+	Split document…	ޑޮކިއުމަންޓް ބައިކުރޭ…
+	Number pages…	ޞަފްޙާތަކަށް ނަންބަރު ޖަހާ…
+	Bookmarks	ބުކްމާކްތައް
+	New bookmark	އާ ބުކްމާކް
+	Forms	ފޯމުތައް
+	Form fields	ފޯމު ފީލްޑްތައް
+	Signatures	ސޮއިތައް
+	Sign	ސޮއިކުރޭ
+	Fill & Sign	ފުރާ އަދި ސޮއިކުރޭ
+	Accessibility	އެކްސެސިބިލިޓީ
+	Help…	އެހީ…
+	Check for updates…	އަޕްޑޭޓް ޗެކްކުރޭ…
+	About PdfCraft	PdfCraft ގެ ތަޢާރަފު
+	Automatically	އޮޓޯމެޓިކުން
+	Never	ދުވަހަކުވެސް ނޫން
+	Always	އަބަދުވެސް
+	Yes	އާން
+	No	ނޫން
+	On	ހުޅުވާލާފައި
+	Off	ބަންދުކޮށްފައި
+	Enabled	ހުޅުވާލާފައި
+	Disabled	ބަންދުކޮށްފައި
+	Required	ލާޒިމް
+	Optional	އިޚްތިޔާރީ
+	None	ނެތް
+	Unknown	ނޭނގޭ
+	Error	މައްސަލައެއް
+	Warning	އިންޒާރު
+	Information	މަޢުލޫމާތު
+	Success	ކާމިޔާބު
+	Failed	ނާކާމިޔާބު
+	File	ފައިލް
+	Folder	ފޯލްޑަރ
+	Choose a file…	ފައިލެއް ޚިޔާރުކުރޭ…
+	Choose a folder…	ފޯލްޑަރެއް ޚިޔާރުކުރޭ…
+	Open folder	ފޯލްޑަރ ހުޅުވާ
+	Create folder	ފޯލްޑަރ ހަދާ
+	Remove	ނައްތާލާ
+	Rename	ނަން ބަދަލުކުރޭ
+	Duplicate	ޑުޕްލިކޭޓްކުރޭ
+	Move	ގެންދާ
+	Copy to clipboard	ކްލިޕްބޯޑަށް ކޮޕީކުރޭ
+	Copied to clipboard	ކްލިޕްބޯޑަށް ކޮޕީކުރެވިއްޖެ
+	Undo	އަންޑޫ
+	Redo	ރީޑޫ
+	Keyboard shortcuts	ކީބޯޑް ޝޯޓްކަޓްތައް
+	Find tools and commands…	ޓޫލްސް އަދި ކޮމާންޑްތައް ހޯދާ…
+	Take a snapshot	ސްނެޕްޝޮޓެއް ނަގާ
+	Organize	ތަރުތީބުކުރޭ
+	Comment and review	ކޮމެންޓްކޮށް ރިވިއުކުރޭ
+	Prepare a form	ފޯމެއް ތައްޔާރުކުރޭ
+	Protect	ހިމާޔަތްކުރޭ
+	Print	ޕްރިންޓްކުރޭ
+	Create	ހަދާ
+	Convert	ކޮންވަރޓްކުރޭ
+	Optimize	އޮޕްޓިމައިޒްކުރޭ
+	Measure	މިނުން
+	Redact	ރިޑެކްޓްކުރޭ
+	Search results	ހޯދުމުގެ ނަތީޖާ
+	No results	ނަތީޖާއެއް ނެތް
+	Page {n} of {total}	{total} ގެ ތެރެއިން ޞަފްޙާ {n}
+	{n} pages selected	{n} ޞަފްޙާ ޚިޔާރުކުރެވިފައި
+	  · not fixable here	  · މިތާ ރަނގަޅެއް ނުކުރެވޭނެ
+	 (page {p})	 (ޞަފްޙާ {p})
+	 (searching… {s} of {p} pages)	 (ހޯދަނީ… {p} ޞަފްޙާގެ ތެރެއިން {s})
+	 ({n} at {dpi} dpi, the largest size they can be drawn at)	 ({n}، {dpi} dpi ގައި، އެއީ ކުރެހޭނެ އެންމެ ބޮޑު ސައިޒު)
+	 ({s} not exported: {first})	 ({s} އެކްސްޕޯޓް ނުވި: {first})
+	 on page {p}	 ޞަފްޙާ {p} ގައި
+	 · password-protected	 · ޕާސްވޯޑުން ހިމާޔަތްކޮށްފައި
+	(none)	(ނެތް)
+	, Expires: 	، ހަމަވާ ތާރީޚު: 
+	1 difference found	1 ތަފާތެއް ފެނިއްޖެ
+	1 file	1 ފައިލް
+	1 file done	1 ފައިލް ނިމިއްޖެ
+	1 file needs attention	1 ފައިލަކަށް ސަމާލުކަން ބޭނުންވޭ
+	1 instance	1 ފަހަރު
+	1 issue	1 މައްސަލަ
+	1 mark	1 މާކް
+	1 page	1 ޞަފްޙާ
+	1 page selected	1 ޞަފްޙާ ޚިޔާރުކުރެވިފައި
+	1 page selected.	1 ޞަފްޙާ ޚިޔާރުކުރެވިފައި.
+	180 degrees	180 ޑިގްރީ
+	9 digit, A letter, O letter or digit, X any character	9 ޢަދަދު، A އަކުރު، O އަކުރު ނުވަތަ ޢަދަދު، X ކޮންމެ އަކުރެއް
+	; 1 page already had text	؛ 1 ޞަފްޙާއެއްގައި ކުރިންވެސް ލިޔުން އޮތް
+	; failed: {list}	؛ ނާކާމިޔާބު: {list}
+	; {n} pages already had text	؛ {n} ޞަފްޙާއެއްގައި ކުރިންވެސް ލިޔުން އޮތް
+	? of {n}	{n} ގެ ތެރެއިން ?
+	A clean-room, open-source PDF application written in Rust. MIT OR Apache-2.0.	Rust ގައި ލިޔެފައިވާ، ކްލީން-ރޫމް، އޯޕަން-ސޯސް PDF އެޕްލިކޭޝަނެއް. MIT OR Apache-2.0.
+	Accessibility Checker	އެކްސެސިބިލިޓީ ޗެކަރ
+	Accessibility Checker Options	އެކްސެސިބިލިޓީ ޗެކަރގެ އޮޕްޝަންތައް
+	Acrobat 3.0 and later (40-bit RC4)	Acrobat 3.0 އާއި އޭގެ ފަހުގެ (40-bit RC4)
+	Acrobat 5.0 and later (128-bit RC4)	Acrobat 5.0 އާއި އޭގެ ފަހުގެ (128-bit RC4)
+	Acrobat 7.0 and later (128-bit AES)	Acrobat 7.0 އާއި އޭގެ ފަހުގެ (128-bit AES)
+	Acrobat X and later (256-bit AES)	Acrobat X އާއި އޭގެ ފަހުގެ (256-bit AES)
+	Action name:	އެކްޝަންގެ ނަން:
+	Actions	އެކްޝަންތައް
+	Active	އެކްޓިވް
+	Actual Size	އަސްލު ސައިޒު
+	Actual text	އަސްލު ލިޔުން
+	Add	އިތުރުކުރޭ
+	Add Step	ސްޓެޕެއް އިތުރުކުރޭ
+	Add a comment	ކޮމެންޓެއް އިތުރުކުރޭ
+	Add a reply	ޖަވާބެއް އިތުރުކުރޭ
+	Add a sticky note here	މިތާ ސްޓިކީ ނޯޓެއް އިތުރުކުރޭ
+	Add an Action	އެކްޝަނެއް އިތުރުކުރޭ
+	Add at least two files	މަދުވެގެން ދެ ފައިލް އިތުރުކުރޭ
+	Add files…	ފައިލްތައް އިތުރުކުރޭ…
+	Add folder	ފޯލްޑަރ އިތުރުކުރޭ
+	Add folder and subfolders	ފޯލްޑަރާއި ސަބްފޯލްޑަރތައް އިތުރުކުރޭ
+	Add folder and subfolders…	ފޯލްޑަރާއި ސަބްފޯލްޑަރތައް އިތުރުކުރޭ…
+	Add folder…	ފޯލްޑަރ އިތުރުކުރޭ…
+	Add open documents	ހުޅުވާފައިވާ ޑޮކިއުމަންޓްތައް އިތުރުކުރޭ
+	Add the choices people pick from.	މީހުން ޚިޔާރުކުރާނެ އޮޕްޝަންތައް އިތުރުކުރޭ.
+	Add the files to combine	ގުޅާނެ ފައިލްތައް އިތުރުކުރޭ
+	Add the steps this action runs, in order.	މި އެކްޝަން ހިންގާނެ ސްޓެޕްތައް، ތަރުތީބުން އިތުރުކުރޭ.
+	Add to Trusted Certificates	އިތުބާރުކުރެވޭ ސެޓްފިކެޓްތަކަށް އިތުރުކުރޭ
+	Add to trusted certificates	އިތުބާރުކުރެވޭ ސެޓްފިކެޓްތަކަށް އިތުރުކުރޭ
+	Added 1 comment	1 ކޮމެންޓް އިތުރުކުރެވިއްޖެ
+	Added more than once	އެއް ފަހަރަށްވުރެ ގިނައިން އިތުރުކުރެވިފައި
+	Added {n} comments	{n} ކޮމެންޓް އިތުރުކުރެވިއްޖެ
+	Adds invisible text over each word; the page image is not changed	ކޮންމެ ބަހެއްގެ މަތީގައި ނުފެންނަ ލިޔުން އިތުރުކުރޭ؛ ޞަފްޙާގެ ފޮޓޯއަށް ބަދަލެއް ނާދޭ
+	Advanced	އެޑްވާންސްޑް
+	Advanced Options {chevron}	އެޑްވާންސްޑް އޮޕްޝަންތައް {chevron}
+	Align	އެލައިންކުރޭ
+	Align left	ވާތަށް އެލައިންކުރޭ
+	Align right	ކަނާތަށް އެލައިންކުރޭ
+	Alignment:	އެލައިންމަންޓް:
+	All	ހުރިހާ
+	All document contents	ޑޮކިއުމަންޓްގެ ހުރިހާ ކޮންޓެންޓެއް
+	All document contents except metadata	މެޓަޑޭޓާ ފިޔަވައި ޑޮކިއުމަންޓްގެ ހުރިހާ ކޮންޓެންޓެއް
+	All open documents	ހުޅުވާފައިވާ ހުރިހާ ޑޮކިއުމަންޓެއް
+	All pages	ހުރިހާ ޞަފްޙާއެއް
+	All pages in document	ޑޮކިއުމަންޓްގެ ހުރިހާ ޞަފްޙާއެއް
+	All pages in range	ރޭންޖްގެ ތެރޭގެ ހުރިހާ ޞަފްޙާއެއް
+	Allow	ހުއްދަދޭ
+	Allow Rich Text Formatting	ރިޗް ޓެކްސްޓް ފޯމެޓިންގ ހުއްދަދޭ
+	Allow user to enter custom text	ބޭނުންކުރާ މީހާއަށް ކަސްޓަމް ލިޔުމެއް ލިޔުމުގެ ހުއްދަދޭ
+	Also recognize pages that already have text	ކުރިންވެސް ލިޔުން ހުރި ޞަފްޙާތައްވެސް ދެނެގަނޭ
+	Alternate text	ބަދަލު ލިޔުން
+	An action with this name already exists.	މި ނަމުގައި އެކްޝަނެއް ކުރިންވެސް އެބައޮތް.
+	An open-source PDF workbench — local, private, and scriptable.	އޯޕަން-ސޯސް PDF ވޯކްބެންޗެއް — ލޯކަލް، ޕްރައިވެޓް، އަދި ސްކްރިޕްޓް ކުރެވޭ.
+	Angle	އެންގަލް
+	Animation effects	އެނިމޭޝަން އިފެކްޓްތައް
+	Annotations, form fill-in, and digital signatures	ނޯޓްތައް، ފޯމު ފުރުން، އަދި ޑިޖިޓަލް ސޮއިތައް
+	Any	ކޮންމެވެސް
+	Any except extracting pages	ޞަފްޙާ ވަކިކޮށް ނެގުން ފިޔަވައި ކޮންމެވެސް
+	Anyone opening the document will need this password. It's applied when you save.	ޑޮކިއުމަންޓް ހުޅުވާ ކޮންމެ މީހަކަށް މި ޕާސްވޯޑް ބޭނުންވާނެ. ރައްކާކުރާ ވަގުތު މި ޕާސްވޯޑް ލެވޭނެ.
+	Appear behind page	ޞަފްޙާގެ ފަހަތުގައި ދައްކާ
+	Appear on top of page	ޞަފްޙާގެ މަތީގައި ދައްކާ
+	Appearance mode	ފެންނަ ގޮތުގެ މޯޑް
+	Appearance settings…	ފެންނަ ގޮތުގެ ސެޓިންގްސް…
+	Applies to 1 page	1 ޞަފްޙާއަށް ހިނގާ
+	Applies to {n} pages	{n} ޞަފްޙާއަށް ހިނގާ
+	Apply redactions	ރިޑެކްޝަންތައް ހިންގާ
+	Apply scale	ސްކޭލް ހިންގާ
+	Asks GitHub for the latest release. Nothing is downloaded or installed automatically.	އެންމެ ފަހުގެ ރިލީސް GitHub އިން ސުވާލުކުރޭ. އޮޓޯމެޓިކުން އެއްވެސް އެއްޗެއް ޑައުންލޯޑެއް ނުވަތަ އިންސްޓޯލެއް ނުކުރެވޭ.
+	At most	ގިނަވެގެން
+	Attachments	އެޓޭޗްމަންޓްތައް
+	Attachments Panel and Page	އެޓޭޗްމަންޓް ޕެނަލް އަދި ޞަފްޙާ
+	Audit space usage…	ޖާގަ ބޭނުންކުރާ މިން ބަލާ…
+	Author	ލިޔުންތެރިޔާ
+	Auto	އޮޓޯ
+	Auto follows the system's text size. Pages always render at the display's full resolution.	އޮޓޯ އިން ސިސްޓަމްގެ ލިޔުމުގެ ސައިޒަށް ތަބާވޭ. ޞަފްޙާތައް އަބަދުވެސް ރެންޑަރކުރެވެނީ ޑިސްޕްލޭގެ ފުރިހަމަ ރިޒޮލިއުޝަނުގައި.
+	Auto portrait/landscape	އޮޓޯ ޕޯޓްރެއިޓް/ލޭންޑްސްކޭޕް
+	Auto-rotate pages	ޞަފްޙާތައް އޮޓޯކޮށް އަނބުރާ
+	Auto-size text to fit redaction region	ރިޑެކްޝަން ސަރަހައްދަށް ފިޓްވާގޮތަށް ލިޔުމުގެ ސައިޒު އޮޓޯކޮށް ބަދަލުކުރޭ
+	Available	ލިބެން އޮތް
+	Back side only	ފަހަތު ފުށް އެކަނި
+	Back to all tools	ހުރިހާ ޓޫލްސްއަށް އެނބުރި
+	Back to the document	ޑޮކިއުމަންޓަށް އެނބުރި
+	Before each selected page (select pages in Organize)	ޚިޔާރުކުރެވިފައިވާ ކޮންމެ ޞަފްޙާއެއްގެ ކުރިން (ތަރުތީބުކުރޭ ގައި ޞަފްޙާތައް ޚިޔާރުކުރޭ)
+	Before the number	ނަންބަރުގެ ކުރިން
+	Bicubic downsampling to	ބައިކިއުބިކް ޑައުންސޭމްޕްލިންގ ކުރާނީ
+	Binding	ބައިންޑިންގ
+	Binding:	ބައިންޑިންގ:
+	Black and white	ކަޅު އަދި ހުދު
+	Bold	ބޯލްޑް
+	Booklet	ބުކްލެޓް
+	Booklet subset:	ބުކްލެޓް ސަބްސެޓް:
+	Bookmark options	ބުކްމާކް އޮޕްޝަންތައް
+	Bookmarks Panel and Page	ބުކްމާކް ޕެނަލް އަދި ޞަފްޙާ
+	Border Color:	ބޯޑަރގެ ކުލަ:
+	Borders and Colors	ބޯޑަރ އަދި ކުލަތައް
+	Both sides	ދެފުށް
+	Bottom	ތިރި
+	Bottom:	ތިރި:
+	Box	ބޮކްސް
+	Browser's print dialog	ބްރައުޒަރގެ ޕްރިންޓް ޑައިލޮގް
+	Butt	ބަޓް
+	Button is checked by default	ބަޓަން ޑިފޯލްޓްކޮށް ޗެކްކޮށްފައި
+	Buttons with the same name and value are selected in unison	އެއް ނަމާއި އެއް ވެލިއު ހުރި ބަޓަންތައް އެއްފަހަރާ ޚިޔާރުކުރެވޭ
+	Bytes	ބައިޓް
+	Calibrate from two points	ދެ ޕޮއިންޓަކުން ކެލިބްރޭޓްކުރޭ
+	Can't be read: {e}	ކިޔައެއް ނުވޭ: {e}
+	Cancelling…	ކެންސަލްކުރަނީ…
+	Case-sensitive	ބޮޑު/ކުޑަ އަކުރު ވަކިކުރޭ
+	Category:	ބާވަތް:
+	Center	މެދު
+	Center window on screen	ވިންޑޯ ސްކްރީނުގެ މެދަށް ގެންދާ
+	Centre	މެދު
+	Certify	ސެޓްފައިކުރޭ
+	Change settings…	ސެޓިންގްސް ބަދަލުކުރޭ…
+	Change the colour of line art as well as text	ލިޔުމާއެކު ލައިން އާޓްގެ ކުލައިވެސް ބަދަލުކުރޭ
+	Change {what}	{what} ބަދަލުކުރޭ
+	Changes allowed	ހުއްދަ ބަދަލުތައް
+	Character limit 0 means no limit. A comb of characters needs a limit.	އަކުރުގެ ލިމިޓް 0 ނަމަ ލިމިޓެއް ނެތް. އަކުރުތަކުގެ ކޯމްބަށް ލިމިޓެއް ބޭނުންވޭ.
+	Character spacing	އަކުރުތަކުގެ ދުރުމިން
+	Check Again	އަލުން ޗެކްކުރޭ
+	Check again	އަލުން ޗެކްކުރޭ
+	Check box is checked by default	ޗެކްބޮކްސް ޑިފޯލްޓްކޮށް ޗެކްކޮށްފައި
+	Check for updates	އަޕްޑޭޓް ޗެކްކުރޭ
+	Check spelling	ސްޕެލިންގ ޗެކްކުރޭ
+	Check the pages	ޞަފްޙާތައް ޗެކްކުރޭ
+	Check the pages of {name}: {why}	{name} ގެ ޞަފްޙާތައް ޗެކްކުރޭ: {why}
+	Checking Options ({on} of 32 in all categories)	ޗެކްކުރާ އޮޕްޝަންތައް (ހުރިހާ ބާވަތެއްގައި 32 ގެ ތެރެއިން {on})
+	Checking for a newer version…	އާ ވަރޝަނެއް ހޯދަނީ…
+	Choose a PNG or JPEG image (up to 4 MiB). Transparency is preserved.	PNG ނުވަތަ JPEG ފޮޓޯއެއް ޚިޔާރުކުރޭ (4 MiB އަށް). ޓްރާންސްޕޭރެންސީ ރައްކާވާނެ.
+	Choose a folder for the exported files	އެކްސްޕޯޓްކުރާ ފައިލްތަކަށް ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Choose a folder for the extracted pages	ވަކިކޮށް ނަގާ ޞަފްޙާތަކަށް ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Choose a folder for the results	ނަތީޖާތަކަށް ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Choose a folder for the searchable files	ހޯދޭ ފައިލްތަކަށް ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Choose a layout:	ލޭއައުޓެއް ޚިޔާރުކުރޭ:
+	Choose a stamp, then click on the page to place it.	ސްޓޭމްޕެއް ޚިޔާރުކޮށް، ދެން އެ ބެހެއްޓުމަށް ޞަފްޙާގައި ކްލިކްކުރޭ.
+	Choose an image	ފޮޓޯއެއް ޚިޔާރުކުރޭ
+	Choose images	ފޮޓޯތައް ޚިޔާރުކުރޭ
+	Choose image…	ފޮޓޯ ޚިޔާރުކުރޭ…
+	Choose photo…	ފޮޓޯ ޚިޔާރުކުރޭ…
+	Choose the digital ID that you want to use for signing:	ސޮއިކުރުމަށް ބޭނުންކުރަން ބޭނުން ޑިޖިޓަލް ID ޚިޔާރުކުރޭ:
+	Circle	ވަށް
+	Clean Up	ސާފުކުރޭ
+	Clean-up	ސާފުކުރުން
+	Clear All	ހުރިހާ އެއްޗެއް ސާފުކުރޭ
+	Clear all	ހުރިހާ އެއްޗެއް ސާފުކުރޭ
+	Clear selection / close find	ޚިޔާރު ސާފުކުރޭ / ހޯދުން ބަންދުކުރޭ
+	Click on the page to add text; each click starts a new box, and ✓ finishes. Drag items to move them, drag a corner to resize, double-click text to edit it.	ލިޔުން އިތުރުކުރުމަށް ޞަފްޙާގައި ކްލިކްކުރޭ؛ ކޮންމެ ކްލިކަކުން އާ ބޮކްސެއް ފެށޭ، އަދި ✓ އިން ނިމޭ. އެއްޗެހި ގެންދިއުމަށް ޑްރެގްކުރޭ، ސައިޒު ބަދަލުކުރުމަށް ކަނެއް ޑްރެގްކުރޭ، ލިޔުން އެޑިޓްކުރުމަށް ޑަބަލް-ކްލިކްކުރޭ.
+	Click the first point to begin.	ފެށުމަށް ފުރަތަމަ ޕޮއިންޓުގައި ކްލިކްކުރޭ.
+	Click to sort, drag to move the column. Drag its edge to resize it.	ސޯޓްކުރުމަށް ކްލިކްކުރޭ، ކޮލަމް ގެންދިއުމަށް ޑްރެގްކުރޭ. ސައިޒު ބަދަލުކުރުމަށް އޭގެ ކައިރި ޑްރެގްކުރޭ.
+	Click vertices. Enter or double-click finishes a perimeter or area. Click the first point to close an area.	ކޮޅުތަކުގައި ކްލިކްކުރޭ. Enter ނުވަތަ ޑަބަލް-ކްލިކުން ވަށައިގެން މިން ނުވަތަ ބޮޑުމިން ނިމޭ. ބޮޑުމިން ބަންދުކުރުމަށް ފުރަތަމަ ޕޮއިންޓުގައި ކްލިކްކުރޭ.
+	Clockwise 90 degrees	ގަޑީގެ ކަށި ދާ ފަރާތަށް 90 ޑިގްރީ
+	Close (Esc)	ބަންދުކުރޭ (Esc)
+	Close Tab	ޓެބް ބަންދުކުރޭ
+	Close panel	ޕެނަލް ބަންދުކުރޭ
+	Closed arrow	ބަންދު ތީރު
+	Collapse	ކޮލެޕްސްކުރޭ
+	Collapse all	ހުރިހާ އެއްޗެއް ކޮލެޕްސްކުރޭ
+	Collapse all pages	ހުރިހާ ޞަފްޙާއެއް ކޮލެޕްސްކުރޭ
+	Expand all pages	ހުރިހާ ޞަފްޙާއެއް ފުޅާކުރޭ
+	Collapse all bookmarks	ހުރިހާ ބުކްމާކެއް ކޮލެޕްސްކުރޭ
+	Collapse tag	ޓެގް ކޮލެޕްސްކުރޭ
+	Collate	ކޮލޭޓްކުރޭ
+	Color:	ކުލަ:
+	Colour	ކުލަ
+	Colours are remapped while rendering; the document itself never changes.	ރެންޑަރކުރާއިރު ކުލަތައް ބަދަލުކުރެވޭ؛ ޑޮކިއުމަންޓަށް ދުވަހަކުވެސް ބަދަލެއް ނާދޭ.
+	Comb of	ކޯމްބް
+	Combine the rest	ބާކީ ހުރި އެއްޗެހި ގުޅާ
+	Combined {n} files	{n} ފައިލް ގުޅިއްޖެ
+	Coming in milestone	މައިލްސްޓޯނުގައި އަންނާނެ
+	Comment and form data	ކޮމެންޓް އަދި ފޯމު ޑޭޓާ
+	Commenting, filling in form fields, and signing existing signature fields	ކޮމެންޓްކުރުން، ފޯމު ފީލްޑް ފުރުން، އަދި ހުރި ސޮއި ފީލްޑްތަކުގައި ސޮއިކުރުން
+	Comments & Forms	ކޮމެންޓްތައް އަދި ފޯމުތައް
+	Comments only	ކޮމެންޓްތައް އެކަނި
+	Commit selected value immediately	ޚިޔާރުކުރި ވެލިއު އަވަހަށް ކަނޑައަޅާ
+	Common Properties	އާންމު ޕްރޮޕަޓީޒް
+	Compare Files	ފައިލްތައް އަޅާކިޔާ
+	Compare this file with an older version: Compare files… in All tools.	މި ފައިލް ކުރީގެ ވަރޝަނަކާ އަޅާކިޔާ: ފައިލްތައް އަޅާކިޔާ… ހުރިހާ ޓޫލްސްގައި.
+	Compatibility	ކޮމްޕެޓިބިލިޓީ
+	Compress document structure (object streams)	ޑޮކިއުމަންޓްގެ ސްޓްރަކްޗަރ ކޮމްޕްރެސްކުރޭ (އޮބްޖެކްޓް ސްޓްރީމް)
+	Compression	ކޮމްޕްރެޝަން
+	Configure New Digital ID	އާ ޑިޖިޓަލް ID ސެޓްކުރޭ
+	Confirm Password	ޕާސްވޯޑް ޔަގީންކުރޭ
+	Conformance level:	ކޮންފޯމަންސް ލެވެލް:
+	Continue	ކުރިއަށް ގެންދާ
+	Copies, two-sided printing and colour are chosen in the browser's print dialog.	ކޮޕީ ގިނަކަން، ދެފުށް ޕްރިންޓްކުރުން އަދި ކުލަ ޚިޔާރުކުރެވެނީ ބްރައުޒަރގެ ޕްރިންޓް ޑައިލޮގުގައި.
+	Copies:	ކޮޕީ:
+	Copy selected text	ޚިޔާރުކުރި ލިޔުން ކޮޕީކުރޭ
+	Copy text	ލިޔުން ކޮޕީކުރޭ
+	Couldn't check for updates: {e}	އަޕްޑޭޓް ޗެކްއެއް ނުކުރެވުނު: {e}
+	Couldn't open the printer's preferences: {e}	ޕްރިންޓަރގެ ސެޓިންގްސް ނުހުޅުވުނު: {e}
+	Counterclockwise 90 degrees	ގަޑީގެ ކަށި ދާ ފަރާތުގެ އިދިކޮޅަށް 90 ޑިގްރީ
+	Country/Region	ޤައުމު/ސަރަހައްދު
+	Create Custom Stamp	ކަސްޓަމް ސްޓޭމްޕެއް ހަދާ
+	Create Link	ލިންކެއް ހަދާ
+	Create PDF Comment Summary	PDF ކޮމެންޓް ޚުލާޞާ ހަދާ
+	Create PDF comment summary…	PDF ކޮމެންޓް ޚުލާޞާ ހަދާ…
+	Create PDF from images	ފޮޓޯތަކުން PDF ހަދާ
+	Create a new Digital ID (self-signed, saved to a password-protected file)	އާ ޑިޖިޓަލް ID އެއް ހަދާ (ސެލްފް-ސައިންޑް، ޕާސްވޯޑުން ހިމާޔަތްކޮށްފައިވާ ފައިލެއްގައި ރައްކާކުރެވޭ)
+	Create accessibility report	އެކްސެސިބިލިޓީ ރިޕޯޓް ހަދާ
+	Create custom stamp…	ކަސްޓަމް ސްޓޭމްޕެއް ހަދާ…
+	Create {what}	{what} ހަދާ
+	Created a PDF from {n} files	{n} ފައިލަކުން PDF އެއް ހެދިއްޖެ
+	Created a PDF from {n} files; left out: {names}	{n} ފައިލަކުން PDF އެއް ހެދިއްޖެ؛ ދޫކޮށްލެވުނު: {names}
+	Creates 1 file from {n} pages.	{n} ޞަފްޙާއިން 1 ފައިލް ހަދާނެ.
+	Creates {f} files from {n} pages.	{n} ޞަފްޙާއިން {f} ފައިލް ހަދާނެ.
+	Crop (% trimmed from each side)	ކްރޮޕްކުރޭ (ކޮންމެ ފަރާތަކުން ކަނޑާލާ %)
+	Currency symbol:	ފައިސާގެ ނިޝާން:
+	Current page	މިހާރުގެ ޞަފްޙާ
+	Current page ({n})	މިހާރުގެ ޞަފްޙާ ({n})
+	Current page — type a page number or label (such as iv) and press Enter	މިހާރުގެ ޞަފްޙާ — ޞަފްޙާ ނަންބަރެއް ނުވަތަ ލޭބަލެއް (މިސާލަކަށް iv) ލިޔެ Enter ފިތާލާ
+	Custom	ކަސްޓަމް
+	Custom scale:	ކަސްޓަމް ސްކޭލް:
+	Custom text:	ކަސްޓަމް ލިޔުން:
+	Custom:	ކަސްޓަމް:
+	Cut and stack	ކަނޑާ ގޮނޑުކުރޭ
+	Cut marks	ކަނޑާ ނިޝާންތައް
+	DPI sets the printed page size without resampling the image.	ފޮޓޯ ރީސޭމްޕްލް ނުކޮށް، DPI އިން ޕްރިންޓްކުރާ ޞަފްޙާގެ ސައިޒު ކަނޑައަޅައި.
+	Dark theme	އަނދިރި ތީމް
+	Date format	ތާރީޚުގެ ފޯމެޓް
+	Decimal places:	ޑެސިމަލް ތަންތަން:
+	Decimals	ޑެސިމަލް
+	Declared conformance: {shown}	އިޢުލާންކޮށްފައިވާ ކޮންފޯމަންސް: {shown}
+	Decorative figure	ޒީނަތަށް ހުރި ފިގަރ
+	Default	ޑިފޯލްޓް
+	Default Value:	ޑިފޯލްޓް ވެލިއު:
+	Default workspace mode	ޑިފޯލްޓް ވޯކްސްޕޭސް މޯޑް
+	Default:	ޑިފޯލްޓް:
+	Delete page {label}	ޞަފްޙާ {label} ފޮހެލާ
+	Delete pages (Delete)	ޞަފްޙާތައް ފޮހެލާ (Delete)
+	Delete pages after extracting	ވަކިކޮށް ނެގުމަށްފަހު ޞަފްޙާތައް ފޮހެލާ
+	Delete selected pages (Organize)	ޚިޔާރުކުރެވިފައިވާ ޞަފްޙާތައް ފޮހެލާ (ތަރުތީބުކުރޭ)
+	Delete stamp	ސްޓޭމްޕް ފޮހެލާ
+	Delete {o}	{o} ފޮހެލާ
+	Describe the figure	ފިގަރގެ ތަފްޞީލު ލިޔޭ
+	Description	ތަފްޞީލު
+	Description:	ތަފްޞީލު:
+	Details	ތަފްޞީލުތައް
+	Diamond	ޑައިމަންޑް
+	Digital ID	ޑިޖިޓަލް ID
+	Digital ID password	ޑިޖިޓަލް ID ޕާސްވޯޑް
+	Direction:	ދިމާ:
+	Discard	ދޫކޮށްލާ
+	Discard Objects	އޮބްޖެކްޓްތައް ދޫކޮށްލާ
+	Discard User Data	ޔޫޒަރ ޑޭޓާ ދޫކޮށްލާ
+	Discard alternate images	ބަދަލު ފޮޓޯތައް ދޫކޮށްލާ
+	Discard document tags	ޑޮކިއުމަންޓް ޓެގްތައް ދޫކޮށްލާ
+	Discard embedded page thumbnails	ވައްދާފައިވާ ޞަފްޙާ ތަމްނޭލްތައް ދޫކޮށްލާ
+	Discard embedded print settings	ވައްދާފައިވާ ޕްރިންޓް ސެޓިންގްސް ދޫކޮށްލާ
+	Discard this text (Esc)	މި ލިޔުން ދޫކޮށްލާ (Esc)
+	Dismiss	ދޫކޮށްލާ
+	Distinguished name	ޑިސްޓިންގުއިޝްޑް ނަން
+	Distribute	ބަހާލާ
+	Document	ޑޮކިއުމަންޓް
+	Document Properties	ޑޮކިއުމަންޓްގެ ޕްރޮޕަޓީޒް
+	Document Title	ޑޮކިއުމަންޓްގެ ސުރުޚީ
+	Document and markups	ޑޮކިއުމަންޓާއި މާކަޕްތައް
+	Document and stamps	ޑޮކިއުމަންޓާއި ސްޓޭމްޕްތައް
+	Document language	ޑޮކިއުމަންޓްގެ ބަސް
+	Document properties ({key})	ޑޮކިއުމަންޓްގެ ޕްރޮޕަޓީޒް ({key})
+	Documents and view	ޑޮކިއުމަންޓްތަކާއި ބަލާ ގޮތް
+	Done	ނިމުނީ
+	Done adding text	ލިޔުން އިތުރުކޮށް ނިމުނީ
+	Download	ޑައުންލޯޑްކުރޭ
+	Downsample to	ޑައުންސޭމްޕަލްކުރާނީ
+	Drag the selection to move it. Esc clears the selection.	ޚިޔާރުކުރެވިފައިވާ ބައި ގެންދިއުމަށް ދަމާލާ. Esc އިން ޚިޔާރު ފޮހެލެވޭނެ.
+	Drag to reorder	ތަރުތީބު ބަދަލުކުރުމަށް ދަމާލާ
+	Draw	ކުރަހާ
+	Draw your {what} below.	ތިރީގައި ތިބާގެ {what} ކުރަހާ.
+	Drawing scale changes. Use Actual size for full-scale plans.	ކުރެހުމުގެ ސްކޭލް ބަދަލުވޭ. ފުރިހަމަ ސްކޭލްގެ ޕްލޭންތަކަށް "އަސްލު ސައިޒު" ބޭނުންކުރޭ.
+	Drop PDFs, images, text files or folders here, or choose them.	PDF، ފޮޓޯ، ލިޔުމުގެ ފައިލް ނުވަތަ ފޯލްޑަރ މިތަނަށް ދޫކޮށްލާ، ނުވަތަ ޚިޔާރުކުރޭ.
+	Duplicate "{name}" onto:	"{name}" ކޮޕީކުރާނެ ތަން:
+	Duplicate Field	ފީލްޑް ޑުޕްލިކޭޓްކުރޭ
+	Duplicate…	ޑުޕްލިކޭޓްކުރޭ…
+	Dynamic	ޑައިނަމިކް
+	Dynamic XFA form laid out from its template: {pages}, {fields}.	އޭގެ ޓެމްޕްލޭޓުން ލޭއައުޓްކުރެވިފައިވާ ޑައިނަމިކް XFA ފޯމު: {pages}، {fields}.
+	Each file holds as many of the {n} pages as fit.	ކޮންމެ ފައިލެއްގައި {n} ޞަފްޙާއިން ފެތޭވަރަކަށް ހިމެނޭނެ.
+	Each image is measured where pages draw it; an image is replaced only if the result is smaller.	ކޮންމެ ފޮޓޯއެއް މިނެނީ ޞަފްޙާތަކުގައި އެ ދައްކާ ތަނުގައި؛ ފޮޓޯއެއް ބަދަލުކުރެވެނީ ނަތީޖާ ކުޑަވާނަމަ އެކަނި.
+	Each image once, named after the document and page. JPEG images are saved unchanged; others as PNG.	ކޮންމެ ފޮޓޯއެއް އެއްފަހަރު، ޑޮކިއުމަންޓާއި ޞަފްޙާގެ ނަމުގައި. JPEG ފޮޓޯތައް ބަދަލުނުކޮށް ރައްކާކުރެވޭ؛ އެހެންތައް PNG ގޮތުގައި.
+	Earlier in tab order	ޓެބް ތަރުތީބުގައި ކުރިއަށް
+	Edit Action	އެކްޝަން އެޑިޓްކުރޭ
+	Edit image	ފޮޓޯ އެޑިޓްކުރޭ
+	Edit text…	ލިޔުން އެޑިޓްކުރޭ…
+	Edit…	އެޑިޓްކުރޭ…
+	Email Address	އީމެއިލް އެޑްރެސް
+	Enable Acrobat JavaScript	Acrobat JavaScript ހުޅުވާލާ
+	Enable copying of text, images, and other content	ލިޔުން، ފޮޓޯ، އަދި އެހެން ކޮންޓެންޓް ކޮޕީކުރުން ހުޅުވާލާ
+	Enable text access for screen reader devices for the visually impaired	ލޮލަށް ނުފެންނަ މީހުންގެ ސްކްރީން ރީޑަރ ޑިވައިސްތަކަށް ލިޔުން ލިބޭނެ ގޮތް ހުޅުވާލާ
+	Encrypt	އެންކްރިޕްޓްކުރޭ
+	Endpoints	އެންޑްޕޮއިންޓްތައް
+	Enhance page	ޞަފްޙާ ރަނގަޅުކުރޭ
+	Enter the password that opens it	އެ ހުޅުވޭ ޕާސްވޯޑް ޖައްސަވާ
+	Enter the permissions password to allow combining	ގުޅުމުގެ ހުއްދަ ދިނުމަށް ހުއްދަތަކުގެ ޕާސްވޯޑް ޖައްސަވާ
+	Entire page	މުޅި ޞަފްޙާ
+	Even Pages Only	ހަމަ ޢަދަދުގެ ޞަފްޙާތައް އެކަނި
+	Even and Odd Pages	ހަމަ އަދި ހަމަނޫން ޢަދަދުގެ ޞަފްޙާތައް
+	Even pages only	ދެކަލަ ޞަފްޙާތައް އެކަނި
+	Every PDF, image and text file in the folder	ފޯލްޑަރުގައިވާ ހުރިހާ PDF، ފޮޓޯ އަދި ލިޔުމުގެ ފައިލެއް
+	Every PDF, image and text file in the folder and the folders inside it	ފޯލްޑަރާއި އޭގެ ތެރޭގައިވާ ފޯލްޑަރުތަކުގައިވާ ހުރިހާ PDF، ފޮޓޯ އަދި ލިޔުމުގެ ފައިލެއް
+	Example: {sample}	މިސާލު: {sample}
+	Exclude images smaller than	މިއަށްވުރެ ކުޑަ ފޮޓޯތައް ދޫކޮށްލާ
+	Expand	ފުޅާކުރޭ
+	Expand all	ހުރިހާ ފުޅާކުރޭ
+	Expand all bookmarks	ހުރިހާ ބުކްމާކެއް ފުޅާކުރޭ
+	Expand tag	ޓެގް ފުޅާކުރޭ
+	Expand top-level bookmarks	އެންމެ މަތީ ލެވެލްގެ ބުކްމާކްތައް ފުޅާކުރޭ
+	Explain	ބަޔާންކުރޭ
+	Export All Images	ހުރިހާ ފޮޓޯއެއް އެކްސްޕޯޓްކުރޭ
+	Export Value: {on}	އެކްސްޕޯޓް ވެލިއު: {on}
+	Export all to data file…	ހުރިހާ އެއްޗެއް ޑޭޓާ ފައިލަކަށް އެކްސްޕޯޓްކުރޭ…
+	Export certificate…	ސެޓްފިކެޓް އެކްސްޕޯޓްކުރޭ…
+	Export comments	ކޮމެންޓްތައް އެކްސްޕޯޓްކުރޭ
+	Export form data	ފޯމު ޑޭޓާ އެކްސްޕޯޓްކުރޭ
+	Export stopped: {e}	އެކްސްޕޯޓް މެދުކެނޑުނީ: {e}
+	Export to Image	ފޮޓޯއަކަށް އެކްސްޕޯޓްކުރޭ
+	Export to Text	ލިޔުމަކަށް އެކްސްޕޯޓްކުރޭ
+	Exported 1 image	1 ފޮޓޯ އެކްސްޕޯޓްކުރެވިއްޖެ
+	Exported the text of 1 page	1 ޞަފްޙާގެ ލިޔުން އެކްސްޕޯޓްކުރެވިއްޖެ
+	Exported the text of {n} pages	{n} ޞަފްޙާގެ ލިޔުން އެކްސްޕޯޓްކުރެވިއްޖެ
+	Exported {n} images	{n} ފޮޓޯ އެކްސްޕޯޓްކުރެވިއްޖެ
+	Exporting… {d} of {t}	އެކްސްޕޯޓްކުރަނީ… {t} އިން {d}
+	Export…	އެކްސްޕޯޓްކުރޭ…
+	Extract pages as separate files	ޞަފްޙާތައް ވަކި ފައިލްތަކެއްގެ ގޮތުގައި ވަކިކޮށް ނަގާ
+	Extract pages to a new document	ޞަފްޙާތައް އައު ޑޮކިއުމަންޓަކަށް ވަކިކޮށް ނަގާ
+	Extracted 1 page	1 ޞަފްޙާ ވަކިކޮށް ނެގިއްޖެ
+	Extracted {n} pages	{n} ޞަފްޙާ ވަކިކޮށް ނެގިއްޖެ
+	Field is used for file selection	ފީލްޑް ބޭނުންކުރަނީ ފައިލް ޚިޔާރުކުރުމަށް
+	Field names (comma-separated)	ފީލްޑްގެ ނަންތައް (ކޮމާއިން ވަކިކޮށް)
+	Field names with + - * / and parentheses; put \\ before spaces in names.	+ - * / އަދި ބްރެކެޓާއެކު ފީލްޑްގެ ނަންތައް؛ ނަންތަކުގައިވާ ސްޕޭސްގެ ކުރިން \\ ލާށެވެ.
+	Field value is in range:	ފީލްޑްގެ އަގު އޮތީ މި ރޭންޖުގައި:
+	Field value is not validated	ފީލްޑްގެ އަގު ޗެކެއް ނުކުރެވޭ
+	Field: {field} on page {p}	ފީލްޑް: ޞަފްޙާ {p} ގައިވާ {field}
+	Fields to reset (comma-separated; empty: all)	ރީސެޓްކުރާ ފީލްޑްތައް (ކޮމާއިން ވަކިކޮށް؛ ހުސްނަމަ: ހުރިހާ)
+	Figure {i} of {n}{page}	ފިގަރ {n} އިން {i}{page}
+	File (.p12, .pfx)	ފައިލް (.p12, .pfx)
+	File Name	ފައިލްގެ ނަން
+	File size	ފައިލްގެ ސައިޒު
+	Files are combined from top to bottom. Leave Pages empty to take every page.	ފައިލްތައް ގުޅެނީ މަތިން ތިރިއަށް. ހުރިހާ ޞަފްޙާއެއް ނެގުމަށް "ޞަފްޙާތައް" ހުސްކޮށް ބާއްވާ.
+	Files are combined in the order shown. Drag them to change it.	ފައިލްތައް ގުޅެނީ ދައްކާފައިވާ ތަރުތީބުން. ތަރުތީބު ބަދަލުކުރުމަށް ދަމާލާ.
+	Files for {name}	{name} އަށް ފައިލްތައް
+	Files you open in PdfCraft appear here. Drop a PDF anywhere to open it.	PdfCraft ގައި ހުޅުވާ ފައިލްތައް މިތަނުގައި ފެންނާނެ. PDF އެއް ހުޅުވުމަށް ކޮންމެ ތަނަކަށް ދޫކޮށްލާ.
+	Fill & Sign dates	ފުރުމާއި ސޮއިކުރުމުގެ ތާރީޚުތައް
+	Fill & Sign signature	ފުރުމާއި ސޮއިކުރުމުގެ ސޮއި
+	Fill Color:	ފުރާ ކުލަ:
+	Fill colour	ފުރާ ކުލަ
+	Fill colour: none	ފުރާ ކުލަ: ނެތް
+	Filling in form fields and signing existing signature fields	ފޯމު ފީލްޑްތައް ފުރުމާއި ކުރިން ހުރި ސޮއި ފީލްޑްތަކުގައި ސޮއިކުރުން
+	Filter comments	ކޮމެންޓްތައް ފިލްޓަރކުރޭ
+	Find a tag	ޓެގެއް ހޯދާ
+	Find options	ހޯދުމުގެ އޮޕްޝަންތައް
+	Find text	ލިޔުން ހޯދާ
+	Find tools and commands	ޓޫލްސް އަދި ކޮމާންޑްތައް ހޯދާ
+	Finding document fonts…	ޑޮކިއުމަންޓްގެ ފޮންޓްތައް ހޯދަނީ…
+	Finish or discard the text being edited before selecting several objects.	ގިނަ އެއްޗެހި ޚިޔާރުކުރުމުގެ ކުރިން، އެޑިޓްކުރަމުންދާ ލިޔުން ނިންމާ ނުވަތަ ދޫކޮށްލާ.
+	First / last page	ފުރަތަމަ / އެންމެ ފަހު ޞަފްޙާ
+	Fit	ފިޓްކުރޭ
+	Fit Height	އުސްމިނަށް ފިޓްކުރޭ
+	Fit Page	ޞަފްޙާ ފިޓްކުރޭ
+	Fit Visible	ފެންނަ ބައި ފިޓްކުރޭ
+	Fit Width	ފުޅާމިނަށް ފިޓްކުރޭ
+	Fit to height	އުސްމިނަށް ފިޓްކުރޭ
+	Fit to page	ޞަފްޙާއަށް ފިޓްކުރޭ
+	Fix	ރަނގަޅުކުރޭ
+	Fixed what could be fixed; 1 problem remains	ރަނގަޅުކުރެވޭނެ އެއްޗެހި ރަނގަޅުކުރެވިއްޖެ؛ 1 މައްސަލަ ބާކީ
+	Fixed what could be fixed; {n} problems remain	ރަނގަޅުކުރެވޭނެ އެއްޗެހި ރަނގަޅުކުރެވިއްޖެ؛ {n} މައްސަލަ ބާކީ
+	Flatten Fill & Sign when saving	ރައްކާކުރާއިރު ފުރުމާއި ސޮއިކުރުން ފްލެޓްކުރޭ
+	Flip Horizontal	ބޯދިމާލަށް ފުރޮޅާ
+	Flip Vertical	ދިގުދިމާލަށް ފުރޮޅާ
+	Flip horizontal	ބޯދިމާލަށް ފުރޮޅާ
+	Flip on long edge	ދިގު ފަރާތުން ފުރޮޅާ
+	Flip on short edge	ކުރު ފަރާތުން ފުރޮޅާ
+	Flip vertical	ދިގުދިމާލަށް ފުރޮޅާ
+	Folders	ފޯލްޑަރުތައް
+	Font Size:	ފޮންޓް ސައިޒު:
+	Font colour:	ފޮންޓް ކުލަ:
+	Font size 0 uses automatic sizing.	ފޮންޓް ސައިޒު 0 ނަމަ ސައިޒު އޮޓޯކޮށް ކަނޑައެޅޭނެ.
+	Font size:	ފޮންޓް ސައިޒު:
+	Font:	ފޮންޓް:
+	Font: Helvetica	ފޮންޓް: Helvetica
+	Fonts	ފޮންޓްތައް
+	For page sizes and margins.	ޞަފްޙާގެ ސައިޒާއި މާޖިންތަކަށް.
+	Form data and PDF forms	ފޯމު ޑޭޓާ އަދި PDF ފޯމުތައް
+	Form fields are flattened: their values stay visible. Saving rewrites the whole file.	ފޯމު ފީލްޑްތައް ފްލެޓްކުރެވޭ: އޭގެ އަގުތައް ފެންނަން ހުންނާނެ. ރައްކާކުރުމުން މުޅި ފައިލް އަލުން ލިޔެވޭނެ.
+	Form fields only	ފޯމު ފީލްޑްތައް އެކަނި
+	Form fill-in and digital signatures	ފޯމު ފުރުމާއި ޑިޖިޓަލް ސޮއިތައް
+	Format	ފޯމެޓް
+	Format text	ލިޔުން ފޯމެޓްކުރޭ
+	Format:	ފޯމެޓް:
+	From	ފެށޭ
+	From a PDF page or an image	PDF ޞަފްޙާއަކުން ނުވަތަ ފޮޓޯއަކުން
+	From colour	ފެށޭ ކުލަ
+	From {file}	{file} އިން
+	From:	ފެށޭ:
+	Front side only	ކުރިމަތީ ފަރާތް އެކަނި
+	Get help, share feedback and follow development on Discord.	Discord ގައި އެހީ ހޯދާ، ޚިޔާލު ހިއްސާކޮށް، ތަރައްޤީ ފޮލޯކުރޭ.
+	Go to a page view	ޞަފްޙާގެ ވިއުއަކަށް ދާ
+	Go to page {p}	ޞަފްޙާ {p} އަށް ދާ
+	Go to the page	ޞަފްޙާއަށް ދާ
+	Go to this result	މި ނަތީޖާއަށް ދާ
+	Graphic	ގްރެފިކް
+	Greyscale	ގްރޭސްކޭލް
+	Grid view	ގްރިޑް ވިއު
+	Hand (H)	އަތް (H)
+	Has JavaScript actions (run in M6)	JavaScript އެކްޝަންތައް ހުރި (M6 ގައި ހިންގޭނެ)
+	Height:	އުސްމިން:
+	Hide field highlights	ފީލްޑް ހައިލައިޓްތައް ފޮރުވާ
+	Hide layer	ލޭޔަރ ފޮރުވާ
+	Hide menu bar	މެނޫ ބާ ފޮރުވާ
+	Hide password	ޕާސްވޯޑް ފޮރުވާ
+	Hide toolbars	ޓޫލްބާތައް ފޮރުވާ
+	Hide window controls	ވިންޑޯގެ ކޮންޓްރޯލްތައް ފޮރުވާ
+	High Resolution	މަތީ ރިޒޮލިއުޝަން
+	High resolution	މަތީ ރިޒޮލިއުޝަން
+	Highlight Style:	ހައިލައިޓް ސްޓައިލް:
+	Highlight fields	ފީލްޑްތައް ހައިލައިޓްކުރޭ
+	Home	ހޯމް
+	Horizontal	ބޯދިމާލަށް
+	Horizontal reversed	ބޯދިމާލަށް، ފުރޮޅާލައިގެން
+	Horizontal scale	ބޯދިމާލުގެ ސްކޭލް
+	Icon	އައިކަން
+	Images and text	ފޮޓޯ އަދި ލިޔުން
+	Images and text (converted to PDF)	ފޮޓޯ އަދި ލިޔުން (PDF އަށް ބަދަލުކޮށް)
+	Import list…	ލިސްޓު އިމްޕޯޓްކުރޭ…
+	Includes unsaved changes	ރައްކާނުކުރާ ބަދަލުތައް ހިމެނޭ
+	Indent	އިންޑެންޓްކުރޭ
+	Initial View	ފުރަތަމަ ފެންނަ ގޮތް
+	Ink sensitivity	އިންކުގެ ސެންސިޓިވިޓީ
+	Insert Date	ތާރީޚު ވައްދާ
+	Insert Page Number	ޞަފްޙާ ނަންބަރު ވައްދާ
+	Insert a blank page after the selection	ޚިޔާރުކުރެވިފައިވާ ބަޔަށްފަހު ހުސް ޞަފްޙާއެއް ވައްދާ
+	Insert a file at the end	ފައިލެއް ފަހަތުގައި ވައްދާ
+	Insert a file before page {label}	ޞަފްޙާ {label} ގެ ކުރިން ފައިލެއް ވައްދާ
+	Insert pages from a file…	ފައިލަކުން ޞަފްޙާތައް ވައްދާ…
+	Inserting, deleting, and rotating pages	ޞަފްޙާ ވެއްދުމާއި، ފޮހެލުމާއި، އެނބުރުން
+	Installed fonts…	އިންސްޓޯލްކުރެވިފައިވާ ފޮންޓްތައް…
+	Intersections	ކްރޮސްވާ ތަންތަން
+	Invisible Rectangle	ނުފެންނަ ހަތަރެސްކަނަ
+	Issued by: 	ދޫކުރީ: 
+	Italic	އިޓާލިކް
+	Item List	އައިޓަމް ލިސްޓު
+	Item:	އައިޓަމް:
+	Items marked Ready work today.	"ތައްޔާރު" ކަމަށް މާކްކޮށްފައިވާ އައިޓަމްތައް މިއަދު ބޭނުންކުރެވޭނެ.
+	Its security settings don't allow copying pages	އޭގެ ސެކިއުރިޓީ ސެޓިންގްސް ޞަފްޙާ ކޮޕީކުރުމުގެ ހުއްދަ ނުދޭ
+	JavaScript Console	JavaScript ކޮންސޯލް
+	JavaScript is turned off (Preferences ▸ JavaScript).	JavaScript ބަންދުކޮށްފައި (ސެޓިންގްސް > JavaScript).
+	JavaScript, e.g. getField("total").value	JavaScript، މިސާލަކަށް getField("total").value
+	Join our Discord	އަހަރެމެންގެ Discord ގައި ބައިވެރިވޭ
+	Join the ArtCraft community	ArtCraft ކޮމިއުނިޓީގައި ބައިވެރިވޭ
+	Justify	ދެފަރާތަށް ހަމަކުރޭ
+	Keep source fonts	އަސްލު ފޮންޓްތައް ބާއްވާ
+	Keep tool selected	ޓޫލް ޚިޔާރުކޮށް ބާއްވާ
+	Keep tool selected: on	ޓޫލް ޚިޔާރުކޮށް ބާއްވާ: ހުޅުވާލާފައި
+	Key Algorithm	ކީ އަލްގޮރިދަމް
+	Keychain  ·  	ކީޗެއިން  ·  
+	Label	ލޭބަލް
+	Labels	ލޭބަލްތައް
+	Labels: {preview}. Later pages keep their labels.	ލޭބަލްތައް: {preview}. ފަހުގެ ޞަފްޙާތަކުގެ ލޭބަލްތައް ނުބަދަލުވާނެ.
+	Landscape	ލޭންޑްސްކޭޕް
+	Landscape Pages	ލޭންޑްސްކޭޕް ޞަފްޙާތައް
+	Landscape and Portrait Pages	ލޭންޑްސްކޭޕް އަދި ޕޯޓްރެއިޓް ޞަފްޙާތައް
+	Larger pages	ބޮޑު ޞަފްޙާތައް
+	Later	ފަހުން
+	Later in tab order	ޓެބް ތަރުތީބުގައި ފަހަތަށް
+	Layers	ލޭޔަރުތައް
+	Layers Panel and Page	ލޭޔަރުތަކުގެ ޕެނަލާއި ޞަފްޙާ
+	Layout and Magnification	ލޭއައުޓާއި ބޮޑުކުރުން
+	Leave out files that can't be read?	ކިޔޭނުވާ ފައިލްތައް ދޫކޮށްލަންތޯ؟
+	Left	ވާތް
+	Left Edge	ވާތް ކައިރި
+	Left out: {names}	ދޫކޮށްލެވުނީ: {names}
+	Left:	ވާތް:
+	Light theme	އަލި ތީމް
+	Limit of	ލިމިޓް
+	Line Style:	ރޮނގުގެ ސްޓައިލް:
+	Line Thickness:	ރޮނގުގެ ފަލަމިން:
+	Line ending	ރޮނގުގެ ކޮޅު
+	Line spacing	ސަތުރުތަކުގެ ދުރުމިން
+	Line thickness	ރޮނގުގެ ފަލަމިން
+	Link Action	ލިންކް އެކްޝަން
+	Link Appearance	ލިންކް ފެންނަ ގޮތް
+	Link Properties	ލިންކްގެ ޕްރޮޕަޓީޒް
+	Link Type:	ލިންކްގެ ބާވަތް:
+	List view	ލިސްޓު ވިއު
+	Load font…	ފޮންޓް ލޯޑްކުރޭ…
+	Locked	ލޮކްކުރެވިފައި
+	Looking for PDFs…	PDF ހޯދަނީ…
+	Looking for printers…	ޕްރިންޓަރުތައް ހޯދަނީ…
+	Low Resolution (150 dpi)	ދަށް ރިޒޮލިއުޝަން (150 dpi)
+	Low resolution	ދަށް ރިޒޮލިއުޝަން
+	Magnification	ބޮޑުކުރުން
+	Make Current Properties Default	މިހާރުގެ ޕްރޮޕަޓީޒް ޑިފޯލްޓްކުރޭ
+	Make Properties Default	ޕްރޮޕަޓީޒް ޑިފޯލްޓްކުރޭ
+	Margins	މާޖިންތައް
+	Mark Page Range	ޞަފްޙާ ރޭންޖު މާކްކުރޭ
+	Mark as comments	ކޮމެންޓްތަކެއްގެ ގޮތުގައި މާކްކުރޭ
+	Mark with checkmark	ޗެކްމާކެއް ޖަހާ
+	Marked	މާކްކުރެވިފައި
+	Mask:	މާސްކް:
+	Match page at 100%	ޞަފްޙާ 100% ގައި ހަމަކުރޭ
+	Medium	މެދު
+	Midpoints	މެދު ޕޮއިންޓްތައް
+	Mixed	އެކި
+	Modified	ބަދަލުކުރެވިފައި
+	More options	އިތުރު އޮޕްޝަންތައް
+	More options:	އިތުރު އޮޕްޝަންތައް:
+	More ways to add files	ފައިލް އިތުރުކުރާނެ އިތުރު ގޮތްތައް
+	Mouse wheel scroll speed	މައުސް ވީލުގެ ސްކްރޯލް ސްޕީޑް
+	Move down	ތިރިއަށް ގެންދާ
+	Move earlier	ކުރިއަށް ގެންދާ
+	Move later	ފަހަތަށް ގެންދާ
+	Move up	މައްޗަށް ގެންދާ
+	Multi-line	ގިނަ ސަތުރު
+	Multiple	ގިނަ
+	Multiple selection	ގިނަ ޚިޔާރު
+	Multiple words or phrases	ގިނަ ބަސް ނުވަތަ ޖުމްލަ
+	Name:	ނަން:
+	Navigation tab	ނެވިގޭޝަން ޓެބް
+	Needs manual check	އަތުން ޗެކްކުރަން ޖެހޭ
+	Negative number style:	ނެގެޓިވް ނަންބަރުގެ ސްޓައިލް:
+	New Action	އައު އެކްޝަން
+	New Action…	އައު އެކްޝަން…
+	New bookmark ({key})	އައު ބުކްމާކް ({key})
+	New file:	އައު ފައިލް:
+	Next ({key})	ކުރިއަށް ({key})
+	Next / previous match	ކުރިއަށް / ކުރީގެ މެޗް
+	Next figure	ދެން އޮތް ފިގަރ
+	Next month	ދެން އަންނަ މަސް
+	Next page	ދެން އޮތް ޞަފްޙާ
+	Next sheet	ދެން އޮތް ޝީޓް
+	Next view	ދެން އޮތް ވިއު
+	No PDFs in this folder yet	މި ފޯލްޑަރުގައި އަދި PDF އެއް ނެތް
+	No actions	އެކްޝަނެއް ނެތް
+	No changes allowed	އެއްވެސް ބަދަލެއްގެ ހުއްދައެއް ނެތް
+	No changes to save	ރައްކާކުރާނެ ބަދަލެއް ނެތް
+	No check has run yet.	އަދި އެއްވެސް ޗެކެއް ހިންގާފައެއް ނެތް.
+	No color	ކުލައެއް ނެތް
+	No colour	ކުލައެއް ނެތް
+	No comments match.	ދިމާވާ ކޮމެންޓެއް ނެތް.
+	No comments yet.	އަދި ކޮމެންޓެއް ނެތް.
+	No differences in the text.	ލިޔުމުގައި ތަފާތެއް ނެތް.
+	No digital IDs yet.	އަދި ޑިޖިޓަލް ID އެއް ނެތް.
+	No documents are open	އެއްވެސް ޑޮކިއުމަންޓެއް ހުޅުވިފައެއް ނެތް
+	No file chosen	ފައިލެއް ޚިޔާރުކޮށްފައެއް ނެތް
+	No fill	ފުރާ ކުލައެއް ނެތް
+	No fonts are referenced by the pages.	ޞަފްޙާތަކުގައި އެއްވެސް ފޮންޓެއް ބޭނުންކޮށްފައެއް ނެތް.
+	No issues found	އެއްވެސް މައްސަލައެއް ނުފެނުނު
+	No limit	ލިމިޓެއް ނެތް
+	No matches	ދިމާވާ އެއްޗެއް ނެތް
+	No matches.	ދިމާވާ އެއްޗެއް ނެތް.
+	No matching tools	ދިމާވާ ޓޫލެއް ނެތް
+	No openly licensed document fonts found. Load a font file.	ހުޅުވިފައިވާ ލައިސަންސެއް ހުރި ޑޮކިއުމަންޓް ފޮންޓެއް ނުފެނުނު. ފޮންޓް ފައިލެއް ލޯޑްކުރޭ.
+	No pages selected	އެއްވެސް ޞަފްޙާއެއް ޚިޔާރުކޮށްފައެއް ނެތް
+	No photo chosen	ފޮޓޯއެއް ޚިޔާރުކޮށްފައެއް ނެތް
+	No preview	ޕްރިވިއުއެއް ނެތް
+	No problems found: the document conforms to {level}.	މައްސަލައެއް ނުފެނުނު: ޑޮކިއުމަންޓް {level} އާ އެއްގޮތް.
+	No security	ސެކިއުރިޓީއެއް ނެތް
+	No sheets	ޝީޓެއް ނެތް
+	No signature was found in the frame. Move the frame over the signature or raise the ink sensitivity.	ފްރޭމުގެ ތެރޭގައި ސޮއިއެއް ނުފެނުނު. ފްރޭމް ސޮއިގެ މައްޗަށް ގެންދާ ނުވަތަ އިންކުގެ ސެންސިޓިވިޓީ އިތުރުކުރޭ.
+	No status has been set.	އެއްވެސް ސްޓޭޓަހެއް ކަނޑައަޅާފައެއް ނެތް.
+	None (prefix only)	ނެތް (ޕްރިފިކްސް އެކަނި)
+	None found	އެއްވެސް އެއްޗެއް ނުފެނުނު
+	None — everything is allowed	ނެތް — ހުރިހާ ކަމެއްގެ ހުއްދަ ހުރި
+	Not allowed	ހުއްދަ ނެތް
+	Not present	ހިމެނިފައެއް ނެތް
+	Nothing to redo	ރީޑޫކުރާނެ އެއްޗެއް ނެތް
+	Nothing to undo	އަންޑޫކުރާނެ އެއްޗެއް ނެތް
+	Number	ނަންބަރު
+	Number of pages	ޞަފްޙާގެ ޢަދަދު
+	Number pages	ޞަފްޙާތަކަށް ނަންބަރު ޖަހާ
+	Odd Pages Only	ހަމަނޫން ޢަދަދުގެ ޞަފްޙާތައް އެކަނި
+	Odd pages only	އެއްކަލަ ޞަފްޙާތައް އެކަނި
+	Offset from centre	މެދުން ދުރުމިން
+	Old file:	ބާ ފައިލް:
+	One word or phrase per line	ކޮންމެ ސަތުރެއްގައި އެއް ބަހެއް ނުވަތަ ޖުމްލައެއް
+	One {f} file per page, named after the document.	ކޮންމެ ޞަފްޙާއަކަށް އެއް {f} ފައިލް، ޑޮކިއުމަންޓްގެ ނަމުގައި.
+	Only change the colour of black text or line art	ކަޅު ލިޔުމާއި ރޮނގު ކުރެހުމުގެ ކުލަ އެކަނި ބަދަލުކުރޭ
+	Only checked properties will change. Mixed means the selected fields have different values.	ބަދަލުވާނީ ޗެކްކޮށްފައިވާ ޕްރޮޕަޓީޒް އެކަނި. "އެކި" ގެ މާނައަކީ ޚިޔާރުކުރެވިފައިވާ ފީލްޑްތަކުގައި ތަފާތު އަގުތައް ހުރުން.
+	Only the page content changes: links, comments, form fields and bookmarks on the original pages stay.	ބަދަލުވަނީ ޞަފްޙާގެ ކޮންޓެންޓް އެކަނި: އަސްލު ޞަފްޙާތަކުގައިވާ ލިންކް، ކޮމެންޓް، ފޯމު ފީލްޑް އަދި ބުކްމާކްތައް ބާކީ ހުންނާނެ.
+	Open	ހުޅުވާ
+	Open a PDF ({key})	PDF އެއް ހުޅުވާ ({key})
+	Open a PDF to measure it.	މިނުމަށް PDF އެއް ހުޅުވާ.
+	Open a document first	ފުރަތަމަ ޑޮކިއުމަންޓެއް ހުޅުވާ
+	Open a web page	ވެބް ޕޭޖެއް ހުޅުވާ
+	Open arrow	ހުޅުވިފައިވާ އެރޯ
+	Open email app	އީމެއިލް އެޕް ހުޅުވާ
+	Open in Full Screen mode	ފުލް ސްކްރީން މޯޑުގައި ހުޅުވާ
+	Open in a new tab	އައު ޓެބެއްގައި ހުޅުވާ
+	Open link	ލިންކް ހުޅުވާ
+	Open the file as it was saved then	އެ ފަހަރު ރައްކާކުރި ގޮތަށް ފައިލް ހުޅުވާ
+	Open the older version first	ފުރަތަމަ ބާ ވަރޝަން ހުޅުވާ
+	Open this web page?	މި ވެބް ޕޭޖް ހުޅުވަންތޯ؟
+	Open to page	ހުޅުވާނީ މި ޞަފްޙާއަށް
+	Opened, but its security settings don't allow combining. Enter the permissions password.	ހުޅުވިއްޖެ، ނަމަވެސް އޭގެ ސެކިއުރިޓީ ސެޓިންގްސް ގުޅުމުގެ ހުއްދަ ނުދޭ. ހުއްދަތަކުގެ ޕާސްވޯޑް ޖައްސަވާ.
+	Opens the printer driver's preferences. They are saved for every print from this computer; the copies, two-sided, grayscale and paper chosen here still apply.	ޕްރިންޓަރ ޑްރައިވަރުގެ ސެޓިންގްސް ހުޅުވާ. އެއީ މި ކޮމްޕިއުޓަރުން ކުރާ ކޮންމެ ޕްރިންޓަކަށް ރައްކާވާނެ؛ މިތަނުން ޚިޔާރުކުރާ ކޮޕީ، ދެފުށް، ގްރޭސްކޭލް އަދި ކަރުދާސް ވެސް ހިނގާނެ.
+	Optimizing… cleaning up	އޮޕްޓިމައިޒްކުރަނީ… ސާފުކުރަނީ
+	Optimizing… image {d} of {t}	އޮޕްޓިމައިޒްކުރަނީ… {t} އިން {d} ވަނަ ފޮޓޯ
+	Optimizing… merging identical objects	އޮޕްޓިމައިޒްކުރަނީ… އެއްގޮތް އޮބްޖެކްޓްތައް ގުޅަނީ
+	Optimizing… removing user data	އޮޕްޓިމައިޒްކުރަނީ… ޔޫޒަރ ޑޭޓާ ނައްތާލަނީ
+	Optimizing… writing the copy	އޮޕްޓިމައިޒްކުރަނީ… ކޮޕީ ލިޔަނީ
+	Optional: needs an AI provider you configure	އިޚްތިޔާރީ: ތިބާ ސެޓްކުރާ AI ޕްރޮވައިޑަރެއް ބޭނުންވޭ
+	Options…	އޮޕްޝަންތައް…
+	Organization Name	އޯގަނައިޒޭޝަންގެ ނަން
+	Organizational Unit	އޯގަނައިޒޭޝަނަލް ޔުނިޓް
+	Orientation:	އޮރިއެންޓޭޝަން:
+	Original	އަސްލު
+	Original: replace pages	އަސްލު: ޞަފްޙާތައް ބަދަލުކުރޭ
+	Other colour…	އެހެން ކުލައެއް…
+	Outdent	އައުޓްޑެންޓްކުރޭ
+	Output	އައުޓްޕުޓް
+	Output appears here.	އައުޓްޕުޓް މިތަނުގައި ފެންނާނެ.
+	Output intent: {list}	އައުޓްޕުޓް އިންޓެންޓް: {list}
+	Overlap:	އޯވަރލެޕް:
+	Owner password (no restrictions apply)	އޯނަރ ޕާސްވޯޑް (އެއްވެސް ހަނިކުރުމެއް ނުހިނގާ)
+	PDF Optimizer	PDF އޮޕްޓިމައިޒަރ
+	PDF or image	PDF ނުވަތަ ފޮޓޯ
+	PDF page: {size}	PDF ޞަފްޙާ: {size}
+	PDF scale: {scale}%	PDF ސްކޭލް: {scale}%
+	PDF, images and text	PDF، ފޮޓޯ އަދި ލިޔުން
+	Page Only	ޞަފްޙާ އެކަނި
+	Page Range Options	ޞަފްޙާ ރޭންޖުގެ އޮޕްޝަންތައް
+	Page Sizing & Handling	ޞަފްޙާގެ ސައިޒާއި ހެންޑްލިންގް
+	Page background	ޞަފްޙާގެ ބެކްގްރައުންޑް
+	Page display: {layout}	ޞަފްޙާ ދައްކާ ގޮތް: {layout}
+	Page layout	ޞަފްޙާގެ ލޭއައުޓް
+	Page navigation	ޞަފްޙާ ނެވިގޭޝަން
+	Page number	ޞަފްޙާ ނަންބަރު
+	Page order:	ޞަފްޙާތަކުގެ ތަރުތީބު:
+	Page size	ޞަފްޙާގެ ސައިޒު
+	Page {label}	ޞަފްޙާ {label}
+	Page {p} of {n}	{n} އިން ޞަފްޙާ {p}
+	Pages Panel and Page	ޞަފްޙާތަކުގެ ޕެނަލާއި ޞަފްޙާ
+	Pages from	ޞަފްޙާތައް، މިއިން
+	Pages of {name} to combine, e.g. 1-3, 6	ގުޅާނެ {name} ގެ ޞަފްޙާތައް، މިސާލަކަށް 1-3, 6
+	Pages per file	ކޮންމެ ފައިލެއްގެ ޞަފްޙާ
+	Pages per sheet:	ކޮންމެ ޝީޓެއްގެ ޞަފްޙާ:
+	Pages to Print	ޕްރިންޓްކުރާ ޞަފްޙާތައް
+	Pages:	ޞަފްޙާތައް:
+	Pages: {k} of {n}	ޞަފްޙާތައް: {n} އިން {k}
+	Paper:	ކަރުދާސް:
+	Part of	މީގެ ބައެއް
+	Password	ޕާސްވޯޑް
+	Password required	ޕާސްވޯޑް ބޭނުންވޭ
+	Password security	ޕާސްވޯޑް ސެކިއުރިޓީ
+	Password-protected	ޕާސްވޯޑުން ރައްކާތެރިކޮށްފައި
+	Paste after	ފަހަތުގައި ޕޭސްޓްކުރޭ
+	Paths	ޕާތުތައް
+	Pattern	ޕެޓަރން
+	Patterns	ޕެޓަރންތައް
+	Patterns (graphics objects)	ޕެޓަރންތައް (ގްރެފިކްސް އޮބްޖެކްޓްތައް)
+	PdfCraft didn't shut down normally. These documents had changes that were autosaved:	PdfCraft އާދައިގެ ގޮތުން ބަންދު ނުވި. މި ޑޮކިއުމަންޓްތަކުގައި އޮޓޯކޮށް ރައްކާވި ބަދަލުތައް ހުރި:
+	PdfCraft works offline. No telemetry, no account, and no cloud processing unless you add a provider.	PdfCraft މަސައްކަތްކުރަނީ އޮފްލައިންކޮށް. ޓެލެމެޓްރީއެއް، އެކައުންޓެއް، އަދި ތިބާ ޕްރޮވައިޑަރެއް އިތުރުނުކުރާހާ ހިނދަކު ކްލައުޑް ޕްރޮސެސިންގެއް ނެތް.
+	PdfCraft {c} is up to date.	PdfCraft {c} އަޕްޑޭޓްވެފައި.
+	PdfCraft {v} is available.	PdfCraft {v} މިހާރު ލިބެން ހުރި.
+	Percentage	ޕަސެންޓޭޖް
+	Permissions password	ހުއްދަތަކުގެ ޕާސްވޯޑް
+	Permitted actions after certifying	ސެޓްފައިކުރުމަށްފަހު ހުއްދަ ކަންތައްތައް
+	Photo	ފޮޓޯ
+	Pick a tool in the quick bar, or type above.	ކުއިކް ބާރުން ޓޫލެއް ޚިޔާރުކުރޭ، ނުވަތަ މަތީގައި ލިޔޭ.
+	Pictures on those pages are recognized too; words already in the page's text are not added again	އެ ޞަފްޙާތަކުގައިވާ ފޮޓޯތައްވެސް ދެނެގަނެވޭނެ؛ ޞަފްޙާގެ ލިޔުމުގައި ކުރިން ހުރި ބަސްތައް އަލުން އިތުރެއް ނުކުރެވޭނެ
+	Pin a folder to Home	ހޯމަށް ފޯލްޑަރެއް ޕިންކުރޭ
+	Pin a folder to list its newest PDFs here, such as where your scanner or a synced cloud drive saves them.	ފޯލްޑަރެއް ޕިންކުރުމުން އޭގެ އެންމެ އާ PDF ތައް މިތާނގައި ދައްކާނެ، މިސާލަކަށް ތިބާގެ ސްކޭނަރު ނުވަތަ ސިންކްކުރާ ކްލައުޑް ޑްރައިވް ފައިލް ރައްކާކުރާ ތަން.
+	Pin a folder…	ފޯލްޑަރެއް ޕިންކުރޭ…
+	Plain text in reading order; pages are separated by form feeds.	ކިޔާ ތަރުތީބުން ސާދާ ލިޔުން؛ ޞަފްޙާތައް ވަކިކުރެވިފައިވަނީ ފޯމް ފީޑުންނެވެ.
+	Planned	ރޭވިފައި
+	Planned for milestone	މައިލްސްޓޯނަށް ރޭވިފައި
+	Points from the page's bottom-left corner.	ޞަފްޙާގެ ތިރި ވާތް ކަނުން ފެށިގެން ޕޮއިންޓް.
+	Portrait	ޕޯޓްރެއިޓް
+	Portrait Pages	ޕޯޓްރެއިޓް ޞަފްޙާތައް
+	Post	ޕޯސްޓްކުރޭ
+	Poster	ޕޯސްޓަރ
+	Prefix	ޕްރިފިކްސް
+	Preview	ޕްރިވިއު
+	Preview unavailable: {e}	ޕްރިވިއު ނުލިބޭ: {e}
+	Preview: page {p} of {n}	ޕްރިވިއު: ޞަފްޙާ {p} / {n}
+	Previous ({key})	ކުރީގެ ({key})
+	Previous / next page	ކުރީގެ / ދެން އޮތް ޞަފްޙާ
+	Previous figure	ކުރީގެ ފިގަރ
+	Previous month	ކުރީގެ މަސް
+	Previous page	ކުރީގެ ޞަފްޙާ
+	Previous sheet	ކުރީގެ ޝީޓް
+	Previous view	ކުރީގެ ވިއު
+	Print ({key})	ޕްރިންޓްކުރޭ ({key})
+	Print in grayscale	ގްރޭސްކޭލްކޮށް ޕްރިންޓްކުރޭ
+	Print page border	ޞަފްޙާގެ ބޯޑަރު ޕްރިންޓްކުރޭ
+	Print, NextPage, PrevPage, FirstPage or LastPage	Print، NextPage، PrevPage، FirstPage ނުވަތަ LastPage
+	Printer paper and scaling may differ. Check driver settings.	ޕްރިންޓަރުގެ ކަރުދާހާއި ސްކޭލިންގ ތަފާތުވެދާނެ. ޑްރައިވަރ ސެޓިންގްސް ބައްލަވާ.
+	Printer properties	ޕްރިންޓަރުގެ ޕްރޮޕަޓީޒް
+	Printer:	ޕްރިންޓަރ:
+	Printing allowed	ޕްރިންޓްކުރުމުގެ ހުއްދަ ލިބިފައި
+	Privacy	ޕްރައިވެސީ
+	Properties…	ޕްރޮޕަޓީޒް…
+	Protect Using Password	ޕާސްވޯޑުން ރައްކާތެރިކުރޭ
+	Protected: the combined file won't keep its security settings	ރައްކާތެރިކޮށްފައި: ގުޅާލާ ފައިލުގައި އޭގެ ސެކިއުރިޓީ ސެޓިންގްސް ނުހުންނާނެ
+	Quality	ކޮލިޓީ
+	Read Only	ކިޔުމަށް އެކަނި
+	Reading colours	ކިޔާ ކުލަތައް
+	Ready	ތައްޔާރު
+	Reason	ސަބަބު
+	Recent	ފަހުގެ
+	Recent colours	ފަހުން ބޭނުންކުރި ކުލަތައް
+	Recognize Text	ލިޔުން ދެނެގަނޭ
+	Recognized 1 word	1 ބަސް ދެނެގަނެވުނު
+	Recognized {n} words	{n} ބަސް ދެނެގަނެވުނު
+	Recognized {w} words in 1 file	1 ފައިލުން {w} ބަސް ދެނެގަނެވުނު
+	Recognized {w} words in {n} files	{n} ފައިލުން {w} ބަސް ދެނެގަނެވުނު
+	Recognizing text… file {d} of {t}	ލިޔުން ދެނެގަނަމުން… ފައިލް {d} / {t}
+	Recognizing text… page {d} of {t}	ލިޔުން ދެނެގަނަމުން… ޞަފްޙާ {d} / {t}
+	Recommended tools	ހުށަހަޅާ ޓޫލްސް
+	Recover	އަނބުރާ ހޯދާ
+	Recover unsaved documents?	ރައްކާނުކުރާ ޑޮކިއުމަންޓްތައް އަނބުރާ ހޯދަންތޯ؟
+	Redact all	ހުރިހާ ތަނެއް ރިޑެކްޓްކުރޭ
+	Redacted area fill colour:	ރިޑެކްޓްކުރި ސަރަހައްދު ފުރާ ކުލަ:
+	Redaction Tool Properties	ރިޑެކްޝަން ޓޫލްގެ ޕްރޮޕަޓީޒް
+	Redaction code:	ރިޑެކްޝަން ކޯޑް:
+	Reload	އަލުން ލޯޑްކުރޭ
+	Reload documents when their files change on disk	ޑިސްކުގައި ފައިލް ބަދަލުވުމުން ޑޮކިއުމަންޓްތައް އަލުން ލޯޑްކުރޭ
+	Remove checkmark	ޗެކްމާކް ނައްތާލާ
+	Remove invalid links and bookmarks	ބާޠިލް ލިންކްތަކާއި ބުކްމާކްތައް ނައްތާލާ
+	Remove page	ޞަފްޙާ ނައްތާލާ
+	Remove unreferenced named destinations	ރިފަރެންސް ނުކުރާ ނަންދީފައިވާ ޑެސްޓިނޭޝަންތައް ނައްތާލާ
+	Remove unused objects and merge identical ones	ބޭނުން ނުކުރާ އޮބްޖެކްޓްތައް ނައްތާލާ، އެއްގޮތް އޮބްޖެކްޓްތައް ގުޅާ
+	Remove {name}	{name} ނައްތާލާ
+	Remove {name} from Recent	ފަހުގެ ލިސްޓުން {name} ނައްތާލާ
+	Remove {n} files	ފައިލް {n} ނައްތާލާ
+	Remove {n} pages	ޞަފްޙާ {n} ނައްތާލާ
+	Reopen Closed Tab	ބަންދުކުރި ޓެބް އަލުން ހުޅުވާ
+	Reopen the files that were open when PdfCraft last closed	PdfCraft ފަހުން ބަންދުކުރި ހިނދު ހުޅުވިފައި ހުރި ފައިލްތައް އަލުން ހުޅުވާ
+	Repair log	ރިޕެއާ ލޮގް
+	Repeat overlay text	އޯވަރލޭ ލިޔުން ތަކުރާރުކުރޭ
+	Replace Image…	ފޮޓޯ ބަދަލުކުރޭ…
+	Replace Pages	ޞަފްޙާތައް ބަދަލުކުރޭ
+	Replace document colours	ޑޮކިއުމަންޓުގެ ކުލަތައް ބަދަލުކުރޭ
+	Replace image	ފޮޓޯ ބަދަލުކުރޭ
+	Replacement text	ބަދަލުގައި ލިޔާ ލިޔުން
+	Replacement: pages of {name}	ބަދަލު: {name} ގެ ޞަފްޙާތައް
+	Replaces the existing one on those pages.	އެ ޞަފްޙާތަކުގައި މިހާރު ހުރި އެއްޗާ ބަދަލުކުރާނެ.
+	Report	ރިޕޯޓް
+	Report…	ރިޕޯޓް…
+	Requires user to enter a password for:	މިކަންކަމަށް ބޭނުންކުރާ މީހާ ޕާސްވޯޑް ޖެހުން ލާޒިމު:
+	Reset columns	ކޮލަމްތައް ރީސެޓްކުރޭ
+	Reset page size	ޞަފްޙާގެ ސައިޒު ރީސެޓްކުރޭ
+	Reset to printer defaults	ޕްރިންޓަރުގެ ޑިފޯލްޓަށް ރީސެޓްކުރޭ
+	Resize window to initial page	ފުރަތަމަ ޞަފްޙާއަށް ވިންޑޯގެ ސައިޒު ބަދަލުކުރޭ
+	Resolution	ރިޒޮލިއުޝަން
+	Retain existing	މިހާރު ހުރިގޮތަށް ބާއްވާ
+	Reveal in File Explorer	File Explorer ގައި ދައްކާ
+	Reveal in Finder	Finder ގައި ދައްކާ
+	Reverse closed arrow	އަނބުރާލެވިފައިވާ ބަންދު ތީރު
+	Reverse open arrow	އަނބުރާލެވިފައިވާ ހުޅުވާ ތީރު
+	Reverse pages	ޞަފްޙާތަކުގެ ތަރުތީބު ފުރަގަސްކުރޭ
+	Revert changes	ބަދަލުތައް އަނބުރާލާ
+	Revert to the previously saved version of “{name}”? Changes since then can't be undone afterwards.	“{name}” ކުރިން ރައްކާކުރި ވަރޝަނަށް އަނބުރާ ދާންތޯ؟ އެއަށްފަހު ގެނެވުނު ބަދަލުތައް ފަހުން އަނބުރާ ނުގެނެވޭނެ.
+	Review History	ރިވިއު ހިސްޓްރީ
+	Revisions	ރިވިޒަންތައް
+	Right	ކަނާތް
+	Right Edge	ކަނާތް ކައިރި
+	Rotate Clockwise	ގަޑީގެ ކަށި ދާ ފަރާތަށް އަނބުރާ
+	Rotate Counterclockwise	ގަޑީގެ ކަށި ދާ ފަރާތާ ދެކޮޅަށް އަނބުރާ
+	Rotate Pages	ޞަފްޙާތައް އަނބުރާ
+	Rotate clockwise	ގަޑީގެ ކަށި ދާ ފަރާތަށް އަނބުރާ
+	Rotate counterclockwise	ގަޑީގެ ކަށި ދާ ފަރާތާ ދެކޮޅަށް އަނބުރާ
+	Rotate view	ވިއު އަނބުރާ
+	Rotate view clockwise	ވިއު ގަޑީގެ ކަށި ދާ ފަރާތަށް އަނބުރާ
+	Rotate view clockwise ({key})	ވިއު ގަޑީގެ ކަށި ދާ ފަރާތަށް އަނބުރާ ({key})
+	Rotate view counterclockwise	ވިއު ގަޑީގެ ކަށި ދާ ފަރާތާ ދެކޮޅަށް އަނބުރާ
+	Rotate:	އަނބުރާ:
+	Rotation:	އެނބުރުން:
+	Running action… file {d} of {t}	އެކްޝަން ހިންގަމުން… ފައިލް {d} / {t}
+	Same as interface ({language})	އިންޓަރފޭސް ފަދައިން ({language})
+	Sanitizing removes hidden information from the document: metadata, file attachments, comments, form fields (flattened), hidden text and layers, bookmarks, links, actions and scripts, and private application data.	ސެނިޓައިޒްކުރުމުން ޑޮކިއުމަންޓުން ފޮރުވިފައިވާ މަޢުލޫމާތު ނައްތާލެވޭނެ: މެޓަޑޭޓާ، ފައިލް އެޓޭޗްމަންޓްތައް، ކޮމެންޓްތައް، ފޯމު ފީލްޑްތައް (ފްލެޓްކޮށް)، ފޮރުވިފައިވާ ލިޔުމާއި ލޭޔަރތައް، ބުކްމާކްތައް، ލިންކްތައް، އެކްޝަންތަކާއި ސްކްރިޕްޓްތައް، އަދި އެޕްލިކޭޝަންތަކުގެ ޕްރައިވެޓް ޑޭޓާ.
+	Save & Close	ރައްކާކޮށް ބަންދުކުރޭ
+	Save ({key})	ރައްކާކުރޭ ({key})
+	Save Image As…	ފޮޓޯ އެހެން ނަމެއްގައި ރައްކާކުރޭ…
+	Copy Image	ފޮޓޯ ކޮޕީކުރޭ
+	The image has been copied ({w} × {h} pixels)	ފޮޓޯ ކޮޕީކުރެވިއްޖެ ({w} × {h} ޕިކްސެލް)
+	Couldn't copy the image: {e}	ފޮޓޯ ކޮޕީ ނުކުރެވުނު: {e}
+	Copy Image in Original Format	ފޮޓޯ އަސްލު ފޯމެޓުގައި ކޮޕީކުރޭ
+	The image has been copied as a {ext} file	ފޮޓޯ ކޮޕީކުރެވިއްޖެ {ext} ފައިލެއްގެ ގޮތުގައި
+	The page has changed; select the image again	ޞަފްޙާ ބަދަލުވެއްޖެ؛ ފޮޓޯ އަލުން ޚިޔާރުކުރޭ
+	Save as PDF	PDF ގެ ގޮތުގައި ރައްކާކުރޭ
+	Save attachment…	އެޓޭޗްމަންޓް ރައްކާކުރޭ…
+	Save changes to “{name}” before closing?	ބަންދުކުރުމުގެ ކުރިން “{name}” ގެ ބަދަލުތައް ރައްކާކުރަންތޯ؟
+	Save pages	ޞަފްޙާތައް ރައްކާކުރޭ
+	Save tag properties	ޓެގްގެ ޕްރޮޕަޓީޒް ރައްކާކުރޭ
+	Save the accessibility report	އެކްސެސިބިލިޓީ ރިޕޯޓް ރައްކާކުރޭ
+	Save the document afterwards: saving rewrites the whole file so no trace of the removed content stays in it.	އެއަށްފަހު ޑޮކިއުމަންޓް ރައްކާކުރޭ: ރައްކާކުރުމުން މުޅި ފައިލް އަލުން ލިޔެވޭތީ ނައްތާލި ކަންތައްތަކުގެ އެއްވެސް ނިޝާނެއް އޭގައި ނުހުންނާނެ.
+	Save the document afterwards; saving rewrites the whole file so nothing removed stays in it.	އެއަށްފަހު ޑޮކިއުމަންޓް ރައްކާކުރޭ؛ ރައްކާކުރުމުން މުޅި ފައިލް އަލުން ލިޔެވޭތީ ނައްތާލި އެއްވެސް އެއްޗެއް އޭގައި ނުހުންނާނެ.
+	Save the spreadsheet	ސްޕްރެޑްޝީޓް ރައްކާކުރޭ
+	Save these pages as one PDF	މި ޞަފްޙާތައް އެއް PDF އެއްގެ ގޮތުގައި ރައްކާކުރޭ
+	Saved measurements	ރައްކާކުރި މިނުންތައް
+	Saved measurements.	މިނުންތައް ރައްކާކުރެވިއްޖެ.
+	Scale relative to target page	ޓާގެޓް ޞަފްޙާއާ ބައްޓަންކޮށް ސްކޭލްކުރޭ
+	Scan	ސްކޭން
+	Script Name:	ސްކްރިޕްޓްގެ ނަން:
+	Script:	ސްކްރިޕްޓް:
+	Scripts run in a sandbox without file or network access. A script that asks to open a web page needs your permission first. With JavaScript off, Acrobat's standard format, validate and calculate functions still work.	ސްކްރިޕްޓްތައް ހިނގަނީ ފައިލް ނުވަތަ ނެޓްވޯކަށް ވަދެވޭ މަގު ނެތް ސޭންޑްބޮކްސެއްގައެވެ. ވެބް ޞަފްޙާއެއް ހުޅުވަން އެދޭ ސްކްރިޕްޓަކަށް ފުރަތަމަ ތިބާގެ ހުއްދަ ބޭނުންވޭ. JavaScript ބަންދުކޮށްފައި ހުރި ނަމަވެސް، Acrobat ގެ ސްޓޭންޑަޑް ފޯމެޓް، ވެލިޑޭޓް އަދި ކަލްކިއުލޭޓް ފަންކްޝަންތައް މަސައްކަތްކުރާނެ.
+	Scroll long text	ދިގު ލިޔުން ސްކްރޯލްކުރޭ
+	Scroll tabs left	ޓެބްތައް ވާތަށް ސްކްރޯލްކުރޭ
+	Scroll tabs right	ޓެބްތައް ކަނާތަށް ސްކްރޯލްކުރޭ
+	Search comments	ކޮމެންޓްތައް ހޯދާ
+	Search tools and commands…	ޓޫލްސް އަދި ކޮމާންޑްތައް ހޯދާ…
+	Searchable Image (Exact)	ހޯދިދާނެ ފޮޓޯ (ސީދާ)
+	Searching… {s} of {p} pages	ހޯދަމުން… ޞަފްޙާ {p} ން {s}
+	Searching… {s}/{p}	ހޯދަމުން… {s}/{p}
+	Security	ސެކިއުރިޓީ
+	Security settings	ސެކިއުރިޓީ ސެޓިންގްސް
+	Select (V)	ޚިޔާރުކުރޭ (V)
+	Select Action:	އެކްޝަން ޚިޔާރުކުރޭ:
+	Select All	ހުރިހާ އެއްޗެއް ޚިޔާރުކުރޭ
+	Select Icon	އައިކަން ޚިޔާރުކުރޭ
+	Select Trigger:	ޓްރިގަރ ޚިޔާރުކުރޭ:
+	Select a file first	ފުރަތަމަ ފައިލެއް ޚިޔާރުކުރޭ
+	Select a file for the stamp	ސްޓޭމްޕަށް ފައިލެއް ޚިޔާރުކުރޭ
+	Select a password-protected file first	ފުރަތަމަ ޕާސްވޯޑުން ރައްކާތެރިކޮށްފައިވާ ފައިލެއް ޚިޔާރުކުރޭ
+	Select a word	ބަހެއް ޚިޔާރުކުރޭ
+	Select all pages (Organize)	ހުރިހާ ޞަފްޙާއެއް ޚިޔާރުކުރޭ (ތަރުތީބުކުރުން)
+	Select at most 1000 objects at a time.	އެއްފަހަރާ ގިނަވެގެން 1000 އޮބްޖެކްޓް ޚިޔާރުކުރޭ.
+	Select data files to merge	ގުޅާލަން ޑޭޓާ ފައިލްތައް ޚިޔާރުކުރޭ
+	Select format category:	ފޯމެޓްގެ ބާވަތް ޚިޔާރުކުރޭ:
+	Select page {label}	ޞަފްޙާ {label} ޚިޔާރުކުރޭ
+	Select pages	ޞަފްޙާތައް ޚިޔާރުކުރޭ
+	Select the items to remove from this document.	މި ޑޮކިއުމަންޓުން ނައްތާލަން ބޭނުންވާ އެއްޗެހި ޚިޔާރުކުރޭ.
+	Selected image files: {count}	ޚިޔާރުކުރެވިފައިވާ ފޮޓޯ ފައިލް: {count}
+	Selected pages	ޚިޔާރުކުރެވިފައިވާ ޞަފްޙާތައް
+	Selection	ޚިޔާރުކުރެވިފައިވާ ބައި
+	Sending to {printer}…	{printer} އަށް ފޮނުވަމުން…
+	Sending sheet {s} of {n} to {printer}…	{printer} އަށް ޝީޓް {s} / {n} ފޮނުވަމުން…
+	Sensitivity	ސެންސިޓިވިޓީ
+	Sent to {printer}	{printer} އަށް ފޮނުވައިފި
+	Sent to {printer}: {msg}	{printer} އަށް ފޮނުވައިފި: {msg}
+	Separator style:	ވަކިކުރާ ނިޝާނުގެ ސްޓައިލް:
+	Set Alternate Text	އޯލްޓަނޭޓް ލިޔުން ކަނޑައަޅާ
+	Set Fields to Same Size	ފީލްޑްތައް އެއް ސައިޒަކަށް ހަދާ
+	Set Page Boxes	ޞަފްޙާގެ ބޮކްސްތައް ކަނޑައަޅާ
+	Set layer visibility	ލޭޔަރ ފެންނަ ގޮތް ކަނޑައަޅާ
+	Set status	ހާލަތު ކަނޑައަޅާ
+	Set to current page ({n})	މިހާރުގެ ޞަފްޙާއަށް ހަދާ ({n})
+	Set to zero	0 އަށް ހަދާ
+	Shared Field Properties	ހިއްސާކުރާ ފީލްޑްގެ ޕްރޮޕަޓީޒް
+	Sheet {s} of {n}	ޝީޓް {s} / {n}
+	Shift constrains to 45 degrees. Backspace removes a vertex. Escape cancels.	Shift ފިތާލުމުން 45 ޑިގްރީއަށް ހަނިވޭ. Backspace އިން ކަނެއް ނައްތާލެވޭ. Escape އިން ކެންސަލްވޭ.
+	Shift- or Ctrl/Command-click to select several fields.	ގިނަ ފީލްޑް ޚިޔާރުކުރުމަށް Shift ނުވަތަ Ctrl/Command ފިތައިގެން ކްލިކްކުރޭ.
+	Shift-click to select several objects. Drag empty space to select an area.	ގިނަ އޮބްޖެކްޓް ޚިޔާރުކުރުމަށް Shift ފިތައިގެން ކްލިކްކުރޭ. ސަރަހައްދެއް ޚިޔާރުކުރުމަށް ހުސް ތަނުގައި ޑްރެގްކުރޭ.
+	Show Report	ރިޕޯޓް ދައްކާ
+	Show all	ހުރިހާ އެއްޗެއް ދައްކާ
+	Show all comments	ހުރިހާ ކޮމެންޓެއް ދައްކާ
+	Show certificate…	ސެޓްފިކެޓް ދައްކާ…
+	Show layer	ލޭޔަރ ދައްކާ
+	Show less	މަދުން ދައްކާ
+	Show password	ޕާސްވޯޑް ދައްކާ
+	Show the accessibility report	އެކްސެސިބިލިޓީ ރިޕޯޓް ދައްކާ
+	Show this dialog when the Checker starts	ޗެކަރ ފަށާއިރު މި ޑައިލޮގް ދައްކާ
+	Show {n} more	އިތުރު {n} ދައްކާ
+	Show:	ދައްކާ:
+	Shrink oversized pages	ބޮޑުވާ ޞަފްޙާތައް ކުޑަކުރޭ
+	Sign Here	މިތާނގައި ސޮއިކުރޭ
+	Sign this field…	މި ފީލްޑްގައި ސޮއިކުރޭ…
+	Sign yourself	އަމިއްލައަށް ސޮއިކުރޭ
+	Signature Details	ސޮއީގެ ތަފްޞީލު
+	Signature is INVALID:	ސޮއި ބާޠިލް:
+	Signature is valid:	ސޮއި ޞައްޙަ:
+	Signature panel	ސޮއީގެ ޕެނަލް
+	Signature validity is UNKNOWN:	ސޮއި ޞައްޙަކަން ނޭނގޭ:
+	Signer's name	ސޮއިކުރި މީހާގެ ނަން
+	Simplified field notation:	ފަސޭހަކޮށްފައިވާ ފީލްޑް ނޮޓޭޝަން:
+	Single Page	އެއް ޞަފްޙާ
+	Single Page Continuous	އެއް ޞަފްޙާ، ކުރިއަށް ދާގޮތަށް
+	Single word or phrase	އެއް ބަހެއް ނުވަތަ ޖުމްލައެއް
+	Skip Rule	ރޫލް ދޫކޮށްލާ
+	Skipped	ދޫކޮށްލެވިފައި
+	Slash	ސްލޭޝް
+	Smaller pages	ކުޑަ ޞަފްޙާތައް
+	Snap to drawing	ޑްރޯއިންގްއަށް ސްނެޕްކުރޭ
+	Some bookmarks are not shown here: the panel lists a limited number, nested a limited depth.	ބައެއް ބުކްމާކްތައް މިތާނގައި ނުދައްކާ: ޕެނަލުގައި ދައްކަނީ ލިމިޓެއް ހުރި އަދަދަކާއި، ލިމިޓެއް ހުރި ފުންމިނެއްގެ ނެސްޓިންގ އެކަނި.
+	Some page content couldn't be read; snapping uses the rest.	ޞަފްޙާގެ ބައެއް ކޮންޓެންޓް ނުކިޔެވުނު؛ ސްނެޕިންގ ބޭނުންކުރަނީ ބާކީ ބައި.
+	Sort by	ތަރުތީބުކުރާ ގޮތް
+	Sort comments by:	ކޮމެންޓްތައް ތަރުތީބުކުރާ ގޮތް:
+	Sort items	އެއްޗެހި ތަރުތީބުކުރޭ
+	Source	ސޯސް
+	Space Audit	ޖާގައިގެ އޯޑިޓް
+	Special	ޚާއްޞަ
+	Split document	ޑޮކިއުމަންޓް ބައިކުރޭ
+	Split into files…	ފައިލްތަކަށް ބައިކުރޭ…
+	Square	ހަތަރެސްކަން
+	Standard Business	ސްޓޭންޑަޑް ބިޒްނަސް
+	Start	ފަށާ
+	Start Checking	ޗެކްކުރަން ފަށާ
+	Start page number	ފަށާ ޞަފްޙާގެ ނަންބަރު
+	Status	ހާލަތު
+	Steps	ފިޔަވަޅުތައް
+	Strength: {s}	ވަރު: {s}
+	Style	ސްޓައިލް
+	Subject	މައުޟޫޢު
+	Subset	ސަބްސެޓް
+	Summarize Options	ޚުލާޞާކުރުމުގެ އޮޕްޝަންތައް
+	Summary	ޚުލާޞާ
+	Switch to List view to change the pages it takes.	އެ ނަގާ ޞަފްޙާތައް ބަދަލުކުރުމަށް ލިސްޓް ވިއުއަށް ބަދަލުވޭ.
+	Switch to two-page view first to show the cover page	ކަވަރ ޞަފްޙާ ދެއްކުމަށް ފުރަތަމަ ދެ ޞަފްޙާގެ ވިއުއަށް ބަދަލުވޭ
+	Tab order: move a field with its arrows.	ޓެބް ތަރުތީބު: ފީލްޑެއް ގެންދެވޭނީ އޭގެ ތީރުތަކުން.
+	Tag type	ޓެގްގެ ބާވަތް
+	Tags	ޓެގްތައް
+	Text Color:	ލިޔުމުގެ ކުލަ:
+	Text alignment:	ލިޔުމުގެ އެލައިންމަންޓް:
+	Text in images isn't found; recognise text (OCR) first.	ފޮޓޯތަކުގައިވާ ލިޔުން ނުފެނޭ؛ ފުރަތަމަ ލިޔުން ދެނެގަނޭ (OCR).
+	Text is compared word by word; the differences are shown on the new file.	ލިޔުން އަޅާކިޔަނީ ބަހުން ބަހަށް؛ ތަފާތުތައް ދައްކަނީ އާ ފައިލުގައި.
+	Text recognition isn't installed: its model files are missing. Reinstall PdfCraft, or set PDFCRAFT_MODELS to the folder that holds them.	ލިޔުން ދެނެގަތުން އިންސްޓޯލްކޮށްފައެއް ނުވޭ: އޭގެ މޮޑެލް ފައިލްތައް ނެތް. PdfCraft އަލުން އިންސްޓޯލްކުރޭ، ނުވަތަ އެ ފައިލްތައް ހުރި ފޯލްޑަރަށް PDFCRAFT_MODELS ކަނޑައަޅާ.
+	Text to find	ހޯދާ ލިޔުން
+	Text to insert	ވައްދާ ލިޔުން
+	Text used as a clipping path cannot be moved with this selection.	ކްލިޕިންގ ޕާތެއްގެ ގޮތުގައި ބޭނުންކުރާ ލިޔުން މި ޚިޔާރާއެކު ނުގެންދެވޭނެ.
+	Text, marks and signatures become part of the page. Other comments stay editable.	ލިޔުމާއި، މާކްތަކާއި، ސޮއިތައް ޞަފްޙާގެ ބައެއް ވެގެންދާނެ. އެހެން ކޮމެންޓްތައް އެޑިޓްކުރެވޭނެ.
+	Thai and Arabic use regular fallback fonts when available.	ތައި އަދި ޢަރަބި ބަހަށް، ލިބެން ހުރިނަމަ އާންމު ފޯލްބެކް ފޮންޓްތައް ބޭނުންކުރާނެ.
+	The PDF text fonts can't draw “{c}” ({code}). Choose supported text.	PDF ލިޔުމުގެ ފޮންޓްތަކަށް “{c}” ({code}) ނުކުރެހޭނެ. ސަޕޯޓްކުރާ ލިޔުމެއް ޚިޔާރުކުރޭ.
+	The checker found 1 problem which may prevent the document from being fully accessible.	ޑޮކިއުމަންޓް ފުރިހަމައަށް އެކްސެސިބަލް ނުވުމަށް ސަބަބުވެދާނެ 1 މައްސަލައެއް ޗެކަރަށް ފެނިއްޖެ.
+	The checker found no problems in this document.	ޗެކަރަށް މި ޑޮކިއުމަންޓުގައި އެއްވެސް މައްސަލައެއް ނުފެނުނު.
+	The checker found {n} problems which may prevent the document from being fully accessible.	ޑޮކިއުމަންޓް ފުރިހަމައަށް އެކްސެސިބަލް ނުވުމަށް ސަބަބުވެދާނެ {n} މައްސަލަ ޗެކަރަށް ފެނިއްޖެ.
+	The document now conforms to {level}; save it to keep the changes	ޑޮކިއުމަންޓް މިހާރު {level} އާ އެއްގޮތް؛ ބަދަލުތައް ބެހެއްޓުމަށް ރައްކާކުރޭ
+	The document opens without a password; this password is needed to change the restrictions. It's applied when you save.	ޑޮކިއުމަންޓް ހުޅުވެނީ ޕާސްވޯޑެއް ނެތި؛ މި ޕާސްވޯޑް ބޭނުންވަނީ ހަނިކުރުންތައް ބަދަލުކުރުމަށް. މި ލާގޫވާނީ ރައްކާކުރާއިރު.
+	The document's security settings don't allow copying text and images	ޑޮކިއުމަންޓުގެ ސެކިއުރިޓީ ސެޓިންގްސްއިން ލިޔުމާއި ފޮޓޯ ކޮޕީކުރުމުގެ ހުއްދަ ނުދޭ
+	The document's security settings don't allow this change	ޑޮކިއުމަންޓުގެ ސެކިއުރިޓީ ސެޓިންގްސްއިން މި ބަދަލުގެ ހުއްދަ ނުދޭ
+	The existing action will be preserved.	މިހާރު ހުރި އެކްޝަން ބާއްވާނެ.
+	The fonts PdfCraft writes with can't draw “{c}” ({code}), so it shows as ? in every PDF viewer. The text is saved.	PdfCraft ލިޔުމަށް ބޭނުންކުރާ ފޮންޓްތަކަށް “{c}” ({code}) ނުކުރެހޭތީ، ހުރިހާ PDF ވިއުއަރެއްގައި އެ ފެންނާނީ ? ގެ ގޮތުގައި. ލިޔުން ރައްކާކުރެވިއްޖެ.
+	The key is in the Windows certificate store, which may ask to allow PdfCraft to use it.	ކީ ހުރީ Windows ސެޓްފިކެޓް ސްޓޯރުގައި، އޭގެ ބޭނުންކުރުމުގެ ހުއްދަ PdfCraft އަށް ދޭން އެއިން ސުވާލުކޮށްފާނެ.
+	The key is in the macOS Keychain, which may ask to allow PdfCraft to use it.	ކީ ހުރީ macOS Keychain ގައި، އޭގެ ބޭނުންކުރުމުގެ ހުއްދަ PdfCraft އަށް ދޭން އެއިން ސުވާލުކޮށްފާނެ.
+	The newest {n} of {total} PDFs	{total} PDF ގެ ތެރެއިން އެންމެ އާ {n}
+	The password is only used to read the file; it isn't saved.	ޕާސްވޯޑް ބޭނުންކުރަނީ ފައިލް ކިޔުމަށް އެކަނި؛ އެ ރައްކާއެއް ނުކުރެވޭ.
+	The printer driver's own settings for this print: paper tray, paper type, finishing and more.	މި ޕްރިންޓަށް ޕްރިންޓަރ ޑްރައިވަރުގެ އަމިއްލަ ސެޓިންގްސް: ކަރުދާސް ޓްރޭ، ކަރުދާހުގެ ބާވަތް، ފިނިޝިންގ އަދި އިތުރު.
+	The replacement file doesn't have that many pages.	ބަދަލުގައި ބޭނުންކުރާ ފައިލުގައި އެހާ ގިނަ ޞަފްޙާ ނެތް.
+	The same password is tried on each file.	ކޮންމެ ފައިލަކަށް އެއް ޕާސްވޯޑް ޖައްސައި ބަލާނެ.
+	The signature will be invisible.	ސޮއި ނުފެންނާނެ.
+	The text is the same	ލިޔުން އެއްގޮތް
+	The value is shown as typed.	އަގު ދައްކަނީ ލިޔުނު ގޮތަށް.
+	There are no redaction marks (mark text, areas or pages first)	ރިޑެކްޝަން މާކެއް ނެތް (ފުރަތަމަ ލިޔުން، ސަރަހައްދު ނުވަތަ ޞަފްޙާ މާކްކުރޭ)
+	These files can't be read, so they won't be in the combined PDF:	މި ފައިލްތައް ނުކިޔެވޭތީ ގުޅާލާ PDF ގައި ނުހިމެނޭނެ:
+	These objects could not be moved. Select them again and try a smaller move.	މި އޮބްޖެކްޓްތައް ނުގެންދެވުނު. އަލުން ޚިޔާރުކޮށް ކުޑަ މިންވަރަކަށް ގެންދާން މަސައްކަތްކުރޭ.
+	Thick	ފަޅު
+	Thickness	ފަޅުމިން
+	Thin	ތުނި
+	This area has too many overlapping paths; intersection snapping is limited.	މި ސަރަހައްދުގައި އެއްމަތީގައި އަނެއް ހުރި ޕާތް ގިނަވާތީ، ކްރޮސްވާ ތަންތަނަށް ސްނެޕްކުރުން ލިމިޓްކޮށްފައި.
+	This certificate is in your list of trusted certificates.	މި ސެޓްފިކެޓް ހުރީ ތިބާގެ ޓްރަސްޓްކުރާ ސެޓްފިކެޓްތަކުގެ ލިސްޓުގައި.
+	This certificate is not trusted. Signatures made with it show an unknown identity.	މި ސެޓްފިކެޓް ޓްރަސްޓެއް ނުކުރެވޭ. މިއިން ކުރާ ސޮއިތަކުގައި ދައްކާނީ ނޭނގޭ އައިޑެންޓިޓީއެއް.
+	This certificate is trusted through a certificate above it in the chain.	މި ސެޓްފިކެޓް ޓްރަސްޓްކުރެވެނީ ޗެއިނުގައި އޭގެ މަތީގައިވާ ސެޓްފިކެޓެއްގެ ސަބަބުން.
+	This comment's appearance can't be changed yet.	މި ކޮމެންޓްގެ ފެނުން އަދި ބަދަލެއް ނުކުރެވޭ.
+	This dialog shows the details of a certificate and its chain.	މި ޑައިލޮގުގައި ސެޓްފިކެޓެއްގެ އަދި އޭގެ ޗެއިނުގެ ތަފްޞީލު ދައްކައި.
+	This document contains {n} interactive form fields.	މި ޑޮކިއުމަންޓުގައި {n} އިންޓަރެކްޓިވް ފޯމު ފީލްޑް ހިމެނޭ.
+	This document has no comments to flatten	މި ޑޮކިއުމަންޓުގައި ފްލެޓްކުރާނެ ކޮމެންޓެއް ނެތް
+	This document has no document-level scripts.	މި ޑޮކިއުމަންޓުގައި ޑޮކިއުމަންޓް ލެވެލްގެ ސްކްރިޕްޓެއް ނެތް.
+	This document has no editable structure tags.	މި ޑޮކިއުމަންޓުގައި އެޑިޓްކުރެވޭ ސްޓްރަކްޗަރ ޓެގެއް ނެތް.
+	This document has no form fields to flatten	މި ޑޮކިއުމަންޓުގައި ފްލެޓްކުރާނެ ފޯމު ފީލްޑެއް ނެތް
+	This document has no form fields you can fill in	މި ޑޮކިއުމަންޓުގައި ފުރިދާނެ ފޯމު ފީލްޑެއް ނެތް
+	This document has no pages.	މި ޑޮކިއުމަންޓުގައި ޞަފްޙާއެއް ނެތް.
+	This document has no restrictions to lift	މި ޑޮކިއުމަންޓުގައި ނައްތާލާނެ އެއްވެސް ހަދަބަނދެއް ނެތް
+	This document has no signatures.	މި ޑޮކިއުމަންޓުގައި އެއްވެސް ސޮއިއެއް ނެތް.
+	This document has no tagged figures.	މި ޑޮކިއުމަންޓުގައި ޓެގްކޮށްފައިވާ އެއްވެސް ފިގަރއެއް ނެތް.
+	This document has no {kind} to change	މި ޑޮކިއުމަންޓުގައި ބަދަލުކުރާނެ {kind} ނެތް
+	This document hasn't been checked yet.	މި ޑޮކިއުމަންޓު އަދި ޗެކްކޮށްފައެއް ނުވޭ.
+	This document is secured. Some changes are restricted by its security settings.	މި ޑޮކިއުމަންޓު ސެކިއުރިޓީ ކޮށްފައިވޭ. ބައެއް ބަދަލުތައް ހަދަބަނދުކޮށްފައިވަނީ އޭގެ ސެކިއުރިޓީ ސެޓިންގްސްގެ ސަބަބުންނެވެ.
+	This document isn't password-protected	މި ޑޮކިއުމަންޓަކީ ޕާސްވޯޑެއްގެ ރައްކާތެރިކަން ލިބިފައިވާ އެއްޗެއް ނޫން
+	This drawing exceeds the snapping limit; only the first paths are used.	މި ޑްރޯއިންގް ސްނެޕްކުރުމުގެ ލިމިޓް ފަހަނައަޅައިފި؛ ބޭނުންކުރެވެނީ ފުރަތަމަ ޕާތްތައް އެކަނި.
+	This field is locked. Unlock it to change its properties.	މި ފީލްޑް ލޮކްކޮށްފައިވޭ. އޭގެ ޕްރޮޕަޓީޒް ބަދަލުކުރުމަށް އަންލޮކްކުރޭ.
+	This file changed on disk. Reload it to see the new version; your unsaved changes will be lost.	މި ފައިލް ޑިސްކުގައި ބަދަލުވެއްޖެ. އާ ވަރޝަން ބެލުމަށް ރީލޯޑްކުރޭ؛ ރައްކާނުކުރާ ބަދަލުތައް ގެއްލިގެންދާނެ.
+	This file was damaged and has been repaired. Saving keeps the repaired version.	މި ފައިލް ހަލާކުވެފައިވާތީ ރިޕެއާކޮށްފިއެވެ. ރައްކާކުރުމުން ރިޕެއާކުރި ވަރޝަން ރައްކާވާނެ.
+	This folder isn't available right now. It may have moved, or its drive or cloud sync is offline.	މި ފޯލްޑަރ މިވަގުތު ލިބެން ނެތް. އެ ގެންގޮސްފައި ވެދާނެ، ނުވަތަ އޭގެ ޑްރައިވް ނުވަތަ ކްލައުޑް ސިންކް އޮފްލައިންވެފައި ވެދާނެ.
+	This form's scripts are turned off because one ran too long. Reopen the document to run them again.	މި ފޯމުގެ ސްކްރިޕްޓްތައް ބަންދުކޮށްފައިވަނީ އެއް ސްކްރިޕްޓެއް ވަރަށް ދިގުކޮށް ދުވީތީއެވެ. އެނބުރި ދުއްވުމަށް ޑޮކިއުމަންޓު އަލުން ހުޅުވާ.
+	This is a dynamic XFA form, which PdfCraft can't display yet. What you see is the file's placeholder page.	މިއީ PdfCraft އަށް އަދި ދައްކައެއް ނުލެވޭ ޑައިނަމިކް XFA ފޯމެކެވެ. ފެންނަނީ ފައިލްގެ ޕްލޭސްހޯލްޑަރ ޞަފްޙާއެވެ.
+	This measurement needs at least {n} points.	މި މިނުމަށް މަދުވެގެން {n} ޕޮއިންޓް ބޭނުންވޭ.
+	This page contains objects that cannot be selected together.	މި ޞަފްޙާގައި އެކުގައި ޚިޔާރުނުކުރެވޭނެ އެއްޗެހި ހުރި.
+	This page couldn't be displayed.\n{e}	މި ޞަފްޙާ ދައްކައެއް ނުލެވުނު.\n{e}
+	This printer offers no settings of its own.	މި ޕްރިންޓަރުގައި އޭގެ އަމިއްލަ ސެޓިންގްސް އެއްވެސް ނެތް.
+	This printer's driver doesn't take two-sided settings from other programs, so its own setting applies. Change it in Properties…	މި ޕްރިންޓަރުގެ ޑްރައިވަރު އެހެން ޕްރޮގްރާމްތަކުން ދެފުށް ސެޓިންގްސް ނުނަގާތީ، އޭގެ އަމިއްލަ ސެޓިންގް ހިނގާނެ. އެ ބަދަލުކުރަން ޕްރޮޕަޓީޒް…
+	This web address mixes letters from different alphabets, a common way to imitate another site's name.	މި ވެބް އެޑްރެހުގައި އެކި އަކުރުތަކުގެ އަކުރު އެއްކޮށްފައިވޭ، މިއީ އެހެން ސައިޓެއްގެ ނަން ނަކަލުކުރުމަށް ގިނައިން ބޭނުންކުރާ ގޮތެކެވެ.
+	This web address uses letters from another alphabet, which can look like familiar ones.	މި ވެބް އެޑްރެހުގައި ބޭނުންކޮށްފައިވަނީ އެހެން އަކުރުތަކުގެ އަކުރު، އެއީ ދަންނަ އަކުރުތަކާ އެއްގޮތަށް ފެނިދާނެ އަކުރެވެ.
+	Tile scale:	ޓައިލް ސްކޭލް:
+	Time	ވަގުތު
+	Title	ސުރުޚީ
+	To change locked fields, also set Locked to No.	ލޮކްކޮށްފައިވާ ފީލްޑްތައް ބަދަލުކުރުމަށް، Locked ވެސް ނޫން ކަމަށް ސެޓްކުރޭ.
+	To:	އަށް:
+	Today: {date}	މިއަދު: {date}
+	Toggle fit page / fit width	ޞަފްޙާ ފިޓްކުރޭ / ފުޅާމިނަށް ފިޓްކުރޭ ބަދަލުކުރޭ
+	Tool	ޓޫލް
+	Tools panel side	ޓޫލްސް ޕެނަލްގެ ފަރާތް
+	Tooltip:	ޓޫލްޓިޕް:
+	Top	މަތި
+	Top-level bookmarks ({n})	މައި ބުކްމާކްތައް ({n})
+	Total	ޖުމްލަ
+	Trust	އިތުބާރު
+	Try the form as people filling it in will see it	ފޯމު ފުރާ މީހުންނަށް ފެންނާނެ ގޮތަށް ފޯމު ޓެސްޓްކޮށްލާ
+	Two-Up (Cover Page)	ދޭތި (ކަވަރ ޞަފްޙާ)
+	Two-Up (Facing)	ދޭތި (ކުރިމަތިލާ)
+	Two-Up Continuous (Cover Page)	ދޭތި ދެމިގެންދާ (ކަވަރ ޞަފްޙާ)
+	Two-Up Continuous (Facing)	ދޭތި ދެމިގެންދާ (ކުރިމަތިލާ)
+	Two-sided:	ދެފުށް:
+	Type	ޓައިޕްކުރޭ
+	Type text	ލިޔުން ޓައިޕްކުރޭ
+	Type the web address.	ވެބް އެޑްރެސް ޓައިޕްކުރޭ.
+	Type your {what}.	ތިބާގެ {what} ޓައިޕްކުރޭ.
+	URL to submit to	ފޮނުވާނެ URL
+	Unit	ޔުނިޓް
+	Units	ޔުނިޓްތައް
+	Unknown author	ނޭނގޭ ލިޔުންތެރިޔާ
+	Unlock	އަންލޮކްކުރޭ
+	Unlock {name}	{name} އަންލޮކްކުރޭ
+	Unlock {n} files	{n} ފައިލް އަންލޮކްކުރޭ
+	Unlocked: the combined file won't be password-protected	އަންލޮކްކޮށްފައި: ގުޅާލާ ފައިލަށް ޕާސްވޯޑެއްގެ ރައްކާތެރިކަމެއް ނުލިބޭނެ
+	Unlock…	އަންލޮކްކުރޭ…
+	Unpin	ޕިން ނައްތާލާ
+	Unpin {folder}	{folder} ގެ ޕިން ނައްތާލާ
+	Unplaced	ނުބެހެއްޓި
+	Unsupported measurements	ސަޕޯޓްނުކުރާ މިނުންތައް
+	Up	މައްޗަށް
+	Update	އަޕްޑޭޓްކުރޭ
+	Use 72 DPI (one point per pixel)	72 DPI ބޭނުންކުރޭ (ކޮންމެ ޕިކްސެލަކަށް އެއް ޕޮއިންޓް)
+	Use Flate to encode streams that are not encoded	އެންކޯޑްނުކުރާ ސްޓްރީމްތައް އެންކޯޑްކުރުމަށް Flate ބޭނުންކުރޭ
+	Use a Digital ID from a file	ފައިލަކުން ޑިޖިޓަލް ID އެއް ބޭނުންކުރޭ
+	Use custom DPI	ކަސްޓަމް DPI ބޭނުންކުރޭ
+	Use each image's embedded DPI; use 72 DPI when it is absent.	ކޮންމެ ފޮޓޯއެއްގެ ތެރޭގައިވާ DPI ބޭނުންކުރޭ؛ އެ ނެތްނަމަ 72 DPI ބޭނުންކުރޭ.
+	Use image resolution	ފޮޓޯގެ ރިޒޮލިއުޝަން ބޭނުންކުރޭ
+	Use now	މިހާރު ބޭނުންކުރޭ
+	Use overlay text	އޯވަރލޭ ލިޔުން ބޭނުންކުރޭ
+	Used when a PDF doesn't ask for a layout or zoom. Continuous scrolling never snaps between pages.	ބޭނުންކުރެވެނީ PDF އަކުން ލޭއައުޓެއް ނުވަތަ ޒޫމެއް ނުއެދޭ ހިނދުއެވެ. ދެމިގެންދާ ސްކްރޯލިންގްގައި ޞަފްޙާތަކުގެ މެދުގައި ސްނެޕް އެއްގޮތަކަށްވެސް ނުވާނެ.
+	Used when opening PDFs. An explicit launch or control mode takes precedence for the session.	ބޭނުންކުރެވެނީ PDF ހުޅުވާ ހިނދުއެވެ. ވަކިން ކަނޑައަޅާފައިވާ ލޯންޗް ނުވަތަ ކޮންޓްރޯލް މޯޑަކަށް ސެޝަނުގައި އިސްކަން ލިބޭނެ.
+	User Interface Options	އިންޓަރފޭސްގެ އޮޕްޝަންތައް
+	User password	ޔޫޒަރ ޕާސްވޯޑް
+	Valid for 5 years, for digital signatures. Self-signed IDs are usually not trusted by others.	5 އަހަރު ދުވަހަށް ޑިޖިޓަލް ސޮއިތަކަށް ބޭނުންކުރެވޭނެ. އަމިއްލައަށް ސޮއިކުރާ ID ތަކަށް އާންމުކޮށް އެހެން މީހުން އިތުބާރު ނުކުރެއެވެ.
+	Validate all	ހުރިހާ ތަކެއްޗެއް ވެލިޑޭޓްކުރޭ
+	Value is not calculated	އަގު ހިސާބު ނުކުރެވޭ
+	Value is the	އަގަކީ
+	Value:	އަގު:
+	Verify	ވެރިފައިކުރޭ
+	Verify to see what the document needs.	ޑޮކިއުމަންޓަށް ބޭނުންވާ އެއްޗެހި ބެލުމަށް ވެރިފައިކުރޭ.
+	Version {v}	ވަރޝަން {v}
+	Vertical	ދިގަށް
+	Vertical reversed	ދިގަށް (ފުރަގަސްކޮށް)
+	Vertical text cannot be moved with this selection.	ދިގަށް ހުރި ލިޔުން މި ޚިޔާރާއެކު ގެންދެވޭކަށް ނެތް.
+	View revision {n}	ރިވިޝަން {n} ބަލާ
+	View signed version	ސޮއިކުރި ވަރޝަން ބަލާ
+	Viewport	ވިއުޕޯޓް
+	Viewport rectangle in page points (x, y, width, height)	ޞަފްޙާ ޕޮއިންޓުން ވިއުޕޯޓް ރެކްޓަންގަލް (x, y, ފުޅާމިން، އުސްމިން)
+	Visible Rectangle	ފެންނަ ރެކްޓަންގަލް
+	Visual	ވިޝުއަލް
+	Warnings	އިންޒާރުތައް
+	Welcome to PdfCraft	PdfCraft އަށް މަރުޙަބާ
+	What word or phrase would you like to search for?	ހޯދަން ބޭނުންވަނީ ކޮން ބަހެއް ނުވަތަ ޖުމްލައެއް؟
+	Whole words only	ފުރިހަމަ ބަސްތައް އެކަނި
+	Width:	ފުޅާމިން:
+	Window Options	ވިންޑޯގެ އޮޕްޝަންތައް
+	Windows store  ·  	Windows ސްޓޯރ  ·  
+	Write this email?	މި އީމެއިލް ލިޔަންތަ؟
+	Wrong password	ޕާސްވޯޑް ނުބައި
+	XFA form: its fields and its XFA data are kept in step, so other viewers show what you fill in.	XFA ފޯމު: އޭގެ ފީލްޑްތަކާއި XFA ޑޭޓާ އެއްގޮތަކަށް ބަހައްޓާތީ، ތިބާ ފުރާ އެއްޗެހި އެހެން ވިއުއަރުތަކުގައިވެސް ފެންނާނެ.
+	You are about to apply 1 redaction mark. Text, images and drawings under the marks, and comments and form fields that overlap them, are removed permanently.	ތިބާ މިދަނީ 1 ރިޑެކްޝަން މާކެއް ހިންގަން. މާކްތަކުގެ ދަށުގައިވާ ލިޔުމާއި، ފޮޓޯއާއި، ޑްރޯއިންގްސް އަދި އެއާ ކައިރިވާ ކޮމެންޓްތަކާއި ފޯމު ފީލްޑްތައް ދާއިމީކޮށް ނައްތާލެވޭނެ.
+	You are about to apply {n} redaction marks. Text, images and drawings under the marks, and comments and form fields that overlap them, are removed permanently.	ތިބާ މިދަނީ {n} ރިޑެކްޝަން މާކް ހިންގަން. މާކްތަކުގެ ދަށުގައިވާ ލިޔުމާއި، ފޮޓޯއާއި، ޑްރޯއިންގްސް އަދި އެއާ ކައިރިވާ ކޮމެންޓްތަކާއި ފޯމު ފީލްޑްތައް ދާއިމީކޮށް ނައްތާލެވޭނެ.
+	You have version {c}. All releases are listed at {page}.	ތިބާގެ ވަރޝަނަކީ {c}. ހުރިހާ ރިލީސްތައް {page} ގައި ލިސްޓްކޮށްފައިވޭ.
+	You have version {c}. Download the new version from its release page.	ތިބާގެ ވަރޝަނަކީ {c}. އާ ވަރޝަން އޭގެ ރިލީސް ޞަފްޙާއިން ޑައުންލޯޑްކުރޭ.
+	Your changes will be lost if you don't save them.	ރައްކާނުކޮށްފިނަމަ ތިބާގެ ބަދަލުތައް ގެއްލިގެންދާނެ.
+	ZIP	ZIP
+	Zoom in	ޒޫމް އިން
+	Zoom in ({key})	ޒޫމް އިން ({key})
+	Zoom in / out (also pinch or {key}-scroll)	ޒޫމް އިން / އައުޓް (ޕިންޗް ނުވަތަ {key}-ސްކްރޯލްވެސް)
+	Zoom out	ޒޫމް އައުޓް
+	Zoom out ({key})	ޒޫމް އައުޓް ({key})
+	already a PDF	މިހާރުވެސް PDF އެއް
+	and {n} more	އަދި {n} އިތުރަށް
+	background	ބެކްގްރައުންޑް
+	characters	އަކުރު
+	e.g. My stamps	މިސާލަކަށް: އަހަރެންގެ ސްޓޭމްޕްތައް
+	e.g. en-US	މިސާލަކަށް: en-US
+	for images above	މަތީގައިވާ ފޮޓޯތަކަށް
+	header or footer	ހެޑަރ ނުވަތަ ފޫޓަރ
+	initials	އިނީޝަލްސް
+	is available	ލިބެން އެބަހުއްޓެވެ
+	is not available yet	އަދި ލިބެން ނެތް
+	just now	މިހާރު
+	yesterday	އިއްޔެ
+	needs an AI provider (off by default)	AI ޕްރޮވައިޑަރެއް ބޭނުންވޭ (ޑިފޯލްޓުގައި ބަންދު)
+	no output folder was chosen	އެއްވެސް އައުޓްޕުޓް ފޯލްޑަރެއް ޚިޔާރުނުކުރެވުނު
+	no unused output name	ބޭނުންނުކުރާ އައުޓްޕުޓް ނަމެއް ނެތް
+	none	ނެތް
+	of the following fields:	ތިރީގައިވާ ފީލްޑްތަކުގެ:
+	AI assistant	AI އެސިސްޓެންޓް
+	Action Wizard	އެކްޝަން ވިޒާޑް
+	Action Wizard…	އެކްޝަން ވިޒާޑް…
+	Actions list	އެކްޝަންތަކުގެ ލިސްޓް
+	Add Bates numbering…	ބޭޓްސް ނަމްބަރިންގް އިތުރުކުރޭ…
+	Add a button	ބަޓަނެއް އިތުރުކުރޭ
+	Add a callout	ކޯލްއައުޓެއް އިތުރުކުރޭ
+	Add a checkbox	ޗެކްބޮކްސެއް އިތުރުކުރޭ
+	Add a date field	ތާރީޚު ފީލްޑެއް އިތުރުކުރޭ
+	Add a digital signature field	ޑިޖިޓަލް ސޮއި ފީލްޑެއް އިތުރުކުރޭ
+	Add a drop-down list	ޑްރޮޕްޑައުން ލިސްޓެއް އިތުރުކުރޭ
+	Add a list box	ލިސްޓް ބޮކްސެއް އިތުރުކުރޭ
+	Add a radio button	ރޭޑިއޯ ބަޓަނެއް އިތުރުކުރޭ
+	Add a stamp	ސްޓޭމްޕެއް އިތުރުކުރޭ
+	Add a sticky note	ސްޓިކީ ނޯޓެއް އިތުރުކުރޭ
+	Add a text box	ޓެކްސްޓް ބޮކްސެއް އިތުރުކުރޭ
+	Add a text field	ޓެކްސްޓް ފީލްޑެއް އިތުރުކުރޭ
+	Add alternate text	ބަދަލު ލިޔުން އިތުރުކުރޭ
+	Add alternate text…	ބަދަލު ލިޔުން އިތުރުކުރޭ…
+	Add an image field	ފޮޓޯ ފީލްޑެއް އިތުރުކުރޭ
+	Add background…	ބެކްގްރައުންޑް އިތުރުކުރޭ…
+	Add comments	ކޮމެންޓް އިތުރުކުރޭ
+	Add content	ކޮންޓެންޓް އިތުރުކުރޭ
+	Add files to combine	ގުޅާލާނެ ފައިލްތައް އިތުރުކުރޭ
+	Add form components	ފޯމުގެ ބައިތައް އިތުރުކުރޭ
+	Add header & footer…	ހެޑަރ އަދި ފޫޓަރ އިތުރުކުރޭ…
+	Add image…	ފޮޓޯ އިތުރުކުރޭ…
+	Add or edit links	ލިންކް އިތުރުކުރޭ ނުވަތަ އެޑިޓްކުރޭ
+	Add printer marks	ޕްރިންޓަރ މާކްސް އިތުރުކުރޭ
+	Add search index	ސާޗް އިންޑެކްސް އިތުރުކުރޭ
+	Add text	ލިޔުން އިތުރުކުރޭ
+	Add watermark…	ވޯޓަރމާކް އިތުރުކުރޭ…
+	Advanced optimization	އިތުރު ފުންކޮށް އޮޕްޓިމައިޒޭޝަން
+	Advanced options	އިތުރު އޮޕްޝަންތައް
+	Apply PDF standards	PDF ސްޓޭންޑަޑްތައް ހިންގާ
+	Apply redactions…	ރިޑެކްޝަންތައް ހިންގާ…
+	Archive documents	ޑޮކިއުމަންޓްތައް އާކައިވްކުރޭ
+	Area	ބޮޑުމިން
+	Arrow	ތީރު
+	ArtCraft website	ArtCraft ވެބްސައިޓް
+	Ask about this document	މި ޑޮކިއުމަންޓާ ބެހޭގޮތުން ސުވާލުކުރޭ
+	Attach a file	ފައިލެއް އެޓޭޗްކުރޭ
+	Attach file	ފައިލް އެޓޭޗްކުރޭ
+	Audit space usage	ޖާގަ ބޭނުންކުރާ ގޮތް ބަލާ
+	Automatically tag PDF	PDF އޮޓޯމެޓިކުން ޓެގްކުރޭ
+	Background	ބެކްގްރައުންޑް
+	Bates numbering	ބޭޓްސް ނަމްބަރިންގް
+	Blank page	ހުސް ޞަފްޙާ
+	Bring your own model (off by default)	އަމިއްލަ މޮޑެލް ބޭނުންކުރޭ (ޑިފޯލްޓުގައި ބަންދު)
+	Button	ބަޓަން
+	Certificates	ސެޓްފިކެޓްތައް
+	Certify (invisible signature)	ސެޓްފައިކުރޭ (ނުފެންނަ ސޮއި)
+	Certify (visible signature)	ސެޓްފައިކުރޭ (ފެންނަ ސޮއި)
+	Change initials	އިނީޝަލްސް ބަދަލުކުރޭ
+	Change reading options	ކިޔުމުގެ އޮޕްޝަންތައް ބަދަލުކުރޭ
+	Change reading options…	ކިޔުމުގެ އޮޕްޝަންތައް ބަދަލުކުރޭ…
+	Change signature	ސޮއި ބަދަލުކުރޭ
+	Check for accessibility	އެކްސެސިބިލިޓީ ޗެކްކުރޭ
+	Check for accessibility…	އެކްސެސިބިލިޓީ ޗެކްކުރޭ…
+	Checkbox	ޗެކްބޮކްސް
+	Checkmark	ޗެކްމާކް
+	Clear form	ފޯމު ސާފުކުރޭ
+	Clear redaction marks	ރިޑެކްޝަން މާކްތައް ސާފުކުރޭ
+	Clipboard	ކްލިޕްބޯޑް
+	Cloud	ކްލައުޑް
+	Column select	ކޮލަމް ޚިޔާރުކުރޭ
+	Combine	ގުޅާ
+	Combine files	ފައިލްތައް ގުޅާ
+	Comment list	ކޮމެންޓްތަކުގެ ލިސްޓް
+	Comments panel	ކޮމެންޓްތަކުގެ ޕެނަލް
+	Compare	އަޅާކިޔާ
+	Compare files	ފައިލްތައް އަޅާކިޔާ
+	Compare files…	ފައިލްތައް އަޅާކިޔާ…
+	Compress a PDF	PDF އެއް ކޮމްޕްރެސްކުރޭ
+	Console	ކޮންސޯލް
+	Convert colors	ކުލަތައް ބަދަލުކުރޭ
+	Copy pages	ޞަފްޙާތައް ކޮޕީކުރޭ
+	Correct recognized text	ދެނެގަނެވުނު ލިޔުން ރަނގަޅުކުރޭ
+	Create a PDF	PDF އެއް ހަދާ
+	Create from	މިއިން ހަދާ
+	Create links from URLs	URL ތަކުން ލިންކް ހަދާ
+	Crop pages	ޞަފްޙާތައް ކްރޮޕްކުރޭ
+	Cross	ކުރުސް
+	Cut pages	ޞަފްޙާތައް ކަޓްކުރޭ
+	Dark gray	ގަދަ ހުއި
+	Date	ތާރީޚު
+	Date field	ތާރީޚު ފީލްޑް
+	Detect form fields	ފޯމު ފީލްޑްތައް ދެނެގަނެ
+	Digital signature	ޑިޖިޓަލް ސޮއި
+	Digitally sign	ޑިޖިޓަލްކޮށް ސޮއިކުރޭ
+	Distance	ދުރުމިން
+	Document JavaScripts	ޑޮކިއުމަންޓް JavaScript ތައް
+	Document JavaScripts…	ޑޮކިއުމަންޓް JavaScript ތައް…
+	Document actions	ޑޮކިއުމަންޓް އެކްޝަންތައް
+	Dot	ތިކި
+	Draw a cloud	ކްލައުޑެއް ކަހާ
+	Draw a line	ރޮނގެއް ކަހާ
+	Draw a polygon	ޕޮލިގޮނެއް ކަހާ
+	Draw a rectangle	ރެކްޓަންގަލެއް ކަހާ
+	Draw an arrow	ތީރެއް ކަހާ
+	Draw an oval	އޯވަލެއް ކަހާ
+	Draw connected lines	ގުޅިފައިވާ ރޮނގުތައް ކަހާ
+	Draw freehand	މިނިވަންކޮށް ކަހާ
+	Drawing	ޑްރޯއިންގް
+	Drawing scale	ޑްރޯއިންގް ސްކޭލް
+	Drop-down list	ޑްރޮޕްޑައުން ލިސްޓް
+	Duplicate pages	ޞަފްޙާތައް ޑުޕްލިކޭޓްކުރޭ
+	Edit a PDF	PDF އެއް އެޑިޓްކުރޭ
+	Edit text & images	ލިޔުމާއި ފޮޓޯ އެޑިޓްކުރޭ
+	Encrypt with certificate	ސެޓްފިކެޓާއެކު އެންކްރިޕްޓްކުރޭ
+	Enhance camera image	ކެމެރާ ފޮޓޯ ރަނގަޅުކުރޭ
+	Enhance scanned file	ސްކޭންކުރި ފައިލް ރަނގަޅުކުރޭ
+	Enter permissions password…	ހުއްދަތަކުގެ ޕާސްވޯޑް ޖައްސާ…
+	Erase drawings	ޑްރޯއިންގްސް ފޮހެލާ
+	Export a PDF	PDF އެއް އެކްސްޕޯޓްކުރޭ
+	Export all comments to data file…	ހުރިހާ ކޮމެންޓެއް ޑޭޓާ ފައިލަކަށް އެކްސްޕޯޓްކުރޭ…
+	Export all images	ހުރިހާ ފޮޓޯއެއް އެކްސްޕޯޓްކުރޭ
+	Export all images…	ހުރިހާ ފޮޓޯއެއް އެކްސްޕޯޓްކުރޭ…
+	Export data	ޑޭޓާ އެކްސްޕޯޓްކުރޭ
+	Export form data…	ފޯމު ޑޭޓާ އެކްސްޕޯޓްކުރޭ…
+	Export measurements	މިނުންތައް އެކްސްޕޯޓްކުރޭ
+	Export measurements as CSV	މިނުންތައް CSV ގޮތުގައި އެކްސްޕޯޓްކުރޭ
+	Export to	އެކްސްޕޯޓްކުރާނީ
+	Export to PowerPoint…	PowerPoint އަށް އެކްސްޕޯޓްކުރޭ…
+	Extract	ވަކިކޮށް ނަގާ
+	Extract pages	ޞަފްޙާތައް ވަކިކޮށް ނަގާ
+	Field list	ފީލްޑްތަކުގެ ލިސްޓް
+	Field properties	ފީލްޑް ޕްރޮޕަޓީޒް
+	Field properties…	ފީލްޑް ޕްރޮޕަޓީޒް…
+	Fields	ފީލްޑްތައް
+	Fill	ފުރާ
+	Fill & Sign: add text	ފުރާ އަދި ސޮއިކުރޭ: ލިޔުން އިތުރުކުރޭ
+	Fill & Sign: change initials	ފުރާ އަދި ސޮއިކުރޭ: އިނީޝަލްސް ބަދަލުކުރޭ
+	Fill & Sign: change signature	ފުރާ އަދި ސޮއިކުރޭ: ސޮއި ބަދަލުކުރޭ
+	Fill & Sign: checkmark	ފުރާ އަދި ސޮއިކުރޭ: ޗެކްމާކް
+	Fill & Sign: cross	ފުރާ އަދި ސޮއިކުރޭ: ކުރުސް
+	Fill & Sign: date	ފުރާ އަދި ސޮއިކުރޭ: ތާރީޚު
+	Fill & Sign: dot	ފުރާ އަދި ސޮއިކުރޭ: ތިކި
+	Fill & Sign: initials	ފުރާ އަދި ސޮއިކުރޭ: އިނީޝަލްސް
+	Fill & Sign: line	ފުރާ އަދި ސޮއިކުރޭ: ރޮނގު
+	Fill & Sign: remove saved initials	ފުރާ އަދި ސޮއިކުރޭ: ރައްކާކުރި އިނީޝަލްސް ނައްތާލާ
+	Fill & Sign: remove saved signature	ފުރާ އަދި ސޮއިކުރޭ: ރައްކާކުރި ސޮއި ނައްތާލާ
+	Fill & Sign: sign	ފުރާ އަދި ސޮއިކުރޭ: ސޮއިކުރޭ
+	Find text and redact	ލިޔުން ހޯދައި ރިޑެކްޓްކުރޭ
+	Find text and redact…	ލިޔުން ހޯދައި ރިޑެކްޓްކުރޭ…
+	Fit to width scrolling	ފުޅާމިނަށް ފިޓްކޮށް ސްކްރޯލްކުރޭ
+	Fit visible	ފެންނަ ބައި ފިޓްކުރޭ
+	Fix hairlines	ހެއާލައިންތައް ރަނގަޅުކުރޭ
+	Fix reading order	ކިޔާ ތަރުތީބު ރަނގަޅުކުރޭ
+	Flatten comments	ކޮމެންޓްތައް ފްލެޓްކުރޭ
+	Flatten form fields	ފޯމު ފީލްޑްތައް ފްލެޓްކުރޭ
+	Form fields panel	ފޯމު ފީލްޑްތަކުގެ ޕެނަލް
+	Geospatial location	ޖިއޮސްޕޭޝަލް ލޮކޭޝަން
+	Go to page…	ޞަފްޙާއަކަށް ދާ…
+	HTML web page	HTML ވެބް ޞަފްޙާ
+	Header and footer	ހެޑަރ އަދި ފޫޓަރ
+	Hide all comments	ހުރިހާ ކޮމެންޓެއް ފޮރުވާ
+	Highlight text	ލިޔުން ހައިލައިޓްކުރޭ
+	Image	ފޮޓޯ
+	Image (PNG)	ފޮޓޯ (PNG)
+	Image field	ފޮޓޯ ފީލްޑް
+	Images	ފޮޓޯތައް
+	Import comments…	ކޮމެންޓްތައް އިމްޕޯޓްކުރޭ…
+	Import data	ޑޭޓާ އިމްޕޯޓްކުރޭ
+	Import form data…	ފޯމު ޑޭޓާ އިމްޕޯޓްކުރޭ…
+	In multiple files	ގިނަ ފައިލްތަކެއްގައި
+	In this file	މި ފައިލްގައި
+	Index	އިންޑެކްސް
+	Initials	އިނީޝަލްސް
+	Insert	ވައްދާ
+	Insert pages	ޞަފްޙާތައް ވައްދާ
+	Insert text	ލިޔުން ވައްދާ
+	JavaScript	JavaScript
+	JavaScript console…	JavaScript ކޮންސޯލް…
+	Join the ArtCraft Discord	ArtCraft Discord ގައި ބައިވެރިވޭ
+	Light gray	ލުއި ހުއި
+	Line	ރޮނގު
+	Link	ލިންކް
+	List box	ލިސްޓް ބޮކްސް
+	Make accessible	އެކްސެސިބަލް ކުރޭ
+	Manage embedded index	އެމްބެޑްކުރެވިފައިވާ އިންޑެކްސް މެނޭޖްކުރޭ
+	Markup	މާކަޕް
+	Marquee zoom	މާކީ ޒޫމް
+	Measure area	ބޮޑުމިން މިނުން
+	Measure distance	ދުރުމިން މިނުން
+	Measure objects	އެއްޗެހި މިނުން
+	Measure perimeter	ވަށައިގެން ދިގުމިން މިނުން
+	Measurement information	މިނުމުގެ މަޢުލޫމާތު
+	Measurement snapping	މިނުމުގެ ސްނެޕިންގް
+	Merge data files into spreadsheet…	ޑޭޓާ ފައިލްތައް ސްޕްރެޑްޝީޓަކަށް ގުޅާ…
+	Microsoft Word (.docx)	Microsoft Word (.docx)
+	Modify page	ޞަފްޙާ ބަދަލުކުރޭ
+	Multiple files	ގިނަ ފައިލް
+	New bookmarks from structure	ސްޓްރަކްޗަރުން އާ ބުކްމާކްތައް
+	Open accessibility report	އެކްސެސިބިލިޓީ ރިޕޯޓް ހުޅުވާ
+	Optimize scanned documents	ސްކޭންކުރި ޑޮކިއުމަންޓްތައް އޮޕްޓިމައިޒްކުރޭ
+	Optimize scanned documents…	ސްކޭންކުރި ޑޮކިއުމަންޓްތައް އޮޕްޓިމައިޒްކުރޭ…
+	Output preview	އައުޓްޕުޓް ޕްރިވިއު
+	Oval	އޯވަލް
+	PDF/A…	PDF/A…
+	Page grid	ޞަފްޙާ ގްރިޑް
+	Page labels	ޞަފްޙާ ލޭބަލްތައް
+	Page options	ޞަފްޙާގެ އޮޕްޝަންތައް
+	Page transitions	ޞަފްޙާ ޓްރާންޒިޝަންތައް
+	Paste pages	ޞަފްޙާތައް ޕޭސްޓްކުރޭ
+	PdfCraft on GitHub	GitHub ގައި PdfCraft
+	PdfCraft web page	PdfCraft ވެބް ޞަފްޙާ
+	Perimeter	ވަށައިގެން ދިގުމިން
+	Pin folder to Home…	ފޯލްޑަރ ހޯމަށް ޕިންކުރޭ…
+	PostScript / EPS	PostScript / EPS
+	Preflight	ޕްރީފްލައިޓް
+	Prepare for accessibility	އެކްސެސިބިލިޓީއަށް ތައްޔާރުކުރޭ
+	Prepare for distribution	ފޮނުވުމަށް ތައްޔާރުކުރޭ
+	Prepare for distribution…	ފޮނުވުމަށް ތައްޔާރުކުރޭ…
+	Presentation (.pptx)	ޕްރެޒެންޓޭޝަން (.pptx)
+	Print production	ޕްރިންޓް ޕްރޮޑަކްޝަން
+	Protect a PDF	PDF އެއް ރައްކާތެރިކުރޭ
+	Protect with password	ޕާސްވޯޑުން ރައްކާތެރިކުރޭ
+	Radio button	ރޭޑިއޯ ބަޓަން
+	Recognize text	ލިޔުން ދެނެގަނެ
+	Recognize text in multiple files…	ގިނަ ފައިލްތަކެއްގައި ލިޔުން ދެނެގަނެ…
+	Recognize text…	ލިޔުން ދެނެގަނެ…
+	Rectangle	ރެކްޓަންގަލް
+	Redact a PDF	PDF އެއް ރިޑެކްޓްކުރޭ
+	Redact pages	ޞަފްޙާތައް ރިޑެކްޓްކުރޭ
+	Redact pages…	ޞަފްޙާތައް ރިޑެކްޓްކުރޭ…
+	Redact text and images	ލިޔުމާއި ފޮޓޯ ރިޑެކްޓްކުރޭ
+	Redaction properties…	ރިޑެކްޝަން ޕްރޮޕަޓީޒް…
+	Reduce file size	ފައިލް ސައިޒު ކުޑަކުރޭ
+	Remove all links	ހުރިހާ ލިންކެއް ނައްތާލާ
+	Remove background	ބެކްގްރައުންޑް ނައްތާލާ
+	Remove header & footer	ހެޑަރ އަދި ފޫޓަރ ނައްތާލާ
+	Remove hidden information	ފޮރުވިފައިވާ މަޢުލޫމާތު ނައްތާލާ
+	Remove hidden information…	ފޮރުވިފައިވާ މަޢުލޫމާތު ނައްތާލާ…
+	Remove watermark	ވޯޓަރމާކް ނައްތާލާ
+	Replace	ބަދަލުކުރޭ
+	Replace text	ލިޔުން ބަދަލުކުރޭ
+	Reset panel layout	ޕެނަލް ލޭއައުޓް ރީސެޓްކުރޭ
+	Review	ރިވިއު
+	Rich Text Format (.rtf)	Rich Text Format (.rtf)
+	Rotate	އަނބުރާ
+	Rotate pages	ޞަފްޙާތައް އަނބުރާ
+	Rotate pages clockwise	ޞަފްޙާތައް ގަޑީގެ ކަށިގަނޑުގެ ދިމާއަށް އަނބުރާ
+	Rotate pages counterclockwise	ޞަފްޙާތައް ގަޑީގެ ކަށިގަނޑުގެ އިދިކޮޅަށް އަނބުރާ
+	Sanitize document	ޑޮކިއުމަންޓް ސާފުކުރޭ
+	Sanitize document…	ޑޮކިއުމަންޓް ސާފުކުރޭ…
+	Save as PDF/A	PDF/A ގޮތުގައި ރައްކާކުރޭ
+	Save as PDF/UA	PDF/UA ގޮތުގައި ރައްކާކުރޭ
+	Save as PDF/X	PDF/X ގޮތުގައި ރައްކާކުރޭ
+	Scan & OCR	ސްކޭން އަދި OCR
+	Security properties	ސެކިއުރިޓީ ޕްރޮޕަޓީޒް
+	Select files to compare	އަޅާކިޔާނެ ފައިލްތައް ޚިޔާރުކުރޭ
+	Separate PDFs	PDF ތައް ވަކިކުރޭ
+	Set measurement scale	މިނުމުގެ ސްކޭލް ކަނޑައަޅާ
+	Set page boxes	ޞަފްޙާ ބޮކްސްތައް ކަނޑައަޅާ
+	Set page boxes…	ޞަފްޙާ ބޮކްސްތައް ކަނޑައަޅާ…
+	Set properties	ޕްރޮޕަޓީޒް ކަނޑައަޅާ
+	Show cover page in two-page view	ދެ ޞަފްޙާގެ ވިއުގައި ކަވަރ ޞަފްޙާ ދައްކާ
+	Signature	ސޮއި
+	Signatures panel	ސޮއިތަކުގެ ޕެނަލް
+	Single file	އެއް ފައިލް
+	Snapping	ސްނެޕިންގް
+	Split	ބައިކުރޭ
+	Spreadsheet (.xlsx)	ސްޕްރެޑްޝީޓް (.xlsx)
+	Squiggly underline	ރާޅުރާޅު ދަށުރޮނގު
+	Squiggly underline text	ލިޔުމުގެ ދަށުން ރާޅުރާޅު ރޮނގު ކަހާ
+	Stamp	ސްޓޭމްޕް
+	Stamp palette	ސްޓޭމްޕް ޕެލެޓް
+	Stamps	ސްޓޭމްޕްތައް
+	Standards	ސްޓޭންޑަޑްތައް
+	Sticky note	ސްޓިކީ ނޯޓް
+	Strikethrough text	ލިޔުމުގެ މެދުން ރޮނގު ކަހާ
+	Summarize	ޚުލާޞާކުރޭ
+	Summarize comments	ކޮމެންޓްތައް ޚުލާޞާކުރޭ
+	Switch light / dark theme	ލުއި / އަނދިރި ތީމް ބަދަލުކުރޭ
+	Tab order by columns	ކޮލަމްތަކުން ޓެބް ތަރުތީބު
+	Tab order by rows	ޓެބް ތަރުތީބު ރޯތަކުގެ ގޮތުން
+	Tab order: by columns	ޓެބް ތަރުތީބު: ކޮލަމްތަކުގެ ގޮތުން
+	Tab order: by document structure	ޓެބް ތަރުތީބު: ޑޮކިއުމަންޓްގެ ބިނާގެ ގޮތުން
+	Tab order: by rows	ޓެބް ތަރުތީބު: ރޯތަކުގެ ގޮތުން
+	Tags panel	ޓެގްތަކުގެ ޕެނަލް
+	Text (plain)	ލިޔުން (ސާދާ)
+	Text box	ލިޔުމުގެ ބޮކްސް
+	Text field	ލިޔުމުގެ ފީލްޑް
+	Timestamp	ޓައިމްސްޓޭމްޕް
+	Translate	ތަރުޖަމާކުރޭ
+	Underline text	ލިޔުމުގެ ދަށުން ރޮނގު ދަމާ
+	Update background…	ބެކްގްރައުންޑް އަޕްޑޭޓްކުރޭ…
+	Update header & footer…	ހެޑަރ އާއި ފުޓަރ އަޕްޑޭޓްކުރޭ…
+	Update watermark…	ވޯޓަރމާކް އަޕްޑޭޓްކުރޭ…
+	Use JavaScript	JavaScript ބޭނުންކުރޭ
+	Use a certificate	ސެޓްފިކެޓެއް ބޭނުންކުރޭ
+	Use guided actions	ގައިޑްކުރާ އެކްޝަންތައް ބޭނުންކުރޭ
+	Use print production	ޕްރިންޓް ޕްރޮޑަކްޝަން ބޭނުންކުރޭ
+	Use system setting	ސިސްޓަމްގެ ސެޓިންގް ބޭނުންކުރޭ
+	Validate all signatures	ހުރިހާ ސޮއިއެއް ޗެކްކުރޭ
+	Watermark	ވޯޓަރމާކް
+	Move object	އޮބްޖެކްޓް ގެންދާ
+	Move objects	އޮބްޖެކްޓްތައް ގެންދާ
+	All tools	ހުރިހާ ޓޫލްސް
+	Read	ކިޔާ
+	E-Sign	އީ-ސޮއި
+	Tools	ޓޫލްސް
+	Inspector	އިންސްޕެކްޓަރ
+	 on page {label}	 ޞަފްޙާ {label} ގައި
+	A font isn't embedded	ފޮންޓެއް އެމްބެޑްކޮށްފައެއް ނުވޭ
+	A {} action isn't allowed	{} އެކްޝަނެއް ހުއްދައެއް ނުވޭ
+	A {} annotation has additional actions	{} ނޯޓެއްގައި އިތުރު އެކްޝަންތައް ހުރި
+	A {} annotation has no appearance stream	{} ނޯޓެއްގައި އެޕިއަރެންސް ސްޓްރީމެއް ނެތް
+	A {} annotation isn't set to print, or is hidden	{} ނޯޓެއް ޕްރިންޓްވާން ސެޓްކޮށްފައެއް ނެތް، ނުވަތަ ފޮރުވިފައި
+	Accessibility Report	އެކްސެސިބިލިޓީ ރިޕޯޓް
+	Add the PDFs to combine	ގުޅާނެ PDF ތައް އިތުރުކުރޭ
+	Added the first {n} PDFs in {folder}	{folder} ގައިވާ ފުރަތަމަ {n} PDF އިތުރުކުރެވިއްޖެ
+	CRL Signing	CRL ސޮއިކުރުން
+	Certificate Signing	ސެޓްފިކެޓް ސޮއިކުރުން
+	Change Author	ލިޔުންތެރިޔާ ބަދަލުކުރޭ
+	Change Keywords	ކީވޯޑްތައް ބަދަލުކުރޭ
+	Change Subject	މައުޟޫޢު ބަދަލުކުރޭ
+	Change Title	ސުރުޚީ ބަދަލުކުރޭ
+	Choose a digital ID.	ޑިޖިޓަލް ID އެއް ޚިޔާރުކުރޭ.
+	Create links	ލިންކްތައް ހަދާ
+	Creator	ހެދި ޕްރޮގްރާމް
+	Cut and stack needs Two-sided: Off. Print single-sided sheets.	ކަޓް އެންޑް ސްޓެކް އަށް ދެފަރާތް: ބަންދުކޮށްފައި ހުންނަން ޖެހޭ. އެއް ފަރާތުގައި ޕްރިންޓްކުރާ ޝީޓްތައް ޕްރިންޓްކުރޭ.
+	Data Encipherment	ޑޭޓާ އެންކްރިޕްޝަން
+	Decipher Only	ޑިކްރިޕްޓްކުރުމަށް އެކަނި
+	Detailed Report	ތަފްޞީލީ ރިޕޯޓް
+	DeviceCMYK is used, but the PDF/A output intent isn't a CMYK profile	DeviceCMYK ބޭނުންކޮށްފައި ވީނަމަވެސް، PDF/A އައުޓްޕުޓް އިންޓެންޓަކީ CMYK ޕްރޮފައިލެއް ނޫން
+	DeviceRGB is used, but the PDF/A output intent isn't an RGB profile	DeviceRGB ބޭނުންކޮށްފައި ވީނަމަވެސް، PDF/A އައުޓްޕުޓް އިންޓެންޓަކީ RGB ޕްރޮފައިލެއް ނޫން
+	Digital Signature	ޑިޖިޓަލް ސޮއި
+	Document properties (⌘D)	ޑޮކިއުމަންޓްގެ ޕްރޮޕަޓީޒް (⌘D)
+	Drop PDFs or folders here, or choose them.	PDF ނުވަތަ ފޯލްޑަރުތައް މިތަނަށް ދޫކޮށްލާ، ނުވަތަ ޚިޔާރުކުރޭ.
+	Encipher Only	އެންކްރިޕްޓްކުރުމަށް އެކަނި
+	English	އިނގިރޭސި
+	Enter a URL	URL އެއް ލިޔޭ
+	Enter a name.	ނަމެއް ލިޔޭ.
+	Enter a page number	ޞަފްޙާ ނަންބަރެއް ލިޔޭ
+	Enter the field names	ފީލްޑްތަކުގެ ނަންތައް ލިޔޭ
+	Every PDF in the folder	ފޯލްޑަރުގައިވާ ހުރިހާ PDF އެއް
+	Every PDF in the folder and the folders inside it	ފޯލްޑަރާއި އޭގެ ތެރޭގައިވާ ފޯލްޑަރުތަކުގައިވާ ހުރިހާ PDF އެއް
+	Field "{}" on page {p} has no description (tooltip)	ޞަފްޙާ {p} ގައިވާ "{}" ފީލްޑްގައި ތަފްޞީލެއް (ޓޫލްޓިޕެއް) ނެތް
+	Filename	ފައިލްގެ ނަން
+	Flatten Fill & Sign	ފުރުމާއި ސޮއި ފްލެޓްކުރޭ
+	Font (unnamed) on page {p} doesn't map its characters to Unicode	ޞަފްޙާ {p} ގައިވާ (ނަމެއް ނެތް) ފޮންޓުގެ އަކުރުތައް Unicode އާ ގުޅުވާފައެއް ނުވޭ
+	Font {} on page {p} doesn't map its characters to Unicode	ޞަފްޙާ {p} ގައިވާ {} ފޮންޓުގެ އަކުރުތައް Unicode އާ ގުޅުވާފައެއް ނުވޭ
+	Form field on page {p} isn't tagged	ޞަފްޙާ {p} ގައިވާ ފޯމު ފީލްޑް ޓެގްކޮށްފައެއް ނުވޭ
+	H{n} follows an H{d}; headings should not skip levels	H{d} ގެ ފަހުން H{n} އައިސްފައި؛ ހެޑިންގްތަކުގައި ލެވެލް ފަހަނައަޅައިގެން ނުދާން ޖެހޭ
+	Inserted text	ވެއްދި ލިޔުން
+	Key Agreement	ކީ އެގްރީމަންޓް
+	Key Encipherment	ކީ އެންކްރިޕްޝަން
+	Margins (in)	މާޖިން (in)
+	New bookmark (⌘B)	އައު ބުކްމާކް (⌘B)
+	Next (⌘G)	ކުރިއަށް (⌘G)
+	No PDFs found in {folder}	{folder} ގައި އެއްވެސް PDF އެއް ނުފެނުނު
+	No document language is set	ޑޮކިއުމަންޓްގެ ބަހެއް ސެޓްކޮށްފައެއް ނެތް
+	No page has text: the document appears to be images of pages	އެއްވެސް ޞަފްޙާއެއްގައި ލިޔުމެއް ނެތް: ޑޮކިއުމަންޓަކީ ޞަފްޙާތަކުގެ ފޮޓޯ ކަމަށް ފެނޭ
+	Non-Repudiation	ނޮން-ރެޕިއުޑިއޭޝަން
+	Only the document's owner can change its security (open it with the permissions password)	ޑޮކިއުމަންޓްގެ ސެކިއުރިޓީ ބަދަލުކުރެވޭނީ އޭގެ ވެރިފަރާތަށް އެކަނި (ހުއްދަތަކުގެ ޕާސްވޯޑުން ހުޅުވާ)
+	Open a PDF (⌘O)	PDF އެއް ހުޅުވާ (⌘O)
+	Page {p} doesn't tab in structure order	ޞަފްޙާ {p} ގައި ޓެބް ދަނީ ބިނާގެ ތަރުތީބުން ނޫން
+	Page {p}: {n} untagged content item	ޞަފްޙާ {p}: ޓެގްކޮށްފައި ނުވާ {n} ކޮންޓެންޓް އައިޓަމް
+	Page {p}: {n} untagged content items	ޞަފްޙާ {p}: ޓެގްކޮށްފައި ނުވާ {n} ކޮންޓެންޓް އައިޓަމް
+	Page {} has additional actions	ޞަފްޙާ {} ގައި އިތުރު އެކްޝަންތައް ހުރި
+	Panel layout could not be restored: {error}	ޕެނަލް ލޭއައުޓް އަނބުރާ ގެނެވިއެއް ނުދިޔަ: {error}
+	Panel move was not applied: {error}	ޕެނަލް ގެންދިއުން ހިންގިއެއް ނުދިޔަ: {error}
+	PdfCraft can't check this signature yet: {}.	PdfCraft އަށް މި ސޮއި އަދި ޗެކްކުރެވެއެއް ނުދޭ: {}.
+	Previous (⇧⌘G)	ކުރީގެ (⇧⌘G)
+	Print (⌘P)	ޕްރިންޓްކުރޭ (⌘P)
+	Producer	ޕްރޮޑިއުސަރ
+	Redo {action}	{action} ރީޑޫ
+	Rendering…	ރެންޑަރކުރަނީ…
+	Report created	ރިޕޯޓް ހެދިއްޖެ
+	Rev. {rev}: Certified by an unknown signer	ރިވިޜަން {rev}: ނޭނގޭ ފަރާތަކުން ސެޓްފައިކޮށްފައި
+	Rev. {rev}: Certified by {name}	ރިވިޜަން {rev}: {name} ސެޓްފައިކޮށްފައި
+	Rev. {rev}: Signed by an unknown signer	ރިވިޜަން {rev}: ނޭނގޭ ފަރާތަކުން ސޮއިކޮށްފައި
+	Rev. {rev}: Signed by {name}	ރިވިޜަން {rev}: {name} ސޮއިކޮށްފައި
+	Rotate view clockwise (⇧⌘+)	ވިއު ގަޑީގެ ކަށިގަނޑު ދާ ފަރާތަށް އަނބުރާ (⇧⌘+)
+	Rule Name	ރޫލްގެ ނަން
+	Save (M4)	ރައްކާކުރޭ (M4)
+	Save as {level}	{level} ގެ ގޮތުގައި ރައްކާކުރޭ
+	Signature is invalid	ސޮއި ސައްޙަ ނޫން
+	Signature is valid	ސޮއި ސައްޙަ
+	Signature validity is unknown	ސޮއި ސައްޙަ ކަން ނޭނގޭ
+	Signing time is from the clock on the signer's computer.	ސޮއިކުރި ވަގުތަކީ ސޮއިކުރި ފަރާތުގެ ކޮމްޕިއުޓަރުގެ ގަޑިން ނެގި ވަގުތެވެ.
+	Still rendering — this page is unusually complex…	އަދިވެސް ރެންޑަރކުރަނީ — މި ޞަފްޙާ އާދަޔާ ޚިލާފަށް ކޮމްޕްލެކްސް…
+	The ECDSA signature is not in canonical DER (trailing bytes, padding or a missing sign byte); it was read anyway.	ECDSA ސޮއިއަކީ ކެނޮނިކަލް DER އެއް ނޫން (ފަހަތުގައި އިތުރު ބައިޓްތައް، ޕެޑިންގ، ނުވަތަ ސައިން ބައިޓެއް ނެތް)؛ އެހެންނަމަވެސް ކިޔިއްޖެ.
+	The ECDSA signature is the raw r and s values instead of a DER sequence; it was read anyway.	ECDSA ސޮއިއަކީ DER ސީކުއެންސެއްގެ ބަދަލުގައި ރޯ r އާއި s އަގުތައް؛ އެހެންނަމަވެސް ކިޔިއްޖެ.
+	The RSA signature value does not have the length of the key's modulus (leading zero bytes dropped or added); it was read anyway.	RSA ސޮއިގެ އަގުގެ ދިގުމިނަކީ ކީގެ މޮޑިއުލަސްގެ ދިގުމިން ނޫން (ކުރީގައިވާ ސުމެއް ބައިޓްތައް ދުރުކޮށްފައި ނުވަތަ އިތުރުކޮށްފައި)؛ އެހެންނަމަވެސް ކިޔިއްޖެ.
+	The RSA signature's DigestInfo has no NULL parameter (older signers write it so); it was read anyway.	RSA ސޮއިގެ DigestInfo ގައި NULL ޕެރެމީޓަރެއް ނެތް (ބައެއް ޕުރާނާ ސޮއިކުރާ ޕްރޮގްރާމްތައް އެހެން ލިޔޭ)؛ އެހެންނަމަވެސް ކިޔިއްޖެ.
+	The certificate of {} does not allow this many CA certificates below it (path length), so it is not used to vouch for {}.	{} ގެ ސެޓްފިކެޓުން އޭގެ ދަށުގައި މިހާ ގިނަ CA ސެޓްފިކެޓް ހުއްދަ ނުކުރޭ (ޕާތު ދިގުމިން)، އެހެންކަމުން {} ގެ ޔަގީންކަން ދިނުމަށް އެ ބޭނުން ނުކުރެވޭ.
+	The certificate of {} is not a CA certificate that may issue certificates, so it is not used to vouch for {}.	{} ގެ ސެޓްފިކެޓަކީ ސެޓްފިކެޓް ނެރެވޭ CA ސެޓްފިކެޓެއް ނޫން، އެހެންކަމުން {} ގެ ޔަގީންކަން ދިނުމަށް އެ ބޭނުން ނުކުރެވޭ.
+	The certificate of {} was not valid at the time of signing, so it is not used to vouch for {}.	{} ގެ ސެޓްފިކެޓް ސޮއިކުރި ވަގުތު ސައްޙަ ނުވާތީ، {} ގެ ޔަގީންކަން ދިނުމަށް އެ ބޭނުން ނުކުރެވޭ.
+	The checker found problems which may prevent the document from being fully accessible.	ޗެކްކުރާ ޓޫލަށް ފެނުނު މައްސަލަތަކުގެ ސަބަބުން ޑޮކިއުމަންޓް ފުރިހަމައަށް އެކްސެސިބަލް ނުވެދާނެ.
+	The document has been altered or corrupted since the signature was applied.	ސޮއިކުރިފަހުން ޑޮކިއުމަންޓަށް ބަދަލު އައިސް ނުވަތަ ހަލާކުވެފައިވޭ.
+	The document has been altered or corrupted since the timestamp was applied.	ޓައިމްސްޓޭމްޕް ޖެހިފަހުން ޑޮކިއުމަންޓަށް ބަދަލު އައިސް ނުވަތަ ހަލާކުވެފައިވޭ.
+	The document has been altered since this signature was applied in ways it does not permit ({}).	މި ސޮއިކުރިފަހުން، ސޮއިން ހުއްދަ ނުދޭ ގޮތްގޮތަށް ޑޮކިއުމަންޓަށް ބަދަލު ގެނެސްފައިވޭ ({}).
+	The document has been altered since this timestamp was applied in ways it does not permit ({}).	މި ޓައިމްސްޓޭމްޕް ޖެހިފަހުން، އެ ހުއްދަ ނުދޭ ގޮތްގޮތަށް ޑޮކިއުމަންޓަށް ބަދަލު ގެނެސްފައިވޭ ({}).
+	The document has been modified since this signature was applied, but the changes are permitted ({}).	މި ސޮއިކުރިފަހުން ޑޮކިއުމަންޓަށް ބަދަލު ގެނެސްފައިވީނަމަވެސް، އެ ބަދަލުތައް ހުއްދަ ({}).
+	The document has been modified since this timestamp was applied, but the changes are permitted ({}).	މި ޓައިމްސްޓޭމްޕް ޖެހިފަހުން ޑޮކިއުމަންޓަށް ބަދަލު ގެނެސްފައިވީނަމަވެސް، އެ ބަދަލުތައް ހުއްދަ ({}).
+	The document has no tags (structure tree)	ޑޮކިއުމަންޓުގައި ޓެގްތަކެއް (ސްޓްރަކްޗަރ ޓްރީއެއް) ނެތް
+	The document has no title	ޑޮކިއުމަންޓުގައި ސުރުޚީއެއް ނެތް
+	The document isn't marked as tagged (MarkInfo Marked)	ޑޮކިއުމަންޓް ޓެގްކޮށްފައިވާ ކަމަށް މާކްކޮށްފައެއް ނެތް (MarkInfo Marked)
+	The document isn't tagged, so none of its content is	ޑޮކިއުމަންޓް ޓެގްކޮށްފައި ނުވާތީ، އޭގެ އެއްވެސް ކޮންޓެންޓެއް ޓެގްކޮށްފައެއް ނުވޭ
+	The document's embedded revocation information shows that the signer's certificate has not been revoked.	ޑޮކިއުމަންޓުގައި އެމްބެޑްކޮށްފައިވާ ރިވޯކޭޝަން މަޢުލޫމާތުން ދައްކަނީ ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓް ބާޠިލުކޮށްފައި ނުވާކަމެވެ.
+	The embedded timestamp token is valid and its authority is trusted; trusted time is {}.	އެމްބެޑްކޮށްފައިވާ ޓައިމްސްޓޭމްޕް ޓޯކަން ސައްޙަ، އަދި އޭގެ އޮތޯރިޓީއަށް އިތުބާރުކުރެވޭ؛ އިތުބާރުކުރެވޭ ވަގުތަކީ {}.
+	The font {} isn't embedded	{} ފޮންޓް އެމްބެޑްކޮށްފައެއް ނުވޭ
+	The metadata doesn't identify the file as {}	މެޓަޑޭޓާގައި ފައިލަކީ {} އެއް ކަމަށް ބުނެފައެއް ނުވޭ
+	The password is incorrect.	ޕާސްވޯޑް ރަނގަޅެއް ނޫން.
+	The password must have at least 6 characters.	ޕާސްވޯޑުގައި މަދުވެގެން 6 އަކުރު ހުންނަން ޖެހޭ.
+	The passwords do not match.	ޕާސްވޯޑްތައް އެއްގޮތެއް ނުވޭ.
+	The security settings don't allow screen readers to read the text	ސެކިއުރިޓީ ސެޓިންގްސް އިން ސްކްރީން ރީޑަރތަކަށް ލިޔުން ކިޔުމުގެ ހުއްދަ ނުދޭ
+	The signature algorithm and the SignerInfo's digest algorithm name different hashes; the signature was made with the SignerInfo's.	ސޮއިގެ އަލްގޮރިދަމާއި SignerInfo ގެ ޑައިޖެސްޓް އަލްގޮރިދަމުގައި ބުނަނީ ތަފާތު ހޭޝްތަކެއް؛ ސޮއި ހަދާފައިވަނީ SignerInfo ގައިވާ ހޭޝުން.
+	The signature carries an unverified timestamp ({}): the timestamp authority is not in your list of trusted certificates, so the signing time claimed by the signer is used instead.	ސޮއިގައި ވެރިފައިނުކުރެވޭ ޓައިމްސްޓޭމްޕެއް ހިމެނޭ ({}): ޓައިމްސްޓޭމްޕް އޮތޯރިޓީ ތިބާ އިތުބާރުކުރާ ސެޓްފިކެޓްތަކުގެ ލިސްޓުގައި ނެތުމުން، ސޮއިކުރި ފަރާތުން ބުނާ ސޮއިކުރި ވަގުތު ބޭނުންކުރެވެނީ.
+	The signature contents are not hexadecimal.	ސޮއިގެ ކޮންޓެންޓްސް ހެކްސަޑެސިމަލް ނޫން.
+	The signature could not be checked ({}).	ސޮއި ޗެކްކުރެވިއެއް ނުދިޔަ ({}).
+	The signature could not be read ({}).	ސޮއި ކިޔެވިއެއް ނުދިޔަ ({}).
+	The signature could not be verified ({}).	ސޮއި ވެރިފައިކުރެވިއެއް ނުދިޔަ ({}).
+	The signature has no valid byte range.	ސޮއިގައި ސައްޙަ ބައިޓް ރޭންޖެއް ނެތް.
+	The signature includes an embedded timestamp.	ސޮއިގައި އެމްބެޑްކޮށްފައިވާ ޓައިމްސްޓޭމްޕެއް ހިމެނޭ.
+	The signature is BER-encoded (indefinite lengths) rather than DER; it was read leniently.	ސޮއި އެންކޯޑްކޮށްފައިވަނީ DER ގެ ބަދަލުގައި BER (ނުނިމޭ ދިގުމިން) އިން؛ ލުއިގޮތަކަށް ކިޔިއްޖެ.
+	The signature uses the legacy adbe.x509.rsa_sha1 format.	ސޮއި ބޭނުންކުރަނީ ޕުރާނާ adbe.x509.rsa_sha1 ފޯމެޓް.
+	The signature value does not match the signer's certificate: the signature is corrupt.	ސޮއިގެ އަގު ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓާ ދިމައެއް ނުވޭ: ސޮއި ހަލާކުވެފައި.
+	The signature's byte range does not exclude exactly its contents.	ސޮއިގެ ބައިޓް ރޭންޖުން ބޭރުކުރަނީ ހަމަ އޭގެ ކޮންޓެންޓްސް ނޫން.
+	The signature's byte range does not match the file.	ސޮއިގެ ބައިޓް ރޭންޖް ފައިލާ ދިމައެއް ނުވޭ.
+	The signature's timestamp token could not be verified ({}).	ސޮއިގެ ޓައިމްސްޓޭމްޕް ޓޯކަން ވެރިފައިކުރެވިއެއް ނުދިޔަ ({}).
+	The signature's timestamp token does not cover the signature value.	ސޮއިގެ ޓައިމްސްޓޭމްޕް ޓޯކަނުގައި ސޮއިގެ އަގު ނުހިމެނޭ.
+	The signed content is a constructed (segmented) OCTET STRING, as BER allows; it was read anyway.	ސޮއިކުރި ކޮންޓެންޓަކީ BER ހުއްދަކުރާ ގޮތަށް ކޮންސްޓްރަކްޓްކުރެވިފައިވާ (ބައިބައިކޮށްފައިވާ) OCTET STRING އެއް؛ އެހެންނަމަވެސް ކިޔިއްޖެ.
+	The signer's certificate does not allow digital signatures (its key usage has neither digital signature nor non-repudiation).	ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓުން ޑިޖިޓަލް ސޮއި ހުއްދަ ނުކުރޭ (އޭގެ ކީ ޔޫސޭޖްގައި ޑިޖިޓަލް ސޮއި ވެސް ނޮން-ރެޕިއުޑިއޭޝަން ވެސް ނެތް).
+	The signer's certificate has been revoked ({}).	ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓް ބާޠިލުކޮށްފައިވޭ ({}).
+	The signer's certificate has critical extensions PdfCraft does not recognize ({}).	ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓުގައި PdfCraft އަށް ނޭނގޭ ކްރިޓިކަލް އެކްސްޓެންޝަންތައް ހުރި ({}).
+	The signer's certificate is not in the signature.	ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓް ސޮއިގައި ނުހިމެނޭ.
+	The signer's certificate is not issued for signing documents (its extended key usage has no document-signing purpose).	ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓް ނެރެފައިވަނީ ޑޮކިއުމަންޓްތަކުގައި ސޮއިކުރުމަށް ނޫން (އޭގެ އެކްސްޓެންޑެޑް ކީ ޔޫސޭޖްގައި ޑޮކިއުމަންޓް ސޮއިކުރުމުގެ މަޤްޞަދެއް ނެތް).
+	The signer's certificate was not valid at the time of signing.	ސޮއިކުރި ވަގުތު ސޮއިކުރި ފަރާތުގެ ސެޓްފިކެޓް ސައްޙައެއް ނުވި.
+	The signer's identity is unknown because it has not been included in your list of trusted certificates and none of its parent certificates are trusted certificates.	ސޮއިކުރި ފަރާތުގެ އައިޑެންޓިޓީ ނޭނގެނީ، އެއީ ތިބާ އިތުބާރުކުރާ ސެޓްފިކެޓްތަކުގެ ލިސްޓުގައި ނުހިމެނޭތީ އަދި އޭގެ ބެލެނިވެރި ސެޓްފިކެޓްތަކުން އެއްވެސް ސެޓްފިކެޓަކަށް އިތުބާރު ނުކުރެވޭތީ އެވެ.
+	The signer's identity is valid.	ސޮއިކުރި ފަރާތުގެ އައިޑެންޓިޓީ ސައްޙަ.
+	The timestamp authority's certificate was not valid at the time of timestamping.	ޓައިމްސްޓޭމްޕް ޖެހި ވަގުތު ޓައިމްސްޓޭމްޕް އޮތޯރިޓީގެ ސެޓްފިކެޓް ސައްޙައެއް ނުވި.
+	The timestamp contents are not hexadecimal.	ޓައިމްސްޓޭމްޕްގެ ކޮންޓެންޓްސް ހެކްސަޑެސިމަލް ނޫން.
+	The timestamp has no valid byte range.	ޓައިމްސްޓޭމްޕްގައި ސައްޙަ ބައިޓް ރޭންޖެއް ނެތް.
+	The timestamp token could not be read ({}).	ޓައިމްސްޓޭމްޕް ޓޯކަން ކިޔެވިއެއް ނުދިޔަ ({}).
+	The timestamp token is valid and its authority is trusted.	ޓައިމްސްޓޭމްޕް ޓޯކަން ސައްޙަ، އަދި އޭގެ އޮތޯރިޓީއަށް އިތުބާރުކުރެވޭ.
+	The timestamp token is valid, but the timestamp authority is not in your list of trusted certificates.	ޓައިމްސްޓޭމްޕް ޓޯކަން ސައްޙަ، ނަމަވެސް ޓައިމްސްޓޭމްޕް އޮތޯރިޓީ ތިބާ އިތުބާރުކުރާ ސެޓްފިކެޓްތަކުގެ ލިސްޓުގައި ނެތް.
+	The timestamp's byte range does not exclude exactly its contents.	ޓައިމްސްޓޭމްޕްގެ ބައިޓް ރޭންޖުން ބޭރުކުރަނީ ހަމަ އޭގެ ކޮންޓެންޓްސް ނޫން.
+	The timestamp's byte range does not match the file.	ޓައިމްސްޓޭމްޕްގެ ބައިޓް ރޭންޖް ފައިލާ ދިމައެއް ނުވޭ.
+	The window shows the file name, not the title (Initial View > Show)	ވިންޑޯގައި ދައްކަނީ ސުރުޚީ ނޫން، ފައިލްގެ ނަން (ފުރަތަމަ ވިއު > ދައްކާ)
+	There is no folder to save the digital ID in.	ޑިޖިޓަލް ID ރައްކާކުރާނެ ފޯލްޑަރެއް ނެތް.
+	This document has not been modified since this signature was applied.	މި ސޮއިކުރިފަހުން މި ޑޮކިއުމަންޓަށް އެއްވެސް ބަދަލެއް ގެނެސްފައެއް ނުވޭ.
+	This document has not been modified since this timestamp was applied.	މި ޓައިމްސްޓޭމްޕް ޖެހިފަހުން މި ޑޮކިއުމަންޓަށް އެއްވެސް ބަދަލެއް ގެނެސްފައެއް ނުވޭ.
+	This signature uses RIPEMD-160, a legacy 160-bit hash algorithm that is no longer recommended for signatures. It still validates, but it should not be relied on.	މި ސޮއިގައި ބޭނުންކޮށްފައިވަނީ RIPEMD-160، މިއީ ސޮއިތަކަށް މިހާރު ރިކޮމެންޑް ނުކުރާ ޕުރާނާ 160-ބިޓް ހޭޝް އަލްގޮރިދަމެކެވެ. މި ސޮއި އަދިވެސް ސައްޙަވި ނަމަވެސް، އެއަށް ބަރޯސާ ނުވުން ރަނގަޅު.
+	This signature uses SHA-1, a weak hash algorithm: collisions in it have been demonstrated. It still validates because many documents signed years ago use it, but it should not be relied on.	މި ސޮއިގައި ބޭނުންކޮށްފައިވަނީ SHA-1، މިއީ ބަލި ހޭޝް އަލްގޮރިދަމެކެވެ: އޭގައި ކޮލިޝަންތައް ހެދޭކަން ސާބިތުކޮށްފައިވޭ. އަހަރުތަކެއް ކުރިން ސޮއިކުރި ގިނަ ޑޮކިއުމަންޓްތަކުގައި އެ ބޭނުންކުރާތީ މި ސޮއި އަދިވެސް ސައްޙަވި ނަމަވެސް، އެއަށް ބަރޯސާ ނުވުން ރަނގަޅު.
+	Undo {action}	{action} އަންޑޫ
+	Unsigned signature field	ސޮއިކޮށްފައި ނުވާ ސޮއި ފީލްޑް
+	Unsigned signature field: {name}	ސޮއިކޮށްފައި ނުވާ ސޮއި ފީލްޑް: {name}
+	Zoom in (⌘+)	ޒޫމް އިން (⌘+)
+	Zoom in / out (also pinch or ⌘-scroll)	ޒޫމް އިން / އައުޓް (ޕިންޗްކޮށް ނުވަތަ ⌘-ސްކްރޯލްކޮށްވެސް)
+	Zoom out (⌘−)	ޒޫމް އައުޓް (⌘−)
+	alternate text hides an annotation inside it	އޯލްޓަނޭޓް ލިޔުމުން އޭގެ ތެރޭގައިވާ ނޯޓެއް ފޮރުވޭ
+	alternate text on an element with no page content	ޞަފްޙާގެ ކޮންޓެންޓެއް ނެތް އެލިމެންޓެއްގައި އޯލްޓަނޭޓް ލިޔުން
+	comments	ކޮމެންޓްތައް
+	document security store	ޑޮކިއުމަންޓް ސެކިއުރިޓީ ސްޓޯރ
+	document structure	ޑޮކިއުމަންޓްގެ ބިނާ
+	form fill	ފޯމު ފުރުން
+	its alternate text is inside another element's and will never be read	އޭގެ އޯލްޓަނޭޓް ލިޔުން އޮތީ އެހެން އެލިމެންޓެއްގެ އޯލްޓަނޭޓް ލިޔުމުގެ ތެރޭގައި ކަމުން، އެއް ފަހަރަކުވެސް ނުކިޔޭނެ
+	links	ލިންކްތައް
+	metadata	މެޓަޑޭޓާ
+	no alternate text	އޯލްޓަނޭޓް ލިޔުމެއް ނެތް
+	no header cells (TH)	ހެޑަރ ސެލްއެއް (TH) ނެތް
+	no summary	ޚުލާޞާއެއް ނެތް
+	not in a TR	TR އެއްގެ ތެރޭގައި ނޫން
+	not in a Table, THead, TBody or TFoot	Table، THead، TBody ނުވަތަ TFoot އެއްގެ ތެރޭގައި ނޫން
+	not in an L (list)	L (ލިސްޓް) އެއްގެ ތެރޭގައި ނޫން
+	not in an LI (list item)	LI (ލިސްޓް އައިޓަމް) އެއްގެ ތެރޭގައި ނޫން
+	other changes	އެހެން ބަދަލުތައް
+	page content	ޞަފްޙާގެ ކޮންޓެންޓް
+	page {n} is out of range (1–{count})	ޞަފްޙާ {n} އޮތީ ރޭންޖުން ބޭރުގައި (1–{count})
+	pages added or removed	ޞަފްޙާ އިތުރުކުރުން ނުވަތަ ނައްތާލުން
+	rows have between {min} and {max} columns	ރޯތަކުގައި {min} އާއި {max} އާ ދެމެދުގެ ކޮލަމް ހުރި
+	the first heading is an H{n}; headings should not skip levels	ފުރަތަމަ ހެޑިންގަކީ H{n}؛ ހެޑިންގްތަކުގައި ލެވެލް ފަހަނައަޅައިގެން ނުދާން ޖެހޭ
+	the signed version could not be read	ސޮއިކުރި ވަރޝަން ކިޔެވިއެއް ނުދިޔަ
+	{n} pages and no bookmarks	{n} ޞަފްޙާ، އަދި އެއްވެސް ބުކްމާކެއް ނެތް
+	{page} is not a page number or label	{page} އަކީ ޞަފްޙާ ނަންބަރެއް ނުވަތަ ލޭބަލެއް ނޫން
+	{ty} element on page {p}: {what}	ޞަފްޙާ {p} ގައިވާ {ty} އެލިމެންޓް: {what}
+	{ty} element: {what}	{ty} އެލިމެންޓް: {what}
+	{who}, certificate issued by an unknown issuer.	{who}، ނޭނގޭ ފަރާތަކުން ނެރުނު ސެޓްފިކެޓް.
+	{who}, certificate issued by {issuer}.	{who}، {issuer} ނެރުނު ސެޓްފިކެޓް.
+	{} annotation on page {p} isn't tagged	ޞަފްޙާ {p} ގައިވާ {} ނޯޓް ޓެގްކޮށްފައެއް ނުވޭ
+	{} annotations aren't allowed	{} ނޯޓްތައް ހުއްދައެއް ނުވޭ
+	… and {n} more	… އަދި {n} އިތުރު
+@plural	Delete {n} field|Delete {n} fields	{n} ފީލްޑް ފޮހެލާ
+@plural	{n} byte|{n} bytes	{n} ބައިޓް
+@plural	{n} image optimized|{n} images optimized	{n} ފޮޓޯ އޮޕްޓިމައިޒްކުރެވިއްޖެ
+@plural	{n} item discarded|{n} items discarded	{n} އައިޓަމް ދޫކޮށްލެވިއްޖެ
+@plural	{n} pixel|{n} pixels	{n} ޕިކްސެލް
+action wizard	Start	ފައްޓާ
+comment menu	Edit	އެޑިޓްކުރޭ
+	A button	ބަޓަނެއް
+	A diagonal CONFIDENTIAL watermark on every page.	ކޮންމެ ޞަފްޙާއެއްގައި ކޮނޑިއަކަށް CONFIDENTIAL ވޯޓަރމާކެއް.
+	A document needs at least one page: copy instead	ޑޮކިއުމަންޓެއްގައި މަދުވެގެން އެއް ޞަފްޙާ ހުންނަން ޖެހޭ: އޭގެ ބަދަލުގައި ކޮޕީކުރޭ
+	A form field has additional actions	ފޯމު ފީލްޑެއްގައި އިތުރު އެކްޝަންތައް ހުރި
+	A link	ލިންކެއް
+	A script	ސްކްރިޕްޓެއް
+	A selected field has no widget on any page, so the fields can't be edited together.	ޚިޔާރުކުރެވިފައިވާ ފީލްޑެއްގެ ވިޖެޓެއް އެއްވެސް ޞަފްޙާއެއްގައި ނެތުމުން، ފީލްޑްތައް އެކުގައި އެޑިޓެއް ނުކުރެވޭނެ.
+	A stream refers to an external file	ސްޓްރީމެއްގައި ބޭރުގެ ފައިލަކަށް ރިފަރކޮށްފައި
+	A stream uses LZW compression	ސްޓްރީމެއްގައި LZW ކޮމްޕްރެޝަން ބޭނުންކޮށްފައި
+	A summary describes the table's purpose and layout. Add a Summary attribute to each table.	ސަމަރީއަކުން ޓޭބަލްގެ މަޤްޞަދާއި ލޭއައުޓް ބަޔާންކުރެއެވެ. ކޮންމެ ޓޭބަލަކަށް Summary އެޓްރިބިއުޓެއް އިތުރުކުރޭ.
+	About	ތަޢާރަފު
+	Accepted	ގަބޫލުކުރެވިފައި
+	Accessibility permission flag	އެކްސެސިބިލިޓީ ހުއްދައިގެ ފްލެގް
+	Accessibility permission flag is set	އެކްސެސިބިލިޓީ ހުއްދައިގެ ފްލެގް ސެޓްކޮށްފައިވޭ
+	Add Page Numbers	ޞަފްޙާ ނަންބަރު އިތުރުކުރޭ
+	Add arrow	އެރޯ އިތުރުކުރޭ
+	Add background	ބެކްގްރައުންޑް އިތުރުކުރޭ
+	Add bookmark	ބުކްމާކް އިތުރުކުރޭ
+	Add callout	ކޯލްއައުޓް އިތުރުކުރޭ
+	Add checkmark	ޗެކްމާކް އިތުރުކުރޭ
+	Add cloud	ކްލައުޑް އިތުރުކުރޭ
+	Add connected lines	ގުޅިފައިވާ ރޮނގުތައް އިތުރުކުރޭ
+	Add cross	ކްރޮސް އިތުރުކުރޭ
+	Add dot	ތިކި އިތުރުކުރޭ
+	Add drawing	ކުރެހުމެއް އިތުރުކުރޭ
+	Add field	ފީލްޑް އިތުރުކުރޭ
+	Add file attachment	ފައިލް އެޓޭޗްމަންޓް އިތުރުކުރޭ
+	Add footer	ފޫޓަރ އިތުރުކުރޭ
+	Add header	ހެޑަރ އިތުރުކުރޭ
+	Add header & footer	ހެޑަރ އަދި ފޫޓަރ އިތުރުކުރޭ
+	Add highlight	ހައިލައިޓް އިތުރުކުރޭ
+	Add image	ފޮޓޯ އިތުރުކުރޭ
+	Add inserted text	ވައްދާ ލިޔުން އިތުރުކުރޭ
+	Add line	ރޮނގު އިތުރުކުރޭ
+	Add link	ލިންކް އިތުރުކުރޭ
+	Add oval	އޯވަލް އިތުރުކުރޭ
+	Add polygon	ޕޮލިގަން އިތުރުކުރޭ
+	Add rectangle	ހަތަރެސްކަން އިތުރުކުރޭ
+	Add redaction mark	ރިޑެކްޝަން މާކެއް އިތުރުކުރޭ
+	Add signature	ސޮއި އިތުރުކުރޭ
+	Add squiggly underline	ރާޅުރޮނގުގެ އަނޑަރލައިން އިތުރުކުރޭ
+	Add stamp	ސްޓޭމްޕް އިތުރުކުރޭ
+	Add sticky note	ސްޓިކީ ނޯޓް އިތުރުކުރޭ
+	Add strikethrough	ސްޓްރައިކްތްރޫ އިތުރުކުރޭ
+	Add text box	ޓެކްސްޓް ބޮކްސް އިތުރުކުރޭ
+	Add underline	އަނޑަރލައިން އިތުރުކުރޭ
+	Add watermark	ވޯޓަރމާކް އިތުރުކުރޭ
+	Add {what}	{what} އިތުރުކުރޭ
+	Added the first {n} files in {folder}	{folder} ގައިވާ ފުރަތަމަ {n} ފައިލް އިތުރުކުރެވިއްޖެ
+	Adding images arrives on the web with file pickers for images	ވެބްގައި ފޮޓޯ އިތުރުކުރުން ލިބޭނީ ފޮޓޯއަށް ފައިލް ޕިކަރ އަންނައިރު
+	Algorithm	އަލްގޯރިދަމް
+	Align fields	ފީލްޑްތައް އެލައިންކުރޭ
+	All annotations are tagged	ހުރިހާ ނޯޓްތަކެއް ޓެގްކޮށްފައިވޭ
+	All form fields are tagged	ހުރިހާ ފޯމު ފީލްޑްތަކެއް ޓެގްކޮށްފައިވޭ
+	All form fields have description	ހުރިހާ ފޯމު ފީލްޑްތަކަކަށް ތަފްސީލު ހުރި
+	All multimedia objects are tagged	ހުރިހާ މަލްޓިމީޑިއާ އޮބްޖެކްޓްތަކެއް ޓެގްކޮށްފައިވޭ
+	All page content is tagged	ޞަފްޙާގެ ހުރިހާ ކޮންޓެންޓެއް ޓެގްކޮށްފައިވޭ
+	Allowed	ހުއްދަ
+	Alternate Text	ބަދަލު ލިޔުން
+	Alternate text inside an element that already has alternate text is never read. Remove the inner alternate text.	ބަދަލު ލިޔުން ހުރި އެލިމެންޓެއްގެ ތެރޭގައިވާ ބަދަލު ލިޔުމެއް ދުވަހަކުވެސް ނުކިޔޭނެ. ތެރޭގައިވާ ބަދަލު ލިޔުން ނައްތާލާ.
+	Alternate text must be associated with some content	ބަދަލު ލިޔުން ކޮންމެވެސް ކޮންޓެންޓަކާ ގުޅިފައި ހުންނަން ޖެހޭ
+	Alternate text on an element that contains a link or field hides that annotation from assistive technology. Move the alternate text.	ލިންކެއް ނުވަތަ ފީލްޑެއް ހުރި އެލިމެންޓެއްގައިވާ ބަދަލު ލިޔުމުން، އެ ނޯޓް އެހީތެރި ޓެކްނޮލޮޖީއަށް ފޮރުވިގެންދެއެވެ. ބަދަލު ލިޔުން ގެންދާ.
+	Alternate text on an element without page content is never reached. Remove it or attach the element to content.	ޞަފްޙާގެ ކޮންޓެންޓެއް ނެތް އެލިމެންޓެއްގައިވާ ބަދަލު ލިޔުމަކަށް ދުވަހަކުވެސް ނުފޯރާނެ. އެ ނައްތާލާ ނުވަތަ އެލިމެންޓް ކޮންޓެންޓާ ގުޅާ.
+	Alternate text should not hide annotation	ބަދަލު ލިޔުމުން ނޯޓް ނުފޮރުވަން ވާނެ
+	Alternate text that will never be read	ދުވަހަކުވެސް ނުކިޔޭނެ ބަދަލު ލިޔުން
+	An action is already running	އެކްޝަނެއް މިހާރުވެސް ހިނގަމުންދަނީ
+	An embedded file has no AFRelationship	އެމްބެޑްކޮށްފައިވާ ފައިލެއްގައި AFRelationship ނެތް
+	An image asks to be interpolated	ފޮޓޯއެއް އިންޓަރޕޯލޭޓްކުރަން އެދިފައި
+	An image has alternates or OPI information	ފޮޓޯއެއްގައި އޯލްޓަނޭޓްތައް ނުވަތަ OPI މަޢުލޫމާތު ހުރި
+	Animation that flashes can cause seizures. Check scripts and media for flicker.	ފްލެޝްވާ އެނިމޭޝަނުން ވާރޭބަލީގެ ހާލަތެއް ޖެހިދާނެ. ސްކްރިޕްޓްތަކާއި މީޑިއާގައި ފްލިކަރ ހުރިތޯ ބަލާ.
+	Another file dialog is still open. Finish with it first.	އެހެން ފައިލް ޑައިލޮގެއް އަދިވެސް ހުޅުވިފައި. ފުރަތަމަ އެ ނިންމާ.
+	Application	އެޕްލިކޭޝަން
+	Applied 1 redaction mark. Save to remove the content from the file.	1 ރިޑެކްޝަން މާކް ހިންގައިފި. ފައިލުން ކޮންޓެންޓް ނައްތާލުމަށް ރައްކާކުރޭ.
+	Applied {n} redaction marks. Save to remove the content from the file.	{n} ރިޑެކްޝަން މާކް ހިންގައިފި. ފައިލުން ކޮންޓެންޓް ނައްތާލުމަށް ރައްކާކުރޭ.
+	Appropriate nesting	ރަނގަޅު ނެސްޓިންގ
+	Arbitrary Mask	އާބިޓްރަރީ މާސްކް
+	Associated with content	ކޮންޓެންޓާ ގުޅިފައި
+	At least one signature has problems.	މަދުވެގެން އެއް ސޮއިއެއްގައި މައްސަލަ ހުރި.
+	At least one signature is invalid.	މަދުވެގެން އެއް ސޮއިއެއް ބާޠިލް.
+	Attachment	އެޓޭޗްމަންޓް
+	Basic constraints	އަސާސީ ހަދުތައް
+	Beveled	ބެވެލްޑް
+	Black	ކަޅު
+	Black on white	ހުދުމަތީ ކަޅު
+	Blue	ނޫ
+	Bookmarks are present in large documents	ބޮޑު ޑޮކިއުމަންޓްތަކުގައި ބުކްމާކް ހުރި
+	Both	ދެބައިވެސް
+	Button Properties	ބަޓަންގެ ޕްރޮޕަޓީޒް
+	Button Style:	ބަޓަންގެ ސްޓައިލް:
+	Calculate	ހިސާބުކުރޭ
+	Callout	ކޯލްއައުޓް
+	Cancelled	ކެންސަލްކުރެވިއްޖެ
+	Center Footer Text	މެދު ފޫޓަރ ލިޔުން
+	Center Header Text	މެދު ހެޑަރ ލިޔުން
+	Center horizontally	ފުޅާދިމާލަށް މެދުކުރޭ
+	Center vertically	ދިގުދިމާލަށް މެދުކުރޭ
+	Certificate Viewer	ސެޓްފިކެޓް ވިއުއަރ
+	Certified by {by}	{by} ސެޓްފައިކޮށްފައި
+	Change comment properties	ކޮމެންޓުގެ ޕްރޮޕަޓީޒް ބަދަލުކުރޭ
+	Change document properties	ޑޮކިއުމަންޓުގެ ޕްރޮޕަޓީޒް ބަދަލުކުރޭ
+	Change field properties	ފީލްޑުގެ ޕްރޮޕަޓީޒް ބަދަލުކުރޭ
+	Change initial view	ފުރަތަމަ ފެންނަ ގޮތް ބަދަލުކުރޭ
+	Change link properties	ލިންކުގެ ޕްރޮޕަޓީޒް ބަދަލުކުރޭ
+	Change tag properties	ޓެގުގެ ޕްރޮޕަޓީޒް ބަދަލުކުރޭ
+	Change {key}	{key} ބަދަލުކުރޭ
+	Changing the document	ޑޮކިއުމަންޓް ބަދަލުކުރުން
+	Character encoding	އަކުރުގެ އެންކޯޑިންގ
+	Character limit:	އަކުރުގެ ލިމިޓް:
+	Check	ޗެކް
+	Check Box Properties	ޗެކްބޮކްސްގެ ޕްރޮޕަޓީޒް
+	Check Box Style:	ޗެކްބޮކްސްގެ ސްޓައިލް:
+	Check that the tags read in the order a sighted reader would. Use the Reading Order tool or the Tags panel to correct it.	ލޮލަށް ފެންނަ މީހަކު ކިޔާ ތަރުތީބުން ޓެގްތައް ކިޔަވޭތޯ ބަލާ. ރަނގަޅުކުރުމަށް ކިޔާ ތަރުތީބުގެ ޓޫލް ނުވަތަ ޓެގްސް ޕެނަލް ބޭނުންކުރޭ.
+	CheckBox	ޗެކްބޮކްސް
+	Checked	ޗެކްކޮށްފައި
+	Choose a folder for the split files	ބައިކުރާ ފައިލްތަކަށް ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Choose a folder on this computer to pin	ޕިންކުރުމަށް މި ކޮމްޕިއުޓަރުގައިވާ ފޯލްޑަރެއް ޚިޔާރުކުރޭ
+	Click on the page to add a {tool}, or drag to set its size	{tool} އެއް އިތުރުކުރުމަށް ޞަފްޙާގައި ކްލިކްކުރޭ، ނުވަތަ ސައިޒު ކަނޑައެޅުމަށް ދަމާ
+	Click text or an image to edit it	އެޑިޓްކުރުމަށް ލިޔުމެއް ނުވަތަ ފޮޓޯއެއްގައި ކްލިކްކުރޭ
+	Color Images	ކުލަ ފޮޓޯ
+	Color Spaces	ކުލަ ސްޕޭސްތައް
+	Color contrast	ކުލައިގެ ކޮންޓްރާސްޓް
+	Comb of characters	އަކުރުތަކުގެ ކޯމް
+	Combo	ކޮމްބޯ
+	Coming in milestone {m}. Items marked Ready work today.	މައިލްސްޓޯން {m} ގައި އަންނާނެ. ތައްޔާރު ކަމަށް ފާހަގަކޮށްފައިވާ އެއްޗެހި މިއަދު ބޭނުންކުރެވޭނެ.
+	Command	ކޮމާންޑް
+	Commenting	ކޮމެންޓްކުރުން
+	Comments and markups	ކޮމެންޓްތަކާއި މާކަޕްތައް
+	Comments, links and fields must be in the tag tree to be announced. Tag the annotations.	ކޮމެންޓް، ލިންކް އަދި ފީލްޑްތައް ކިޔައިދެވޭނީ ޓެގް ޓްރީގައި ހުރިއްޔާ. ނޯޓްތައް ޓެގްކުރޭ.
+	Completed	ނިމިއްޖެ
+	Configure a Digital ID for Signing	ސޮއިކުރުމަށް ޑިޖިޓަލް ID އެއް ސެޓަޕްކުރޭ
+	Connected lines	ގުޅިފައިވާ ރޮނގުތައް
+	Content Streams	ކޮންޓެންޓް ސްޓްރީމްތައް
+	Content copying	ކޮންޓެންޓް ކޮޕީކުރުން
+	Content copying for accessibility	އެކްސެސިބިލިޓީއަށް ކޮންޓެންޓް ކޮޕީކުރުން
+	Contributors	ބައިވެރިން
+	Copied {what}	{what} ކޮޕީކުރެވިއްޖެ
+	Copy or cut pages first	ފުރަތަމަ ޞަފްޙާތައް ކޮޕީ ނުވަތަ ކަޓްކުރޭ
+	Could not save: {e}	ރައްކާއެއް ނުކުރެވުނު: {e}
+	Couldn't add {name}: {e}	{name} އިތުރެއް ނުކުރެވުނު: {e}
+	Couldn't combine files: {e}	ފައިލްތައް ގުޅައެއް ނުލެވުނު: {e}
+	Couldn't create a PDF: {e}	PDF އެއް ހެދިއެއް ނުދިޔަ: {e}
+	Couldn't download {name}: {e}	{name} ޑައުންލޯޑެއް ނުކުރެވުނު: {e}
+	Couldn't extract pages: {e}	ޞަފްޙާތައް ވަކިކޮށް ނުނެގުނު: {e}
+	Couldn't fit the visible content: {e}	ފެންނަ ކޮންޓެންޓް ފިޓެއް ނުކުރެވުނު: {e}
+	Couldn't follow linked PDF: {reason}	ލިންކްކޮށްފައިވާ PDF އަށް ނުދެވުނު: {reason}
+	Couldn't import the signature image: {e}	ސޮއިގެ ފޮޓޯ އިމްޕޯޓެއް ނުކުރެވުނު: {e}
+	Couldn't open revision {n}: {e}	ރިވިޝަން {n} ނުހުޅުވުނު: {e}
+	Couldn't open the result: {e}	ނަތީޖާ ނުހުޅުވުނު: {e}
+	Couldn't open the signed version: {e}	ސޮއިކުރެވިފައިވާ ވަރޝަން ނުހުޅުވުނު: {e}
+	Couldn't open {name}: {e}	{name} ނުހުޅުވުނު: {e}
+	Couldn't optimize the file	ފައިލް އޮޕްޓިމައިޒެއް ނުކުރެވުނު
+	Couldn't optimize the file: {e}	ފައިލް އޮޕްޓިމައިޒެއް ނުކުރެވުނު: {e}
+	Couldn't print from the browser ({e}); downloaded {name} to print instead	ބްރައުޒަރުން ޕްރިންޓެއް ނުކުރެވުނު ({e})؛ އޭގެ ބަދަލުގައި ޕްރިންޓްކުރުމަށް {name} ޑައުންލޯޑްކުރެވިއްޖެ
+	Couldn't read {name}: {e}	{name} ކިޔައެއް ނުލެވުނު: {e}
+	Couldn't recover {name}: {e}	{name} ރިކަވަރެއް ނުކުރެވުނު: {e}
+	Couldn't reload {name}: {e}	{name} ރީލޯޑެއް ނުކުރެވުނު: {e}
+	Couldn't save the image: {e}	ފޮޓޯ ރައްކާއެއް ނުކުރެވުނު: {e}
+	Couldn't save {name}: {e}	{name} ރައްކާއެއް ނުކުރެވުނު: {e}
+	Couldn't save: {e}	ރައްކާއެއް ނުކުރެވުނު: {e}
+	Couldn't show the file picker. Please try again.	ފައިލް ޕިކަރ ދައްކައެއް ނުލެވުނު. އަލުން މަސައްކަތްކޮށްލައްވާ.
+	Couldn't split: {e}	ބައިއެއް ނުކުރެވުނު: {e}
+	Couldn't summarize comments: {e}	ކޮމެންޓްތަކުގެ ޚުލާޞާއެއް ނުހެދުނު: {e}
+	Couldn't take the snapshot: {e}	ސްނެޕްޝޮޓް ނުނެގުނު: {e}
+	Couldn't unlock {name}: {e}	{name} އަންލޮކެއް ނުކުރެވުނު: {e}
+	Couldn't use the photo: {e}	ފޮޓޯ ބޭނުމެއް ނުކުރެވުނު: {e}
+	Couldn't use {name}: {e}	{name} ބޭނުމެއް ނުކުރެވުނު: {e}
+	Couldn't write {name}: {e}	{name} ލިޔެއް ނުވުނު: {e}
+	the name is not a plain file name	އެ ނަމަކީ ސާދާ ފައިލް ނަމެއް ނޫން
+	Couldn't write {path}: {e}	{path} ލިޔެއް ނުވުނު: {e}
+	Create link	ލިންކް ހަދާ
+	Created 1 link	1 ލިންކް ހެދިއްޖެ
+	Created a PDF from the first {n} files	ފުރަތަމަ {n} ފައިލުން PDF އެއް ހެދިއްޖެ
+	Created a comment summary	ކޮމެންޓްތަކުގެ ޚުލާޞާއެއް ހެދިއްޖެ
+	Created {n} links	{n} ލިންކް ހެދިއްޖެ
+	Credit Cards	ކްރެޑިޓް ކާޑުތައް
+	Crop page	ޞަފްޙާ ކްރޮޕްކުރޭ
+	Custom font	ކަސްޓަމް ފޮންޓް
+	Custom stamps arrive on the web with file pickers for images	ވެބްގައި ކަސްޓަމް ސްޓޭމްޕް ލިބޭނީ ފޮޓޯއަށް ފައިލް ޕިކަރ އަންނައިރު
+	Cut {what}	{what} ކަޓްކުރެވިއްޖެ
+	Dark gray theme	ގަދަ އަޅިކުލަ ތީމް
+	Dashed	ޑޭޝްކޮށްފައި
+	Dates	ތާރީޚުތައް
+	Delete bookmark	ބުކްމާކް ފޮހެލާ
+	Delete content	ކޮންޓެންޓް ފޮހެލާ
+	Delete document JavaScript	ޑޮކިއުމަންޓުގެ JavaScript ފޮހެލާ
+	Delete field	ފީލްޑް ފޮހެލާ
+	Delete image	ފޮޓޯ ފޮހެލާ
+	Delete link	ލިންކް ފޮހެލާ
+	Delete page	ޞަފްޙާ ފޮހެލާ
+	Delete selected fields	ޚިޔާރުކުރެވިފައިވާ ފީލްޑްތައް ފޮހެލާ
+	Deleted	ފޮހެލެވިއްޖެ
+	Detected 1 form field	1 ފޯމު ފީލްޑް ފެނިއްޖެ
+	Detected {n} form fields	{n} ފޯމު ފީލްޑް ފެނިއްޖެ
+	Device colour is used, but there is no PDF/A output intent	ޑިވައިސް ކުލަ ބޭނުންކޮށްފައިވީނަމަވެސް PDF/A އައުޓްޕުޓް އިންޓެންޓެއް ނެތް
+	DeviceCMYK is used: it needs a CMYK output intent (not added automatically)	DeviceCMYK ބޭނުންކޮށްފައިވޭ: އެއަށް CMYK އައުޓްޕުޓް އިންޓެންޓެއް ބޭނުންވޭ (އަމިއްލައަށް އިތުރެއް ނުކުރެވޭ)
+	Diagnostic details	ޑައިގްނޮސްޓިކް ތަފްސީލު
+	Digital Signature Properties	ޑިޖިޓަލް ސޮއީގެ ޕްރޮޕަޓީޒް
+	Discard all comments, forms and multimedia	ހުރިހާ ކޮމެންޓެއް، ފޯމެއް އަދި މަލްޓިމީޑިއާ ނައްތާލާ
+	Discard all links, actions and JavaScript	ހުރިހާ ލިންކެއް، އެކްޝަނެއް އަދި JavaScript ނައްތާލާ
+	Discard all object data (file attachments)	ހުރިހާ އޮބްޖެކްޓް ޑޭޓާ (ފައިލް އެޓޭޗްމަންޓްތައް) ނައްތާލާ
+	Discard bookmarks	ބުކްމާކްތައް ނައްތާލާ
+	Discard document information and metadata	ޑޮކިއުމަންޓުގެ މަޢުލޫމާތާއި މެޓަޑޭޓާ ނައްތާލާ
+	Discard hidden layer content	ފޮރުވިފައިވާ ލޭޔަރުގެ ކޮންޓެންޓް ނައްތާލާ
+	Discard hidden text	ފޮރުވިފައިވާ ލިޔުން ނައްތާލާ
+	Discard private data of other applications	އެހެން އެޕްލިކޭޝަންތަކުގެ ޚާއްޞަ ޑޭޓާ ނައްތާލާ
+	Distribute fields	ފީލްޑްތައް ހަމައަށް ބަހާލާ
+	Document Overhead	ޑޮކިއުމަންޓުގެ އޯވަރހެޑް
+	Document assembly	ޑޮކިއުމަންޓް އެސެމްބްލީ
+	Document has appropriate color contrast	ޑޮކިއުމަންޓުގައި ރަނގަޅު ކުލައިގެ ކޮންޓްރާސްޓް ހުރި
+	Document is not image-only PDF	ޑޮކިއުމަންޓަކީ ހަމައެކަނި ފޮޓޯ ހިމެނޭ PDF އެއް ނޫން
+	Document is tagged PDF	ޑޮކިއުމަންޓަކީ ޓެގްކޮށްފައިވާ PDF އެއް
+	Document sanitized. Save to finish: saving rewrites the whole file.	ޑޮކިއުމަންޓް ސެނިޓައިޒްކުރެވިއްޖެ. ނިންމުމަށް ރައްކާކުރޭ: ރައްކާކުރާއިރު މުޅި ފައިލް އަލުން ލިޔެވޭނެ.
+	Document structure provides a logical reading order	ޑޮކިއުމަންޓުގެ ސްޓްރަކްޗަރުގައި މަންޠިޤީ ކިޔާ ތަރުތީބެއް ހުރި
+	Document title is showing in title bar	ޓައިޓަލް ބާރގައި ޑޮކިއުމަންޓުގެ ސުރުޚީ ފެންނަނީ
+	Documents of more than 20 pages need bookmarks for navigation. Add bookmarks for the main sections.	20 ޞަފްޙާއަށް ވުރެ ގިނަ ޑޮކިއުމަންޓްތަކުގައި ނެވިގޭޓްކުރުމަށް ބުކްމާކް ބޭނުންވޭ. މައިގަނޑު ބައިތަކަށް ބުކްމާކް އިތުރުކުރޭ.
+	Double-click	ޑަބަލް ކްލިކް
+	Downloaded {name}	{name} ޑައުންލޯޑްކުރެވިއްޖެ
+	Downloading attachments on the web arrives with M3.10 ({n} bytes ready)	ވެބްގައި އެޓޭޗްމަންޓް ޑައުންލޯޑްކުރުން ލިބޭނީ M3.10 ގައި ({n} ބައިޓް ތައްޔާރު)
+	Drag a rectangle around the area to copy	ކޮޕީކުރާ ސަރަހައްދުގެ ވަށައިގެން ހަތަރެސްކަނެއް ދަމާ
+	Drag a rectangle on a page to crop it; double-click a page for Set Page Boxes	ކްރޮޕްކުރުމަށް ޞަފްޙާގައި ހަތަރެސްކަނެއް ދަމާ؛ ޞަފްޙާ ބޮކްސްތައް ސެޓްކުރުމަށް ޞަފްޙާގައި ޑަބަލް ކްލިކްކުރޭ
+	Drag a rectangle to create a link; double-click a link to edit it	ލިންކެއް ހެދުމަށް ހަތަރެސްކަނެއް ދަމާ؛ އެޑިޓްކުރުމަށް ލިންކެއްގައި ޑަބަލް ކްލިކްކުރޭ
+	Drag the corners onto the document's edges, then choose Enhance page.	ކަނުތައް ޑޮކިއުމަންޓުގެ އައްސޭރިތަކަށް ދަމާ، ދެން "ޞަފްޙާ ރަނގަޅުކުރޭ" ޚިޔާރުކުރޭ.
+	Drag to draw the area where the signature should appear.	ސޮއި ފެންނަންވީ ސަރަހައްދު ކުރަހަން ދަމާ.
+	Dropdown Properties	ޑްރޮޕްޑައުންގެ ޕްރޮޕަޓީޒް
+	Duplicate field	ފީލްޑް ޑުޕްލިކޭޓްކުރޭ
+	Duplicate page	ޞަފްޙާ ޑުޕްލިކޭޓްކުރޭ
+	Each field needs a tooltip that says what to enter. Add one in Field Properties > General > Tooltip.	ކޮންމެ ފީލްޑަކަށް ލިޔަންވީ އެއްޗެއް ބުނެދޭ ޓޫލްޓިޕެއް ބޭނުންވޭ. ފީލްޑުގެ ޕްރޮޕަޓީޒް > ޢާންމު > ޓޫލްޓިޕް ގައި އިތުރުކުރޭ.
+	Edit comment	ކޮމެންޓް އެޑިޓްކުރޭ
+	Edit content	ކޮންޓެންޓް އެޑިޓްކުރޭ
+	Edit document JavaScript	ޑޮކިއުމަންޓުގެ JavaScript އެޑިޓްކުރޭ
+	Edit fields	ފީލްޑްތައް އެޑިޓްކުރޭ
+	Edit script of {name}	{name} ގެ ސްކްރިޕްޓް އެޑިޓްކުރޭ
+	Edit text	ލިޔުން އެޑިޓްކުރޭ
+	Editing	އެޑިޓްކުރުން
+	Email Addresses	އީމެއިލް އެޑްރެސްތައް
+	Embedded Files	އެމްބެޑްކޮށްފައިވާ ފައިލްތައް
+	Embedded files must be PDF/A files themselves (use PDF/A-3 for others)	އެމްބެޑްކޮށްފައިވާ ފައިލްތަކަކީވެސް PDF/A ފައިލް ކަމުގައި ވާން ޖެހޭ (އެހެން ފައިލްތަކަށް PDF/A-3 ބޭނުންކުރޭ)
+	Encryption	އެންކްރިޕްޝަން
+	Endpoint	އެންޑްޕޮއިންޓް
+	Erase	ފޮހެލާ
+	Eraser	ރަބަރު
+	Even pages	ދެކަލަ ޞަފްޙާތައް
+	Everything on a page must be tagged or marked as an artifact (decoration, headers, footers). Tag the untagged content.	ޞަފްޙާގައިވާ ހުރިހާ އެއްޗެއް ޓެގްކޮށްފައި ނުވަތަ އާޓިފެކްޓެއް (ޒީނަތް، ހެޑަރ، ފޫޓަރ) ކަމުގައި ފާހަގަކޮށްފައި ހުންނަން ޖެހޭ. ޓެގްނުކޮށްހުރި ކޮންޓެންޓް ޓެގްކުރޭ.
+	Execute a menu item	މެނޫ އައިޓަމެއް ހިންގާ
+	Export certificate	ސެޓްފިކެޓް އެކްސްޕޯޓްކުރޭ
+	Exported to {path}	{path} އަށް އެކްސްޕޯޓްކުރެވިއްޖެ
+	Extended Graphics States	އެކްސްޓެންޑެޑް ގްރެފިކްސް ސްޓޭޓްތައް
+	Field	ފީލްޑް
+	Field descriptions	ފީލްޑުގެ ތަފްސީލުތައް
+	Figures alternate text	ފިގަރުތަކުގެ ބަދަލު ލިޔުން
+	Figures require alternate text	ފިގަރުތަކަށް ބަދަލު ލިޔުން ބޭނުންވޭ
+	File attachments	ފައިލް އެޓޭޗްމަންޓްތައް
+	Files are combined in this order. Leave Pages empty to take every page.	ފައިލްތައް ގުޅޭނީ މި ތަރުތީބުން. ހުރިހާ ޞަފްޙާއެއް ނެގުމަށް ޞަފްޙާތައް ހުސްކޮށް ދޫކޮށްލާ.
+	Fill in {name}	{name} ފުރާ
+	Filling of form fields	ފޯމު ފީލްޑްތައް ފުރުން
+	Flatten	ފްލެޓަންކުރޭ
+	Flip image	ފޮޓޯ ފްލިޕްކުރޭ
+	Fonts must map their characters to Unicode so text can be read and copied. Fix the fonts or recreate the PDF.	ލިޔުން ކިޔައި ކޮޕީކުރެވޭނެހެން ފޮންޓްތަކުގެ އަކުރުތައް Unicode އާ ގުޅުވާފައި ހުންނަން ޖެހޭ. ފޮންޓްތައް ރަނގަޅުކުރޭ ނުވަތަ PDF އަލުން ހަދާ.
+	Form fields must be in the tag tree (Form tags) to be announced. Tag the form fields.	ފޯމު ފީލްޑްތައް ކިޔައިދެވޭނީ ޓެގް ޓްރީގައި (Form ޓެގް) ހުރިއްޔާ. ފޯމު ފީލްޑްތައް ޓެގްކުރޭ.
+	Formulas and similar non-text elements need alternate text. Add alternate text to them.	ފޯމިއުލާ އަދި އެފަދަ ލިޔުމެއް ނޫން އެލިމެންޓްތަކަށް ބަދަލު ލިޔުން ބޭނުންވޭ. އެތަކެއްޗަށް ބަދަލު ލިޔުން އިތުރުކުރޭ.
+	Gray	އަޅިކުލަ
+	Grayscale Images	ގްރޭސްކޭލް ފޮޓޯ
+	Green	ފެހި
+	Green on black	ކަޅުމަތީ ފެހި
+	H / Space (hold)	H / ސްޕޭސް (ހިފަހައްޓާ)
+	Header cells (TH) tell listeners what each column or row holds. Mark the header cells.	ހެޑަރ ސެލްތަކުން (TH) އަޑުއަހާ މީހުންނަށް ކޮންމެ ކޮލަމެއް ނުވަތަ ރޯއެއްގައި ހުރީ ކޮންއެއްޗެއްކަން ބުނެދެއެވެ. ހެޑަރ ސެލްތައް ފާހަގަކުރޭ.
+	Headers	ހެޑަރތައް
+	Heading levels shouldn't skip (an H1 followed by an H3). Retag the headings.	ހެޑިންގ ލެވެލްތައް ފަހަނައަޅައިގެން ނުދާން ވާނެ (H1 ގެ ފަހުން H3). ހެޑިންގތައް އަލުން ޓެގްކުރޭ.
+	Headings	ހެޑިންގތައް
+	Hidden layers	ފޮރުވިފައިވާ ލޭޔަރތައް
+	Hidden text	ފޮރުވިފައިވާ ލިޔުން
+	Hide a field	ފީލްޑެއް ފޮރުވާ
+	Hides annotation	ނޯޓް ފޮރުވޭ
+	High	މަތި
+	Home / End	Home / End
+	Horizontally	ފުޅާދިމާލަށް
+	Image-only PDF	ހަމައެކަނި ފޮޓޯ ހިމެނޭ PDF
+	Import {name}	{name} އިމްޕޯޓްކުރޭ
+	Importing data arrives on the web with file pickers for data files	ވެބްގައި ޑޭޓާ އިމްޕޯޓްކުރުން ލިބޭނީ ޑޭޓާ ފައިލްތަކަށް ފައިލް ޕިކަރ އަންނައިރު
+	Incorrect password. Try again.	ޕާސްވޯޑް ރަނގަޅެއް ނޫން. އަލުން މަސައްކަތްކޮށްލައްވާ.
+	Insert pages from {name}	{name} ން ޞަފްޙާތައް ވައްދާ
+	Insert pages from {name} — 1 field renamed	{name} ން ޞަފްޙާތައް ވައްދާ — 1 ފީލްޑްގެ ނަން ބަދަލުކުރެވިއްޖެ
+	Insert pages from {name} — fields renamed	{name} ން ޞަފްޙާތައް ވައްދާ — ފީލްޑްތަކުގެ ނަން ބަދަލުކުރެވިއްޖެ
+	Inserted	ވައްދާފައި
+	Inset	އިންސެޓް
+	Intended usage	ބޭނުންކުރަން ރާވާފައިވާ ގޮތް
+	Intersection	އިންޓަރސެކްޝަން
+	Invert	އިންވާޓްކުރޭ
+	Irregular tables confuse cell navigation. Give every row the same number of cells (counting spans).	ހަމަނޫން ޓޭބަލްތަކުން ސެލްތަކުގެ ނެވިގޭޝަން އޮޅުވާލައެވެ. ކޮންމެ ރޯއަކަށް އެއްވަރަކަށް ސެލް ދޭ (ސްޕޭން ހިމަނައިގެން).
+	Issued by	ދޫކުރީ
+	Issued to	ދޫކުރެވުނީ
+	Issuer	ދޫކުރާ ފަރާތް
+	Key usage	ކީގެ ބޭނުން
+	Keywords	ކީވޯޑްތައް
+	LI must be a child of L	LI އަކީ L ގެ ޗައިލްޑެއް ކަމުގައި ވާން ޖެހޭ
+	Landscape pages	ލޭންޑްސްކޭޕް ޞަފްޙާތައް
+	Lbl and LBody	Lbl އަދި LBody
+	Lbl and LBody must be children of LI	Lbl އަދި LBody އަކީ LI ގެ ޗައިލްޑުން ކަމުގައި ވާން ޖެހޭ
+	Left Footer Text	ވާތް ފޫޓަރ ލިޔުން
+	Left Header Text	ވާތް ހެޑަރ ލިޔުން
+	Light blue	ލުއި ނޫ
+	Links, actions and JavaScripts	ލިންކް، އެކްޝަން އަދި JavaScript
+	List	ލިސްޓް
+	List Box Properties	ލިސްޓް ބޮކްސްގެ ޕްރޮޕަޓީޒް
+	List items	ލިސްޓް އައިޓަމްތައް
+	List items belong in a list. Fix the list's tags.	ލިސްޓް އައިޓަމްތައް ހުންނަންވާނީ ލިސްޓެއްގެ ތެރޭގައި. ލިސްޓުގެ ޓެގްތައް ރަނގަޅުކުރޭ.
+	List labels and bodies belong in a list item. Fix the list's tags.	ލިސްޓުގެ ލޭބަލްތަކާއި ބޮޑީތައް ހުންނަންވާނީ ލިސްޓް އައިޓަމެއްގެ ތެރޭގައި. ލިސްޓުގެ ޓެގްތައް ރަނގަޅުކުރޭ.
+	Lists	ލިސްޓްތައް
+	Load document font	ޑޮކިއުމަންޓުގެ ފޮންޓް ލޯޑްކުރޭ
+	Local cross-PDF links require the desktop app	ލޯކަލް ކްރޮސް-PDF ލިންކްތަކަށް ޑެސްކްޓޮޕް އެޕް ބޭނުންވޭ
+	Lock comment	ކޮމެންޓް ލޮކްކުރޭ
+	Logical Reading Order	މަންޠިޤީ ކިޔާ ތަރުތީބު
+	Low	ދަށް
+	Make scans searchable, then make them smaller.	ސްކޭންތައް ހޯދޭ ގޮތަށް ހަދާ، ދެން ކުޑަކުރޭ.
+	Mark all	ހުރިހާ އެއްޗެއް ފާހަގަކުރޭ
+	Mark as Confidential	ސިއްރު ކަމުގައި ފާހަގަކުރޭ
+	Mark differences	ތަފާތުތައް ފާހަގަކުރޭ
+	Mark figure as decorative	ފިގަރު ޒީނަތަށް ކަމުގައި ފާހަގަކުރޭ
+	Mark for redaction	ރިޑެކްޝަނަށް ފާހަގަކުރޭ
+	Mark pages for redaction	ރިޑެކްޝަނަށް ޞަފްޙާތައް ފާހަގަކުރޭ
+	Match field sizes	ފީލްޑްތަކުގެ ސައިޒު އެއްގޮތްކުރޭ
+	Maximum	އެންމެ ގިނަވެގެން
+	Measuring tool	މިނާ ޓޫލް
+	Merged 1 file into {path}	1 ފައިލް {path} އަށް ގުޅައިފި
+	Merged {n} files into {path}	{n} ފައިލް {path} އަށް ގުޅައިފި
+	Merging data files needs the desktop app	ޑޭޓާ ފައިލްތައް ގުޅުމަށް ޑެސްކްޓޮޕް އެޕް ބޭނުންވޭ
+	Metadata	މެޓަޑޭޓާ
+	Midpoint	މެދު ޕޮއިންޓް
+	Minimum	އެންމެ ކުޑަވެގެން
+	Models	މޮޑެލްތައް
+	Mouse Down	މައުސް ފިތާލުން
+	Mouse Enter	މައުސް ވަދެއްޖެ
+	Mouse Exit	މައުސް ނިކުމެއްޖެ
+	Mouse Up	މައުސް ދޫކޮށްލުން
+	Move bookmark	ބުކްމާކް ގެންދާ
+	Move comment	ކޮމެންޓް ގެންދާ
+	Move image	ފޮޓޯ ގެންދާ
+	Move page	ޞަފްޙާ ގެންދާ
+	Move pages	ޞަފްޙާތައް ގެންދާ
+	Named Destinations	ނަންދީފައިވާ މަންޒިލްތައް
+	Navigation links	ނެވިގޭޝަން ލިންކްތައް
+	Navigation links are not repetitive	ނެވިގޭޝަން ލިންކްތައް ތަކުރާރުނުވޭ
+	Nested alternate text	އެތެރެއަށް ވައްދާފައިވާ ބަދަލު ލިޔުން
+	New {tool} comments will look like this one	އާ {tool} ކޮމެންޓްތައް ފެންނާނީ މި ކޮމެންޓް ފަދައިން
+	No PDFs, images or text files found in {folder}	{folder} ގައި PDF، ފޮޓޯ ނުވަތަ ލިޔުމުގެ ފައިލެއް ނުފެނުނު
+	No form fields were detected	އެއްވެސް ފޯމު ފީލްޑެއް ނުފެނުނު
+	No inaccessible scripts	އެކްސެސް ނުކުރެވޭ ސްކްރިޕްޓެއް ނެތް
+	No links to remove	ނައްތާލާނެ ލިންކެއް ނެތް
+	No pages match those choices	އެ ޚިޔާރުތަކާ ގުޅޭ ޞަފްޙާއެއް ނެތް
+	No unlinked web addresses were found in the text	ލިޔުމުގައި ލިންކް ނުކުރެވިފައިވާ ވެބް އެޑްރެހެއް ނުފެނުނު
+	None of those files can be made into a PDF; use PDFs, images or .txt files	އެ ފައިލްތަކުން އެއްވެސް ފައިލެއް PDF އަކަށް ނުހެދޭނެ؛ PDF، ފޮޓޯ ނުވަތަ .txt ފައިލް ބޭނުންކުރައްވާ
+	Note	ނޯޓް
+	Number every page in the footer.	ފުޓަރގައި ކޮންމެ ޞަފްޙާއަކަށް ނަންބަރު ޖަހާ.
+	Odd pages	އެއްކަލަ ޞަފްޙާތައް
+	On Blur	ފޯކަސް ގެއްލުމުން
+	On Focus	ފޯކަސް ލިބުމުން
+	On the web, open or drop an image to convert it	ވެބްގައި ފޮޓޯއެއް ބަދަލުކުރުމަށް އެ ފޮޓޯ ހުޅުވާ ނުވަތަ ދޫކޮށްލާ
+	Open a web link	ވެބް ލިންކެއް ހުޅުވާ
+	Opened with	ހުޅުވީ މިއިން
+	Opening the browser's print dialog…	ބްރައުޒަރުގެ ޕްރިންޓް ޑައިލޮގް ހުޅުވަނީ…
+	Optimization cancelled	އޮޕްޓިމައިޒޭޝަން ކެންސަލްކުރެވިއްޖެ
+	Optimization is already running	އޮޕްޓިމައިޒޭޝަން މިހާރުވެސް ހިނގަމުންދޭ
+	Optimize Scanned Documents	ސްކޭންކުރި ޑޮކިއުމަންޓްތައް އޮޕްޓިމައިޒްކުރޭ
+	Options	ޚިޔާރުތައް
+	Orange	އޮރެންޖު
+	Other elements alternate text	އެހެނިހެން އެލިމެންޓްތަކުގެ ބަދަލު ލިޔުން
+	Other elements that require alternate text	ބަދަލު ލިޔުން ބޭނުންވާ އެހެނިހެން އެލިމެންޓްތައް
+	Outline	އައުޓްލައިން
+	PDF producer	PDF ހެދި ޕްރޮގްރާމް
+	PDF version	PDF ވަރޝަން
+	Page Content	ޞަފްޙާގެ ކޮންޓެންޓް
+	Page Range	ޞަފްޙާތަކުގެ ރޭންޖް
+	Page does not require timed responses	ޞަފްޙާގައި ވަގުތު ކަނޑައަޅާފައިވާ ޖަވާބެއް ބޭނުމެއް ނުވޭ
+	Page thumbnails	ޞަފްޙާތަކުގެ ތަމްނޭލް
+	Page will not cause screen flicker	ޞަފްޙާގެ ސަބަބުން ސްކްރީން ފްލިކަރއެއް ނުވާނެ
+	Pages that are only pictures of text can't be read aloud or searched. Recognize text (OCR) to add a text layer.	ލިޔުމުގެ ފޮޓޯއެއް ކަހަލަ ޞަފްޙާތައް އަޑުން ކިޔައެއް ނުވަތަ ހޯދައެއް ނުލެވޭނެ. ލިޔުމުގެ ލޭޔަރއެއް އިތުރުކުރުމަށް ލިޔުން ދެނެގަންނަވާ (OCR).
+	Pages with links, comments or fields should tab in structure order. The fix sets each page's tab order to Use Document Structure.	ލިންކް، ކޮމެންޓް ނުވަތަ ފީލްޑް ހުރި ޞަފްޙާތަކުގެ ޓެބް ތަރުތީބު ވާންވާނީ ސްޓްރަކްޗަރ ތަރުތީބަށް. މި ހައްލުން ކޮންމެ ޞަފްޙާއެއްގެ ޓެބް ތަރުތީބު "ޑޮކިއުމަންޓް ސްޓްރަކްޗަރ ބޭނުންކުރޭ" އަށް ބަދަލުކުރެވޭނެ.
+	Passed	ފާސްވި
+	Password protection will be applied when you save	ރައްކާކުރުމުން ޕާސްވޯޑް ރައްކާތެރިކަން ލާގޫވާނެ
+	Path	ޕާތް
+	PdfCraft is drawing without a graphics processor, so it may be slow. Updating the graphics driver may help.	PdfCraft ދައްކަނީ ގްރެފިކްސް ޕްރޮސެސަރއެއް ނެތި، އެހެންވެ ލަސްވެދާނެ. ގްރެފިކްސް ޑްރައިވަރ އަޕްޑޭޓްކުރުމުން ފައިދާވެދާނެ.
+	People may need more time to respond. Check that nothing has a time limit.	ޖަވާބުދިނުމަށް މީހުންނަށް އިތުރު ވަގުތު ބޭނުންވެދާނެ. އެއްވެސް އެއްޗަކަށް ވަގުތުގެ ހައްދެއް ނެތްކަން ޔަޤީންކުރައްވާ.
+	Phone Number	ފޯނު ނަންބަރު
+	Phone Numbers	ފޯނު ނަންބަރުތައް
+	Pictures need alternate text that describes them, or must be marked decorative. Add alternate text to each figure.	ފޮޓޯތަކަށް އެ ފޮޓޯ ސިފަކޮށްދޭ ބަދަލު ލިޔުމެއް ބޭނުންވޭ، ނުވަތަ ޒީނަތަށް ހުރި ފޮޓޯއެއްކަމަށް ނިޝާން ޖަހަންވާނެ. ކޮންމެ ފިގަރއަކަށް ބަދަލު ލިޔުން އިތުރުކުރައްވާ.
+	Pink	ފިނިފެން
+	Pinned folders need the desktop app	ޕިންކުރި ފޯލްޑަރތަކަށް ޑެސްކްޓޮޕް އެޕް ބޭނުންވޭ
+	Pinned {folder} to Home	{folder} ހޯމަށް ޕިންކުރެވިއްޖެ
+	Place saved {what}	ރައްކާކުރެވިފައިވާ {what} ބަހައްޓާ
+	Planned for milestone {m} — open to see what it will include	މައިލްސްޓޯން {m} އަށް ރާވާފައި — އޭގައި ހިމެނޭނެ ކަންތައް ބެލުމަށް ހުޅުވާ
+	Planned · {m}	ރާވާފައި · {m}
+	Polygon	ޕޮލިގޮން
+	Polyline	ޕޮލިލައިން
+	Portable mode is off: {folder} can't be written ({error}). Settings are kept in your user folder instead.	ޕޯޓަބަލް މޯޑް ބަންދުކޮށްފައި: {folder} ގައި ލިޔެވެން ނެތް ({error}). ސެޓިންގްސް ރައްކާކުރެވެނީ ތިބާގެ ޔޫޒަރ ފޯލްޑަރގައި.
+	Portrait pages	ޕޯޓްރެއިޓް ޞަފްޙާތައް
+	Position	ތަން
+	PostScript XObjects aren't allowed	PostScript XObject ތަކަށް ހުއްދައެއް ނެތް
+	Prepare for Distribution	ފޮނުވުމަށް ތައްޔާރުކުރޭ
+	Preparing sheet {done} of {total} for printing…	ޕްރިންޓްކުރުމަށް {total} ޝީޓުން {done} ވަނަ ޝީޓު ތައްޔާރުކުރަނީ…
+	Preparing {n} sheets for printing…	ޕްރިންޓްކުރުމަށް {n} ޝީޓު ތައްޔާރުކުރަނީ…
+	Primary language	މައިގަނޑު ބަސް
+	Printing	ޕްރިންޓްކުރުން
+	Private data of other applications	އެހެން އެޕްލިކޭޝަންތަކުގެ ޕްރައިވެޓް ޑޭޓާ
+	Public key	ޕަބްލިކް ކީ
+	Purple	ވޮނޮށި
+	PushButton	ފިތާ ބަޓަން
+	Radio	ރޭޑިއޯ
+	Radio Button Properties	ރޭޑިއޯ ބަޓަންގެ ޕްރޮޕަޓީޒް
+	Re-type Password	ޕާސްވޯޑް އަލުން ޖައްސަވާ
+	Red	ރަތް
+	Redid {label}	{label} ރީޑޫކުރެވިއްޖެ
+	Regularity	ގަވާއިދުކަން
+	Rejected	ރިޖެކްޓްކުރެވިފައި
+	Reliable character encoding is provided	އިތުބާރުހުރި ކެރެކްޓަރ އެންކޯޑިންގ ދީފައިވޭ
+	Remove hidden information and flatten comments and form fields, so recipients see only the pages.	ފޮރުވިފައިވާ މަޢުލޫމާތު ނައްތާލައި ކޮމެންޓްތަކާއި ފޯމު ފީލްޑްތައް ފްލެޓްކުރޭ، ލިބޭ މީހުންނަށް ފެންނާނީ ހަމައެކަނި ޞަފްޙާތައް.
+	Remove hidden information, metadata, scripts and embedded content, and rewrite the files.	ފޮރުވިފައިވާ މަޢުލޫމާތު، މެޓަޑޭޓާ، ސްކްރިޕްޓް އަދި އެމްބެޑްކުރި ކޮންޓެންޓް ނައްތާލައި ފައިލްތައް އަލުން ލިޔޭ.
+	Remove redaction marks	ރިޑެކްޝަން ނިޝާންތައް ނައްތާލާ
+	Remove saved {what}	ރައްކާކުރެވިފައިވާ {what} ނައްތާލާ
+	Removed 1 hidden item. Save to remove them from the file.	ފޮރުވިފައިވާ 1 އެއްޗެއް ނައްތާލެވިއްޖެ. ފައިލުން ނައްތާލުމަށް ރައްކާކުރައްވާ.
+	Removed 1 link	1 ލިންކް ނައްތާލެވިއްޖެ
+	Removed {n} hidden items. Save to remove them from the file.	ފޮރުވިފައިވާ {n} އެއްޗެއް ނައްތާލެވިއްޖެ. ފައިލުން ނައްތާލުމަށް ރައްކާކުރައްވާ.
+	Removed {n} links	{n} ލިންކް ނައްތާލެވިއްޖެ
+	Rename bookmark	ބުކްމާކްގެ ނަން ބަދަލުކުރޭ
+	Rendering: hayro (bootstrap) · UI: egui · Icons: Lucide (ISC) · Fonts: Inter, JetBrains Mono, Dancing Script (OFL)	ރެންޑަރިންގ: hayro (bootstrap) · UI: egui · އައިކަން: Lucide (ISC) · ފޮންޓް: Inter, JetBrains Mono, Dancing Script (OFL)
+	Repairs	މަރާމާތު
+	Repeated navigation links should be skippable. Check links that appear on every page.	ތަކުރާރުވާ ނެވިގޭޝަން ލިންކްތައް ފަހަނައަޅާ ދެވެން ހުންނަންވާނެ. ކޮންމެ ޞަފްޙާއެއްގައި ފެންނަ ލިންކްތައް ޗެކްކުރައްވާ.
+	Replace page	ޞަފްޙާ ބަދަލުކުރޭ
+	Replace pages	ޞަފްޙާތައް ބަދަލުކުރޭ
+	Replaced	ބަދަލުކުރެވިއްޖެ
+	Replacing images arrives on the web with image file pickers	ވެބްގައި ފޮޓޯ ބަދަލުކުރުން އަންނާނީ ފޮޓޯ ފައިލް ޚިޔާރުކުރާ ޓޫލާއެކު
+	Replacing images on page {p} arrives on the web with image pickers ({i})	{p} ވަނަ ޞަފްޙާގެ ފޮޓޯ ބަދަލުކުރުން ވެބްގައި އަންނާނީ ފޮޓޯ ޚިޔާރުކުރާ ޓޫލާއެކު ({i})
+	Report Options	ރިޕޯޓުގެ ޚިޔާރުތައް
+	Reset a form	ފޯމެއް ރީސެޓްކުރޭ
+	Resize comment	ކޮމެންޓްގެ ސައިޒު ބަދަލުކުރޭ
+	Restrictions	ރެސްޓްރިކްޝަންތައް
+	Restrictions lifted	ރެސްޓްރިކްޝަންތައް ނައްތާލެވިއްޖެ
+	Reverted to the last saved version	އެންމެ ފަހުން ރައްކާކުރި ވަރޝަނަށް އެނބުރި ގެނެވިއްޖެ
+	Right Footer Text	ކަނާތު ފުޓަރ ލިޔުން
+	Right Header Text	ކަނާތު ހެޑަރ ލިޔުން
+	Rotate image	ފޮޓޯ އަނބުރާ
+	Rotate page	ޞަފްޙާ އަނބުރާ
+	Rotate page {label} clockwise	{label} ޞަފްޙާ ގަޑީގެ އަތަށް އަނބުރާ
+	Rotate page {label} counterclockwise	{label} ޞަފްޙާ ގަޑީގެ އަތުގެ އިދިކޮޅަށް އަނބުރާ
+	Rows	ރޯތައް
+	Run	ހިންގާ
+	Run JavaScript	JavaScript ހިންގާ
+	Run a JavaScript	JavaScript އެއް ހިންގާ
+	Run form script	ފޯމު ސްކްރިޕްޓް ހިންގާ
+	SHA-1 digest	SHA-1 ޑައިޖެސްޓް
+	SHA-256 digest	SHA-256 ޑައިޖެސްޓް
+	Sanitize	ސާފުކުރޭ
+	Sanitize Documents	ޑޮކިއުމަންޓްތައް ސާފުކުރޭ
+	Save as PDF/A-1b	PDF/A-1b ގޮތަށް ރައްކާކުރޭ
+	Save as PDF/A-2b	PDF/A-2b ގޮތަށް ރައްކާކުރޭ
+	Save as PDF/A-3b	PDF/A-3b ގޮތަށް ރައްކާކުރޭ
+	Save image	ފޮޓޯ ރައްކާކުރޭ
+	Save or revert changes before selecting another tag.	އެހެން ޓެގެއް ޚިޔާރުކުރުމުގެ ކުރިން ބަދަލުތައް ރައްކާކުރައްވާ ނުވަތަ އަނބުރާލައްވާ.
+	Saved the print-ready PDF to {path}	ޕްރިންޓަށް ތައްޔާރު PDF {path} ގައި ރައްކާކުރެވިއްޖެ
+	Saved {name}	{name} ރައްކާކުރެވިއްޖެ
+	Saved {place}: {before} → {after} (not smaller){detail}	{place} ރައްކާކުރެވިއްޖެ: {before} → {after} (ކުޑައެއް ނުވި){detail}
+	Saved {place}: {before} → {after} ({pct}% smaller){detail}	{place} ރައްކާކުރެވިއްޖެ: {before} → {after} ({pct}% ކުޑަވެއްޖެ){detail}
+	Saved, but reopening failed: {e}	ރައްކާކުރެވުނު، ނަމަވެސް އަލުން ހުޅުވުން ނާކާމިޔާބުވި: {e}
+	Screen flicker	ސްކްރީން ފްލިކަރ
+	Screen readers choose their voice from the document's language. Set it in Document Properties > Advanced > Language.	ސްކްރީން ރީޑަރތައް އަޑު ޚިޔާރުކުރަނީ ޑޮކިއުމަންޓްގެ ބަހުން. އެ ބަސް ކަނޑައަޅުއްވާ: ޑޮކިއުމަންޓް ޕްރޮޕަޓީޒް > އެޑްވާންސްޑް > ބަސް.
+	Scripted content must be usable with a keyboard and assistive technology. Check the document's scripts.	ސްކްރިޕްޓްކުރެވިފައިވާ ކޮންޓެންޓް ކީބޯޑާއި އެހީތެރި ޓެކްނޮލޮޖީއާއެކު ބޭނުންކުރެވެން ހުންނަންވާނެ. ޑޮކިއުމަންޓްގެ ސްކްރިޕްޓްތައް ޗެކްކުރައްވާ.
+	Scripts	ސްކްރިޕްޓްތައް
+	Scripts run in a sandbox without file or network access. With JavaScript off, Acrobat's standard format, validate and calculate functions still work.	ސްކްރިޕްޓްތައް ހިނގަނީ ފައިލް ނުވަތަ ނެޓްވޯކަށް އެކްސެސް ނެތް ސޭންޑްބޮކްސްއެއްގައި. JavaScript ބަންދުކޮށްފައި ވިޔަސް، Acrobat ގެ ސްޓޭންޑަޑް ފޯމެޓް، ވެލިޑޭޓް އަދި ހިސާބުކުރާ ފަންކްޝަންތައް މަސައްކަތްކުރާނެ.
+	Security method	ސެކިއުރިޓީ ގޮތް
+	Security settings must allow assistive technology to read the content ("Enable text access for screen reader devices"). Change the document's security to allow it.	ސެކިއުރިޓީ ސެޓިންގްސްގައި އެހީތެރި ޓެކްނޮލޮޖީއަށް ކޮންޓެންޓް ކިޔުމުގެ ހުއްދަ ދޭންވާނެ ("ސްކްރީން ރީޑަރ ޑިވައިސްތަކަށް ލިޔުމަށް އެކްސެސް ހުޅުވާލާ"). އެ ހުއްދަ ދިނުމަށް ޑޮކިއުމަންޓްގެ ސެކިއުރިޓީ ބަދަލުކުރައްވާ.
+	Security will be removed when you save	ރައްކާކުރުމުން ސެކިއުރިޓީ ނައްތާލެވޭނެ
+	Self-signed	އަމިއްލައަށް ސޮއިކޮށްފައި
+	Serial number	ސީރިއަލް ނަންބަރު
+	Set alternate text	ބަދަލު ލިޔުން ކަނޑައަޅާ
+	Set bookmark destination	ބުކްމާކްގެ މަންޒިލް ކަނޑައަޅާ
+	Set document title	ޑޮކިއުމަންޓްގެ ސުރުޚީ ކަނޑައަޅާ
+	Set status Accepted	ހާލަތު ކަނޑައަޅާ: ގަބޫލުކުރެވިފައި
+	Set status Cancelled	ހާލަތު ކަނޑައަޅާ: ކެންސަލްކުރެވިފައި
+	Set status Completed	ހާލަތު ކަނޑައަޅާ: ނިމިފައި
+	Set status None	ހާލަތު ކަނޑައަޅާ: ނެތް
+	Set status Rejected	ހާލަތު ކަނޑައަޅާ: ރިޖެކްޓްކުރެވިފައި
+	Set status Unmarked	ހާލަތު ކަނޑައަޅާ: ނިޝާން ނުޖަހާ
+	Set tab order	ޓެބް ތަރުތީބު ކަނޑައަޅާ
+	Set the image of {name}	{name} ގެ ފޮޓޯ ކަނޑައަޅާ
+	Shadings	ޝޭޑިންގްތައް
+	Show a field	ފީލްޑެއް ދައްކާ
+	Sign with a Digital ID	ޑިޖިޓަލް ID އަކުން ސޮއިކުރޭ
+	Signed and all signatures are valid.	ސޮއިކޮށްފައިވާއިރު ހުރިހާ ސޮއިއެއް ސައްޙަ.
+	Signed and saved to {path}	ސޮއިކޮށް {path} ގައި ރައްކާކުރެވިއްޖެ
+	Signer	ސޮއިކުރި މީހާ
+	Signing time	ސޮއިކުރި ވަގުތު
+	Social Security Number	ސޯޝަލް ސެކިއުރިޓީ ނަންބަރު
+	Social Security Numbers	ސޯޝަލް ސެކިއުރިޓީ ނަންބަރުތައް
+	Solid	ފުރިފައި
+	Squiggly	ރާޅުރޮނގު
+	Star	ތަރި
+	Strong	ވަރުގަދަ
+	Structure Info	ސްޓްރަކްޗަރ މަޢުލޫމާތު
+	Submit a form	ފޯމެއް ފޮނުވާ
+	TH and TD	TH އާއި TD
+	TH and TD must be children of TR	TH އާއި TD ހުންނަންވާނީ TR ގެ ދަށުގައި
+	TR must be a child of Table, THead, TBody, or TFoot	TR ހުންނަންވާނީ Table، THead، TBody ނުވަތަ TFoot ގެ ދަށުގައި
+	Tab order	ޓެބް ތަރުތީބު
+	Tab order is consistent with structure order	ޓެބް ތަރުތީބު ސްޓްރަކްޗަރ ތަރުތީބާ އެއްގޮތް
+	Table cells belong in a row. Fix the table's tags.	ޓޭބަލް ސެލްތައް ހުންނަންވާނީ ރޯއެއްގައި. ޓޭބަލްގެ ޓެގްތައް ރަނގަޅުކުރައްވާ.
+	Table rows belong directly in a table or its head, body or foot. Fix the table's tags.	ޓޭބަލް ރޯތައް ހުންނަންވާނީ ސީދާ ޓޭބަލެއްގައި ނުވަތަ އޭގެ ހެޑް، ބޮޑީ ނުވަތަ ފުޓްގައި. ޓޭބަލްގެ ޓެގްތައް ރަނގަޅުކުރައްވާ.
+	Tables	ޓޭބަލްތައް
+	Tables must contain the same number of columns in each row and rows in each column	ޓޭބަލްތަކުގެ ކޮންމެ ރޯއެއްގައި ކޮލަމްގެ އަދަދާއި ކޮންމެ ކޮލަމެއްގައި ރޯގެ އަދަދު އެއްވަރު ވާންވާނެ
+	Tables must have a summary	ޓޭބަލްތަކުގައި ޚުލާޞާއެއް ހުންނަންވާނެ
+	Tables should have headers	ޓޭބަލްތަކުގައި ހެޑަރ ހުންނަންވާނެ
+	Tagged PDF	ޓެގްކުރެވިފައިވާ PDF
+	Tagged annotations	ޓެގްކުރެވިފައިވާ ނޯޓްތައް
+	Tagged content	ޓެގްކުރެވިފައިވާ ކޮންޓެންޓް
+	Tagged form fields	ޓެގްކުރެވިފައިވާ ފޯމު ފީލްޑްތައް
+	Tagged multimedia	ޓެގްކުރެވިފައިވާ މަލްޓިމީޑިއާ
+	Tags give the document a logical structure that assistive technology follows. Tag the document (Automatically tag PDF).	ޓެގްތަކުން ޑޮކިއުމަންޓަށް ލިބެނީ އެހީތެރި ޓެކްނޮލޮޖީ ތަބާވާ ލޮޖިކަލް ސްޓްރަކްޗަރއެއް. ޑޮކިއުމަންޓް ޓެގްކުރައްވާ (PDF އޮޓޯމެޓިކުން ޓެގްކުރޭ).
+	Text Field Properties	ޓެކްސްޓް ފީލްޑްގެ ޕްރޮޕަޓީޒް
+	Text language is specified	ލިޔުމުގެ ބަސް ކަނޑައަޅާފައިވޭ
+	Text must contrast enough with its background for people with low vision. Check the colours by eye or with a contrast tool.	ފެނުން ދަށް މީހުންނަށްޓަކައި ލިޔުމާއި ފަސްބިމާ ދެމެދު ފުދޭވަރަށް ތަފާތު ހުންނަންވާނެ. ކުލަތައް ލޮލުން ނުވަތަ ކޮންޓްރާސްޓް ޓޫލަކުން ޗެކްކުރައްވާ.
+	Text recognition is already running	ލިޔުން ދެނެގަތުން މިހާރުވެސް ހިނގަމުންދޭ
+	Text recognition isn't installed: its models are missing (run `cargo xtask models`, or set PDFCRAFT_MODELS).	ލިޔުން ދެނެގަތުން އިންސްޓޯލްކޮށްފައެއް ނުވޭ: އޭގެ މޮޑެލްތައް ނެތް (`cargo xtask models` ހިންގަވާ، ނުވަތަ PDFCRAFT_MODELS ކަނޑައަޅުއްވާ).
+	That didn't work: an internal error stopped it ({m}).	އެކަން ނުވި: އެތެރޭގެ މައްސަލައަކާހުރެ ހުއްޓުނު ({m}).
+	That didn't work: an internal error stopped it ({m}). Your documents are unchanged.	އެކަން ނުވި: އެތެރޭގެ މައްސަލައަކާހުރެ ހުއްޓުނު ({m}). ތިބާގެ ޑޮކިއުމަންޓްތަކަށް އެއްވެސް ބަދަލެއް ނާދޭ.
+	The Keychain's digital IDs couldn't be listed: {e}	Keychain ގެ ޑިޖިޓަލް ID ތައް ލިސްޓްކުރެވެން ނެތް: {e}
+	The Windows store's digital IDs couldn't be listed: {e}	Windows ސްޓޯގެ ޑިޖިޓަލް ID ތައް ލިސްޓްކުރެވެން ނެތް: {e}
+	The clipboard has no image or text	ކްލިޕްބޯޑުގައި ފޮޓޯއެއް ނުވަތަ ލިޔުމެއް ނެތް
+	The document changed while you were choosing a file, so nothing was changed.	ފައިލެއް ޚިޔާރުކުރަމުން ދިޔައިރު ޑޮކިއުމަންޓް ބަދަލުވީތީ، އެއްވެސް ބަދަލެއް ނުގެނެވުނު.
+	The document changed while you were editing field properties.	ފީލްޑް ޕްރޮޕަޓީޒް އެޑިޓްކުރަމުން ދިޔައިރު ޑޮކިއުމަންޓް ބަދަލުވެއްޖެ.
+	The document has additional actions (/AA)	ޑޮކިއުމަންޓްގައި އިތުރު އެކްޝަންތައް ހުރި (/AA)
+	The document has document-level JavaScript	ޑޮކިއުމަންޓްގައި ޑޮކިއުމަންޓް ލެވެލްގެ JavaScript ހުރި
+	The document has no XMP metadata	ޑޮކިއުމަންޓްގައި XMP މެޓަޑޭޓާ ނެތް
+	The document is encrypted	ޑޮކިއުމަންޓް އެންކްރިޕްޓްކޮށްފައިވޭ
+	The document is no longer open.	ޑޮކިއުމަންޓް މިހާރު ހުޅުވިފައެއް ނެތް.
+	The document was closed before it could be saved.	ރައްކާކުރެވުމުގެ ކުރިން ޑޮކިއުމަންޓް ބަންދުކުރެވިއްޖެ.
+	The document's security settings don't allow filling in form fields	ޑޮކިއުމަންޓްގެ ސެކިއުރިޓީ ސެޓިންގްސްގައި ފޯމު ފީލްޑްތައް ފުރުމުގެ ހުއްދައެއް ނެތް
+	The field properties could not be changed.	ފީލްޑް ޕްރޮޕަޓީޒް ބަދަލުނުކުރެވުނު.
+	The field properties dialog is no longer open.	ފީލްޑް ޕްރޮޕަޓީޒް ޑައިލޮގް މިހާރު ހުޅުވިފައެއް ނެތް.
+	The form asks to be submitted to {u}; PdfCraft doesn't send form data. Save the document to keep your entries.	މި ފޯމު {u} އަށް ފޮނުވުމަށް އެދޭ؛ PdfCraft އިން ފޯމު ޑޭޓާ ނުފޮނުވާނެ. ތިބާ ލިޔުއްވި އެއްޗެހި ބެހެއްޓުމަށް ޑޮކިއުމަންޓް ރައްކާކުރައްވާ.
+	The form asks viewers to make appearances (NeedAppearances)	ފޯމުން ބަލާ މީހުންނަށް އެޕިއަރެންސް ހެދުމަށް އެދޭ (NeedAppearances)
+	The linked PDF opened, but its named destination was not applied.	ލިންކްކުރި PDF ހުޅުވުނު، ނަމަވެސް އޭގެ ނަންދީފައިވާ މަންޒިލަށް ނުދެވުނު.
+	The linked PDF opened, but its page destination was out of range.	ލިންކްކުރި PDF ހުޅުވުނު، ނަމަވެސް އޭގެ ޞަފްޙާ މަންޒިލް ހުރީ ރޭންޖުން ބޭރުގައި.
+	The operation failed.	އޮޕަރޭޝަން ނާކާމިޔާބުވި.
+	The pages were extracted but not deleted, because the document changed while you were choosing a folder.	ފޯލްޑަރއެއް ޚިޔާރުކުރަމުން ދިޔައިރު ޑޮކިއުމަންޓް ބަދަލުވީތީ، ޞަފްޙާތައް ވަކިކޮށް ނެގުނު ނަމަވެސް ފޮހެލެވިފައެއް ނުވޭ.
+	The passwords don't match.	ޕާސްވޯޑްތައް އެއްގޮތެއް ނުވޭ.
+	The selected area has been copied ({w} × {h} pixels)	ޚިޔާރުކުރި ސަރަހައްދު ކޮޕީކުރެވިއްޖެ ({w} × {h} ޕިކްސެލް)
+	The selected fields could not be found. Select them again.	ޚިޔާރުކުރި ފީލްޑްތައް ނުފެނުނު. އަލުން ޚިޔާރުކުރައްވާ.
+	The standard fonts can't draw “{c}” ({code}). Only Western European characters can be added as text for now.	ސްޓޭންޑަޑް ފޮންޓްތަކުން “{c}” ({code}) ނުދައްކާނެ. މިހާރަށް ލިޔުމެއްގެ ގޮތުގައި އިތުރުކުރެވޭނީ ހުޅަނގު ޔޫރަޕުގެ އަކުރުތައް އެކަނި.
+	The title in the metadata and the document information differ	މެޓަޑޭޓާގައިވާ ސުރުޚީއާއި ޑޮކިއުމަންޓް މަޢުލޫމާތުގައިވާ ސުރުޚީ ތަފާތު
+	The window should show a meaningful title rather than the file name. Set a title and Initial View > Show: Document Title.	ވިންޑޯގައި ފައިލްގެ ނަމުގެ ބަދަލުގައި މާނަހުރި ސުރުޚީއެއް ދައްކަންވާނެ. ސުރުޚީއެއް ކަނޑައަޅައި، ފުރަތަމަ ފެންނަގޮތް > ދައްކާ: ޑޮކިއުމަންޓްގެ ސުރުޚީ ކަނޑައަޅުއްވާ.
+	There are no redaction marks to apply	ހިންގާނެ ރިޑެކްޝަން ނިޝާނެއް ނެތް
+	This PDF uses the unsupported {s} action.	މި PDF ގައި ސަޕޯޓްނުކުރާ {s} އެކްޝަން ބޭނުންކޮށްފައިވޭ.
+	This compatibility level supports only plain ASCII passwords.	މި ކޮމްޕެޓިބިލިޓީ ލެވެލްގައި ސަޕޯޓްކުރަނީ ސާދާ ASCII ޕާސްވޯޑް އެކަނި.
+	This document can't be checked: it couldn't be read for editing	މި ޑޮކިއުމަންޓް ޗެކްނުކުރެވޭނެ: އެޑިޓްކުރުމަށް ކިޔައެއް ނުލެވުނު
+	This document has no attachments.	މި ޑޮކިއުމަންޓްގައި އެއްވެސް އެޓޭޗްމަންޓެއް ނެތް.
+	This document has no bookmarks.	މި ޑޮކިއުމަންޓްގައި އެއްވެސް ބުކްމާކެއް ނެތް.
+	This document has no form fields.	މި ޑޮކިއުމަންޓްގައި އެއްވެސް ފޯމު ފީލްޑެއް ނެތް.
+	This document has no layers.	މި ޑޮކިއުމަންޓްގައި އެއްވެސް ލޭޔަރއެއް ނެތް.
+	This file is already as small as it can be made ({size}). No copy was saved.	މި ފައިލް ވަނީ ވީހާވެސް ކުޑަ ސައިޒަށް ({size}). އެއްވެސް ކޮޕީއެއް ރައްކާނުކުރެވުނު.
+	This form also contains XFA data, which PdfCraft doesn't read yet. You can fill its fields, but Acrobat may show the XFA values instead.	މި ފޯމުގައި XFA ޑޭޓާވެސް ހިމެނޭ، އެއީ PdfCraft އަދި ނުކިޔާ ޑޭޓާއެއް. ފީލްޑްތައް ފުރިދާނެ، ނަމަވެސް Acrobat އިން ދައްކާނީ XFA ގެ އަގުތައް ކަމަށް ވެދާނެ.
+	Thumbnails	ތަމްނޭލްތައް
+	Timed responses	ވަގުތު ކަނޑައަޅާފައިވާ ޖަވާބުތައް
+	Type Password	ޕާސްވޯޑް ޖައްސަވާ
+	Type a password.	ޕާސްވޯޑެއް ޖައްސަވާ.
+	Typewriter	ޓައިޕްރައިޓަރ
+	Unchecked	ޗެކްނުކޮށް
+	Undid {label}	{label} އަންޑޫކުރެވިއްޖެ
+	Unlock comment	ކޮމެންޓް އަންލޮކްކުރޭ
+	Unlocked {n} of {m} files	{m} ފައިލުން {n} އަންލޮކްކުރެވިއްޖެ
+	Update background	ބެކްގްރައުންޑް އަޕްޑޭޓްކުރޭ
+	Update header & footer	ހެޑަރ އަދި ފުޓަރ އަޕްޑޭޓްކުރޭ
+	Update watermark	ވޯޓަރމާކް އަޕްޑޭޓްކުރޭ
+	Use {what}	{what} ބޭނުންކުރޭ
+	Valid	ސައްޙަ
+	Valid from	މިއިން ފެށިގެން ސައްޙަ
+	Valid to	މިހާތަނަށް ސައްޙަ
+	Validate	ވެލިޑޭޓްކުރޭ
+	Validity ends	ސައްޙަކަން ނިމޭ
+	Validity starts	ސައްޙަކަން ފެށޭ
+	Vertically	ތިރިމައްޗަށް
+	Video, sound and rich media must be tagged to be announced. Tag the multimedia annotations.	ވީޑިއޯ، އަޑު އަދި ރިޗް މީޑިއާ އިއުލާނުކުރެވޭނީ ޓެގްކޮށްފައިވާނަމަ. މަލްޓިމީޑިއާ ނޯޓްތައް ޓެގްކުރައްވާ.
+	Viewing	ބެލުން
+	Weak	ބަލިކަށި
+	White on black	ކަޅުމަތީ ހުދު
+	Wrote 1 file to {dir}	{dir} ގައި 1 ފައިލް ލިޔެވިއްޖެ
+	Wrote {n} files to {dir}	{dir} ގައި {n} ފައިލް ލިޔެވިއްޖެ
+	X Object Forms	X Object ފޯމުތައް
+	Yellow	ރީނދޫ
+	Yellow on black	ކަޅުމަތީ ރީނދޫ
+	You can pin up to {n} folders. Unpin one first.	{n} ފޯލްޑަރ ހިސާބަށް ޕިންކުރެވޭނެ. ފުރަތަމަ އެއް ފޯލްޑަރ އަންޕިންކުރައްވާ.
+	Your name	ތިބާގެ ނަން
+	Zip Code	ޒިޕް ކޯޑް
+	Zip Code + 4	ޒިޕް ކޯޑް + 4
+	`{command}` {when}	`{command}` {when}
+	a bookmark cannot be moved inside itself	ބުކްމާކެއް އޭގެ އަމިއްލަ އެތެރެއަށް ނުގެންދެވޭނެ
+	a document must keep at least one page	ޑޮކިއުމަންޓެއްގައި މަދުވެގެން އެއް ޞަފްޙާ ހުންނަން ޖެހޭ
+	average	އެވްރެޖް
+	maximum	އެންމެ ގިނަ
+	minimum	އެންމެ މަދު
+	no such document	އެފަދަ ޑޮކިއުމަންޓެއް ނެތް
+	nothing in the file matches this document	މި ފައިލްގައި މި ޑޮކިއުމަންޓާ ދިމާވާ އެއްވެސް އެއްޗެއް ނެތް
+	nothing to redo	ރީޑޫކުރާނެ އެއްޗެއް ނެތް
+	nothing to undo	އަންޑޫކުރާނެ އެއްޗެއް ނެތް
+	pages	ޞަފްޙާތައް
+	product (x)	ގުނަ (x)
+	sum (+)	ޖުމްލަ (+)
+	the document has no form fields	ޑޮކިއުމަންޓުގައި އެއްވެސް ފޯމު ފީލްޑެއް ނެތް
+	the document has no page tree	ޑޮކިއުމަންޓުގައި ޕޭޖް ޓްރީއެއް ނެތް
+	the document has no tags	ޑޮކިއުމަންޓުގައި އެއްވެސް ޓެގެއް ނެތް
+	the document is protected by a password	ޑޮކިއުމަންޓު ޕާސްވޯޑަކުން ހިމާޔަތްކޮށްފައިވޭ
+	the image is empty	ފޮޓޯ ހުސްވެފައިވޭ
+	the password is incorrect	ޕާސްވޯޑް ރަނގަޅެއް ނޫން
+	the text recognition models are not installed (reinstall PdfCraft, or set PDFCRAFT_MODELS to the folder that holds them)	ލިޔުން ދެނެގަންނަ މޮޑެލްތައް އިންސްޓޯލްކޮށްފައެއް ނުވޭ (PdfCraft އަލުން އިންސްޓޯލްކުރޭ، ނުވަތަ އެ މޮޑެލްތައް ހުންނަ ފޯލްޑަރަށް PDFCRAFT_MODELS ސެޓްކުރޭ)
+	the title must not be empty	ސުރުޚީ ހުސްކޮށް ނުބޭއްވޭނެ
+	there are no pages to print	ޕްރިންޓްކުރާނެ ޞަފްޙާއެއް ނެތް
+	there are no redaction marks to apply	ހިންގާނެ ރިޑެކްޝަން ނިޝާނެއް ނެތް
+	this document is signed: rewriting it would invalidate its signatures (save it incrementally instead)	މި ޑޮކިއުމަންޓުގައި ސޮއިކޮށްފައިވޭ: އަލުން ލިޔެފިނަމަ ސޮއިތައް ބާޠިލުވާނެ (އޭގެ ބަދަލުގައި އިންކްރިމެންޓަލްކޮށް ރައްކާކުރޭ)
+	this file isn't XFDF, FDF, XML or text form data	މި ފައިލަކީ XFDF، FDF، XML ނުވަތަ ލިޔުމުގެ ފޯމު ޑޭޓާއެއް ނޫން
+	{0}: {1}	{0}: {1}
+	{field}: {e}	{field}: {e}
+	{file} is too large for a stamp (at most {n} MB)	{file} ސްޓޭމްޕަކަށް ވުރެ ބޮޑުވެއްޖެ (އެންމެ ގިނަވެގެން {n} MB)
+	{folder} is already pinned to Home	{folder} ކުރިންވެސް ހޯމްއަށް ޕިންކޮށްފައިވޭ
+	{label} failed: {e}	{label} ނާކާމިޔާބު: {e}
+	{name} has no action	{name} ގައި އެއްވެސް އެކްޝަނެއް ނެތް
+	{name} is too large for a word list (at most 1 MB).	{name} ބަސްތަކުގެ ލިސްޓަކަށް ވުރެ ބޮޑުވެއްޖެ (އެންމެ ގިނަވެގެން 1 MB).
+	{name} submits the form to {url}; PdfCraft doesn't send form data. Save the document to keep your entries.	{name} ފޯމު ފޮނުވަނީ {url} އަށް؛ PdfCraft ފޯމު ޑޭޓާ ނުފޮނުވާނެ. ލިޔުނު މަޢުލޫމާތު ރައްކާކުރުމަށް ޑޮކިއުމަންޓު ރައްކާކުރޭ.
+	{name}: choosing images arrives on the web with file pickers for images	{name}: ފޮޓޯ ޚިޔާރުކުރުން ވެބުގައި ލިބޭނީ ފޮޓޯއަށް ފައިލް ޕިކަރ އައުމުންނެވެ
+	{name}: the {other} action isn't supported yet	{name}: {other} އެކްޝަން އަދި ސަޕޯޓެއް ނުކުރޭ
+	{who} in this document tried to open an address PdfCraft won't open: {e}.	މި ޑޮކިއުމަންޓުގައިވާ {who} ވަނީ PdfCraft ނުހުޅުވާނެ އެޑްރެހެއް ހުޅުވަން މަސައްކަތްކޮށްފައި: {e}.
+	{who} in this document tried to open an address PdfCraft won't open: {e}. Only web (http, https) and email (mailto) links open from documents.	މި ޑޮކިއުމަންޓުގައިވާ {who} ވަނީ PdfCraft ނުހުޅުވާނެ އެޑްރެހެއް ހުޅުވަން މަސައްކަތްކޮށްފައި: {e}. ޑޮކިއުމަންޓުތަކުން ހުޅުވޭނީ ވެބް (http، https) އަދި އީމެއިލް (mailto) ލިންކްތައް އެކަނި.
+animation effects	Off	ބަންދުކޮށްފައި
+animation effects	On	ހުޅުވާލާފައި
+	View more	އިތުރަށް ބަލާ
+	View less	މަދުކޮށް ބަލާ
+	Only continue if you trust this document. An address can carry information from the document, such as what you typed into its form.	މި ޑޮކިއުމަންޓަށް ބަރޯސާވާނަމަ އެކަނި ކުރިއަށް ދާށެވެ. އެޑްރެހަކުން ޑޮކިއުމަންޓުގެ މަޢުލޫމާތު ގެންދެވިދާނެ، މިސާލަކަށް ފޯމުގައި ތިބާ ލިޔުނު އެއްޗެހި.
+	Print single-sided. Keep the sheets in order, cut at the marks, then stack the piles left to right, top to bottom.	އެއް ފަރާތަށް ޕްރިންޓްކުރޭ. ޝީޓްތައް ތަރުތީބުން ބަހައްޓައި، ނިޝާންތަކުން ކަނޑައި، ދެން ގޮނޑިތައް ވާތުން ކަނާތަށް، މަތިން ތިރިއަށް އެކަތިކުރޭ.
+	Sign a sheet of white paper and take a photo of it in bright, even light (use the flash). Choose the photo or drop it here: PdfCraft finds the signature and removes the paper.	ހުދު ކަރުދާހެއްގައި ސޮއިކޮށް، ވަރަށް އަލި، އެއްވަރެއްގެ އަލިކަމުގައި (ފްލޭޝް ބޭނުންކޮށް) އޭގެ ފޮޓޯއެއް ނަގާ. ފޮޓޯ ޚިޔާރުކުރޭ ނުވަތަ މިތަނަށް ދޫކޮށްލާ: PdfCraft ސޮއި ހޯދައި ކަރުދާސް ނައްތާލާނެ.
+	This field's font can't draw “{c}” ({code}), so PdfCraft shows ? in its place. The value is saved, and other PDF viewers redraw the field from it.	މި ފީލްޑްގެ ފޮންޓަށް “{c}” ({code}) ކުރެހޭކަށް ނެތް، އެހެންކަމުން PdfCraft އޭގެ ބަދަލުގައި ? ދައްކާ. ވެލިއު ރައްކާވެފައިވާއިރު، އެހެން PDF ވިއުވަރުތަކުން އެއިން ފީލްޑް އަލުން ކުރަހާނެ.
+	{chars} can't be written into the PDF yet: Fill & Sign text is Western European only. Pick a numeric format such as dd.mm.yyyy.	{chars} އަދި PDF އަށް ލިޔެވޭކަށް ނެތް: ފުރާ އަދި ސޮއިކުރުމުގެ ލިޔުމަކީ ހަމައެކަނި ހުޅަނގު ޔޫރަޕުގެ އަކުރެވެ. dd.mm.yyyy ފަދަ ނަންބަރުގެ ފޯމެޓެއް ޚިޔާރުކުރޭ.
+	January	ޖަނަވަރީ
+	February	ފެބްރުއަރީ
+	March	މާޗް
+	April	އޭޕްރިލް
+	May	މޭ
+	June	ޖޫން
+	July	ޖުލައި
+	August	އޯގަސްޓް
+	September	ސެޕްޓެމްބަރ
+	October	އޮކްޓޫބަރ
+	November	ނޮވެމްބަރ
+	December	ޑިސެމްބަރ
+calendar date	January	ޖަނަވަރީ
+calendar date	February	ފެބްރުއަރީ
+calendar date	March	މާޗް
+calendar date	April	އޭޕްރިލް
+calendar date	May	މޭ
+calendar date	June	ޖޫން
+calendar date	July	ޖުލައި
+calendar date	August	އޯގަސްޓް
+calendar date	September	ސެޕްޓެމްބަރ
+calendar date	October	އޮކްޓޫބަރ
+calendar date	November	ނޮވެމްބަރ
+calendar date	December	ޑިސެމްބަރ
+calendar weekday	Su	އާދި
+calendar weekday	Mo	ހޯމަ
+calendar weekday	Tu	އަން
+calendar weekday	We	ބުދަ
+calendar weekday	Th	ބުރާ
+calendar weekday	Fr	ހުކު
+calendar weekday	Sa	ހޮނި
+signature pad	Type	ޓައިޕްކުރޭ
+scroll speed	Slow	ލަސް
+scroll speed	Normal	ނޯމަލް
+scroll speed	Fast	އަވަސް
+certificate	Subject	ސަބްޖެކްޓް
+certificate	Issued to	ދޫކުރެވުނު ފަރާތް
+certificate	Issued by	ދޫކުރި ފަރާތް
+certificate	Valid from	ޞައްޙަ ފެށޭ ތާރީޚު
+certificate	Valid to	ޞައްޙަ ނިމޭ ތާރީޚު
+certificate	Intended usage	ބޭނުންކުރަން ރާވާފައިވާ ކަންކަން
+certificate	Version	ވަރޝަން
+certificate	Serial number	ސީރިއަލް ނަންބަރު
+certificate	Issuer	ދޫކުރާ ފަރާތް
+certificate	Validity starts	ޞައްޙަކަން ފެށޭ
+certificate	Validity ends	ޞައްޙަކަން ނިމޭ
+certificate	Public key	ޕަބްލިކް ކީ
+certificate	Basic constraints	އަސާސީ ހަދުތައް
+certificate	Key usage	ކީގެ ބޭނުން
+certificate	Self-signed	އަމިއްލައަށް ސޮއިކޮށްފައި
+certificate	SHA-1 digest	SHA-1 ޑައިޖެސްޓް
+certificate	SHA-256 digest	SHA-256 ޑައިޖެސްޓް
+	Certificate authority	ސެޓްފިކެޓް އޮތޯރިޓީ
+	End entity	އެންޑް އެންޓިޓީ
+	Float panel	ޕެނަލް ފްލޯޓްކުރޭ
+	Move to group	ގްރޫޕަށް ގެންދާ
+	Panels	ޕެނަލްތައް
+	Resize panel window	ޕެނަލް ވިންޑޯގެ ސައިޒު ބަދަލުކުރޭ
+	Resize panels	ޕެނަލްތަކުގެ ސައިޒު ބަދަލުކުރޭ
+	Grab bag	ތަފާތު އެއްޗެހި
+	No contributor data was built into this copy.	މި ކޮޕީގައި ބައިވެރިންގެ ޑޭޓާއެއް ހިމަނާފައެއް ނުވޭ.
+	No model credits were built into this copy.	މި ކޮޕީގައި މޮޑެލްތަކުގެ ކްރެޑިޓްތައް ހިމަނާފައެއް ނުވޭ.
+	Reverse the order	ތަރުތީބު ފުރަގަސްކުރޭ
+	Show	ދައްކާ
+	Sort	ތަރުތީބުކުރޭ
+	Table	ޓޭބަލް
+	The field {name} no longer exists.	{name} ފީލްޑް މިހާރު ނެތް.
+	{n} contributors · {c} commits	ބައިވެރިން {n} · ކޮމިޓް {c}
+	Username	ޔޫޒަރނޭމް
+	Display name	ދައްކާ ނަން
+	Real name	އަސްލު ނަން
+	Name (A–Z)	ނަން (A–Z)
+	Merged PRs	މާޖްކުރެވުނު PR ތައް
+	PRs	PR ތައް
+	Commits	ކޮމިޓްތައް
+	Lines added	އިތުރުކުރި ލައިންތައް
+	+LOC	+LOC
+	Lines deleted	ފޮހެލި ލައިންތައް
+	−LOC	−LOC
+	Line delta	ލައިންގެ ތަފާތު
+	ΔLOC	ΔLOC
+	Binary assets added	އިތުރުކުރި ބައިނަރީ އެސެޓްތައް
+	+Bin	+Bin
+	Binary assets removed	ނައްތާލި ބައިނަރީ އެސެޓްތައް
+	−Bin	−Bin
+	First commit	ފުރަތަމަ ކޮމިޓް
+	First	ފުރަތަމަ
+	Last commit	އެންމެ ފަހުގެ ކޮމިޓް
+	Last	ފަހު
+	Company	ކުންފުނި
+	Model	މޮޑެލް
+	Version	ވަރޝަން
+	% of all commits	ހުރިހާ ކޮމިޓްތަކުގެ %
+	Lines +/−	ލައިންތައް +/−
+	@{login}: {prs} PRs, {commits} commits, +{added} / −{deleted} lines (Δ {delta}), +{bin_added} / −{bin_deleted} binary assets, {first} – {last}	@{login}: PR {prs}، ކޮމިޓް {commits}، ލައިން +{added} / −{deleted} (Δ {delta})، ބައިނަރީ އެސެޓް +{bin_added} / −{bin_deleted}، {first} – {last}
+	of {name}	{name} ގެ
+	of {pages}	{pages} ގެ ތެރެއިން
+	on page {label}	ޞަފްޙާ {label} ގައި
+	open to see what it will include	ހިމެނޭނެ އެއްޗެހި ބަލަން ހުޅުވާ
+	ships in milestone {m}	މައިލްސްޓޯން {m} ގައި ލިބޭނެ
+	signature	ސޮއި
+	sorted ascending	ކުޑައިން ބޮޑަށް ތަރުތީބުކޮށްފައި
+	sorted descending	ބޮޑުން ކުޑައަށް ތަރުތީބުކޮށްފައި
+	to	އަށް
+	to {n}	{n} އަށް
+	watermark	ވޯޓަރމާކް
+	yyyy or yy year · m or mm month · mmm or mmmm month name · d or dd day · ddd or dddd weekday. H, h, M, s and t are time letters and can't be used on their own: put {escape} before a letter to show it as is.	yyyy ނުވަތަ yy އަހަރު · m ނުވަތަ mm މަސް · mmm ނުވަތަ mmmm މަހުގެ ނަން · d ނުވަތަ dd ދުވަސް · ddd ނުވަތަ dddd ހަފުތާގެ ދުވަސް. H، h، M، s އަދި t އަކީ ވަގުތުގެ އަކުރުތަކެއް ކަމުން އެކަނި ބޭނުންނުކުރެވޭނެ: އަކުރެއް އެގޮތަށް ދެއްކުމަށް އޭގެ ކުރިން {escape} ލާށެވެ.
+	{c} of {n}{more}	{n}{more} ގެ ތެރެއިން {c}
+	{dpi} pixels/inch	{dpi} ޕިކްސެލް/އިންޗި
+	{kind} Properties	{kind} ޕްރޮޕަޓީޒް
+	{kind} field	{kind} ފީލްޑް
+	{kind} · page {p}	{kind} · ޞަފްޙާ {p}
+	{kind} — click to show it on the page	{kind} — ޞަފްޙާގައި ދެއްކުމަށް ކްލިކްކުރޭ
+	{k} of {n}	{n} ގެ ތެރެއިން {k}
+	{label} (1 issue)	{label} (1 މައްސަލަ)
+	{label} ({n} issues)	{label} ({n} މައްސަލަ)
+	{month} {day}, {y}	{day} {month} {y}
+	{month} {y}	{month} {y}
+	{msg} to {dir}	{dir} އަށް {msg}
+	{name} (default)	{name} (ޑިފޯލްޓް)
+	{name} can't be combined: {why}	{name} ގުޅޭކަށް ނެތް: {why}
+	{name} is read-only	{name} ހަމައެކަނި ކިޔޭނެ
+	{name} — unsaved changes	{name} — ރައްކާނުކުރާ ބަދަލުތައް
+	{n} days ago	{n} ދުވަސް ކުރިން
+	{n} differences found	{n} ތަފާތު ފެނިއްޖެ
+	{n} fields selected	{n} ފީލްޑް ޚިޔާރުކުރެވިފައި
+	{n} files	{n} ފައިލް
+	{n} files done	{n} ފައިލް ނިމުނީ
+	{n} files need attention	{n} ފައިލަށް ސަމާލުކަން ބޭނުންވޭ
+	{n} h ago	{n} ގަޑިއިރު ކުރިން
+	{n} instances	{n} ފަހަރު
+	{n} issues	{n} މައްސަލަ
+	{n} marks	{n} ނިޝާން
+	{n} match(es) marked for redaction.	ދިމާވި {n} ތަން ރިޑެކްޝަނަށް ނިޝާންކޮށްފި.
+	{n} measurements use an unsupported format and are left out.	{n} މިނުން ސަޕޯޓްނުކުރާ ފޯމެޓެއްގައި ހުރުމުން ދޫކޮށްލެވިއްޖެ.
+	{n} min ago	{n} މިނެޓް ކުރިން
+	{n} pages	{n} ޞަފްޙާ
+	{n} pages selected.	{n} ޞަފްޙާ ޚިޔާރުކުރެވިފައި.
+	{n} selected	{n} ޚިޔާރުކުރެވިފައި
+	{n} tags	{n} ޓެގް
+	{n} word(s) or phrase(s)	{n} ބަސް ނުވަތަ ޖުމްލަ
+	{n} {kind}	{n} {kind}
+	{rule} - {status}	{rule} - {status}
+	{s} action	{s} އެކްޝަން
+	{verb} Background	ބެކްގްރައުންޑް {verb}
+	{verb} Header and Footer	ހެޑަރ އަދި ފުޓަރ {verb}
+	{verb} Watermark	ވޯޓަރމާކް {verb}
+	{verb} as "{name}"	"{name}" ގެ ގޮތުގައި {verb}
+	{who} in this document wants to open this address in your browser:	މި ޑޮކިއުމަންޓުގައިވާ {who} ބޭނުންވަނީ ތިބާގެ ބްރައުޒަރުގައި މި އެޑްރެސް ހުޅުވާލާށެވެ:
+	{who} in this document wants to open your email app with this address:	މި ޑޮކިއުމަންޓުގައިވާ {who} ބޭނުންވަނީ މި އެޑްރެހާއެކު ތިބާގެ އީމެއިލް އެޕް ހުޅުވާލާށެވެ:
+	{words} on {pages}	{pages} ގައި {words}
+	— (protection is applied when you save)	— (ރައްކާކުރާއިރު ހިމާޔަތް ހިންގޭނެ)
+	“{name}” has security restrictions. Enter its permissions password to lift them.	“{name}” ގައި ސެކިއުރިޓީ ހަދުތައް ހުރި. އެ ނައްތާލުމަށް ހުއްދަތަކުގެ ޕާސްވޯޑް ޖައްސާ.
+	“{name}” is protected. Enter a password to open it.	“{name}” ހިމާޔަތްކޮށްފައިވޭ. ހުޅުވުމަށް ޕާސްވޯޑެއް ޖައްސާ.
+@plural	{n} page|{n} pages	{n} ޞަފްޙާ
+@plural	{n} file|{n} files	{n} ފައިލް
+@plural	{n} field|{n} fields	{n} ފީލްޑް
+@plural	{n} comment|{n} comments	{n} ކޮމެންޓް
+@plural	{n} result|{n} results	{n} ނަތީޖާ
+@plural	{n} field name collides with earlier files and will be renamed: {list}|{n} field names collide with earlier files and will be renamed: {list}	{n} ފީލްޑް ނަމެއް ކުރީގެ ފައިލްތަކާ ދިމާވާތީ ނަން ބަދަލުކުރެވޭނެ: {list}
+@plural	{n} object selected|{n} objects selected	{n} އޮބްޖެކްޓް ޚިޔާރުކުރެވިފައި
+@plural	Downloaded {n} PDF|Downloaded {n} PDFs	PDF {n} ޑައުންލޯޑްކުރެވިއްޖެ
+key	Ctrl	Ctrl
+key	Shift	Shift
+key	Delete	Delete
+key	Esc	Esc
+key	Home	Home
+key	End	End
+key	Space	ސްޕޭސް
+	Move tag earlier	ޓެގް ކުރިއަށް ގެންދާ
+	Move tag later	ޓެގް ފަހަތަށް ގެންދާ
+	Tag form fields	ފޯމު ފީލްޑްތައް ޓެގްކުރޭ
+	Only allow this if you trust the source document.	މި ހުއްދަދޭނީ ސޯސް ޑޮކިއުމަންޓަށް ބަރޯސާވާނަމަ އެކަނި.
+	Open this local PDF?	މި ލޯކަލް PDF ހުޅުވާނަންތަ؟
+	This document is trying to open a local file:	މި ޑޮކިއުމަންޓު މަސައްކަތްކުރަނީ ލޯކަލް ފައިލެއް ހުޅުވާށެވެ:
+	Remove "{name}" from this list? The file itself is not deleted.	"{name}" މި ލިސްޓުން ނައްތާލާނަންތަ؟ ފައިލް ފޮހެވިގެން ނުދާނެ.
+	Minimize	ކުޑަކުރޭ
+	Maximize	ބޮޑުކުރޭ
+	Restore	ކުރީގެ ގޮތަށް ލާ
+	Use system title bar	ސިސްޓަމްގެ ޓައިޓަލް ބާ ބޭނުންކުރޭ
+	Show a basic title bar for the window buttons instead of the tab strip. GNOME doesn't draw title bars for apps, so this one doesn't follow its theme.	ޓެބް ސްޓްރިޕްގެ ބަދަލުގައި ވިންޑޯ ބަޓަންތަކަށް އާދައިގެ ޓައިޓަލް ބާއެއް ދައްކާ. GNOME އިން އެޕްތަކަށް ޓައިޓަލް ބާ ނުކުރަހާތީ، މި ބާ އޭގެ ތީމާ ތަބާއެއް ނުވޭ.
+	Turn upside down (180°)	ބޮލުން ތިރިކުރޭ (180°)
+	4 x 6 in label (101.6 x 152.4 mm)	4 x 6 އިންޗީގެ ލޭބަލް (101.6 x 152.4 mm)
+	Cuts each page to its printed area, turns it upright and fits it to the sheet without stretching. One label per sheet.	ކޮންމެ ޞަފްޙާއެއް ޕްރިންޓްވާ ބަޔަށް ކަނޑައި، ސީދާކޮށް، ދަމައި ނުލައި ޝީޓަށް ފިޓްކުރޭ. ކޮންމެ ޝީޓަކަށް އެއް ލޭބަލް.
+	Find untagged content	ޓެގްނުކުރާ ކޮންޓެންޓް ހޯދާ
+	No untagged content was found.	ޓެގްނުކުރާ ކޮންޓެންޓެއް ނުފެނުނު.
+	Found {n} untagged content problems.	ޓެގްނުކުރާ ކޮންޓެންޓްގެ {n} މައްސަލަ ފެނިއްޖެ.
+	Cut Image	ފޮޓޯ ކަޓްކުރޭ
+	Redact Image	ފޮޓޯ ރިޑެކްޓްކުރޭ
+	Create Link…	ލިންކް ހަދާ…
+	Recognize Text…	ލިޔުން ދެނެގަނޭ…
+	Characters	އަކުރުތައް
+	Characters without spaces	ހުސްޖާގަ ނުލާ އަކުރުތައް
+	Counting words… {n} pages read	ބަސްތައް ގުނަނީ… {n} ޞަފްޙާ ކިޔައިފި
+	Crop Image	ފޮޓޯ ކްރޮޕްކުރޭ
+	Current page only	ހަމައެކަނި މިހާރުގެ ޞަފްޙާ
+	DN: 	DN: 
+	Date: 	ތާރީޚު: 
+	Digitally signed by	ޑިޖިޓަލްކޮށް ސޮއިކުރީ
+	Exclude image/OCR text	ފޮޓޯ/OCR ލިޔުން ނުހިމަނާ
+	Exclude tagged code blocks	ޓެގްކޮށްފައިވާ ކޯޑް ބްލޮކްތައް ނުހިމަނާ
+	Exclude tagged tables	ޓެގްކޮށްފައިވާ ޓޭބަލްތައް ނުހިމަނާ
+	Exclusions use PDF tags. Untagged tables and code remain included. Image exclusion also removes invisible text.	ނުހިމަނާ ބައިތައް ކަނޑައަޅަނީ PDF ޓެގްތަކުން. ޓެގްނުކުރާ ޓޭބަލްތަކާއި ކޯޑް ހިމެނޭނެ. ފޮޓޯ ނުހިމެނުމުން ނުފެންނަ ލިޔުންވެސް ނައްތާލެވޭ.
+	Fill colour:	ފުރާ ކުލަ:
+	Font size	ފޮންޓް ސައިޒު
+	Full Screen	ފުލް ސްކްރީން
+	Location: 	ތަން: 
+	Make properties default	ޕްރޮޕަޓީޒް ޑިފޯލްޓްކުރޭ
+	Mark as artifact	އާޓިފެކްޓެއްގެ ގޮތުގައި ނިޝާންކުރޭ
+	Mark content as artifact	ކޮންޓެންޓް އާޓިފެކްޓެއްގެ ގޮތުގައި ނިޝާންކުރޭ
+	Merge image fragments	ފޮޓޯގެ ކޮޅުތައް ގުޅާ
+	Mobile	މޯބައިލް
+	New file only	ހަމައެކަނި އައު ފައިލް
+	New file: {name}	އައު ފައިލް: {name}
+	Next tab	ކުރިއަށް އޮތް ޓެބް
+	No printers were found. Check that the printer is installed and the print spooler is running, then open Print again.	އެއްވެސް ޕްރިންޓަރެއް ނުފެނުނު. ޕްރިންޓަރ އިންސްޓޯލްކޮށްފައިވޭތޯއާއި ޕްރިންޓް ސްޕޫލަރ ހިނގަމުންދޭތޯ ބަލާފައި، ޕްރިންޓް އަލުން ހުޅުވާ.
+	Not now	މިހާރު ނޫން
+	Old file: {name}	ކުރީގެ ފައިލް: {name}
+	Opacity:	ފެނުމުގެ މިންވަރު:
+	Open in Full Screen mode?	ފުލް ސްކްރީން މޯޑްގައި ހުޅުވާނަންތަ؟
+	Optimizing… merging image fragments	އޮޕްޓިމައިޒްކުރަނީ… ފޮޓޯގެ ކޮޅުތައް ގުޅަނީ
+	Outline colour:	ބޯޑަރުގެ ކުލަ:
+	Page properties	ޞަފްޙާގެ ޕްރޮޕަޓީޒް
+	Pages counted	ގުނި ޞަފްޙާތައް
+	Pages selected	ޚިޔާރުކުރި ޞަފްޙާތައް
+	Previous tab	ކުރީގެ ޓެބް
+	Print as image	ފޮޓޯއެއްގެ ގޮތުގައި ޕްރިންޓްކުރޭ
+	Reason: 	ސަބަބު: 
+	Redaction mark appearance	ރިޑެކްޝަން ނިޝާނުގެ ސިފަ
+	Remove Crop	ކްރޮޕް ނައްތާލާ
+	Remove this leaf tag from reading order and mark its direct content as an artifact	މި ލީފް ޓެގް ކިޔާ ތަރުތީބުން ނައްތާލައި، އޭގެ ސީދާ ކޮންޓެންޓް އާޓިފެކްޓެއްގެ ގޮތުގައި ނިޝާންކުރޭ
+	Resolution:	ރިޒޮލިއުޝަން:
+	Save anyway	އެހެންނަމަވެސް ރައްކާކުރޭ
+	Save over the changed file?	ބަދަލުވި ފައިލްގެ މައްޗަށް ރައްކާކުރާނަންތަ؟
+	Scroll speed (mouse wheel and arrow keys)	ސްކްރޯލްކުރާ ސްޕީޑް (މައުސް ވީލް އަދި އެރޯ ކީތައް)
+	Set page transitions	ޞަފްޙާ ބަދަލުވާ ގޮތް ސެޓްކުރޭ
+	Shown while the pointer is over a mark.	ޕޮއިންޓަރ ނިޝާނެއްގެ މައްޗަށް ހުންނައިރު ދައްކާ.
+	Side by side	ދެ ފަރާތް ކައިރިކޮށް
+	Some content could not be classified safely and was kept in the count.	ބައެއް ކޮންޓެންޓް ރައްކާތެރިކޮށް ބައިކުރެވެން ނެތުމުން ގުނުމުގައި ހިމަނާފައިވޭ.
+	Some pages contain no countable text. Scanned images need OCR first.	ބައެއް ޞަފްޙާތަކުގައި ގުނެވޭ ލިޔުމެއް ނެތް. ސްކޭންކުރި ފޮޓޯތަކަށް ފުރަތަމަ OCR ބޭނުންވޭ.
+	Standard	ސްޓޭންޑަޑް
+	The labels are in English: the signature's font can't draw them in this language.	ލޭބަލްތައް ހުރީ އިނގިރޭސިން: ސޮއީގެ ފޮންޓަށް މި ބަހުން އެ ކުރެހޭކަށް ނެތް.
+	The password must have at least 8 characters.	ޕާސްވޯޑްގައި މަދުވެގެން 8 އަކުރު ހުންނަން ޖެހޭ.
+	This document asks to open in Full Screen mode: the page fills the screen and nothing else shows. Press Esc at any time to leave it.	މި ޑޮކިއުމަންޓު އެދެނީ ފުލް ސްކްރީން މޯޑްގައި ހުޅުވާށެވެ: ޞަފްޙާ މުޅި ސްކްރީން ފުރިގެން އެހެން އެއްވެސް އެއްޗެއް ނުފެންނާނެ. އެއިން ނިކުތުމަށް ކޮންމެ ވަގުތެއްގައިވެސް Esc ފިތާ.
+	This file changed on disk. Reload shows the new version and drops your unsaved changes; Save replaces it with this version.	މި ފައިލް ޑިސްކުގައި ބަދަލުވެއްޖެ. ރީލޯޑްކުރުމުން އައު ވަރޝަން ދައްކައި ރައްކާނުކުރާ ބަދަލުތައް ގެއްލިގެންދާނެ؛ ރައްކާކުރުމުން އެ ވަރޝަންގެ ބަދަލުގައި މި ވަރޝަން ބަހައްޓާނެ.
+	Trim the picture with its handles; Enter or Done applies	ފޮޓޯ އޭގެ ހެންޑަލްތަކުން ކަނޑާ؛ Enter ނުވަތަ ނިމުނީ ފިތުމުން ހިނގާނެ
+	Use it when a printer skips text, shading or transparency. The print is no longer searchable text; with Print in grayscale, the pictures are grey.	ޕްރިންޓަރަކުން ލިޔުން، ޝޭޑިންގ ނުވަތަ ޓްރާންސްޕެރެންސީ ދޫކޮށްލާނަމަ މިއީ ބޭނުންކުރާނެ ގޮތެވެ. ޕްރިންޓުގައި ހޯދޭ ލިޔުމެއް ނުހުންނާނެ؛ ގްރޭސްކޭލްކޮށް ޕްރިންޓްކުރުން ހުޅުވާލާފައިވާނަމަ ފޮޓޯތައް ހުންނާނީ އަޅިކުލައިގައި.
+	What takes up the space in this file, by kind of content.	ކޮންޓެންޓްގެ ބާވަތުން، މި ފައިލްގައި ޖާގަ ނަގާފައިވަނީ ކޮން އެއްޗެއް.
+	Word count	ބަސްތަކުގެ އަދަދު
+	Word counting stopped unexpectedly.	ބަސް ގުނުން ހީނުކުރާ ގޮތަކަށް ހުއްޓުނީ.
+	Word count…	ބަސްތަކުގެ އަދަދު…
+	Words	ބަސްތައް
+	“{name}” changed on disk after it was opened or last saved. Saving now replaces that newer version with this one.	“{name}” ހުޅުވުމަށް ފަހު ނުވަތަ އެންމެ ފަހުން ރައްކާކުރުމަށް ފަހު ޑިސްކުގައި ބަދަލުވެއްޖެ. މިހާރު ރައްކާކުރެއްޔާ އެ އައު ވަރޝަންގެ ބަދަލުގައި މި ވަރޝަން ބަހައްޓާނެ.
+@id	file.word_count	ބަސްތަކުގެ އަދަދު…
+	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	ތިބާ މި ބަލަނީ “{from}” ގެ ސޮއިކުރި ވަރޝަން (ރިވިޜަން {rev}). މިއީ ސްނެޕްޝޮޓެއް: މިތާ ގެންނަ ބަދަލުތަކުން އަސްލަށް އަސަރެއް ނުކުރާނެ.
+	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	ތިބާ މި ބަލަނީ “{from}” ގެ ރިވިޜަން {rev}. މިއީ ސްނެޕްޝޮޓެއް: މިތާ ގެންނަ ބަދަލުތަކުން އަސްލަށް އަސަރެއް ނުކުރާނެ.

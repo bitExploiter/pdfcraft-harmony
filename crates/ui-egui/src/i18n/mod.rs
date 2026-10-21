@@ -147,7 +147,7 @@ fn plural_sl(n: u64) -> usize {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` locales resolve here (see `candidates`).
@@ -210,6 +210,10 @@ pub static LANGUAGES: [LangInfo; 23] = [
     // Vietnamese; every `vi-*` locale (`vi-VN`, `vi_VN.UTF-8`) resolves here. CLDR `vi` counts have
     // one form ("other"), so `@plural` entries list a single form.
     LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+    // Dhivehi (Thaana script, Western digits); every `dv-*` locale (`dv-MV`, `dv_MV.UTF-8`) resolves
+    // here. A noun after a numeral keeps one form, so `@plural` entries list a single form. Right to
+    // left: see `LangInfo::rtl`.
+    LangInfo { code: "dv", name: "ދިވެހި", source: include_str!("dv.tsv"), plural: plural_none, rtl: true, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -3283,7 +3287,8 @@ mod tests {
         let ar = arabic();
         assert_eq!(ar.name(), "العربية");
         assert!(ar.rtl());
-        assert!(Lang::all().filter(|l| l.rtl()).eq([ar]), "Arabic is the only right-to-left language");
+        let dv = Lang::from_code("dv").expect("dv registered");
+        assert!(Lang::all().filter(|l| l.rtl()).eq([ar, dv]), "Arabic and Dhivehi are the right-to-left languages");
         assert_eq!(normalize_pref("AR"), Some("ar"));
         for tag in ["ar", "ar-MA", "ar_EG.UTF-8", "AR-sa", "ar_DZ@variant"] {
             assert_eq!(lang_from_tag(tag), Some(ar), "{tag}");
@@ -3396,6 +3401,147 @@ mod tests {
             for id in [egui::FontId::proportional(13.0), egui::FontId::monospace(13.0), crate::theme::medium(13.0), crate::theme::semibold(17.0)] {
                 let missing: std::collections::BTreeSet<char> = labels.chars().filter(|c| !fonts.has_glyphs(&id, &c.to_string())).collect();
                 assert!(missing.is_empty(), "{build}: {id:?} lacks Arabic label glyphs {missing:?}");
+            }
+        }
+    }
+
+    fn dhivehi() -> Lang {
+        Lang::from_code("dv").expect("dv registered")
+    }
+
+    #[test]
+    fn dhivehi_is_registered_and_persists() {
+        let dv = dhivehi();
+        assert_eq!(dv.name(), "ދިވެހި");
+        assert!(dv.rtl());
+        assert_eq!(normalize_pref("DV"), Some("dv"));
+        for tag in ["dv", "dv-MV", "dv_MV.UTF-8", "DV-mv"] {
+            assert_eq!(lang_from_tag(tag), Some(dv), "{tag}");
+        }
+        assert_eq!(first_supported("dv-MV\r\nen-US"), Some(dv));
+        assert_eq!(tr(dv, "File"), "ފައިލް");
+        // Unknown strings and user text are never reordered by a lookup.
+        assert_eq!(tr(dv, "ރިޕޯޓް {n}.pdf"), "ރިޕޯޓް {n}.pdf");
+        let mut app = crate::PdfCraftApp::default();
+        app.set_option("language", "DV").unwrap();
+        assert_eq!(app.language, "dv");
+        let mut restored = crate::PdfCraftApp::default();
+        restored.restore(&app.persist());
+        assert_eq!(restored.language, "dv");
+        assert!(restored.set_option("language", "xx").is_err());
+        assert_eq!(restored.language, "dv");
+    }
+
+    /// Lookups return Dhivehi in display order, as Arabic's: Thaana words run right to left,
+    /// Latin names and placeholders stay whole, and the ellipsis ends the phrase on the left.
+    #[test]
+    fn dhivehi_lookups_are_in_display_order() {
+        let dv = dhivehi();
+        let (entries, _) = parse_entries(dv.0.source, dv.0.plural_forms());
+        let typed = |source: &str| entries.iter().find(|e| e.context.is_empty() && e.source == source).map(|e| e.translation.clone()).unwrap();
+        for source in ["Save as…", "About PdfCraft", "Couldn't open {name}: {e}", "Page {p} of {n}"] {
+            assert_eq!(tr(dv, source), crate::bidi::display_rtl(&typed(source)), "{source}");
+        }
+        assert!(tr(dv, "Save as…").starts_with('…'));
+        assert!(tr(dv, "About PdfCraft").contains("PdfCraft"));
+        let page = fmt(tr(dv, "Page {p} of {n}"), &[("p", "3"), ("n", "12")]);
+        assert!(page.contains('3') && page.contains("12"), "{page}");
+    }
+
+    #[test]
+    fn dhivehi_plurals_have_one_form() {
+        let dv = dhivehi();
+        assert_eq!(dv.0.plural_forms(), 1);
+        assert_eq!(trn(dv, 1, "{n} page", "{n} pages"), trn(dv, 5, "{n} page", "{n} pages").replace('5', "1"));
+    }
+
+    /// Dhivehi translates every registered command, menu and All tools label.
+    #[test]
+    fn dhivehi_covers_commands_and_catalogue() {
+        let dv = dhivehi();
+        for command in pdfcraft_engine::commands::COMMANDS {
+            assert!(has(dv, command.label), "missing command: {}", command.label);
+            if let Some(menu) = command.menu {
+                assert!(has(dv, menu), "missing menu: {menu}");
+            }
+        }
+        for group in pdfcraft_engine::catalog::TOOL_GROUPS {
+            assert!(has(dv, group.label), "missing group: {}", group.label);
+            for section in group.sections {
+                assert!(has(dv, section.title), "missing section: {}", section.title);
+                for item in section.items {
+                    assert!(has(dv, item.label), "missing item: {}", item.label);
+                }
+            }
+        }
+    }
+
+    /// Dhivehi translates every `tl!("…")` literal in the UI source.
+    #[test]
+    fn dhivehi_covers_ui_literals() {
+        let dv = dhivehi();
+        let missing: Vec<_> = scan_ui_literals(true).into_iter().filter(|label| !has(dv, label)).collect();
+        assert!(missing.is_empty(), "untranslated Dhivehi UI literals: {missing:#?}");
+    }
+
+    /// Dhivehi has every key the other bundled catalogs have.
+    #[test]
+    fn dhivehi_covers_bundled_catalog_keys() {
+        let dv = dhivehi();
+        let mut missing = std::collections::BTreeSet::new();
+        for reference in LANGUAGES.iter().filter(|language| language.code != "dv") {
+            let (entries, errors) = catalog::parse_entries(reference.source, reference.plural_forms());
+            assert!(errors.is_empty(), "{}: invalid reference catalog: {errors:?}", reference.code);
+            for entry in entries {
+                let translated = match entry.context.as_str() {
+                    "" => dv.catalog().plain(&entry.source),
+                    "@id" => dv.catalog().id(&entry.source),
+                    "@plural" => entry.source.split_once('|').and_then(|(one, other)| dv.catalog().plural(one, other, 0)),
+                    context => dv.catalog().contextual(context, &entry.source),
+                };
+                if translated.is_none() {
+                    missing.insert((entry.context, entry.source));
+                }
+            }
+        }
+        assert!(missing.is_empty(), "Dhivehi misses bundled catalog keys: {missing:#?}");
+    }
+
+    /// The calendar's month and weekday names match the date language's.
+    #[test]
+    fn dhivehi_calendar_matches_the_date_language() {
+        let dv = dhivehi();
+        let dates = pdfcraft_engine::dates::date_language("dv").expect("dv date language");
+        let months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        for (source, name) in months.into_iter().zip(dates.months) {
+            assert_eq!(tr(dv, source), name, "{source}");
+            assert_eq!(tr_ctx(dv, "calendar date", source), name, "{source}");
+        }
+    }
+
+    /// With a craft-fonts Thaana face, every Dhivehi translation has glyphs: with all interface
+    /// faces (desktop) and with the Thaana face as the only craft-fonts face (the web build keeps
+    /// it; Dhivehi labels must not need a Japanese or Arabic face).
+    #[test]
+    fn dhivehi_labels_have_glyphs() {
+        let faces: Vec<String> = pdfcraft_fonts::ui_thaana_fonts().iter().map(|f| f.name()).collect();
+        if faces.is_empty() {
+            eprintln!("skipping Dhivehi glyph checks: build with CRAFT_FONTS_DIR and a Thaana face to run them");
+            return;
+        }
+        let dv = dhivehi();
+        let (entries, _) = parse_entries(dv.0.source, dv.0.plural_forms());
+        let labels: String = entries.iter().flat_map(|e| e.translation.chars()).chain(dv.name().chars()).filter(|c| !c.is_control()).collect();
+        let mut thaana_only = crate::theme::font_definitions();
+        for family in thaana_only.families.values_mut() {
+            family.retain(|name| !pdfcraft_fonts::CRAFT_FONTS.iter().any(|face| face.name() == *name) || faces.contains(name));
+        }
+        use egui::epaint::text::{Fonts, TextOptions};
+        for (build, defs) in [("all faces", crate::theme::font_definitions()), ("Thaana face only", thaana_only)] {
+            let mut fonts = Fonts::new(TextOptions::default(), defs);
+            for id in [egui::FontId::proportional(13.0), egui::FontId::monospace(13.0), crate::theme::medium(13.0), crate::theme::semibold(17.0)] {
+                let missing: std::collections::BTreeSet<char> = labels.chars().filter(|c| !fonts.has_glyphs(&id, &c.to_string())).collect();
+                assert!(missing.is_empty(), "{build}: {id:?} lacks Dhivehi label glyphs {missing:?}");
             }
         }
     }

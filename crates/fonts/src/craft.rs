@@ -66,6 +66,13 @@ pub fn ui_telugu_fonts() -> Vec<&'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.covers("Telu")).collect()
 }
 
+/// The `Thaa` craft-fonts faces for Dhivehi (Thaana) interface text (the Dhivehi catalog, file
+/// names, document titles), in manifest order. Empty when built without craft-fonts or when it has
+/// no Thaana face.
+pub fn ui_thaana_fonts() -> Vec<&'static CraftFont> {
+    CRAFT_FONTS.iter().filter(|f| f.covers("Thaa")).collect()
+}
+
 /// Thai faces shared by the interface and PDF text writer.
 pub fn ui_thai_fonts() -> Vec<&'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.covers("Thai")).collect()
