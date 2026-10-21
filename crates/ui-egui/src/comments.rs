@@ -1541,6 +1541,11 @@ fn changing_points(
         }),
         (_, Some(Edit::ReshapeAnnotation { page: p, index: i, points: to })) if (*p, *i) == (page, index) => Some(to.clone()),
         (_, Some(Edit::MoveAnnotation { page: p, index: i, dx, dy })) if (*p, *i) == (page, index) => Some(shifted(*dx, *dy)),
+        // Moved with the rest of the selection: its own move in the batch.
+        (_, Some(Edit::Batch { edits, .. })) => edits.iter().find_map(|e| match e {
+            Edit::MoveAnnotation { page: p, index: i, dx, dy } if (*p, *i) == (page, index) => Some(shifted(*dx, *dy)),
+            _ => None,
+        }),
         _ => None,
     }
 }
@@ -2487,6 +2492,13 @@ mod tests {
         let to = Some(pos2(60.0, 10.0));
         assert_eq!(changing_points(Some(&dragging), None, (0, 3), &line, to_user, to, false), Some(vec![[10.0, 10.0], [60.0, 10.0]]));
         assert_eq!(changing_points(None, None, (0, 3), &line, to_user, to, false), None, "not changing");
+        // Released with the rest of the selection: its own move in the batch.
+        let together = Edit::Batch {
+            label: "Move comments".into(),
+            edits: vec![Edit::MoveAnnotation { page: 0, index: 1, dx: 1.0, dy: 1.0 }, Edit::MoveAnnotation { page: 0, index: 3, dx: 5.0, dy: 20.0 }],
+        };
+        assert_eq!(changing_points(None, Some(&together), (0, 3), &line, to_user, None, false), Some(vec![[15.0, 30.0], [55.0, 30.0]]));
+        assert_eq!(changing_points(None, Some(&together), (0, 2), &line, to_user, None, false), None, "not in the batch");
     }
     use pdfcraft_render::TextGlyph;
 
