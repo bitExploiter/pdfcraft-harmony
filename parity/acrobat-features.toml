@@ -4596,8 +4596,8 @@ milestone = "M6"
 status = "shipped"
 commands = ["form.field.properties"]
 tools = ["form_set_props", "form_fill"]
-evidence = ["crates/forms/src/tests.rs::formats_validation_and_calculations_run_like_acrobat"]
-notes = "/CO order, then other calculated fields; recalculated after every fill and Clear form"
+evidence = ["crates/forms/src/tests.rs::formats_validation_and_calculations_run_like_acrobat", "crates/engine/src/tests.rs::form_calculation_order_updates_dependent_total_in_same_edit"]
+notes = "/CO order, then other calculated fields; recalculated after every fill and Clear form. calcOrderIndex changes shift the other positions, persist in /CO and reorder remaining calculations during the same edit (each field runs at most once). The synthetic regression covers save/reopen and undo/redo; the contributor also verified column sums and dependent totals on Windows with a private form."
 
 [[feature]]
 id = "form.event-order"

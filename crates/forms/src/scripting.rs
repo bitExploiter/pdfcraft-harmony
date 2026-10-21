@@ -36,6 +36,8 @@ impl FieldEvent {
 /// A change a script made to a field (`None`: unchanged).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FieldChange {
+    /// New position in the calculation order (none: unchanged).
+    pub calc_order_index: Option<usize>,
     pub name: String,
     pub value: Option<Vec<String>>,
     pub read_only: Option<bool>,
@@ -100,12 +102,13 @@ pub(crate) fn formatted(doc: &Document, f: &Field, value: &str, scripts: &mut dy
 
 /// Apply script changes to other fields (values written without re-running their scripts;
 /// read-only, required and visibility as flags). `except` is the event's own field, whose value
-/// the event sets.
+/// the event sets. Calculation-order moves are validated before the first write.
 pub(crate) fn apply_changes(doc: &mut Document, changes: &[FieldChange], except: &str) -> Result<(), FormError> {
     if changes.is_empty() {
         return Ok(());
     }
     let all = fields(doc);
+    let calculation_order = calculation_order_after(doc, &all, changes)?;
     for c in changes {
         let Some(f) = all.iter().find(|f| f.name == c.name) else { continue };
         if let Some(v) = &c.value
@@ -152,7 +155,42 @@ pub(crate) fn apply_changes(doc: &mut Document, changes: &[FieldChange], except:
             }
         }
     }
+    if let Some(co) = calculation_order {
+        let af = crate::author::ensure_form(doc)?;
+        doc.update_dict(af, |d| d.set(b"CO".to_vec(), Object::Array(co)))?;
+    }
     Ok(())
+}
+
+/// Build the requested `/CO` without mutating the document, rejecting invalid moves first.
+fn calculation_order_after(doc: &Document, all: &[Field], changes: &[FieldChange]) -> Result<Option<Vec<Object>>, FormError> {
+    let mut moves = Vec::new();
+    for change in changes {
+        if let Some(index) = change.calc_order_index {
+            let field = all.iter().find(|f| f.name == change.name).ok_or_else(|| FormError::NoSuchField(change.name.clone()))?;
+            moves.push((index, field.obj));
+        }
+    }
+    if moves.is_empty() {
+        return Ok(None);
+    }
+    let mut co = crate::acroform(doc).and_then(|d| d.get(b"CO").map(|v| doc.resolve(v))).and_then(|v| v.as_array().cloned()).unwrap_or_default();
+    moves.sort_by_key(|(index, _)| *index);
+    let mut moved_objects = HashSet::new();
+    if moves.iter().any(|(index, obj)| *index >= co.len() || !co.iter().any(|v| v.as_ref() == Some(*obj)))
+        || moves.iter().any(|(_, obj)| !moved_objects.insert(*obj))
+        || moves.windows(2).any(|pair| matches!(pair, [a, b] if a.0 == b.0))
+    {
+        return Err(FormError::Invalid("invalid calculation order change".into()));
+    }
+    co.retain(|v| !moves.iter().any(|(_, obj)| v.as_ref() == Some(*obj)));
+    for (index, obj) in moves {
+        if index > co.len() {
+            return Err(FormError::Invalid("invalid calculation order index".into()));
+        }
+        co.insert(index, Object::Ref(obj));
+    }
+    Ok(Some(co))
 }
 
 /// Apply what a button or console script changed (values, read-only, required, visibility),

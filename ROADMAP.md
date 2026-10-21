@@ -172,6 +172,10 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-19 (M6, PR #3527 review):** Script-driven page tab ordering requires document modification permission, and invalid calculation-order moves are validated before field writes. New synthetic regressions were observed failing before the fixes and passing afterwards. Pending-order lookup uses a name-to-index map; touched function documentation expanded. Estimates unchanged.
+
+- **2026-10-19 (M6, contributor candidate):** `setPageTabOrder` is connected to page tab ordering; `calcOrderIndex` reads and shifts calculation positions, persists `/CO` and reorders pending calculations in the same edit. The synthetic dependent-total regression covers repeated edits, save/reopen and undo/redo. The contributor verified column sums and dependent totals on Windows with a private form; estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.

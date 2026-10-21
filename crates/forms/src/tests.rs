@@ -761,6 +761,25 @@ fn multiselect_choice_indices_are_sorted_without_reordering_values() {
 }
 
 #[test]
+/// Invalid calculation indices must be rejected before values or flags are written.
+fn review_invalid_calculation_order_leaves_document_unchanged() {
+    let mut doc = fixture();
+    set_field_script(&mut doc, "name", "calculate", Some("event.value = 1;")).unwrap();
+    let before = pdfcraft_cos::write_full(&doc, &Default::default()).unwrap();
+    let changes = [FieldChange {
+        name: "name".into(),
+        value: Some(vec!["Changed".into()]),
+        read_only: Some(true),
+        display: Some(1),
+        calc_order_index: Some(99),
+        ..Default::default()
+    }];
+    assert!(apply_script_changes(&mut doc, &changes, &mut NoScripts).is_err());
+    let after = pdfcraft_cos::write_full(&doc, &Default::default()).unwrap();
+    assert!(before == after, "invalid order changes must not partially write values, flags or appearances");
+}
+
+#[test]
 fn errors_are_specific_and_change_nothing() {
     let mut doc = fixture();
     assert_eq!(set_value(&mut doc, "nope", &FieldValue::Text("x".into())), Err(FormError::NoSuchField("nope".into())));
@@ -1898,6 +1917,7 @@ fn recalc_chain_where_script_changes_checkbox() {
                     rc: true,
                     value: "calc1".into(),
                     changes: vec![FieldChange {
+                        calc_order_index: None,
                         name: "agree".into(),
                         value: Some(vec!["Yes".into()]),
                         read_only: None,

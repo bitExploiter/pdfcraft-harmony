@@ -112,6 +112,8 @@ pub struct Widget {
 /// A terminal form field.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Field {
+    /// Position in `/AcroForm/CO`, or none for a field outside the calculation order.
+    pub calc_order_index: Option<usize>,
     /// Fully qualified name (`parent.child`).
     pub name: String,
     pub obj: ObjRef,
@@ -516,7 +518,18 @@ pub struct Fields {
 
 /// Read all terminal fields and the page-only adoption count in one enumeration.
 pub fn fields_with_adopted(doc: &Document) -> Fields {
-    let (items, adopted_page_fields) = enumerate(doc);
+    let (mut items, adopted_page_fields) = enumerate(doc);
+    if let Some(co) = acroform(doc).and_then(|af| af.get(b"CO").map(|v| doc.resolve(v))).and_then(|v| v.as_array().cloned()) {
+        let mut indices = std::collections::HashMap::new();
+        for (i, entry) in co.iter().enumerate() {
+            if let Some(r) = entry.as_ref() {
+                indices.entry(r).or_insert(i);
+            }
+        }
+        for field in &mut items {
+            field.calc_order_index = indices.get(&field.obj).copied();
+        }
+    }
     Fields { items, adopted_page_fields }
 }
 
@@ -827,6 +840,7 @@ fn walk(
         })
         .collect();
     out.push(Field {
+        calc_order_index: None,
         name: inh.name.clone(),
         obj: r,
         kind,
@@ -937,7 +951,14 @@ pub fn recalculate_with(doc: &mut Document, scripts: &mut dyn Scripts) -> Result
         }
     }
     let mut changed = 0;
-    for name in order {
+    // Re-sort only the unvisited fields when a script changes calcOrderIndex.
+    // Each field runs at most once, even if a hostile script continually reorders it.
+    let mut pending: std::collections::VecDeque<String> = order.into();
+    let mut visited = std::collections::HashSet::new();
+    while let Some(name) = pending.pop_front() {
+        if !visited.insert(name.clone()) {
+            continue;
+        }
         let Some(f) = all.iter().find(|f| f.name == name).cloned() else { continue };
         let lookup = |n: &str| -> Vec<String> {
             let prefix = format!("{n}.");
@@ -949,6 +970,11 @@ pub fn recalculate_with(doc: &mut Document, scripts: &mut dyn Scripts) -> Result
             scripting::apply_changes(doc, &r.changes, &f.name)?;
             if !r.changes.is_empty() {
                 all = fields(doc);
+                let mut index_of = std::collections::HashMap::new();
+                for f in &all {
+                    index_of.entry(f.name.as_str()).or_insert(f.calc_order_index.unwrap_or(usize::MAX));
+                }
+                pending.make_contiguous().sort_by_key(|n| index_of.get(n.as_str()).copied().unwrap_or(usize::MAX));
             }
             if !r.rc {
                 continue;

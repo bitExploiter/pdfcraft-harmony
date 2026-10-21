@@ -4221,6 +4221,7 @@ fn run_button(app: &mut PdfCraftApp, index: usize, name: &str, action: pdfcraft_
                 .unwrap_or_default()
                 .into_iter()
                 .map(|name| pdfcraft_engine::FieldChange {
+                    calc_order_index: None,
                     name,
                     value: None,
                     read_only: None,

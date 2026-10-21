@@ -67,7 +67,7 @@ impl PdfCraftApp {
                     &[("u", &u)],
                 ),
                 Request::SaveAs => self.run_command("file.save_as"),
-                Request::Focus(_) | Request::Beep | Request::Reset(_) => {}
+                Request::Focus(_) | Request::Beep | Request::Reset(_) | Request::SetPageTabOrder { .. } => {}
             }
         }
         if let Some(a) = out.alerts.last() {

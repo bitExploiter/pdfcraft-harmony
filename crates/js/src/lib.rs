@@ -9,7 +9,7 @@
 //! - the document (`this`, also the global object): `getField`, `numFields`,
 //!   `getNthFieldName`, `numPages`, `pageNum`, `documentFileName`, `info`, `resetForm`,
 //!   `calculateNow`, `print`, `submitForm`, `mailDoc`.
-//! - Field objects: `name`, `type`, `value`, `valueAsString`, `defaultValue`, `readonly`,
+//! - Field objects: `name`, `type`, `value`, `valueAsString`, `defaultValue`, `readonly`, `calcOrderIndex`,
 //!   `required`, `display`, `hidden`, `numItems`, `getItemAt`, `currentValueIndices`,
 //!   `isBoxChecked`, `checkThisBox`, `exportValues`, `charLimit`, `textColor`, `fillColor`,
 //!   `setFocus`.
@@ -66,6 +66,8 @@ pub const DISPLAY_NO_VIEW: i32 = 3;
 /// A field as scripts see it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldState {
+    /// Position in the form's calculation order, or none if not calculated.
+    pub calc_order_index: Option<usize>,
     pub name: String,
     pub kind: FieldType,
     /// Text: the text. Check box / radio: the selected export value (empty when off). Choice:
@@ -85,8 +87,10 @@ pub struct FieldState {
 }
 
 impl FieldState {
+    /// Create a script-visible field with default flags and no calculation-order entry.
     pub fn new(name: impl Into<String>, kind: FieldType, value: Vec<String>) -> FieldState {
         FieldState {
+            calc_order_index: None,
             name: name.into(),
             kind,
             value,
@@ -146,6 +150,11 @@ pub struct DocInfo {
 /// Something a script asked the viewer to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Request {
+    /// `this.setPageTabOrder(page, order)` (0-based page).
+    SetPageTabOrder {
+        page: usize,
+        order: PageTabOrder,
+    },
     /// `this.resetForm([names])` (empty: every field).
     Reset(Vec<String>),
     Print,
@@ -159,6 +168,14 @@ pub enum Request {
     Beep,
     /// `app.execMenuItem("SaveAs")` (XFA forms' Save buttons).
     SaveAs,
+}
+
+/// Page navigation modes supported by `setPageTabOrder`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageTabOrder {
+    Rows,
+    Columns,
+    Structure,
 }
 
 /// What running a script did.
@@ -323,8 +340,43 @@ macro_rules! getter {
     }};
 }
 
+/// Build a field object whose accessors read and update the live script host state.
 fn field_object(ctx: &mut Context, name: &str) -> JsObject {
     let n = JsString::from(name);
+    let calc_get = getter!(ctx, n, |f, _c| f.calc_order_index.map_or(JsValue::from(-1), |i| JsValue::from(i as f64)));
+    let calc_set = {
+        fn set(_: &JsValue, args: &[JsValue], name: &JsString, c: &mut Context) -> JsResult<JsValue> {
+            let index = arg(args, 0).to_number(c)?;
+            let target = field_index(c, name)?;
+            let mut h = host(c)?.borrow_mut();
+            let Some(field) = h.fields.get(target) else { return Err(error("no such field")) };
+            let Some(old) = field.calc_order_index else { return Err(error("calcOrderIndex requires a calculated field")) };
+            let count = h.fields.iter().filter(|f| f.calc_order_index.is_some()).count();
+            if !index.is_finite() || index < 0.0 || index.fract() != 0.0 || index >= count as f64 {
+                return Err(error("calcOrderIndex must be an existing non-negative calculation index"));
+            }
+            let new = index as usize;
+            for i in 0..h.fields.len() {
+                let Some(f) = h.fields.get_mut(i) else { continue };
+                let Some(current) = f.calc_order_index else { continue };
+                let next = if i == target {
+                    new
+                } else if new < old && current >= new && current < old {
+                    current.saturating_add(1)
+                } else if new > old && current > old && current <= new {
+                    current.saturating_sub(1)
+                } else {
+                    current
+                };
+                if next != current {
+                    f.calc_order_index = Some(next);
+                    h.changed.insert(i);
+                }
+            }
+            Ok(JsValue::undefined())
+        }
+        function(ctx, NativeFunction::from_copy_closure_with_captures(set, n.clone()))
+    };
     let value_get = getter!(ctx, n, |f, c| value_of(&f, c));
     let value_set = {
         fn set(_: &JsValue, args: &[JsValue], name: &JsString, c: &mut Context) -> JsResult<JsValue> {
@@ -446,6 +498,7 @@ fn field_object(ctx: &mut Context, name: &str) -> JsObject {
     let check_this_box = NativeFunction::from_copy_closure_with_captures(check_this_box, n.clone());
     let set_focus = NativeFunction::from_copy_closure_with_captures(set_focus, n.clone());
     ObjectInitializer::new(ctx)
+        .accessor(js_string!("calcOrderIndex"), Some(calc_get), Some(calc_set), rw)
         .accessor(js_string!("value"), Some(value_get), Some(value_set), rw)
         .accessor(js_string!("valueAsString"), Some(as_string), None, rw)
         .accessor(js_string!("defaultValue"), Some(default), None, rw)
@@ -491,6 +544,23 @@ fn get_nth_field_name(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsRes
 fn reset_form(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let names = strings(&arg(args, 0), ctx)?;
     host(ctx)?.borrow_mut().requests.push(Request::Reset(names));
+    Ok(JsValue::undefined())
+}
+
+/// Validate a zero-based page and ordering mode, then request an engine tab-order edit.
+fn set_page_tab_order(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let page = arg(args, 0).to_number(ctx)?;
+    let pages = host(ctx)?.borrow().doc.num_pages;
+    if !page.is_finite() || page < 0.0 || page.fract() != 0.0 || page >= pages as f64 {
+        return Err(error("setPageTabOrder: page must be an existing 0-based page number"));
+    }
+    let order = match text(&arg(args, 1), ctx)?.as_str() {
+        "rows" => PageTabOrder::Rows,
+        "columns" => PageTabOrder::Columns,
+        "structure" => PageTabOrder::Structure,
+        _ => return Err(error("setPageTabOrder: order must be rows, columns or structure")),
+    };
+    host(ctx)?.borrow_mut().requests.push(Request::SetPageTabOrder { page: page as usize, order });
     Ok(JsValue::undefined())
 }
 
@@ -890,8 +960,10 @@ fn color_object(ctx: &mut Context) -> JsObject {
     o.build()
 }
 
+/// Register the supported Acrobat document APIs and sandbox globals in this context.
 fn install(ctx: &mut Context) -> JsResult<()> {
-    let globals: [(&str, usize, NativeFunction); 9] = [
+    let globals: [(&str, usize, NativeFunction); 10] = [
+        ("setPageTabOrder", 2, NativeFunction::from_fn_ptr(set_page_tab_order)),
         ("getField", 1, NativeFunction::from_fn_ptr(get_field)),
         ("getNthFieldName", 1, NativeFunction::from_fn_ptr(get_nth_field_name)),
         ("resetForm", 1, NativeFunction::from_fn_ptr(reset_form)),

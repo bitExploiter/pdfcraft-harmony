@@ -3764,6 +3764,15 @@ impl Session {
                 .unwrap_or_else(|m| Err(format!("writing the XFA data failed unexpectedly ({m})")))
                 .map_err(EditError::Write)?;
         }
+        if let Some(js) = cx.js.as_mut() {
+            if let Some(p) = editor.cos.permissions()
+                && !p.modify()
+                && js.output.requests.iter().any(|r| matches!(r, js::Request::SetPageTabOrder { .. }))
+            {
+                return Err(EditError::NotPermitted("changes to the document"));
+            }
+            js::apply_tab_orders(&mut next, &mut js.output)?;
+        }
         // Signed documents are only ever saved incrementally: an edit that needs a full rewrite
         // (applying redactions, changing security, sanitizing) would invalidate the signatures.
         // So does any edit to a file rebuilt from object headers: it has no chain to append to.

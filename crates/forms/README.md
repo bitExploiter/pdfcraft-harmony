@@ -29,6 +29,10 @@ delete_field(&mut doc, "email")?;
 
 ## Behaviour
 
+- Field snapshots expose `calc_order_index` from `/CO`. Script changes to that index
+  are saved in the form; recalculation reorders the remaining fields in the same
+  pass, with each field evaluated at most once. Invalid calculation-order changes
+  are rejected before field values, flags or appearances are written.
 - Inheritable attributes (`/FT`, `/Ff`, `/V`, `/DV`, `/DA`, `/Q`, `/MaxLen`) are resolved down the
   field tree; the form's `/DA` and `/Q` are the last fallback.
 - Text and choice fields get new appearance streams (`/Tx BMC … EMC`): auto-size (`0 Tf`), comb,

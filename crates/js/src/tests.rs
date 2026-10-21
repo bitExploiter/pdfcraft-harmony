@@ -32,6 +32,63 @@ fn calculate_scripts_read_fields_and_set_the_value() {
 }
 
 #[test]
+/// A tab-order request must not interrupt a calculation that follows it.
+fn calculation_continues_after_setting_page_tab_order() {
+    // An original minimal script: configuring keyboard navigation must not
+    // prevent the calculation that follows it from running.
+    let o = go(
+        "this.setPageTabOrder(0, 'rows'); \
+         event.value = Number(this.getField('price').value) + Number(this.getField('qty').value);",
+        &Event::field("Calculate", "total", ""),
+    );
+    assert_eq!(o.error, None);
+    assert_eq!(o.value, "16.5");
+    assert_eq!(o.requests, [Request::SetPageTabOrder { page: 0, order: PageTabOrder::Rows }]);
+}
+
+#[test]
+/// Accept all supported tab modes and reject invalid pages or mode names.
+fn page_tab_order_modes_and_invalid_arguments() {
+    for (name, order) in [("rows", PageTabOrder::Rows), ("columns", PageTabOrder::Columns), ("structure", PageTabOrder::Structure)] {
+        let o = go(&format!("this.setPageTabOrder(2, '{name}');"), &Event::doc("Console"));
+        assert_eq!(o.error, None);
+        assert_eq!(o.requests, [Request::SetPageTabOrder { page: 2, order }]);
+    }
+    for args in ["-1, 'rows'", "3, 'rows'", "0.5, 'rows'", "NaN, 'rows'", "Infinity, 'rows'", "0, 'invalid'"] {
+        let o = go(&format!("this.setPageTabOrder({args});"), &Event::doc("Console"));
+        assert!(o.error.is_some(), "{args}");
+        assert!(o.requests.is_empty(), "{args}");
+    }
+}
+
+#[test]
+/// Moving a calculated field shifts its peers and rejects invalid indices without changes.
+fn calculation_order_index_moves_fields_and_shifts_other_indices() {
+    let mut states = fields();
+    for (name, index) in [("price", 0), ("qty", 1), ("total", 2)] {
+        states.iter_mut().find(|f| f.name == name).unwrap().calc_order_index = Some(index);
+    }
+    let o = run(
+        "getField('total').calcOrderIndex = 0; \
+         event.value = ['total', 'price', 'qty', 'zip'].map(function(n) { return getField(n).calcOrderIndex; }).join(',');",
+        &Event::field("Calculate", "total", ""),
+        &doc(),
+        &states,
+        &[],
+        Limits::default(),
+    );
+    assert_eq!(o.error, None);
+    assert_eq!(o.value, "0,1,2,-1");
+    for args in ["-1", "3", "0.5", "NaN", "Infinity"] {
+        let o = run(&format!("getField('total').calcOrderIndex = {args};"), &Event::doc("Console"), &doc(), &states, &[], Limits::default());
+        assert!(o.error.is_some(), "{args}");
+        assert!(o.changed.is_empty(), "{args}");
+    }
+    let o = go("getField('zip').calcOrderIndex = 0;", &Event::doc("Console"));
+    assert!(o.error.is_some());
+}
+
+#[test]
 fn numbers_with_leading_zeros_stay_text() {
     let o = go("event.value = typeof getField('zip').value + ':' + typeof getField('qty').value;", &Event::field("Calculate", "total", ""));
     assert_eq!(o.value, "string:number");

@@ -3591,6 +3591,88 @@ fn scripted_form() -> Vec<u8> {
 }
 
 #[test]
+/// Filling a protected form must not let its scripts modify page tab ordering.
+fn review_script_tab_order_respects_modify_permission() {
+    for (tab_order, owner) in [(true, false), (false, false), (true, true)] {
+        let mut cos = pdfcraft_cos::Document::open(Arc::new(scripted_form())).unwrap();
+        let script = if tab_order { "this.setPageTabOrder(0, 'rows'); event.value = 1;" } else { "event.value = 1;" };
+        pdfcraft_forms::set_field_script(&mut cos, "total", "calculate", Some(script)).unwrap();
+        cos.set_encryption(&pdfcraft_cos::NewEncryption {
+            algorithm: pdfcraft_cos::Algorithm::Aes256,
+            user_password: "",
+            owner_password: "owner",
+            permissions: !(1 << 3),
+            encrypt_metadata: true,
+            seed: [7; 32],
+        })
+        .unwrap();
+        let bytes = Arc::new(pdfcraft_cos::write_full(&cos, &Default::default()).unwrap());
+        let mut session = Session::new();
+        let id = session.open("fill-only.pdf", None, bytes, owner.then_some("owner")).unwrap();
+        let p = session.get(id).unwrap().permissions().unwrap();
+        assert!(p.fill_forms());
+        assert_eq!(p.modify(), owner);
+        let before = session.get(id).unwrap().form.clone();
+        let result = session.apply(id, Edit::SetFieldValue { name: "qty".into(), value: FieldValue::Text("2".into()) });
+        if tab_order && !owner {
+            assert_eq!(result, Err(EditError::NotPermitted("changes to the document")));
+            let doc = session.get(id).unwrap();
+            assert_eq!(doc.form, before);
+            assert!(!doc.dirty);
+            assert_eq!(doc.can_undo(), None);
+        } else {
+            result.unwrap();
+        }
+    }
+}
+
+#[test]
+/// Dependent totals use the new calculation order and survive persistence and history.
+fn form_calculation_order_updates_dependent_total_in_same_edit() {
+    // Original synthetic form: the initial order is setup, funds, balance.
+    // Its setup script puts balance before funds, as real forms do.
+    let mut cos = pdfcraft_cos::Document::open(Arc::new(fixture(1))).unwrap();
+    for (i, name) in ["input", "setup", "funds", "balance"].iter().enumerate() {
+        let y = 20.0 + i as f64 * 30.0;
+        pdfcraft_forms::add_field(&mut cos, 0, [20.0, y, 180.0, y + 20.0], &NewField::Text { multiline: false }, Some(name)).unwrap();
+    }
+    for (name, script) in [
+        ("setup", "this.getField('balance').calcOrderIndex = 1; this.getField('funds').calcOrderIndex = 2; event.value = 0;"),
+        ("funds", "event.value = Number(this.getField('balance').value) + 1;"),
+        ("balance", "event.value = Number(this.getField('input').value) * 2;"),
+    ] {
+        pdfcraft_forms::set_field_script(&mut cos, name, "calculate", Some(script)).unwrap();
+    }
+    let initial = Arc::new(pdfcraft_cos::write_full(&cos, &Default::default()).unwrap());
+    for (input, expected) in [("10", "21"), ("20", "41")] {
+        let mut runner = js::JsRunner::new(&cos, "calculation-order.pdf");
+        pdfcraft_forms::set_value_with(&mut cos, "input", &FieldValue::Text(input.into()), &mut runner).unwrap();
+        assert!(runner.output.errors.is_empty(), "{:?}", runner.output.errors);
+        let all = pdfcraft_forms::fields(&cos);
+        let funds = all.iter().find(|f| f.name == "funds").unwrap();
+        assert_eq!(funds.value, [expected], "dependent total must use the balance from this edit");
+        assert_eq!(all.iter().find(|f| f.name == "balance").unwrap().calc_order_index, Some(1));
+        assert_eq!(funds.calc_order_index, Some(2));
+        cos = pdfcraft_cos::Document::open(Arc::new(pdfcraft_cos::write_full(&cos, &Default::default()).unwrap())).unwrap();
+    }
+    let mut session = Session::new();
+    let id = session.open("calculation-order.pdf", None, initial, None).unwrap();
+    let value = |s: &Session| s.get(id).unwrap().form.iter().find(|f| f.name == "funds").unwrap().value.clone();
+    let index = |s: &Session| s.get(id).unwrap().form.iter().find(|f| f.name == "balance").unwrap().calc_order_index;
+    let before = value(&session);
+    let original_index = index(&session);
+    session.apply(id, Edit::SetFieldValue { name: "input".into(), value: FieldValue::Text("30".into()) }).unwrap();
+    assert_eq!(value(&session), ["61"]);
+    assert_eq!(index(&session), Some(1));
+    session.undo(id).unwrap();
+    assert_eq!(value(&session), before);
+    assert_eq!(index(&session), original_index);
+    session.redo(id).unwrap();
+    assert_eq!(value(&session), ["61"]);
+    assert_eq!(index(&session), Some(1));
+}
+
+#[test]
 fn form_javascript_validates_calculates_and_formats() {
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let id = s.open("order.pdf", None, Arc::new(scripted_form()), None).unwrap();

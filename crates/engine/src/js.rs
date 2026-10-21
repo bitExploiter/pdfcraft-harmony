@@ -7,9 +7,29 @@
 //! off, scripts don't run and AF calls keep working natively.
 
 use pdfcraft_forms::{Field, FieldChange, FieldEvent, FieldKind, FieldProps, ScriptResult, Scripts};
-pub use pdfcraft_js::{Limits, Outcome, Request};
+pub use pdfcraft_js::{Limits, Outcome, PageTabOrder, Request};
 
 use crate::{DocId, Edit, EditError, Session};
+
+/// Translate a script ordering mode into the form engine's page ordering mode.
+fn tab_order(order: pdfcraft_js::PageTabOrder) -> pdfcraft_forms::TabOrder {
+    match order {
+        pdfcraft_js::PageTabOrder::Rows => pdfcraft_forms::TabOrder::Row,
+        pdfcraft_js::PageTabOrder::Columns => pdfcraft_forms::TabOrder::Column,
+        pdfcraft_js::PageTabOrder::Structure => pdfcraft_forms::TabOrder::Structure,
+    }
+}
+
+/// Apply page navigation requests inside the same transaction as the field edit.
+pub(crate) fn apply_tab_orders(cos: &mut pdfcraft_cos::Document, output: &mut JsOutput) -> Result<(), EditError> {
+    for request in &output.requests {
+        if let Request::SetPageTabOrder { page, order } = request {
+            pdfcraft_forms::set_tab_order(cos, &[*page], tab_order(*order))?;
+        }
+    }
+    output.requests.retain(|r| !matches!(r, Request::SetPageTabOrder { .. }));
+    Ok(())
+}
 
 /// What scripts produced for the viewer since it last looked.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -71,6 +91,7 @@ fn display(doc: &pdfcraft_cos::Document, f: &Field) -> i32 {
 /// A form field as scripts see it.
 pub fn field_state(doc: &pdfcraft_cos::Document, f: &Field) -> pdfcraft_js::FieldState {
     let mut s = pdfcraft_js::FieldState::new(f.name.clone(), kind(f.kind), f.value.clone());
+    s.calc_order_index = f.calc_order_index;
     s.default = f.default.clone();
     s.readonly = f.read_only();
     s.required = f.has(pdfcraft_forms::flags::REQUIRED);
@@ -84,19 +105,21 @@ pub fn field_state(doc: &pdfcraft_cos::Document, f: &Field) -> pdfcraft_js::Fiel
 }
 
 /// The changes a script made, against the fields as they were.
+/// Extract changed values, flags and calculation positions for the form transaction.
 fn changes(before: &[pdfcraft_js::FieldState], after: &[pdfcraft_js::FieldState]) -> Vec<FieldChange> {
     after
         .iter()
         .filter_map(|a| {
             let b = before.iter().find(|b| b.name == a.name)?;
             let c = FieldChange {
+                calc_order_index: (a.calc_order_index != b.calc_order_index).then_some(a.calc_order_index).flatten(),
                 name: a.name.clone(),
                 value: (a.value != b.value).then(|| a.value.clone()),
                 read_only: (a.readonly != b.readonly).then_some(a.readonly),
                 required: (a.required != b.required).then_some(a.required),
                 display: (a.display != b.display).then_some(a.display),
             };
-            (c.value.is_some() || c.read_only.is_some() || c.required.is_some() || c.display.is_some()).then_some(c)
+            (c.value.is_some() || c.read_only.is_some() || c.required.is_some() || c.display.is_some() || c.calc_order_index.is_some()).then_some(c)
         })
         .collect()
 }
@@ -225,6 +248,12 @@ impl Session {
             .collect();
         o.requests.retain(|r| !matches!(r, Request::Reset(_)));
         let mut edits = Vec::new();
+        for request in &o.requests {
+            if let Request::SetPageTabOrder { page, order } = request {
+                edits.push(Edit::SetTabOrder { pages: vec![*page], order: tab_order(*order) });
+            }
+        }
+        o.requests.retain(|r| !matches!(r, Request::SetPageTabOrder { .. }));
         if !changes.is_empty() {
             edits.push(Edit::ApplyScriptChanges { changes });
         }
