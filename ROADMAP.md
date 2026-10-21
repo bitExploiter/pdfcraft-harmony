@@ -172,6 +172,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-19 (M14, #3505):** Korean file names, bookmark titles and search terms are drawn with an installed Hangul face (Malgun Gothic on Windows, Apple SD Gothic Neo on macOS, NanumGothic on Linux) in every interface language, so they are letters instead of boxes; a Chinese interface keeps its Chinese face ahead of the Hangul one, which also has Han glyphs. The web build has no installed fonts and still needs a bundled Korean face. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
@@ -548,10 +550,13 @@ Newest first: the date, what moved, and the new overall estimate.
 
 ## Revision history
 
+**2026-10-19 · minor:** M14/#3505: an installed Hangul face draws Korean file names, bookmark titles and search terms in the interface, in every interface language. Synthetic font regressions cover the four interface families; the web build still needs a bundled Korean face. Estimates unchanged.
+
 **2026-10-15 · minor:** M14/#2383 candidate: GPU device requests clamp unsupported limits while retaining the adapter texture extent. Synthetic V3D/downlevel regressions and Windows GPU-required tests pass; Raspberry Pi hardware remains unverified. Estimates unchanged.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-19 | minor | M14, #3505: an installed Hangul face (Malgun Gothic, Apple SD Gothic Neo, NanumGothic) draws Korean file names, bookmark titles and search terms in the interface, in every interface language; a Chinese interface keeps its Chinese face ahead of it. Estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |

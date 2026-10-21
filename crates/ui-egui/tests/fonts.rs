@@ -337,3 +337,55 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         }
     }
 }
+
+/// A Korean file name, a bookmark title and a search term are drawn in every interface language,
+/// so the Hangul face does not depend on it (#3505, #407). On a machine with an installed Korean
+/// face (Malgun Gothic on Windows, Apple SD Gothic Neo on macOS, NanumGothic on Linux) the
+/// interface has that face in every family, and the Korean text has real glyphs instead of the
+/// replacement boxes the report shows.
+#[test]
+fn system_fallback_covers_korean() {
+    const KOREAN: &str = "한글_표시_검증.pdf";
+    assert!(!theme::font_definitions().font_data.contains_key(theme::SYSTEM_KOREAN_FALLBACK));
+    for cjk in [theme::CjkPreference::Default, theme::CjkPreference::SimplifiedChinese, theme::CjkPreference::TraditionalChinese] {
+        let defs = theme::installed_font_definitions(cjk);
+        if !defs.font_data.contains_key(theme::SYSTEM_KOREAN_FALLBACK) {
+            eprintln!("skipping system_fallback_covers_korean: no installed Hangul fallback font (or PDFCRAFT_SYSTEM_FONTS=0)");
+            assert!(defs.families.values().all(|stack| !stack.iter().any(|n| n == theme::SYSTEM_KOREAN_FALLBACK)));
+            continue;
+        }
+        for (family, stack) in &defs.families {
+            assert_eq!(stack.iter().filter(|n| *n == theme::SYSTEM_KOREAN_FALLBACK).count(), 1, "{cjk:?} {family:?}: {stack:?}");
+        }
+        let mut fonts = Fonts::new(TextOptions::default(), defs);
+        for id in families() {
+            assert!(fonts.has_glyphs(&id, KOREAN), "{cjk:?} {id:?} lacks {KOREAN}");
+        }
+        assert!(layout_widths(&mut fonts, KOREAN).iter().all(|w| w.is_finite() && *w > 0.0));
+    }
+}
+
+/// A Korean face has Han glyphs too (Malgun Gothic maps thousands of them), so a Chinese
+/// interface keeps its Chinese face ahead of the Hangul one (#3505).
+#[test]
+fn the_chinese_face_stays_ahead_of_the_hangul_face() {
+    let hans: Vec<String> = pdfcraft_fonts::ui_chinese_fonts().iter().map(|f| f.name()).collect();
+    for cjk in [theme::CjkPreference::SimplifiedChinese, theme::CjkPreference::TraditionalChinese] {
+        let defs = theme::installed_font_definitions(cjk);
+        if !defs.font_data.contains_key(theme::SYSTEM_KOREAN_FALLBACK) {
+            eprintln!("skipping the_chinese_face_stays_ahead_of_the_hangul_face: no installed Hangul fallback font");
+            continue;
+        }
+        for (family, stack) in &defs.families {
+            let korean = stack.iter().position(|n| n == theme::SYSTEM_KOREAN_FALLBACK).expect("the Hangul face is in every family");
+            // The Chinese face is the bundled one, or the installed one in a build without it.
+            let chinese = if hans.is_empty() {
+                stack.iter().position(|n| n == theme::SYSTEM_FALLBACK)
+            } else {
+                stack.iter().position(|n| hans.iter().any(|h| h == n))
+            };
+            let Some(chinese) = chinese else { continue };
+            assert!(chinese < korean, "{cjk:?} {family:?}: {stack:?}");
+        }
+    }
+}

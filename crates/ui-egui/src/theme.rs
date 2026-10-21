@@ -224,6 +224,8 @@ pub const SYSTEM_TELUGU_FALLBACK: &str = "system-telugu-fallback";
 pub const SYSTEM_SINHALA_FALLBACK: &str = "system-sinhala-fallback";
 /// The name of the installed Tamil face [`installed_font_definitions`] may add.
 pub const SYSTEM_TAMIL_FALLBACK: &str = "system-tamil-fallback";
+/// The name of the installed Hangul (Korean) face [`installed_font_definitions`] may add.
+pub const SYSTEM_KOREAN_FALLBACK: &str = "system-korean-fallback";
 
 /// What [`install_fonts_for`] installs: [`font_definitions_for`], then, on desktop, one face
 /// already installed on this machine. It only draws characters no embedded face has.
@@ -236,9 +238,9 @@ pub const SYSTEM_TAMIL_FALLBACK: &str = "system-tamil-fallback";
 /// - Otherwise it is the last fallback of every family (an Arabic file name in a build without
 ///   craft-fonts).
 ///
-/// Installed Devanagari, Telugu, Sinhala and Tamil faces, when there are, end every family just
-/// before that one, so Hindi, Telugu (#1531), Sinhala and Tamil (#1688) text, such as a file
-/// name, draws in a build without such faces.
+/// Installed Devanagari, Telugu, Sinhala, Tamil and Hangul faces, when there are, end every
+/// family just before that one, so Hindi, Telugu (#1531), Sinhala, Tamil (#1688) and Korean
+/// (#3505) text, such as a file name, draws in a build without such faces.
 ///
 /// `PDFCRAFT_SYSTEM_FONTS=0` leaves them out.
 pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
@@ -253,6 +255,7 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             (SYSTEM_TELUGU_FALLBACK, crate::system_fonts::telugu_fallback()),
             (SYSTEM_SINHALA_FALLBACK, crate::system_fonts::sinhala_fallback()),
             (SYSTEM_TAMIL_FALLBACK, crate::system_fonts::tamil_fallback()),
+            (SYSTEM_KOREAN_FALLBACK, crate::system_fonts::korean_fallback()),
         ] {
             let Some(data) = data else { continue };
             fonts.font_data.insert(name.to_owned(), data);
@@ -270,15 +273,26 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             fonts.font_data.insert(SYSTEM_FALLBACK.to_owned(), data);
             let japanese: Vec<String> = pdfcraft_fonts::ui_japanese_fonts().iter().map(|f| f.name()).collect();
             for stack in fonts.families.values_mut() {
-                let at = match need {
-                    Need::Other => None,
-                    Need::Hans | Need::Hant => stack.iter().position(|n| japanese.contains(n)),
-                };
-                stack.insert(at.unwrap_or(stack.len()), SYSTEM_FALLBACK.to_owned());
+                let at = system_fallback_position(stack, need, &japanese);
+                stack.insert(at, SYSTEM_FALLBACK.to_owned());
             }
         }
     }
     fonts
+}
+
+/// Where the installed face goes in a family stack.
+///
+/// The general face is the last fallback outside Chinese. A Chinese face goes before the
+/// Japanese craft-fonts faces, which lack hundreds of the catalog's characters, and before the
+/// Hangul face, which also has Han glyphs (Malgun Gothic maps thousands of them).
+#[cfg(not(target_arch = "wasm32"))]
+fn system_fallback_position(stack: &[String], need: crate::system_fonts::Need, japanese: &[String]) -> usize {
+    use crate::system_fonts::Need;
+    match need {
+        Need::Other => stack.len(),
+        Need::Hans | Need::Hant => stack.iter().position(|n| japanese.iter().any(|j| j == n) || n == SYSTEM_KOREAN_FALLBACK).unwrap_or(stack.len()),
+    }
 }
 
 /// The interface fonts: Inter (and JetBrains Mono for code) first, then egui's defaults, then
@@ -758,6 +772,47 @@ mod tests {
                     let r = contrast(fg, bg);
                     assert!(r >= 4.5, "{kind:?} {name} on {bg:?}: {r:.2}:1, WCAG AA needs 4.5:1");
                 }
+            }
+        }
+    }
+
+    /// A Chinese interface keeps its Chinese face ahead of the Hangul one, which also has Han
+    /// glyphs, and ahead of the Japanese craft-fonts faces, which lack hundreds of the catalog's
+    /// characters (#3505).
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn the_installed_chinese_face_goes_before_the_japanese_and_hangul_faces() {
+        use crate::system_fonts::Need;
+        let japanese = vec!["BIZ UDPGothic Regular".to_owned()];
+        let stack = |names: &[&str]| names.iter().map(|n| (*n).to_owned()).collect::<Vec<String>>();
+        // With a Japanese face, the Chinese face goes before it.
+        assert_eq!(system_fallback_position(&stack(&["Inter", "BIZ UDPGothic Regular", SYSTEM_KOREAN_FALLBACK]), Need::Hans, &japanese), 1);
+        // Without one, it still goes before the Hangul face.
+        assert_eq!(system_fallback_position(&stack(&["Inter", SYSTEM_KOREAN_FALLBACK]), Need::Hans, &[]), 1);
+        // The general face is the last fallback outside Chinese.
+        assert_eq!(system_fallback_position(&stack(&["Inter", SYSTEM_KOREAN_FALLBACK]), Need::Other, &[]), 2);
+    }
+
+    /// A Hangul face installed on this machine draws Korean file names, bookmark titles and
+    /// search terms in every interface family (#3505). The face is read at runtime, so a machine
+    /// without one skips this; a machine with one must find it in every family, and the Korean
+    /// text must have real glyphs instead of the replacement boxes.
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn an_installed_hangul_face_is_registered_in_every_family() {
+        if crate::system_fonts::korean_fallback().is_none() {
+            eprintln!("skipping an_installed_hangul_face_is_registered_in_every_family: no installed Hangul face (or PDFCRAFT_SYSTEM_FONTS=0)");
+            return;
+        }
+        const KOREAN: &str = "한글_표시_검증.pdf";
+        for cjk in [CjkPreference::Default, CjkPreference::SimplifiedChinese, CjkPreference::TraditionalChinese] {
+            let defs = installed_font_definitions(cjk);
+            for (family, stack) in &defs.families {
+                assert!(stack.contains(&SYSTEM_KOREAN_FALLBACK.to_owned()), "{cjk:?} {family:?}: {stack:?}");
+            }
+            let mut fonts = Fonts::new(TextOptions::default(), defs);
+            for id in [FontId::proportional(13.0), FontId::monospace(13.0), medium(13.0), semibold(17.0)] {
+                assert!(fonts.has_glyphs(&id, KOREAN), "{cjk:?} {id:?} lacks {KOREAN}");
             }
         }
     }

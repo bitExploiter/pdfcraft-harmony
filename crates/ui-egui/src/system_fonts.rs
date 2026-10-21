@@ -3,13 +3,14 @@
 //! The embedded faces (Inter, egui's defaults, craft-fonts) come first in every family; this one
 //! only draws characters none of them has, such as an Arabic file name in a build without
 //! craft-fonts, or the Simplified Chinese interface in a build without a `Hans` face (#826). A
-//! few more installed faces, [`devanagari_fallback`], [`telugu_fallback`], [`sinhala_fallback`]
-//! and [`tamil_fallback`], draw Hindi, Telugu, Sinhala and Tamil when one is installed. It is
+//! few more installed faces, [`devanagari_fallback`], [`telugu_fallback`], [`sinhala_fallback`],
+//! [`tamil_fallback`] and [`korean_fallback`], draw Hindi, Telugu, Sinhala, Tamil and Korean
+//! when one is installed. It is
 //! read at runtime and never embedded or shipped (AGENTS.md §1.4), and `PDFCRAFT_SYSTEM_FONTS=0`
 //! turns it off (published screenshots do).
 
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, LazyLock};
 
 use egui::FontData;
 
@@ -30,6 +31,8 @@ const DEVANAGARI_PROBE: char = '\u{0915}';
 const TELUGU_PROBE: char = '\u{0C15}';
 /// Sinhala letter ka (ක): the face must have it to cover Sinhala.
 const SINHALA_PROBE: char = '\u{0D9A}';
+/// Hangul syllable ga (가): the face must have it to cover Korean.
+const KOREAN_PROBE: char = '\u{AC00}';
 /// Tamil letter ka (க): the face must have it to cover Tamil.
 const TAMIL_PROBE: char = '\u{0B95}';
 /// 欢 (U+6B22): Simplified only, absent from the Japanese craft-fonts faces.
@@ -52,15 +55,14 @@ pub enum Need {
 /// The installed fallback face for `need`, read once per need. `None` when it is turned off or no
 /// candidate fits.
 pub fn fallback(need: Need) -> Option<Arc<FontData>> {
-    static OTHER: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    static HANS: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    static HANT: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    let cache = match need {
-        Need::Other => &OTHER,
-        Need::Hans => &HANS,
-        Need::Hant => &HANT,
-    };
-    cache.get_or_init(|| load(need)).clone()
+    static OTHER: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| load(Need::Other));
+    static HANS: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| load(Need::Hans));
+    static HANT: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| load(Need::Hant));
+    match need {
+        Need::Other => OTHER.clone(),
+        Need::Hans => HANS.clone(),
+        Need::Hant => HANT.clone(),
+    }
 }
 
 fn load(need: Need) -> Option<Arc<FontData>> {
@@ -78,29 +80,39 @@ fn load(need: Need) -> Option<Arc<FontData>> {
 /// The installed fallback face for Devanagari (Hindi), read once. `None` when it is turned off
 /// or no candidate is installed; the interface then draws what the embedded faces can.
 pub fn devanagari_fallback() -> Option<Arc<FontData>> {
-    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    CACHE.get_or_init(|| script_fallback(&devanagari_candidates(), DEVANAGARI_PROBE)).clone()
+    static CACHE: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| script_fallback(&devanagari_candidates(), DEVANAGARI_PROBE));
+    CACHE.clone()
 }
 
 /// The installed fallback face for Telugu, read once. `None` when it is turned off or no
 /// candidate is installed; the interface then draws what the embedded faces can.
 pub fn telugu_fallback() -> Option<Arc<FontData>> {
-    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    CACHE.get_or_init(|| script_fallback(&telugu_candidates(), TELUGU_PROBE)).clone()
+    static CACHE: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| script_fallback(&telugu_candidates(), TELUGU_PROBE));
+    CACHE.clone()
 }
 
 /// The installed fallback face for Sinhala, read once. `None` when it is turned off or no
 /// candidate is installed; the interface then draws what the embedded faces can.
 pub fn sinhala_fallback() -> Option<Arc<FontData>> {
-    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    CACHE.get_or_init(|| script_fallback(&sinhala_candidates(), SINHALA_PROBE)).clone()
+    static CACHE: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| script_fallback(&sinhala_candidates(), SINHALA_PROBE));
+    CACHE.clone()
 }
 
 /// The installed fallback face for Tamil, read once. `None` when it is turned off or no
 /// candidate is installed; the interface then draws what the embedded faces can.
 pub fn tamil_fallback() -> Option<Arc<FontData>> {
-    static CACHE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
-    CACHE.get_or_init(|| script_fallback(&tamil_candidates(), TAMIL_PROBE)).clone()
+    static CACHE: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| script_fallback(&tamil_candidates(), TAMIL_PROBE));
+    CACHE.clone()
+}
+
+/// The installed fallback face for Korean (Hangul), read once. `None` when it is turned off or
+/// no candidate is installed; the interface then draws what the embedded faces can.
+///
+/// Korean file names and bookmark titles are drawn in every interface language, so this face
+/// does not depend on the language (#3505, #407).
+pub fn korean_fallback() -> Option<Arc<FontData>> {
+    static CACHE: LazyLock<Option<Arc<FontData>>> = LazyLock::new(|| script_fallback(&korean_candidates(), KOREAN_PROBE));
+    CACHE.clone()
 }
 
 fn script_fallback(candidates: &[PathBuf], probe: char) -> Option<Arc<FontData>> {
@@ -227,6 +239,34 @@ fn tamil_candidates() -> Vec<PathBuf> {
     }
 }
 
+/// Well-known locations of Hangul (Korean) faces, best first.
+///
+/// The Korean faces the operating system ships: Malgun Gothic on Windows, Apple SD Gothic Neo on
+/// macOS, NanumGothic and UnDotum on Linux. Noto Sans CJK and Source Han are left out on purpose
+/// (AGENTS.md §1.1), so a machine that has only those keeps drawing boxes.
+fn korean_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        // Malgun Gothic is the Windows Korean face; Gulim and Batang are the older ones.
+        ["malgun.ttf", "gulim.ttc", "batang.ttc"].iter().map(|f| windows_fonts().join(f)).collect()
+    } else if cfg!(target_os = "macos") {
+        ["/System/Library/Fonts/AppleSDGothicNeo.ttc", "/System/Library/Fonts/Supplemental/AppleGothic.ttf", "/System/Library/Fonts/AppleMyungjo.ttf"]
+            .iter()
+            .map(PathBuf::from)
+            .collect()
+    } else {
+        unix_fonts(&[
+            "truetype/nanum/NanumGothic.ttf",
+            "nanum/NanumGothic.ttf",
+            "TTF/NanumGothic.ttf",
+            "truetype/unfonts-core/UnDotum.ttf",
+            "un-core/UnDotum.ttf",
+            "truetype/droid/DroidSansFallbackFull.ttf",
+            "google-droid-sans-fonts/DroidSansFallbackFull.ttf",
+            "droid/DroidSansFallbackFull.ttf",
+        ])
+    }
+}
+
 /// Well-known locations of faces with broad script coverage, best first.
 fn candidates(need: Need) -> Vec<PathBuf> {
     match need {
@@ -295,17 +335,15 @@ fn windows_fonts() -> PathBuf {
 
 fn unix_fonts(files: &'static [&'static str]) -> Vec<PathBuf> {
     #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
-    static INSTALLED: OnceLock<Vec<PathBuf>> = OnceLock::new();
-    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
     // Read once per process, and not at all when installed fonts are turned off.
-    let installed = INSTALLED
-        .get_or_init(|| {
-            if std::env::var_os("PDFCRAFT_SYSTEM_FONTS").is_some_and(|v| v == "0") {
-                return Vec::new();
-            }
-            fontconfig::font_files(&fontconfig::config_path())
-        })
-        .as_slice();
+    static INSTALLED: LazyLock<Vec<PathBuf>> = LazyLock::new(|| {
+        if std::env::var_os("PDFCRAFT_SYSTEM_FONTS").is_some_and(|v| v == "0") {
+            return Vec::new();
+        }
+        fontconfig::font_files(&fontconfig::config_path())
+    });
+    #[cfg(all(unix, not(target_os = "macos"), not(target_arch = "wasm32")))]
+    let installed: &[PathBuf] = INSTALLED.as_slice();
     #[cfg(not(all(unix, not(target_os = "macos"), not(target_arch = "wasm32"))))]
     let installed: &[PathBuf] = &[];
     unix_candidates(files, installed)
@@ -379,6 +417,7 @@ mod tests {
         assert_eq!(face_with(inter, PROBE), None);
         assert_eq!(face_with(inter, HANS_PROBE), None);
         assert_eq!(face_with(inter, HANT_PROBE), None);
+        assert_eq!(face_with(inter, KOREAN_PROBE), None);
         assert_eq!(face_with(inter, 'A'), Some(0));
     }
 
@@ -407,11 +446,12 @@ mod tests {
         assert!(script_fallback(&candidates, DEVANAGARI_PROBE).is_none());
         assert!(script_fallback(&candidates, SINHALA_PROBE).is_none());
         assert!(script_fallback(&candidates, TAMIL_PROBE).is_none());
+        assert!(script_fallback(&candidates, KOREAN_PROBE).is_none());
     }
 
     #[test]
     fn script_candidates_are_absolute_font_files() {
-        for list in [devanagari_candidates(), telugu_candidates(), sinhala_candidates(), tamil_candidates()] {
+        for list in [devanagari_candidates(), telugu_candidates(), sinhala_candidates(), tamil_candidates(), korean_candidates()] {
             assert!(!list.is_empty());
             assert!(list.iter().all(|p| p.is_absolute() || cfg!(windows)), "{list:?}");
             assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{list:?}");
@@ -425,6 +465,16 @@ mod tests {
                 let name = path.to_string_lossy().to_lowercase();
                 assert!(!["notosanscjk", "notoserifcjk", "sourcehan", "source-han"].iter().any(|b| name.contains(b)), "{name}");
             }
+        }
+    }
+
+    /// The Korean face may not be a Source Han or Noto CJK design either (AGENTS.md §1.1), not
+    /// even when the machine has one installed.
+    #[test]
+    fn korean_candidates_skip_adobe_designs() {
+        for path in korean_candidates() {
+            let name = path.to_string_lossy().to_lowercase();
+            assert!(!["notosanscjk", "notoserifcjk", "sourcehan", "source-han"].iter().any(|b| name.contains(b)), "{name}");
         }
     }
 }

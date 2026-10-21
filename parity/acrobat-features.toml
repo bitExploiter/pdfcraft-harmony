@@ -10068,8 +10068,8 @@ milestone = "M14"
 status = "partial"
 commands = []
 tools = []
-evidence = ["crates/ui-egui/src/i18n/mod.rs::bundled_catalogs_are_consistent", "crates/ui-egui/src/i18n/mod.rs::date_languages_are_the_interface_languages", "crates/ui-egui/src/i18n/mod.rs::language_persists_and_invalid_input_keeps_current_language"]
-notes = "The UI offers 22 non-English catalogs plus English fallback (entry counts vary by language), and the selected language persists. Partial because the languages are not all usable yet: Chinese shows tofu in releases (#826, #688), the release-pinned craft-fonts has no Telugu face, Arabic is not mirrored (misc.rtl-ui), and strings missing from a catalog fall back to English (localization-parity.md). The language can be set through the UI control channel (`set language`) but not through an automation tool, so pdfcraft-cli run and MCP cannot change it."
+evidence = ["crates/ui-egui/src/i18n/mod.rs::bundled_catalogs_are_consistent", "crates/ui-egui/src/i18n/mod.rs::date_languages_are_the_interface_languages", "crates/ui-egui/src/i18n/mod.rs::language_persists_and_invalid_input_keeps_current_language", "crates/ui-egui/tests/fonts.rs::system_fallback_covers_korean"]
+notes = "The UI offers 22 non-English catalogs plus English fallback (entry counts vary by language), and the selected language persists. Partial because the languages are not all usable yet: Chinese shows tofu in releases (#826, #688), the release-pinned craft-fonts has no Telugu face, Arabic is not mirrored (misc.rtl-ui), and strings missing from a catalog fall back to English (localization-parity.md). Korean file names, bookmark titles and search terms have glyphs in the interface in every interface language (an installed Hangul face on desktop, #3505); the Korean catalog and a bundled Korean face for the web build are still missing. The language can be set through the UI control channel (`set language`) but not through an automation tool, so pdfcraft-cli run and MCP cannot change it."
 
 [[feature]]
 id = "misc.rtl-ui"
