@@ -140,7 +140,7 @@ union). Detail and script notes: [localization-parity.md](docs/localization-pari
 | English | `en` | 100% | full |
 | Simplified Chinese | `zh-hans` | 97.4% | partial (no Hans UI face in releases, #826) |
 | Spanish | `es` | 95.5% | partial |
-| Hindi | `hi` | 0% | none |
+| Hindi | `hi` | 160 starter labels | partial (no Devanagari face in CI/release input) |
 | Arabic | `ar` | 100% | partial (layout not mirrored) |
 | French | `fr` | 99.3% | partial |
 | Portuguese (Brazil) | `pt-br` | 99.4% | partial |
@@ -152,7 +152,7 @@ union). Detail and script notes: [localization-parity.md](docs/localization-pari
 
 Also shipped: Traditional Chinese, Russian, Bulgarian, Telugu, Hungarian, Ukrainian, Italian,
 Kazakh, Polish, Slovenian, Greek, Turkish, Lithuanian and Czech (menus only): **14 more catalogs**
-(23 interface languages including English).
+(24 interface languages including English).
 
 ## Upcoming
 
@@ -194,6 +194,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 - **2026-10-18 (M3, #3149):** Page replacement cancels render demand collected for the previous geometry; all viewer raster upload paths reject empty or oversized textures before cache eviction. Synthetic regressions reproduce the reported 1880×2350 upload at a 2048 limit, retain cached images and unsaved edits, and resume bounded backdrops and tiles. Estimates unchanged.
 - **2026-10-19 (M3, #3360):** Switching between Read and the docking workspace retains the current document’s scroll position at fixed zoom, including within-page position; separate tabs retain their own offsets. Estimates unchanged.
 - **2026-10-18 (M8, #1350):** Integrated current main while preserving content-stream comment boundaries. Hidden-text cleanup retires unused named replacement descriptions on rewritten pages and forms, including inherited/shared resource holders, without removing descriptions still used by surviving content. Synthetic saved-byte and preservation regressions cover the cleanup. Estimates unchanged.
+- **2026-10-17 (M14, Hindi review):** Rebased the Hindi starter catalog onto current main, preserving the other languages and script fallbacks. Both missing function braces are restored. Hindi has 160 entries, CLDR integer plurals and date names; required consent, signature, selection, animation and key labels are included. Hindi carries only keys the UI looks up, so Lithuanian and Vietnamese are unchanged. The CI/release craft-fonts revision has no Devanagari face, so the glyph test skips and does not prove rendering coverage. Estimates unchanged.
 - **2026-10-17 (M4, #2997):** Dragging page thumbnails in the Organize grid with Ctrl held (Option on macOS) drops copies at the gap instead of moving the pages: a "+" badge sits by the pointer, the copies land at the gap selected, and one undo step ("Duplicate pages") takes them out again. `page_duplicate` takes `at` (1-based, where the first copy goes; left out, after the last of them) so agents can drive the same thing, and the UI control channel's `ui.drag` modifiers now reach gestures that read the input state. Estimates unchanged.
 - **2026-10-15 (M6, AcroForm XML text):** Plain AcroForm XML imports retain all direct text around comments and processing instructions, including CDATA and character references. Synthetic regressions verify exact values and unknown catalog data after incremental and full save/reopen. Nested-element and XFA interpretation are unchanged. Estimates unchanged.
 - **2026-10-15 (M6, #1917 refresh):** Integrated upstream `99941daa` while retaining the XML/XFDF attribute whitespace correction and all upstream progress. Only independent documentation conflicts required resolution; focused production and test files are unchanged from the previously green CI head. Estimates unchanged.

@@ -69,6 +69,11 @@ fn plural_lithuanian(n: u64) -> usize {
     }
 }
 
+/// Hindi (CLDR `hi`): 0 and 1 take the singular, everything else the plural.
+fn plural_hi(n: u64) -> usize {
+    usize::from(n > 1)
+}
+
 /// Czech: 1 → one, 2–4 → few, everything else (0, 5+) → other.
 fn plural_cs(n: u64) -> usize {
     match n {
@@ -147,7 +152,7 @@ fn plural_sl(n: u64) -> usize {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` locales resolve here (see `candidates`).
@@ -187,6 +192,8 @@ pub static LANGUAGES: [LangInfo; 23] = [
     LangInfo {
         code: "te", name: "తెలుగు", source: include_str!("te.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new()
     },
+    // Hindi; every `hi-*` locale (`hi-IN`) resolves here.
+    LangInfo { code: "hi", name: "हिन्दी", source: include_str!("hi.tsv"), plural: plural_hi, rtl: false, catalog: OnceLock::new() },
     // Hungarian; every `hu-*` locale (`hu-HU`) resolves here.
     LangInfo { code: "hu", name: "Magyar", source: include_str!("hu.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
     // Ukrainian; every `uk-*` locale (`uk-UA`, `uk_UA.UTF-8`) resolves here.
@@ -213,6 +220,15 @@ pub static LANGUAGES: [LangInfo; 23] = [
 ];
 
 impl LangInfo {
+    /// Whether the build can show the language: Hindi needs an embedded Devanagari face or, on
+    /// desktop, an installed one. Unit tests skip the check so catalog tests do not depend on the machine.
+    fn available(&self) -> bool {
+        if cfg!(test) || self.code != "hi" {
+            return true;
+        }
+        script_renderable(self.code, cfg!(target_arch = "wasm32"), !pdfcraft_fonts::ui_devanagari_fonts().is_empty(), installed_devanagari())
+    }
+
     /// How many plural forms the language's `@plural` entries list.
     fn plural_forms(&self) -> usize {
         (0..=1000).map(self.plural).max().unwrap_or(0).saturating_add(1)
@@ -230,6 +246,22 @@ impl LangInfo {
             catalog
         })
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn installed_devanagari() -> bool {
+    crate::system_fonts::devanagari_fallback().is_some()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn installed_devanagari() -> bool {
+    false
+}
+
+/// `hi` needs a Devanagari face: an embedded one, or on desktop an installed one (the web build
+/// cannot read installed fonts).
+fn script_renderable(code: &str, web: bool, embedded_devanagari: bool, installed_devanagari: bool) -> bool {
+    code != "hi" || embedded_devanagari || (!web && installed_devanagari)
 }
 
 /// A language the UI can be shown in (a handle into [`LANGUAGES`]).
@@ -257,20 +289,37 @@ impl Lang {
         self.0.code
     }
 
-    /// A language by its exact code.
+    /// A registered language by its code, whether or not this build can show it.
     pub fn from_code(code: &str) -> Option<Lang> {
         LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)).map(Lang)
+    }
+
+    /// A registered language by its code, only if this build can show it.
+    fn from_code_available(code: &str) -> Option<Lang> {
+        Lang::from_code(code).filter(|l| l.0.available())
+    }
+
+    /// The name the interface-language picker shows for a saved preference: the language's own name
+    /// if `available` says it can be drawn, otherwise `None` (the caller shows "Auto", which is what
+    /// [`Lang::from_pref`] falls back to).
+    pub fn picker_name(pref: &str, available: impl Fn(Lang) -> bool) -> Option<&'static str> {
+        Lang::from_code(pref).filter(|l| available(*l)).map(Lang::name)
+    }
+
+    /// Whether this build can show the language.
+    pub fn is_available(self) -> bool {
+        self.0.available()
     }
 
     /// Resolve the `language` preference: a language code, or [`AUTO`] (and anything unknown,
     /// e.g. a code from a newer version) to follow the system locale.
     pub fn from_pref(pref: &str) -> Lang {
-        Lang::from_code(pref).unwrap_or_else(system_lang)
+        Lang::from_code_available(pref).unwrap_or_else(system_lang)
     }
 
     /// Every registered language.
     pub fn all() -> impl Iterator<Item = Lang> {
-        LANGUAGES.iter().map(Lang)
+        LANGUAGES.iter().filter(|l| l.available()).map(Lang)
     }
 
     pub fn name(self) -> &'static str {
@@ -286,6 +335,12 @@ impl Lang {
     fn catalog(self) -> &'static Catalog {
         self.0.catalog()
     }
+}
+
+/// Whether the date-format language picker may offer `code`: a code that is also an interface
+/// language follows that language's availability; other codes are always offered.
+pub fn date_language_available(code: &str) -> bool {
+    LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)).is_none_or(LangInfo::available)
 }
 
 /// The canonical `language` preference for user input: [`AUTO`] or a registered code (any case).
@@ -326,7 +381,7 @@ pub fn lang_from_tag(tag: &str) -> Option<Lang> {
     if matches!(cands.first().map(String::as_str), Some("c" | "posix")) {
         return Some(Lang::EN);
     }
-    cands.iter().find_map(|c| Lang::from_code(c))
+    cands.iter().find_map(|c| Lang::from_code_available(c))
 }
 
 /// The system language (cached). English when it can't be determined.
@@ -1356,6 +1411,36 @@ mod tests {
         let mut restored = crate::PdfCraftApp::default();
         restored.restore(&app.persist());
         assert_eq!(restored.language, "te");
+    }
+
+    #[test]
+    fn hindi_is_deferred_on_web_without_a_devanagari_face() {
+        assert!(!script_renderable("hi", true, false, true));
+        assert!(!script_renderable("hi", false, false, false));
+        assert!(script_renderable("hi", true, true, false));
+        assert!(script_renderable("hi", false, false, true));
+        assert!(script_renderable("te", true, false, false));
+    }
+
+    #[test]
+    fn hindi_is_registered() {
+        let hi = Lang::from_code("hi").expect("hi registered");
+        assert_eq!(hi.name(), "हिन्दी");
+        assert_eq!(normalize_pref("HI"), Some("hi"));
+        assert_eq!(lang_from_tag("hi_IN.UTF-8"), Some(hi));
+        assert_eq!(first_supported("hi-IN\r\nen-US"), Some(hi));
+        assert_eq!(tr(hi, "File"), "फ़ाइल");
+        assert_eq!(tr(hi, "Save as…"), "इस रूप में सहेजें…");
+        assert_eq!(tr(hi, "रिपोर्ट.pdf"), "रिपोर्ट.pdf");
+        assert_eq!(trn(hi, 0, "{n} page", "{n} pages"), "0 पृष्ठ");
+        assert_eq!(trn(hi, 1, "{n} page", "{n} pages"), "1 पृष्ठ");
+        assert_eq!(trn(hi, 3, "{n} page", "{n} pages"), "3 पृष्ठ");
+        let mut app = crate::PdfCraftApp::default();
+        app.set_option("language", "hi").unwrap();
+        assert_eq!(app.language, "hi");
+        let mut restored = crate::PdfCraftApp::default();
+        restored.restore(&app.persist());
+        assert_eq!(restored.language, "hi");
     }
 
     /// Telugu puts the verb last, so it translates "Undo {action}" as a whole phrase; a catalog

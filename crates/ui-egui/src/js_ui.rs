@@ -265,7 +265,7 @@ pub(crate) fn preferences_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
     ui.label(egui::RichText::new(tl!("Preferences")).font(theme::semibold(18.0)));
     ui.horizontal(|ui| {
         ui.label(tl!("Interface language"));
-        let selected = crate::i18n::Lang::from_code(&app.language).map_or(tl!("Auto"), crate::i18n::Lang::name);
+        let selected = crate::i18n::Lang::picker_name(&app.language, crate::i18n::Lang::is_available).unwrap_or_else(|| tl!("Auto"));
         let before = app.language.clone();
         egui::ComboBox::from_id_salt("interface-language").selected_text(selected).show_ui(ui, |ui| {
             if ui.selectable_value(&mut app.language, crate::i18n::AUTO.to_string(), tl!("Auto")).clicked() {
@@ -494,6 +494,11 @@ pub(crate) fn preferences_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
     buttons(ui, tl!("OK"), &[]).is_some()
 }
 
+/// The date languages to list: every offerable one, plus the saved one even when it can't be offered.
+fn date_language_choices(current: Option<&str>, available: impl Fn(&str) -> bool) -> Vec<&'static pdfcraft_engine::dates::DateLanguage> {
+    pdfcraft_engine::dates::DATE_LANGUAGES.iter().filter(|l| current == Some(l.code) || available(l.code)).collect()
+}
+
 /// Preferences ▸ Date format: a preset, or any pattern typed in, for Fill & Sign dates, and the
 /// language of its month and weekday names. A valid pattern applies as it's typed; an invalid
 /// one stays in the box with the reason, and the last valid one stays in use.
@@ -564,7 +569,8 @@ fn date_format(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
                 if ui.selectable_label(current.is_none(), follow).clicked() && app.session.set_date_language(None).is_ok() {
                     ui.close();
                 }
-                for l in &DATE_LANGUAGES {
+                // A saved language stays listed even when this build can't offer it for new choices.
+                for l in date_language_choices(current.as_deref(), crate::i18n::date_language_available) {
                     if ui.selectable_label(current.as_deref() == Some(l.code), l.name).clicked()
                         && app.session.set_date_language(Some(l.code)).is_ok()
                     {
@@ -583,4 +589,30 @@ fn date_format(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
         .small()
         .color(t.text_muted),
     );
+}
+
+#[cfg(test)]
+mod date_language_tests {
+    use super::date_language_choices;
+
+    fn codes(current: Option<&str>, hindi: bool) -> Vec<&'static str> {
+        date_language_choices(current, |c| hindi || c != "hi").iter().map(|l| l.code).collect()
+    }
+
+    #[test]
+    fn unavailable_language_is_hidden_unless_saved() {
+        assert!(!codes(None, false).contains(&"hi"));
+        assert!(!codes(Some("de"), false).contains(&"hi"));
+        assert!(codes(Some("hi"), false).contains(&"hi"));
+        assert!(codes(None, true).contains(&"hi"));
+    }
+
+    #[test]
+    fn interface_picker_shows_auto_for_unavailable_saved_language() {
+        use crate::i18n::Lang;
+        let hindi = |l: Lang| l.code() == "hi";
+        assert_eq!(Lang::picker_name("hi", |l| !hindi(l)), None);
+        assert!(Lang::picker_name("hi", |_| true).is_some());
+        assert_eq!(Lang::picker_name("auto", |_| true), None);
+    }
 }

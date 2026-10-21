@@ -94,6 +94,12 @@ fn hebrew_face(faces: &[CraftFont], bold: bool) -> Option<&CraftFont> {
     hebr().find(|f| f.style == style).or_else(|| hebr().find(|f| f.style == "Regular")).or_else(|| hebr().next())
 }
 
+/// The `Deva` craft-fonts faces for Hindi interface text, in manifest order. Empty when built
+/// without craft-fonts or when it has no Devanagari face.
+pub fn ui_devanagari_fonts() -> Vec<&'static CraftFont> {
+    CRAFT_FONTS.iter().filter(|f| f.covers("Deva")).collect()
+}
+
 /// Interface CJK faces in fallback order for the UI language: Simplified Chinese first when
 /// `prefer_hans`, otherwise Japanese first (the historical default).
 ///

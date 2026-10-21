@@ -56,7 +56,7 @@ const AR_DAYS: [&str; 7] = ["الأحد", "الاثنين", "الثلاثاء", 
 
 /// The languages month and weekday names can be written in (Preferences ▸ Date format ▸ Language):
 /// the interface languages, in the same order and with the same names.
-pub static DATE_LANGUAGES: [DateLanguage; 23] = [
+pub static DATE_LANGUAGES: [DateLanguage; 24] = [
     DateLanguage {
         code: "en",
         name: "English",
@@ -186,6 +186,15 @@ pub static DATE_LANGUAGES: [DateLanguage; 23] = [
         months_short: ["జన", "ఫిబ్ర", "మార్చి", "ఏప్రి", "మే", "జూన్", "జులై", "ఆగ", "సెప్టెం", "అక్టో", "నవం", "డిసెం"],
         days: ["ఆదివారం", "సోమవారం", "మంగళవారం", "బుధవారం", "గురువారం", "శుక్రవారం", "శనివారం"],
         days_short: ["ఆది", "సోమ", "మంగళ", "బుధ", "గురు", "శుక్ర", "శని"],
+    },
+    DateLanguage {
+        code: "hi",
+        name: "हिन्दी",
+        months: ["जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून", "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर"],
+        months_with_day: None,
+        months_short: ["जन॰", "फ़र॰", "मार्च", "अप्रै॰", "मई", "जून", "जुल॰", "अग॰", "सित॰", "अक्टू॰", "नव॰", "दिस॰"],
+        days: ["रविवार", "सोमवार", "मंगलवार", "बुधवार", "गुरुवार", "शुक्रवार", "शनिवार"],
+        days_short: ["रवि", "सोम", "मंगल", "बुध", "गुरु", "शुक्र", "शनि"],
     },
     DateLanguage {
         code: "hu",
@@ -589,6 +598,12 @@ mod tests {
 
     fn in_lang(fmt: &str, code: &str) -> String {
         format_day(fmt, DAY, date_language(code).unwrap())
+    }
+
+    #[test]
+    fn hindi_dates_use_hindi_months_and_weekdays() {
+        assert_eq!(in_lang("dddd, d mmmm yyyy", "hi"), "शनिवार, 7 मार्च 2026");
+        assert_eq!(in_lang("ddd, d mmm yyyy", "hi"), "शनि, 7 मार्च 2026");
     }
 
     #[test]
