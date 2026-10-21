@@ -578,11 +578,31 @@ fn ensure_id(trailer: &mut Dict, opts: &SaveOptions, content: &[u8]) {
 
 /// A PDF date string for "now" given seconds since the Unix epoch (UTC).
 pub fn pdf_date(unix_secs: i64) -> String {
+    let (days, secs) = (unix_secs.div_euclid(86_400), unix_secs.rem_euclid(86_400));
+    let (y, m, d) = civil_from_days(days);
+    // `{y:04}` rather than `%Y`, which writes a `+` before years past 9999 (and a PDF date is a
+    // bare four-plus-digit year, never signed). No year clamp — the old code wrote `y` as-is.
+    format!("D:{y:04}{m:02}{d:02}{:02}{:02}{:02}Z", secs / 3600, secs / 60 % 60, secs % 60)
+}
+
+/// Days since 1970-01-01 → proleptic Gregorian (year, month, day).
+///
+/// A `from_timestamp` epoch fallback would change dates past `NaiveDate`'s ±262143-year range,
+/// which the old hand-rolled converter formatted directly. The Gregorian calendar repeats every
+/// 400 years (146_097 days), so chrono converts the day within one cycle and whole cycles go back
+/// into the year (an `i128` so the extremes can't overflow), keeping chrono as the only calendar
+/// logic and reproducing the old result exactly. 1970-01-01 is `num_days_from_ce` 719_163.
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
     use chrono::Datelike;
-    let t = chrono::DateTime::from_timestamp(unix_secs, 0).unwrap_or_default();
-    // `{:04}` rather than `%Y`, which writes a `+` before years past 9999 (and a PDF date is a
-    // bare four-plus-digit year, never signed).
-    format!("D:{:04}{}", t.year(), t.format("%m%d%H%M%SZ"))
+    let (cycles, rest) = (days.div_euclid(146_097), days.rem_euclid(146_097));
+    // `rest + 719_163` is 719_163..865_259, always a valid CE day.
+    match i32::try_from(rest + 719_163).ok().and_then(chrono::NaiveDate::from_num_days_from_ce_opt) {
+        Some(d) => {
+            let y = i128::from(d.year()) + i128::from(cycles) * 400;
+            (i64::try_from(y).unwrap_or(if y < 0 { i64::MIN } else { i64::MAX }), d.month(), d.day())
+        }
+        None => (1970, 1, 1), // unreachable
+    }
 }
 
 #[cfg(test)]
@@ -660,6 +680,11 @@ mod tests {
         assert_eq!(pdf_date(-1), "D:19691231235959Z");
         // Years past 9999 keep the plain zero-padded year (no `+`), as the hand-rolled code did.
         assert_eq!(pdf_date(253_402_300_800), "D:100000101000000Z");
+        // Past chrono's ±262143-year range the proleptic Gregorian date is kept, not the epoch.
+        // Pinned to the old hand-rolled output (which had no year clamp — a negative year keeps
+        // its sign, exactly as before).
+        assert_eq!(pdf_date(10_000_000_000_000), "D:3188570520174640Z");
+        assert_eq!(pdf_date(-10_000_000_000_000), "D:-3149180813061320Z");
     }
 
     #[test]
