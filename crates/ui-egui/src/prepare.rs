@@ -989,7 +989,7 @@ pub(crate) fn body(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Toke
                         if ui.add(widgets::checkbox(&mut auto, tl!("Auto"))).changed() {
                             d.font_size = if auto { 0.0 } else { 12.0 };
                         }
-                        ui.add_enabled(!auto, egui::DragValue::new(&mut d.font_size).range(2.0..=100.0).speed(0.25).suffix(" pt"));
+                        font_size_drag(ui, &mut d.font_size, auto);
                     });
                     ui.end_row();
                     if let Some(l) = d.look.as_mut() {
@@ -1579,6 +1579,46 @@ fn calculate_tab(ui: &mut egui::Ui, d: &mut FieldDraft, t: &crate::theme::Tokens
     if let Calculate::Notation(expr) = &mut d.calculate {
         ui.add(crate::widgets::block(expr).hint_text("Price * Quantity").desired_rows(2).desired_width(420.0));
         ui.label(egui::RichText::new(tl!("Field names with + - * / and parentheses; put \\ before spaces in names.")).small().color(t.text_faint));
+    }
+}
+
+/// The field's font size box. 0 means auto (#2250): a DragValue clamps the
+/// value it shows to its range, so while auto is on it edits a copy and the
+/// stored 0 stays as it is.
+fn font_size_drag(ui: &mut egui::Ui, size: &mut f64, auto: bool) {
+    let drag = |v| egui::DragValue::new(v).range(2.0..=100.0).speed(0.25).suffix(" pt");
+    if auto {
+        let mut shown = 12.0;
+        ui.add_enabled(false, drag(&mut shown));
+    } else {
+        ui.add(drag(size));
+    }
+}
+
+#[cfg(test)]
+mod font_size_tests {
+    use super::font_size_drag;
+
+    fn run(mut size: f64, auto: bool) -> f64 {
+        let ctx = egui::Context::default();
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                font_size_drag(ui, &mut size, auto);
+            });
+            out.textures_delta.clear();
+        }
+        size
+    }
+
+    #[test]
+    fn auto_font_size_stays_zero() {
+        assert_eq!(run(0.0, true), 0.0);
+    }
+
+    #[test]
+    fn manual_font_size_is_still_clamped() {
+        assert_eq!(run(14.0, false), 14.0);
+        assert_eq!(run(0.5, false), 2.0);
     }
 }
 
