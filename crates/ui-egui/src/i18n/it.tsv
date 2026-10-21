@@ -2646,3 +2646,8 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+	Lines	Linee
+	Line colour	Colore della linea
+	Drag a point to reshape the line. Delete removes it.	Trascina un punto per modificare la forma della linea. Canc la elimina.
+	This point could not be moved. Try a smaller move.	Impossibile spostare questo punto. Prova con uno spostamento più piccolo.
+	Snap to points and lines (Alt skips it)	Aggancia a punti e linee (Alt lo salta)

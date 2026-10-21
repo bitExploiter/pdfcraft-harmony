@@ -424,6 +424,24 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
         ui.separator();
         return;
     }
+    // Selected vector lines and shapes: their width and colour.
+    let paths = app.active_ids().and_then(|(i, _)| {
+        let (_, objects) = app.views[i].objects.paths()?;
+        Some((i, objects.len(), objects.first()?.outline.clone()?))
+    });
+    if let Some((i, count, look)) = paths {
+        let mut snap = !app.views[i].objects.no_snap;
+        let styled = crate::object_ui::line_panel(ui, count, &look, &mut snap);
+        app.views[i].objects.no_snap = !snap;
+        if let Some(style) = styled
+            && let Some(edit) = app.views[i].objects.style_edit(style)
+        {
+            app.apply_edit(edit);
+        }
+        ui.add_space(6.0);
+        ui.separator();
+        return;
+    }
     let image = app.active_ids().and_then(|(i, id)| {
         let (page, index) = app.views[i].content.selected?;
         let doc = app.session.get(id)?;

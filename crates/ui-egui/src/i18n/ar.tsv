@@ -2711,3 +2711,8 @@ certificate	Version	الإصدار
 	Make properties default	جعل الخصائص افتراضية
 	Pages selected	الصفحات المحددة
 	Page properties	خصائص الصفحة
+	Lines	خطوط
+	Line colour	لون الخط
+	Drag a point to reshape the line. Delete removes it.	اسحب نقطة لتغيير شكل الخط. يحذفه مفتاح Delete.
+	This point could not be moved. Try a smaller move.	تعذّر نقل هذه النقطة. جرّب إزاحة أصغر.
+	Snap to points and lines (Alt skips it)	الالتصاق بالنقاط والخطوط (Alt يتجاوزه)

@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 
 use egui::{Color32, Pos2, Rect, Stroke};
-use pdfcraft_engine::{Document, Edit, EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
+use pdfcraft_engine::{Document, Edit, EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget, PathOutline, PathStyle};
 use pdfcraft_render::DocInfo;
 
 use crate::canvas::{DocView, PageXform};
@@ -24,6 +24,31 @@ pub(crate) struct ObjectSelection {
     pub hold_editor: bool,
     blocked_page: Option<usize>,
     input_blocked: bool,
+    /// One point of the selected path being dragged.
+    vertex: Option<VertexDrag>,
+    /// Snapping of dragged points and moved lines is off (the Edit panel's check box).
+    pub(crate) no_snap: bool,
+    /// What the drag in progress snaps to.
+    snapping: Option<Snapping>,
+}
+
+/// What a drag in progress snaps to: the points and edges of the other lines (page user space), and
+/// where the snap shifts the drag (screen points) with what it took, for drawing.
+struct Snapping {
+    points: Vec<[f64; 2]>,
+    edges: Vec<([f64; 2], [f64; 2])>,
+    /// The points that move with a dragged group.
+    moving: Vec<[f64; 2]>,
+    adjust: egui::Vec2,
+    snap: Option<crate::snap::Snap>,
+}
+
+/// A press on a point of the selected path, until the button is released.
+#[derive(Clone, Copy)]
+struct VertexDrag {
+    point: usize,
+    start: Pos2,
+    now: Pos2,
 }
 
 #[derive(Clone, Copy)]
@@ -55,6 +80,8 @@ impl ObjectSelection {
         self.gesture = None;
         self.pending = None;
         self.blocked_page = None;
+        self.vertex = None;
+        self.snapping = None;
     }
 
     pub fn prepare(&mut self, doc: &Document, enabled: bool, ctx: &egui::Context) {
@@ -76,7 +103,12 @@ impl ObjectSelection {
                         o.target.kind == old.target.kind
                             && o.content_type == old.content_type
                             && o.text == old.text
-                            && o.rect.iter().zip(old.rect).all(|(a, b)| (a - b).abs() < 0.01)
+                            && if old.target.kind == ObjectKind::Path {
+                                // A path is told apart by its points: its frame follows its line width.
+                                same_points(o, &old)
+                            } else {
+                                o.rect.iter().zip(old.rect).all(|(a, b)| (a - b).abs() < 0.01)
+                            }
                     });
                     let object = matches.next()?;
                     if matches.next().is_some() || out.iter().any(|o: &EditableObject| o.target == object.target) {
@@ -106,9 +138,33 @@ impl ObjectSelection {
         let mut expected = self.selected.clone();
         for object in &mut expected {
             object.rect = [object.rect[0] + offset[0], object.rect[1] + offset[1], object.rect[2] + offset[0], object.rect[3] + offset[1]];
+            for point in object.outline.iter_mut().flat_map(|o| o.points.iter_mut()) {
+                *point = [point[0] + offset[0], point[1] + offset[1]];
+            }
         }
         self.pending = Some(expected);
         Edit::MoveObjects { page, objects: self.selected.iter().map(|o| o.target).collect(), offset }
+    }
+
+    /// The selected vector paths and their page, when the selection is made of paths only.
+    pub(crate) fn paths(&self) -> Option<(usize, &[EditableObject])> {
+        let page = self.page?;
+        (!self.selected.is_empty() && self.selected.iter().all(|o| o.target.kind == ObjectKind::Path)).then_some((page, self.selected.as_slice()))
+    }
+
+    /// Format the selected paths; the selection follows (a path is known by its points).
+    pub(crate) fn style_edit(&mut self, style: PathStyle) -> Option<Edit> {
+        let (page, objects) = self.paths()?;
+        let paths = objects.iter().map(|o| o.target.index).collect();
+        self.pending = Some(self.selected.clone());
+        Some(Edit::StylePaths { page, paths, style })
+    }
+
+    /// Delete the selected vector paths (other kinds delete through their own tools).
+    fn delete_edit(&mut self) -> Option<Edit> {
+        let page = self.page.filter(|_| self.gesture.is_none() && self.vertex.is_none())?;
+        let paths: Vec<usize> = self.selected.iter().filter(|o| o.target.kind == ObjectKind::Path).map(|o| o.target.index).collect();
+        (!paths.is_empty()).then_some(Edit::DeletePaths { page, paths })
     }
 
     fn inventory(&mut self, doc: &Document, page: usize) -> Result<Vec<EditableObject>, String> {
@@ -121,6 +177,168 @@ impl ObjectSelection {
 
 fn screen(xf: &PageXform, info: &DocInfo, page: usize, object: &EditableObject) -> Rect {
     xf.user_rect(info, page, object.rect.map(|v| v as f32))
+}
+
+/// Whether two path objects have the same points (to a hundredth of a point).
+fn same_points(a: &EditableObject, b: &EditableObject) -> bool {
+    match (&a.outline, &b.outline) {
+        (Some(a), Some(b)) => {
+            a.points.len() == b.points.len() && a.points.iter().flatten().zip(b.points.iter().flatten()).all(|(x, y)| (x - y).abs() < 0.01)
+        }
+        _ => false,
+    }
+}
+
+/// A page user-space point on screen.
+fn point_screen(xf: &PageXform, info: &DocInfo, page: usize, p: [f64; 2]) -> Pos2 {
+    xf.user_rect(info, page, [p[0] as f32, p[1] as f32, p[0] as f32, p[1] as f32]).min
+}
+
+/// More points than this among the other lines and snapping is left out: it would slow the drag.
+const MAX_SNAP_POINTS: usize = 20_000;
+const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x8A, 0x1F);
+
+/// The edges of a path: each point to the next, and the last to the first when it is closed.
+fn path_edges(outline: &PathOutline) -> Vec<([f64; 2], [f64; 2])> {
+    let mut edges: Vec<_> = outline.points.windows(2).filter_map(|w| Some((*w.first()?, *w.get(1)?))).collect();
+    if outline.closed
+        && outline.points.len() > 2
+        && let (Some(first), Some(last)) = (outline.points.first(), outline.points.last())
+    {
+        edges.push((*last, *first));
+    }
+    edges
+}
+
+/// What a drag snaps to, from the page's `objects`: the points and edges of every path that is not
+/// selected. For one dragged point (`dragged`) the other points of its own path count too, so it can
+/// line up with them; for a dragged group the points of the selected paths are the ones that move.
+fn collect_snapping(objects: &[EditableObject], selected: &[EditableObject], dragged: Option<usize>) -> Option<Snapping> {
+    let mut snapping = Snapping { points: Vec::new(), edges: Vec::new(), moving: Vec::new(), adjust: egui::Vec2::ZERO, snap: None };
+    for object in objects {
+        let Some(outline) = object.outline.as_ref().filter(|_| object.target.kind == ObjectKind::Path) else { continue };
+        if selected.iter().any(|s| s.target == object.target) {
+            match dragged {
+                Some(point) => {
+                    snapping.points.extend(outline.points.iter().enumerate().filter(|(i, _)| *i != point).map(|(_, p)| *p));
+                }
+                None => snapping.moving.extend(outline.points.iter().copied()),
+            }
+            continue;
+        }
+        snapping.points.extend(outline.points.iter().copied());
+        snapping.edges.extend(path_edges(outline));
+        if snapping.points.len() > MAX_SNAP_POINTS {
+            return None;
+        }
+    }
+    Some(snapping)
+}
+
+/// Snapping holds off while Alt is down, or when the panel's check box is off.
+fn snapping_on(s: &ObjectSelection, ui: &egui::Ui) -> bool {
+    !s.no_snap && !ui.input(|i| i.modifiers.alt)
+}
+
+/// Where the dragged point snaps to now: shifts `s.snapping`'s `adjust` and records what it took.
+fn refresh_vertex_snap(s: &mut ObjectSelection, ui: &egui::Ui, xf: &PageXform, info: &DocInfo, page: usize, drag: &VertexDrag) {
+    let on = snapping_on(s, ui) && drag.start.distance(drag.now) > 2.0;
+    let from = s.selected.first().and_then(|o| o.outline.as_ref()).and_then(|o| o.points.get(drag.point)).copied();
+    let (Some(from), Some(snapping)) = (from, s.snapping.as_mut()) else { return };
+    snapping.adjust = egui::Vec2::ZERO;
+    snapping.snap = None;
+    if !on {
+        return;
+    }
+    let candidate = point_screen(xf, info, page, from) + (drag.now - drag.start);
+    let points: Vec<Pos2> = snapping.points.iter().map(|q| point_screen(xf, info, page, *q)).collect();
+    let edges: Vec<(Pos2, Pos2)> = snapping.edges.iter().map(|(a, b)| (point_screen(xf, info, page, *a), point_screen(xf, info, page, *b))).collect();
+    if let Some(snap) = crate::snap::snap_point(candidate, &points, &edges) {
+        snapping.adjust = snap.pos - candidate;
+        snapping.snap = Some(snap);
+    }
+}
+
+/// Where the moved group snaps to now: one of its points onto a point of another line.
+fn refresh_move_snap(s: &mut ObjectSelection, ui: &egui::Ui, xf: &PageXform, info: &DocInfo, page: usize, gesture: &Gesture) {
+    let on = snapping_on(s, ui) && gesture.start.distance(gesture.now) > 3.0;
+    let Some(snapping) = s.snapping.as_mut() else { return };
+    snapping.adjust = egui::Vec2::ZERO;
+    snapping.snap = None;
+    if !on || snapping.moving.is_empty() {
+        return;
+    }
+    let moving: Vec<Pos2> = snapping.moving.iter().map(|q| point_screen(xf, info, page, *q)).collect();
+    let targets: Vec<Pos2> = snapping.points.iter().map(|q| point_screen(xf, info, page, *q)).collect();
+    if let Some((adjust, target)) = crate::snap::snap_move(&moving, gesture.now - gesture.start, &targets) {
+        snapping.adjust = adjust;
+        snapping.snap = Some(crate::snap::Snap { pos: target, kind: crate::snap::Kind::Point, targets: vec![target], guides: Vec::new() });
+    }
+}
+
+/// The point of the only selected path that `p` is on, if any.
+fn near_point(s: &ObjectSelection, xf: &PageXform, info: &DocInfo, page: usize, p: Pos2) -> Option<usize> {
+    if s.page != Some(page) {
+        return None;
+    }
+    let [object] = s.selected.as_slice() else { return None };
+    let outline = object.outline.as_ref().filter(|_| object.target.kind == ObjectKind::Path)?;
+    outline.points.iter().position(|q| point_screen(xf, info, page, *q).distance(p) <= POINT_REACH)
+}
+
+/// Whether a press at `p` takes hold of the selection to move it: on one of its lines when it is
+/// made of paths (a frame around a diagonal would cover other lines), else inside its frame.
+fn on_selection(s: &ObjectSelection, xf: &PageXform, info: &DocInfo, page: usize, p: Pos2) -> bool {
+    if s.paths().is_some() {
+        near_point(s, xf, info, page, p).is_some() || s.selected.iter().any(|o| path_hit(xf, info, page, o, p))
+    } else {
+        s.selected.iter().fold(Rect::NOTHING, |r, o| r.union(screen(xf, info, page, o))).contains(p)
+    }
+}
+
+/// How near a click must be to a line to take it (screen pixels), beyond half its width.
+const LINE_REACH: f32 = 4.0;
+/// How near a press must be to a point of the selected path to take it (screen pixels).
+const POINT_REACH: f32 = 7.0;
+
+fn segment_distance(p: Pos2, a: Pos2, b: Pos2) -> f32 {
+    let ab = b - a;
+    let len2 = ab.length_sq();
+    let t = if len2 > 0.0 { ((p - a).dot(ab) / len2).clamp(0.0, 1.0) } else { 0.0 };
+    (a + ab * t).distance(p)
+}
+
+/// Whether `p` is inside the polygon `points` (even-odd).
+fn polygon_contains(points: &[Pos2], p: Pos2) -> bool {
+    let mut inside = false;
+    let mut j = points.len().wrapping_sub(1);
+    for (i, a) in points.iter().enumerate() {
+        let Some(b) = points.get(j) else { break };
+        if (a.y > p.y) != (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Whether a click at `p` is on the vector path `object`: on its line, or inside it when it is
+/// filled (a fill covering a quarter of the page is a background, which a click goes through).
+fn path_hit(xf: &PageXform, info: &DocInfo, page: usize, object: &EditableObject, p: Pos2) -> bool {
+    let Some(outline) = object.outline.as_ref().filter(|_| object.target.kind == ObjectKind::Path) else { return false };
+    let frame = screen(xf, info, page, object);
+    if !frame.expand(LINE_REACH + 2.0).contains(p) {
+        return false;
+    }
+    let points: Vec<Pos2> = outline.points.iter().map(|q| point_screen(xf, info, page, *q)).collect();
+    let per_point = xf.rect.width() / xf.pw.max(1.0);
+    let reach = if outline.stroked { outline.width as f32 * per_point / 2.0 } else { 0.0 } + LINE_REACH;
+    let edges = points.windows(2).filter_map(|w| Some((*w.first()?, *w.get(1)?)));
+    let closing = outline.closed.then(|| points.first().zip(points.last()).map(|(a, b)| (*b, *a))).flatten();
+    if (outline.stroked || points.len() < 3) && edges.chain(closing).any(|(a, b)| segment_distance(p, a, b) <= reach) {
+        return true;
+    }
+    outline.filled && points.len() >= 3 && frame.area() < xf.rect.area() * 0.25 && polygon_contains(&points, p)
 }
 
 fn modified(ui: &egui::Ui) -> bool {
@@ -185,6 +403,44 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, xf: &PageXform, p
 fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &PageXform, page: usize, doc: &Document, view: &mut DocView) -> bool {
     let (pointer, pressed, down) = ui.input(|i| (i.pointer.interact_pos(), i.pointer.primary_pressed(), i.pointer.primary_down()));
     let info = &doc.info;
+    // A point of the selected path being dragged: previewed, then one undoable edit on release.
+    if s.page == Some(page)
+        && let Some(mut drag) = s.vertex
+    {
+        if let Some(p) = pointer {
+            drag.now = p;
+        }
+        if down {
+            refresh_vertex_snap(s, ui, xf, info, page, &drag);
+            s.vertex = Some(drag);
+        } else {
+            s.vertex = None;
+            // Released where the snap took it.
+            let snapped = s.snapping.take().map_or(egui::Vec2::ZERO, |sn| sn.adjust);
+            if drag.start.distance(drag.now) > 2.0
+                && view.pending_edit.is_none()
+                && let [object] = s.selected.as_slice()
+                && let Some(from) = object.outline.as_ref().and_then(|o| o.points.get(drag.point)).copied()
+            {
+                let (a, b) = (xf.screen_to_view(drag.start), xf.screen_to_view(drag.now + snapped));
+                match doc.object_move_offset(page, [f64::from(b.0 - a.0), f64::from(b.1 - a.1)]) {
+                    Ok(offset) => {
+                        let to = [from[0] + offset[0], from[1] + offset[1]];
+                        let mut expected = object.clone();
+                        if let Some(point) = expected.outline.as_mut().and_then(|o| o.points.get_mut(drag.point)) {
+                            *point = to;
+                        }
+                        let path = object.target.index;
+                        s.pending = Some(vec![expected]);
+                        view.pending_edit = Some(Edit::MovePathPoint { page, path, point: drag.point, to });
+                    }
+                    Err(_) => s.notice = Some(tl!("This point could not be moved. Try a smaller move.").into()),
+                }
+            }
+        }
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        return true;
+    }
     if s.page == Some(page)
         && let Some(mut gesture) = s.gesture
     {
@@ -197,6 +453,7 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
                 return false;
             }
             s.gesture = None;
+            let snapped = s.snapping.take().map_or(egui::Vec2::ZERO, |sn| sn.adjust);
             if gesture.marquee {
                 let area = Rect::from_two_pos(gesture.start, gesture.now).intersect(xf.rect);
                 if !gesture.additive {
@@ -206,7 +463,15 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
                     && area.height() > 3.0
                     && let Ok(objects) = s.inventory(doc, page)
                 {
-                    let candidates: Vec<_> = objects.into_iter().filter(|o| area.intersects(screen(xf, info, page, o))).collect();
+                    // Pictures and text are taken when the box touches them; a line only when the box
+                    // holds it whole, so a box over a drawing doesn't pick up its background shapes.
+                    let candidates: Vec<_> = objects
+                        .into_iter()
+                        .filter(|o| {
+                            let frame = screen(xf, info, page, o);
+                            if o.target.kind == ObjectKind::Path { area.contains_rect(frame) } else { area.intersects(frame) }
+                        })
+                        .collect();
                     let mut selected = s.selected.clone();
                     for object in candidates {
                         if !selected.iter().any(|o| o.target == object.target) {
@@ -223,13 +488,20 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
                     s.clear();
                 }
             } else if gesture.start.distance(gesture.now) > 3.0 && view.pending_edit.is_none() {
-                let (a, b) = (xf.screen_to_view(gesture.start), xf.screen_to_view(gesture.now));
+                let (a, b) = (xf.screen_to_view(gesture.start), xf.screen_to_view(gesture.now + snapped));
                 match doc.object_move_offset(page, [f64::from(b.0 - a.0), f64::from(b.1 - a.1)]) {
                     Ok(offset) => view.pending_edit = Some(s.move_by(page, offset)),
                     Err(_) => s.notice = Some(tl!("These objects could not be moved. Select them again and try a smaller move.").into()),
                 }
             }
         } else {
+            // A group being moved snaps one of its points onto a point of another line.
+            if !gesture.marquee {
+                if s.snapping.is_none() {
+                    s.snapping = s.inventory(doc, page).ok().and_then(|objects| collect_snapping(&objects, &s.selected, None));
+                }
+                refresh_move_snap(s, ui, xf, info, page, &gesture);
+            }
             s.gesture = Some(gesture);
         }
         ui.ctx().set_cursor_icon(if gesture.marquee { egui::CursorIcon::Crosshair } else { egui::CursorIcon::Move });
@@ -240,13 +512,23 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
     };
     if !pressed {
         if s.page == Some(page) && !s.selected.is_empty() {
-            let union = s.selected.iter().fold(Rect::NOTHING, |r, o| r.union(screen(xf, info, page, o)));
-            if union.contains(p) {
+            if near_point(s, xf, info, page, p).is_some() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+            } else if on_selection(s, xf, info, page, p) {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
             }
             return true;
         }
         return false;
+    }
+    // A press on a point of the only selected path takes that point.
+    if !modified(ui)
+        && let Some(point) = near_point(s, xf, info, page, p)
+    {
+        s.vertex = Some(VertexDrag { point, start: p, now: p });
+        // The points and edges of the other lines this point can snap to.
+        s.snapping = s.inventory(doc, page).ok().and_then(|objects| collect_snapping(&objects, &s.selected, Some(point)));
+        return true;
     }
     let objects = match s.inventory(doc, page) {
         Ok(objects) => objects,
@@ -261,9 +543,13 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
     let additive = modified(ui);
     // A page-sized background image must not hide editable labels or added notes.
     // Within each kind, prefer the last object as the ordinary single-item tools do.
-    let hit = [ObjectKind::Added, ObjectKind::Text, ObjectKind::Image]
+    let hit = [ObjectKind::Added, ObjectKind::Text]
         .into_iter()
-        .find_map(|kind| objects.iter().rev().find(|o| o.target.kind == kind && screen(xf, info, page, o).expand(2.0).contains(p)));
+        .find_map(|kind| objects.iter().rev().find(|o| o.target.kind == kind && screen(xf, info, page, o).expand(2.0).contains(p)))
+        // A line or shape is taken by its drawing, not its frame; it comes before pictures, which
+        // may be page-sized backgrounds.
+        .or_else(|| objects.iter().rev().find(|o| path_hit(xf, info, page, o, p)))
+        .or_else(|| objects.iter().rev().find(|o| o.target.kind == ObjectKind::Image && screen(xf, info, page, o).expand(2.0).contains(p)));
     if additive {
         if s.page != Some(page) {
             s.clear();
@@ -289,12 +575,9 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         view.current = page;
         return true;
     }
-    if s.page == Some(page) && !s.selected.is_empty() {
-        let union = s.selected.iter().fold(Rect::NOTHING, |r, o| r.union(screen(xf, info, page, o)));
-        if union.contains(p) && !resp.double_clicked() {
-            s.gesture = Some(Gesture { start: p, now: p, marquee: false, additive: false });
-            return true;
-        }
+    if s.page == Some(page) && !s.selected.is_empty() && on_selection(s, xf, info, page, p) && !resp.double_clicked() {
+        s.gesture = Some(Gesture { start: p, now: p, marquee: false, additive: false });
+        return true;
     }
     // The frame of the paragraph open for typing takes hold of the box, as in Acrobat: a click
     // selects it (for the arrow keys), a drag moves it. Its text keeps the caret.
@@ -311,6 +594,14 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         return true;
     }
     s.clear();
+    if let Some(object) = hit.filter(|o| o.target.kind == ObjectKind::Path) {
+        leave_single(view);
+        s.page = Some(page);
+        s.selected.push(object.clone());
+        s.gesture = Some(Gesture { start: p, now: p, marquee: false, additive: false });
+        view.current = page;
+        return true;
+    }
     if hit.is_some() {
         return false;
     }
@@ -384,15 +675,56 @@ pub(crate) fn paint(painter: &egui::Painter, xf: &PageXform, page: usize, info: 
     if selection.page != Some(page) {
         return;
     }
-    let delta = selection.gesture.filter(|g| !g.marquee).map_or(egui::Vec2::ZERO, |g| g.now - g.start);
+    let adjust = selection.snapping.as_ref().map_or(egui::Vec2::ZERO, |sn| sn.adjust);
+    let delta = selection.gesture.filter(|g| !g.marquee).map_or(egui::Vec2::ZERO, |g| g.now - g.start + adjust);
     let mut union = Rect::NOTHING;
+    let single = selection.selected.len() == 1;
     for object in &selection.selected {
+        if let Some(outline) = object.outline.as_ref().filter(|_| object.target.kind == ObjectKind::Path) {
+            // A line or shape is outlined along its drawing, with a handle on each point when it
+            // is the only one selected (a point being dragged follows the pointer).
+            let mut points: Vec<Pos2> = outline.points.iter().map(|q| point_screen(xf, info, page, *q) + delta).collect();
+            if let Some(drag) = selection.vertex
+                && let Some(point) = points.get_mut(drag.point)
+            {
+                *point += drag.now - drag.start + adjust;
+            }
+            if outline.closed
+                && let Some(first) = points.first().copied()
+            {
+                points.push(first);
+            }
+            painter.add(egui::Shape::line(points.clone(), Stroke::new(3.0, BLUE.gamma_multiply(0.55))));
+            if single {
+                for (i, point) in points.iter().take(outline.points.len()).enumerate() {
+                    let handle = Rect::from_center_size(*point, egui::vec2(8.0, 8.0));
+                    let held = selection.vertex.is_some_and(|d| d.point == i);
+                    painter.rect_filled(handle, 1.0, if held { BLUE } else { Color32::WHITE });
+                    painter.rect_stroke(handle, 1.0, Stroke::new(1.5, BLUE), egui::StrokeKind::Middle);
+                }
+            }
+            continue;
+        }
         let rect = screen(xf, info, page, object).translate(delta);
         painter.rect_filled(rect, 0.0, BLUE.gamma_multiply(0.05));
         painter.rect_stroke(rect, 0.0, Stroke::new(1.5, BLUE), egui::StrokeKind::Outside);
         union = union.union(rect);
     }
-    if selection.selected.len() > 1 {
+    // What the drag snapped to: a ring on each point it took (a square on an edge) and a dashed
+    // guide from each point it lined up with.
+    if let Some(snap) = selection.snapping.as_ref().and_then(|sn| sn.snap.as_ref()) {
+        for guide in &snap.guides {
+            painter.add(egui::Shape::dashed_line(guide, Stroke::new(1.0, ORANGE), 4.0, 3.0));
+        }
+        for target in &snap.targets {
+            if snap.kind == crate::snap::Kind::Edge {
+                painter.rect_stroke(Rect::from_center_size(*target, egui::vec2(9.0, 9.0)), 0.0, Stroke::new(1.5, ORANGE), egui::StrokeKind::Middle);
+            } else {
+                painter.circle_stroke(*target, 6.0, Stroke::new(1.5, ORANGE));
+            }
+        }
+    }
+    if selection.selected.len() > 1 && union.is_positive() {
         painter.rect_stroke(union.expand(4.0), 0.0, Stroke::new(1.0, BLUE.gamma_multiply(0.7)), egui::StrokeKind::Outside);
     }
     if let Some(g) = selection.gesture.filter(|g| g.marquee) {
@@ -400,6 +732,53 @@ pub(crate) fn paint(painter: &egui::Painter, xf: &PageXform, page: usize, info: 
         painter.rect_filled(area, 0.0, BLUE.gamma_multiply(0.08));
         painter.rect_stroke(area, 0.0, Stroke::new(1.0, BLUE), egui::StrokeKind::Outside);
     }
+}
+
+/// Delete or Backspace removes the selected vector paths (other objects delete through their own
+/// tools).
+pub(crate) fn delete_key(ctx: &egui::Context, view: &mut DocView) {
+    if ctx.egui_wants_keyboard_input() || view.pending_edit.is_some() || view.objects.selected.iter().all(|o| o.target.kind != ObjectKind::Path) {
+        return;
+    }
+    use egui::{Key, Modifiers};
+    let pressed = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Delete) | i.consume_key(Modifiers::NONE, Key::Backspace));
+    if pressed && let Some(edit) = view.objects.delete_edit() {
+        view.pending_edit = Some(edit);
+    }
+}
+
+/// The Edit panel for selected vector paths: line width and colour. Returns what was changed.
+pub(crate) fn line_panel(ui: &mut egui::Ui, count: usize, look: &PathOutline, snap: &mut bool) -> Option<PathStyle> {
+    let mut style = PathStyle::default();
+    crate::widgets::section_title(ui, if count == 1 { tl!("Line") } else { tl!("Lines") });
+    ui.horizontal(|ui| {
+        ui.label(tl!("Width"));
+        let shown = format!("{} pt", (look.width * 100.0).round() / 100.0);
+        egui::ComboBox::from_id_salt("path-width").selected_text(shown).width(80.0).show_ui(ui, |ui| {
+            for width in [0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0] {
+                if ui.selectable_label((look.width - width).abs() < 0.01, format!("{width} pt")).clicked() {
+                    style.width = Some(width);
+                }
+            }
+        });
+        // The colour a stroked line is drawn in, or a shape's fill.
+        let current = look.stroke.filter(|_| look.stroked).or(look.fill).unwrap_or([0.0; 3]);
+        let mut rgb = current.map(|v| (v.clamp(0.0, 1.0) * 255.0).round() as u8);
+        let pending = egui::Id::new("path-color-pending");
+        if ui.color_edit_button_srgb(&mut rgb).on_hover_text(tl!("Line colour")).changed() {
+            ui.data_mut(|d| d.insert_temp(pending, rgb));
+        }
+        // One undoable change when the picker is let go, not one for every colour it passes through.
+        if !ui.input(|i| i.pointer.any_down())
+            && let Some(rgb) = ui.data_mut(|d| d.remove_temp::<[u8; 3]>(pending))
+        {
+            style.color = Some(rgb.map(|v| f64::from(v) / 255.0));
+        }
+    });
+    ui.label(egui::RichText::new(tl!("Drag a point to reshape the line. Delete removes it.")).small().weak());
+    // Dragged points and moved lines snap to the points, lines and rows of other lines; Alt skips it.
+    ui.add(crate::widgets::checkbox(snap, tl!("Snap to points and lines (Alt skips it)")));
+    (style != PathStyle::default()).then_some(style)
 }
 
 /// Keep the UI refusal actionable and translated; headless callers retain the detailed error.

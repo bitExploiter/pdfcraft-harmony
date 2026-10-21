@@ -2448,3 +2448,8 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	Lines	Linhas
+	Line colour	Cor da linha
+	Drag a point to reshape the line. Delete removes it.	Arraste um ponto para mudar a forma da linha. A tecla Delete a remove.
+	This point could not be moved. Try a smaller move.	Não foi possível mover este ponto. Tente um deslocamento menor.
+	Snap to points and lines (Alt skips it)	Ajustar a pontos e linhas (Alt ignora)

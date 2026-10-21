@@ -2397,3 +2397,8 @@ animation effects	Off	Изключени
 	Make properties default	Задаване като свойства по подразбиране
 	Pages selected	Избрани страници
 	Page properties	Свойства на страницата
+	Lines	Линии
+	Line colour	Цвят на линията
+	Drag a point to reshape the line. Delete removes it.	Плъзнете точка, за да промените формата на линията. Delete я премахва.
+	This point could not be moved. Try a smaller move.	Тази точка не можа да бъде преместена. Опитайте с по-малко преместване.
+	Snap to points and lines (Alt skips it)	Прилепване към точки и линии (Alt го пропуска)

@@ -2434,3 +2434,8 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	Lines	複数の線
+	Line colour	線の色
+	Drag a point to reshape the line. Delete removes it.	点をドラッグして線の形を変更します。Delete キーで削除します。
+	This point could not be moved. Try a smaller move.	この点を移動できませんでした。移動量を小さくして再試行してください。
+	Snap to points and lines (Alt skips it)	点と線にスナップ（Alt で一時解除）

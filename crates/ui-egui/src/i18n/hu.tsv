@@ -2433,3 +2433,8 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+	Lines	Vonalak
+	Line colour	Vonal színe
+	Drag a point to reshape the line. Delete removes it.	Húzzon el egy pontot a vonal alakjának módosításához. A Delete törli a vonalat.
+	This point could not be moved. Try a smaller move.	Ezt a pontot nem sikerült áthelyezni. Próbáljon kisebb elmozdítást.
+	Snap to points and lines (Alt skips it)	Illesztés pontokhoz és vonalakhoz (Alt kihagyja)

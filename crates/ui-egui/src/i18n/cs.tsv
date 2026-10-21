@@ -2508,3 +2508,8 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+	Lines	Čáry
+	Line colour	Barva čáry
+	Drag a point to reshape the line. Delete removes it.	Přetažením bodu změníte tvar čáry. Klávesa Delete ji odstraní.
+	This point could not be moved. Try a smaller move.	Tento bod se nepodařilo přesunout. Zkuste menší posun.
+	Snap to points and lines (Alt skips it)	Přichytávat k bodům a čarám (Alt přeskočí)

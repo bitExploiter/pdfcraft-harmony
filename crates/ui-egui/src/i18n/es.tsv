@@ -2574,3 +2574,8 @@ animation effects	Off	Desactivados
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Estás viendo la versión firmada de «{from}» (revisión {rev}). Es una instantánea: los cambios aquí no afectarán al original.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Estás viendo la revisión {rev} de «{from}». Es una instantánea: los cambios aquí no afectarán al original.
+	Lines	Líneas
+	Line colour	Color de línea
+	Drag a point to reshape the line. Delete removes it.	Arrastra un punto para cambiar la forma de la línea. Con Supr se elimina.
+	This point could not be moved. Try a smaller move.	No se pudo mover este punto. Prueba con un desplazamiento menor.
+	Snap to points and lines (Alt skips it)	Ajustar a puntos y líneas (Alt lo omite)

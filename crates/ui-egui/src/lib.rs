@@ -70,6 +70,7 @@ pub mod marks {
 mod content_ui;
 mod link_ui;
 mod object_ui;
+mod snap;
 pub use create_ui::Clip;
 pub use link_ui::LinkDraft;
 pub use optimize_ui::{OptimizeDraft, OptimizeTab};
@@ -2850,6 +2851,7 @@ impl PdfCraftApp {
                 && let Some(doc) = self.session.get(self.views[i].id).filter(|d| d.allows_modification())
             {
                 object_ui::nudge_keys(ctx, &mut self.views[i], doc);
+                object_ui::delete_key(ctx, &mut self.views[i]);
             }
             canvas::shortcuts(&mut self.views[i], ctx, self.scroll_speed);
             self.copy_key(i, ctx);

@@ -2685,3 +2685,13 @@ key	Space	Tarpas
 	The password must have at least 6 characters.	Slaptažodį turi sudaryti bent 6 simboliai.
 	This file changed on disk. Reload it to see the new version; your unsaved changes will be lost.	Šis failas diske pasikeitė. Įkelkite jį iš naujo, kad pamatytumėte naują versiją; neįrašyti pakeitimai bus prarasti.
 theme	Appearance	Išvaizda
+	Lines	Linijos
+	Line colour	Linijos spalva
+	Drag a point to reshape the line. Delete removes it.	Vilkite tašką, kad pakeistumėte linijos formą. Klavišas Delete ją pašalina.
+	This point could not be moved. Try a smaller move.	Šio taško nepavyko perkelti. Pabandykite mažesnį poslinkį.
+	Delete line	Ištrinti liniją
+	Delete lines	Ištrinti linijas
+	Format line	Formatuoti liniją
+	Format lines	Formatuoti linijas
+	Move line point	Perkelti linijos tašką
+	Snap to points and lines (Alt skips it)	Prilipti prie taškų ir linijų (Alt praleidžia)
