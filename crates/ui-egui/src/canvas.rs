@@ -138,6 +138,13 @@ impl PageLayout {
     }
 }
 
+/// The locked scroll axis during a scroll gesture (#2803).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ScrollAxis {
+    Vertical,
+    Horizontal,
+}
+
 /// The single page-display token settings and the control channel use, combining the base layout
 /// with continuous scrolling. `single` and `two-page` show one page or one spread at a time;
 /// `continuous` (Single, scrolling) and `two-up` (Two-page, scrolling) keep their earlier names
@@ -482,6 +489,10 @@ pub struct DocView {
     /// (#759). The window outlasts a single frame so egui's internal easing tail is suppressed as
     /// it decays, instead of adding on top of the 1:1 motion.
     precise_scroll_until: f64,
+    /// Axis lock for touchpad gestures: while scrolling vertically, horizontal scroll is turned
+    /// off to eliminate trackpad jitter and drift (#2803).
+    scroll_axis: Option<ScrollAxis>,
+    scroll_axis_until: f64,
     /// Per-axis line-wheel state; horizontal input cannot extend a vertical burst.
     wheel_boost_x: crate::wheel_boost::WheelBoost,
     wheel_boost_y: crate::wheel_boost::WheelBoost,
@@ -759,6 +770,8 @@ impl DocView {
             shown: false,
             wheel: Default::default(),
             precise_scroll_until: 0.0,
+            scroll_axis: None,
+            scroll_axis_until: 0.0,
             wheel_boost_x: Default::default(),
             wheel_boost_y: Default::default(),
             fling: Default::default(),
@@ -1187,6 +1200,8 @@ impl DocView {
         self.wheel.clear_motion();
         self.wheel_boost_x.reset();
         self.wheel_boost_y.reset();
+        self.scroll_axis = None;
+        self.scroll_axis_until = 0.0;
     }
 
     pub fn go_to_page(&mut self, page: usize) {
@@ -1967,14 +1982,19 @@ impl DocView {
         self.zoom = self.zoom.clamp(0.08, 64.0);
     }
 
-    /// Width of the scroll content. Single-page view sizes it to the page it shows, so a
-    /// wider page elsewhere in the document can't push the shown one off-centre.
-    fn content_width(&self, info: &DocInfo, avail_w: f32) -> f32 {
+    /// Width required to display the document's pages with side margins.
+    pub(crate) fn needed_content_width(&self, info: &DocInfo) -> f32 {
         let single = (self.layout == PageLayout::Single && !self.continuous).then(|| self.current.min(info.pages.len().saturating_sub(1)));
         let shown = info.pages.iter().enumerate().filter(|&(i, _)| single.is_none_or(|c| c == i));
         let max_w = shown.map(|(_, p)| self.display_size(p).0).fold(0.0, f32::max);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
-        (max_w * self.zoom * PT * per_row + 2.0 * SIDE).max(avail_w)
+        max_w * self.zoom * PT * per_row + 2.0 * SIDE
+    }
+
+    /// Width of the scroll content. Single-page view sizes it to the page it shows, so a
+    /// wider page elsewhere in the document can't push the shown one off-centre.
+    fn content_width(&self, info: &DocInfo, avail_w: f32) -> f32 {
+        self.needed_content_width(info).max(avail_w)
     }
 
     /// Page rects in content coordinates (origin at the scroll content's top-left).
@@ -2496,16 +2516,15 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         ui.ctx().request_repaint();
     }
 
-    let content_w = view.content_width(info, avail.width());
-    let rects = view.layout(info, content_w);
     // When not scrolling continuously, only one row is shown at a time: the current page, or the
     // current two-page spread (with the cover rule). These indices drive paging, which pages are
     // drawn, and the content height (#752). Empty for a document with no pages.
+    let num_pages = info.pages.len();
     let shown_row = |view: &DocView| -> Vec<usize> {
-        if rects.is_empty() {
+        if num_pages == 0 {
             return Vec::new();
         }
-        let last = rects.len() - 1;
+        let last = num_pages - 1;
         let cur = view.current.min(last);
         match view.layout {
             PageLayout::Single => vec![cur],
@@ -2517,6 +2536,23 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         }
     };
     let row = shown_row(view);
+    let needed_w = view.needed_content_width(info);
+    let mut avail_w = avail.width();
+    let scrollbar_w = ui.spacing().scroll.allocated_width();
+    if scrollbar_w > 0.0 {
+        let test_rects = view.layout(info, needed_w.max(avail_w));
+        let content_h = if view.continuous {
+            test_rects.iter().map(|r| r.bottom()).reduce(f32::max).map(|b| b + MARGIN).unwrap_or(0.0)
+        } else {
+            row.iter().filter_map(|&i| test_rects.get(i)).copied().reduce(Rect::union).map(|r| r.height() + 2.0 * MARGIN).unwrap_or(0.0)
+        };
+        if content_h > avail.height() {
+            avail_w = (avail_w - scrollbar_w).max(0.0);
+        }
+    }
+    let hscroll = needed_w > avail_w + 1.0;
+    let content_w = view.content_width(info, avail_w);
+    let rects = view.layout(info, content_w);
     let middle_gesture = view.auto_scroll.blocks_input();
     // Not scrolling: when the whole page or spread fits, the wheel would do nothing, so it turns
     // pages instead; zoomed in far enough to pan, it pans, and at the edge it turns the page on
@@ -2562,15 +2598,55 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         // Match the line distance used by egui's other scroll areas.
         let live = ui.ctx().options(|o| o.input_options.line_scroll_speed);
         let line_points = if live.is_finite() && live > 0.0 { live } else { crate::scroll_speed::EGUI_LINE_POINTS };
-        ui.input(|i| crate::wheel_boost::accumulate(&i.events, line_points, single_paging))
+        ui.input(|i| {
+            for e in &i.events {
+                if let egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta, modifiers, phase } = e {
+                    if modifiers.command || modifiers.ctrl {
+                        continue; // Zooming, not scrolling.
+                    }
+                    if modifiers.shift {
+                        view.scroll_axis = Some(ScrollAxis::Horizontal);
+                        view.scroll_axis_until = now + 0.15;
+                    } else if matches!(phase, egui::TouchPhase::Start) || now > view.scroll_axis_until {
+                        view.scroll_axis = None;
+                    }
+                    if matches!(phase, egui::TouchPhase::End | egui::TouchPhase::Cancel) {
+                        view.scroll_axis = None;
+                        view.scroll_axis_until = 0.0;
+                    } else if !modifiers.shift {
+                        if view.scroll_axis.is_none() {
+                            if delta.y.abs() > delta.x.abs() {
+                                view.scroll_axis = Some(ScrollAxis::Vertical);
+                            } else if delta.x.abs() > delta.y.abs() {
+                                view.scroll_axis = Some(ScrollAxis::Horizontal);
+                            }
+                        }
+                        if view.scroll_axis.is_some() {
+                            view.scroll_axis_until = now + 0.15;
+                        }
+                    }
+                }
+            }
+            crate::wheel_boost::accumulate(&i.events, line_points, single_paging)
+        })
     } else {
         crate::wheel_boost::FrameInput::default()
     };
     let mut precise_scroll = input.precise;
     let mut line_base = input.line;
     let mut boost_extra = crate::wheel_boost::boost_extra(input, &mut view.wheel_boost_x, &mut view.wheel_boost_y, now);
+    if view.scroll_axis == Some(ScrollAxis::Vertical) {
+        precise_scroll.x = 0.0;
+    } else if view.scroll_axis == Some(ScrollAxis::Horizontal) {
+        precise_scroll.y = 0.0;
+    }
+    if !hscroll {
+        precise_scroll.x = 0.0;
+        line_base.x = 0.0;
+        boost_extra.x = 0.0;
+    }
     let has_page = input.page != Vec2::ZERO;
-    if now.is_finite() && precise_scroll != Vec2::ZERO && !has_page {
+    if now.is_finite() && input.precise != Vec2::ZERO && !has_page {
         view.precise_scroll_until = now + SUPPRESS_SECS;
     }
     if edge_turned {
@@ -2614,6 +2690,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // Selection handling below uses zero to distinguish an inactive window.
             view.precise_scroll_until = 0.0;
         }
+        ui.input_mut(|i| {
+            if !hscroll || (i.smooth_scroll_delta.y != 0.0 && i.smooth_scroll_delta.y.abs() >= i.smooth_scroll_delta.x.abs()) {
+                i.smooth_scroll_delta.x = 0.0;
+            }
+        });
     }
     if has_page && paging_owns_vertical {
         // Page input belongs to egui on the free axis; the pager still owns vertical motion.
@@ -2631,7 +2712,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     if !may_glide || interrupted || key_scroll != 0.0 || auto_delta != Vec2::ZERO || zoom_delta != 1.0 {
         view.fling.stop();
     }
-    let glide = view.fling.step(now);
+    let mut glide = view.fling.step(now);
+    if !hscroll || view.scroll_axis == Some(ScrollAxis::Vertical) {
+        glide.x = 0.0;
+    }
     if view.fling.gliding() {
         ui.ctx().request_repaint();
     }
@@ -2649,7 +2733,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         }
     };
 
-    let mut scroll = egui::ScrollArea::both().auto_shrink([false, false]).scroll_source(egui::scroll_area::ScrollSource {
+    let mut scroll = egui::ScrollArea::new([hscroll, true]).auto_shrink([false, false]).scroll_source(egui::scroll_area::ScrollSource {
         drag: if middle_gesture {
             egui::scroll_area::DragScroll::Never
         } else if app.quick_tool == QuickTool::Hand {
@@ -2670,6 +2754,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     if !std::mem::replace(&mut view.shown, true) {
         scroll = scroll.scroll_offset(Vec2::ZERO);
     }
+    if !hscroll {
+        scroll = scroll.horizontal_scroll_offset(0.0);
+    }
     // The Hand tool pans here, before the pages are laid out, so the page moves with the pointer
     // in the frame the pointer moves (#924). Scrolling by the drag from inside the area moved the
     // page only after that frame was drawn, a frame behind. The frame egui tells the drag from a
@@ -2679,23 +2766,37 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         && !middle_gesture
         && let Some(id) = view.page_widget.filter(|id| ui.ctx().is_being_dragged(*id))
     {
-        let moved = if ui.ctx().drag_started_id() == Some(id) {
+        let mut moved = if ui.ctx().drag_started_id() == Some(id) {
             ui.input(|i| i.pointer.total_drag_delta()).unwrap_or(Vec2::ZERO)
         } else {
             ui.input(|i| i.pointer.delta())
         };
+        if !hscroll {
+            moved.x = 0.0;
+        }
         // Within the content, as egui keeps it: past an end the page would show there for a
         // frame and spring back. `max` is never NaN or below zero, so the clamp can't panic.
         let max = vec2((content_w - avail.width()).max(0.0), (content_h - avail.height()).max(0.0));
-        scroll = scroll.scroll_offset((view.last_scroll - moved).clamp(Vec2::ZERO, max));
+        let mut target = (view.last_scroll - moved).clamp(Vec2::ZERO, max);
+        if !hscroll {
+            target.x = 0.0;
+        }
+        scroll = scroll.scroll_offset(target);
     }
-    if let Some(v) = view.sync_scroll.take() {
+    if let Some(mut v) = view.sync_scroll.take() {
+        if !hscroll {
+            v.x = 0.0;
+        }
         scroll = scroll.scroll_offset(v);
     }
     if let Some((page, fx, fy, rel)) = view.zoom_anchor.take() {
         let r = rects[page.min(rects.len() - 1)];
         let point = pos2(r.left() + fx * r.width(), r.top() - y_shift + fy * r.height());
-        scroll = scroll.scroll_offset(anchored_scroll(point, rel, vec2(content_w, content_h), avail.size()));
+        let mut off = anchored_scroll(point, rel, vec2(content_w, content_h), avail.size());
+        if !hscroll {
+            off.x = 0.0;
+        }
+        scroll = scroll.scroll_offset(off);
     } else if let Some((page, frac)) = view.goto.take() {
         let page = page.min(rects.len() - 1);
         let r = rects[page];
@@ -2823,7 +2924,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         let r = rects[page.min(rects.len() - 1)];
         // Within the content, so an unreachable point never shows a frame scrolled past the end.
         let (max_x, max_y) = ((content_w - avail.width()).max(0.0), (content_h - avail.height()).max(0.0));
-        if let Some(fx) = fx {
+        if let Some(fx) = fx
+            && hscroll
+        {
             scroll = scroll.horizontal_scroll_offset((r.left() + fx * r.width() - rel.x).clamp(0.0, max_x));
         }
         if let Some(fy) = fy {
@@ -2846,7 +2949,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         // ScrollArea ignores wheel input during a widget drag. Defer the wheel contribution
         // until after the text widgets when a selection owns that drag.
         let wheel_delta = if selection_wheel { Vec2::ZERO } else { precise_scroll + boost_extra };
-        let delta = auto_delta + edge_delta - vec2(0.0, key_scroll) + wheel_delta + glide;
+        let mut delta = auto_delta + edge_delta - vec2(0.0, key_scroll) + wheel_delta + glide;
+        if !hscroll {
+            delta.x = 0.0;
+        }
         if delta != Vec2::ZERO && delta.is_finite() {
             ui.scroll_with_delta_animation(delta, egui::style::ScrollAnimation::none());
         }
@@ -3585,7 +3691,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         if selection_wheel {
             let smooth =
                 if view.precise_scroll_until == 0.0 { ui.input_mut(|input| std::mem::take(&mut input.smooth_scroll_delta)) } else { Vec2::ZERO };
-            let delta = precise_scroll + boost_extra + smooth;
+            let mut delta = precise_scroll + boost_extra + smooth;
+            if !hscroll {
+                delta.x = 0.0;
+            }
             if delta != Vec2::ZERO && delta.is_finite() {
                 ui.scroll_with_delta_animation(delta, egui::style::ScrollAnimation::none());
             }
