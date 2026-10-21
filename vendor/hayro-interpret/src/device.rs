@@ -81,6 +81,10 @@ pub trait Device<'a> {
     fn draw_isolated_cmyk_group(&mut self, _group: &CmykGroup<'a, '_>) -> bool {
         false
     }
+    /// PdfCraft patch (45): an isolated transparency group that names a blending colour space
+    /// other than `DeviceCMYK` is about to be drawn. A device drawing an enclosing group in CMYK
+    /// can no longer draw that group right, since this one blends in its own space.
+    fn group_blends_outside_device_cmyk(&mut self) {}
 }
 
 /// A device that discards all drawing operations.

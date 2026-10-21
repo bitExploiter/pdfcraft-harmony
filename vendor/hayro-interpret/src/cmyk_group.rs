@@ -93,3 +93,8 @@ impl<'a, 'b> CmykGroup<'a, 'b> {
 pub(crate) fn blends_in_device_cmyk(form: &Dict<'_>) -> bool {
     form.get::<Dict<'_>>(GROUP).and_then(|g| g.get::<Name<'_>>(CS)).is_some_and(|cs| matches!(cs.deref(), b"DeviceCMYK" | b"CMYK"))
 }
+
+/// Whether `form`'s transparency group names a blending colour space of its own (`/CS`).
+pub(crate) fn names_a_blending_space(form: &Dict<'_>) -> bool {
+    form.get::<Dict<'_>>(GROUP).is_some_and(|g| g.contains_key(CS))
+}

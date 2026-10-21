@@ -1093,7 +1093,12 @@ impl Renderer {
                 unsupported: false,
             },
         };
+        // The pass draws inside a layer of its own. On the bare canvas, vello_cpu fills a tile
+        // that a paint covers completely without the blend mode, so the middle of a group wider
+        // than about two tiles lost its blend (#3777).
+        renderer.ctx.push_layer(None, None, None, None, None);
         group.interpret(&mut renderer, offset);
+        renderer.ctx.pop_layer();
         if renderer.ink.unsupported {
             return None;
         }
@@ -1720,6 +1725,13 @@ impl<'a> Device<'a> for Renderer {
     /// with the group's opacity, soft mask and blend mode as before. Declined (and so drawn as
     /// before) under reading colours, inside a pass (a nested group then blends in the pass's
     /// own CMYK), and for contents a pass has no tints for.
+    /// PdfCraft patch (21): a nested group blending in another space can't be drawn in a pass.
+    fn group_blends_outside_device_cmyk(&mut self) {
+        if self.ink.pass.is_some() {
+            self.ink.unsupported = true;
+        }
+    }
+
     fn draw_isolated_cmyk_group(&mut self, group: &hayro_interpret::CmykGroup<'a, '_>) -> bool {
         if self.color_replacement.is_some() || self.ink.pass.is_some() {
             return false;

@@ -1,5 +1,5 @@
 use crate::cache::{Cache, DecodedImageCache, DecodedImageKey};
-use crate::cmyk_group::{CmykGroup, blends_in_device_cmyk};
+use crate::cmyk_group::{CmykGroup, blends_in_device_cmyk, names_a_blending_space};
 use crate::color::{ColorComponents, ColorSpace, ToRgb};
 use crate::context::Context;
 use crate::device::Device;
@@ -177,6 +177,18 @@ pub(crate) fn draw_form_xobject<'a, 'b>(
     // its own, so a device able to blend in CMYK computes its interior apart and composites the
     // result through the layer pushed above (see `cmyk_group`). Knockout groups are left out:
     // their elements composite with the group's initial backdrop, not with each other.
+    // An isolated group that names another blending space blends in that space (§11.3.4); a
+    // device drawing an enclosing group in CMYK is told, so it can decline that group. A
+    // non-isolated group's /CS is ignored: it blends in its parent's space (ISO 32000-2
+    // Table 145, CS), so it stays in the enclosing group's CMYK.
+    if x_object.is_transparency_group
+        && x_object.is_isolated
+        && names_a_blending_space(&x_object.dict)
+        && !blends_in_device_cmyk(&x_object.dict)
+    {
+        device.group_blends_outside_device_cmyk();
+    }
+
     let blended_in_cmyk = own_layer
         && x_object.is_isolated
         && !x_object.is_knockout
