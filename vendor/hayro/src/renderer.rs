@@ -305,11 +305,15 @@ impl AreaAxis {
 /// `/Interpolate` governs (ISO 32000-2 §8.9.5.3, for images drawn above their resolution), and
 /// nothing is dropped: nearest-neighbour keeps one sample in N per axis, so a scan shown at screen
 /// size lost the strokes of its text. Premultiplied input stays premultiplied. Work memory is one
-/// row of target accumulators plus a vertically shrunk copy no larger than the source. `None` if
-/// nothing shrinks, the sizes don't fit or a buffer cannot be allocated.
+/// source row of `u32` accumulators, the horizontal taps (at most `sw + 2 × tw`) and a vertically
+/// shrunk copy no larger than the source; a side over `MAX_RESAMPLING_SOURCE_SIDE` is refused, so
+/// none of it exceeds a few times one source row. `None` if nothing shrinks, the sizes don't fit
+/// or a buffer cannot be allocated.
 fn area_shrink<const N: usize>(data: &[u8], source: (u32, u32), target: (u32, u32)) -> Option<Vec<u8>> {
     let ((sw, sh), (tw, th)) = (source, target);
-    if tw == 0 || th == 0 || tw > sw || th > sh {
+    // A side over MAX_RESAMPLING_SOURCE_SIDE would make the accumulator row and the tap table
+    // several times larger than the samples (a 2^27 × 2 image of zeros is a tiny file).
+    if tw == 0 || th == 0 || tw > sw || th > sh || sw > MAX_RESAMPLING_SOURCE_SIDE || sh > MAX_RESAMPLING_SOURCE_SIDE {
         return None;
     }
     let (sw_us, tw_us) = (sw as usize, tw as usize);
@@ -959,7 +963,12 @@ impl Renderer {
         // resolution is shrunk by area averaging (`area_shrink`), not nearest-neighbour, which
         // broke up the text of scans shown at screen size. Type 3 glyph images keep the nearest
         // shrink of #624: they are drawn with a frame of their own and never snapped.
-        let area = !interpolate && requested_resize && !self.in_type3_glyph;
+        let area = !interpolate
+            && requested_resize
+            && !self.in_type3_glyph
+            // Wider sources keep #624's bounded nearest-neighbour shrink (`area_shrink` refuses
+            // them): skipping them, as a refused shrink at source size would, loses the image.
+            && source_width.max(source_height) <= MAX_RESAMPLING_SOURCE_SIDE;
         let (new_width, new_height) = match image_resampling_size(
             source_width,
             source_height,
@@ -2261,6 +2270,14 @@ mod area_shrink_tests {
             assert_eq!(out.len(), (target.0 * target.1 * 3) as usize);
             assert!(out.iter().all(|v| *v == 77), "{source:?} → {target:?}: {out:?}");
         }
+    }
+
+    /// A side over the resampling limit is refused before any work buffer is allocated.
+    #[test]
+    fn sides_over_the_resampling_limit_are_refused() {
+        let wide = (super::MAX_RESAMPLING_SOURCE_SIDE + 1) as usize;
+        assert_eq!(area_shrink::<1>(&vec![0_u8; wide], (wide as u32, 1), (10, 1)), None, "too wide");
+        assert_eq!(area_shrink::<1>(&vec![0_u8; wide], (1, wide as u32), (1, 10)), None, "too tall");
     }
 
     #[test]
