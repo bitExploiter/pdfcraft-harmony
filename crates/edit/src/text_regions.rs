@@ -192,7 +192,39 @@ fn shape_source(
             return Ok(Some((bytes, shaped, family)));
         }
     }
+    // The document's own faces are all subsets that can't draw this run (the usual case for
+    // right-to-left PDFs). Fall back to the bundled craft-fonts face for the run's script so the
+    // edit applies instead of being refused. The whole run is shaped with that one face, so its
+    // contextual joining is correct and no run mixes faces; its glyphs, widths and per-glyph
+    // Unicode drive embedding, so measurement, drawing and ToUnicode stay consistent.
+    if let Some(face) = script_fallback_face(text) {
+        // The craft-fonts faces are variable; flatten to a static instance so the program can be
+        // embedded, then shape and embed the same bytes for consistent widths.
+        let bytes = pdfcraft_fonts::embedding::static_instance(face.bytes);
+        if pdfcraft_fonts::embedding::covers(&bytes, text)
+            && let Ok(shaped) = pdfcraft_fonts::source_shaping::shape(&bytes, text)
+        {
+            return Ok(Some((bytes, shaped, face.family.to_string())));
+        }
+    }
     Err(EditError::Invalid("complex text needs the complete source TrueType/OpenType face; load that font before editing".into()))
+}
+
+/// A bundled craft-fonts face able to draw the dominant complex script in `text`, used as a last
+/// resort when no document face can (the usual subset case for right-to-left PDFs). `None` without
+/// craft-fonts or for a script with no bundled face. The substitution changes the run's typeface,
+/// which is why document and matching full faces are preferred first.
+fn script_fallback_face(text: &str) -> Option<&'static pdfcraft_fonts::CraftFont> {
+    let has = |ranges: &[std::ops::RangeInclusive<u32>]| text.chars().any(|c| ranges.iter().any(|r| r.contains(&u32::from(c))));
+    if has(&[0x0600..=0x06FF, 0x0750..=0x077F, 0x0870..=0x08FF, 0xFB50..=0xFDFF, 0xFE70..=0xFEFC]) {
+        pdfcraft_fonts::document_arabic_font()
+    } else if has(&[0x0591..=0x05F4, 0xFB1D..=0xFB4F]) {
+        pdfcraft_fonts::document_hebrew_font(false)
+    } else if text.chars().any(|c| (0x0E00..=0x0E7F).contains(&u32::from(c))) {
+        pdfcraft_fonts::document_thai_font()
+    } else {
+        None
+    }
 }
 
 /// For each output row (a range of the draft's characters), whether it is exactly the source row
@@ -644,13 +676,41 @@ pub(super) fn rewrite_styled_block(
         }
     };
     let o = &lead.origin;
-    for (row, _) in rows.iter().zip(&kept).filter(|(_, k)| !**k) {
+    // Row-unification: a visual row of contextual or bidi text (Arabic, say) must sit on a single
+    // face, because joining and right-to-left reordering span the whole row — shaping each
+    // font run of it apart would break them. A row mixes faces when, for example, existing subset
+    // glyphs sit beside a newly typed character that fell back to another face. Route the whole row
+    // onto one face that can shape all of it: a document face that covers the row if one does,
+    // otherwise the bundled script fallback, both resolved by `shape_source`. Its resource name
+    // becomes the whole row's, so the shaping loop below treats the row as one run. The edit is
+    // refused when nothing can shape the row (no covering face and no bundled fallback), with
+    // `shape_source`'s own error.
+    //
+    // Only the font *resource* (`c.2`) is unified. The styled-source-line index (`c.1`) keys every
+    // per-range style (`overrides`, `underlines`, size, scale, colour, char spacing), so flattening
+    // it to the anchor's would silently drop a user's per-word formatting on a contextual row (e.g.
+    // one coloured or resized word). When the row's characters carry different style indices we keep
+    // the refusal instead: shaping each styled segment apart would break joining, and silent
+    // flattening would lose the user's request without telling them.
+    for (row_index, row) in rows.iter_mut().enumerate() {
+        if kept.get(row_index).copied().unwrap_or(false) {
+            continue;
+        }
         let text: String = row.iter().map(|v| v.0).collect();
-        if pdfcraft_fonts::source_shaping::required(&text) && row.first().is_some_and(|first| row.iter().any(|v| v.1 != first.1 || v.2 != first.2)) {
-            return Err(EditError::Invalid(
-                "contextual/bidi text across font or style boundaries needs a uniform full-face row; mixed contextual runs are not yet supported"
-                    .into(),
-            ));
+        let Some(anchor) = row.first().cloned() else { continue };
+        let mixed = row.iter().any(|v| v.1 != anchor.1 || v.2 != anchor.2);
+        if !pdfcraft_fonts::source_shaping::required(&text) || !mixed {
+            continue;
+        }
+        if row.iter().any(|v| v.1 != anchor.1) {
+            return Err(EditError::Invalid("formatting part of a joined or right-to-left row separately isn't supported yet".into()));
+        }
+        // The bundled script fallback does not depend on the resource, so any run's resource makes
+        // `shape_source` resolve the whole row to one face; it errors only when the row truly
+        // cannot be shaped, which propagates as the refusal.
+        shape_source(doc, &fonts, &anchor.2, &text)?;
+        for c in row.iter_mut() {
+            c.2 = anchor.2.clone();
         }
     }
     let measured: Vec<_> = rows.iter().map(|r| measure(r)).collect::<Result<_, _>>()?;
@@ -844,4 +904,26 @@ pub(super) fn rewrite_styled_block(
         d.set(b"Resources".to_vec(), Object::Dict(res));
     })?;
     Ok(LineEdit { substituted })
+}
+
+#[cfg(test)]
+mod fallback_tests {
+    use super::*;
+
+    /// The bundled-face fallback that keeps right-to-left edits from being refused when the PDF
+    /// only embeds subsets: it must pick the face for the run's script, and never fire for
+    /// non-complex text. Availability of each face follows the craft-fonts build input.
+    #[test]
+    fn script_fallback_face_picks_the_right_bundled_script() {
+        assert!(script_fallback_face("Hello").is_none(), "Latin takes no fallback face");
+        assert!(script_fallback_face("123 abc").is_none(), "digits take no fallback face");
+
+        assert_eq!(script_fallback_face("مرحبا").is_some(), pdfcraft_fonts::document_arabic_font().is_some());
+        assert_eq!(script_fallback_face("שלום").is_some(), pdfcraft_fonts::document_hebrew_font(false).is_some());
+        assert_eq!(script_fallback_face("สวัสดี").is_some(), pdfcraft_fonts::document_thai_font().is_some());
+
+        if let Some(face) = script_fallback_face("مرحبا") {
+            assert!(face.covers("Arab"), "Arabic text must resolve to an Arabic face, got {}", face.name());
+        }
+    }
 }

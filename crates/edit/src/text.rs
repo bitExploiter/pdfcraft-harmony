@@ -2776,7 +2776,14 @@ pub(crate) fn translate_blocks(doc: &mut Document, page: usize, indexes: &[usize
         }
         patches.insert(s.op, replacement);
     }
-    if patches.len() != selected.len() {
+    // Only the line's show operators (Tj/TJ/'/") carry glyphs that move; state operators it also
+    // owns — font, rise, spacing, horizontal scale, text positioning — stay put, their effect kept
+    // by the TJ/Ts wrappers placed around each show. A paragraph rewritten by a prior edit owns such
+    // state ops, so requiring every owned operator to be a movable show (the old `patches.len() !=
+    // selected.len()`) wrongly refused moving an edited paragraph. Refuse only when a show operator
+    // the line owns could not be moved.
+    let is_show = |i: &usize| ops.get(*i).is_some_and(|o| o.is("Tj") || o.is("TJ") || o.is("'") || o.is("\""));
+    if selected.iter().filter(|i| is_show(i)).any(|i| !patches.contains_key(i)) {
         return Err(EditError::Invalid("a selected text operation cannot be moved".into()));
     }
     let data = splice(&pieces, &ops, |i| patches.remove(&i).map_or((Vec::new(), true), |v| (v, false)));

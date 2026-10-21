@@ -337,3 +337,56 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         }
     }
 }
+
+/// PdfCraft patch (vendored epaint bidi, UAX #9): right-to-left text lays out in visual order
+/// while the galley keeps one glyph per character in *logical* order, which is what egui's cursor
+/// and selection code relies on. This is the layout half of editing Arabic/Hebrew in place.
+#[test]
+fn arabic_text_lays_out_right_to_left_in_logical_order() {
+    if pdfcraft_fonts::ui_arabic_fonts().is_empty() {
+        eprintln!("skipping arabic_text_lays_out_right_to_left_in_logical_order: no Arabic face bundled (set CRAFT_FONTS_DIR)");
+        return;
+    }
+    let mut fonts = Fonts::new(TextOptions::default(), theme::font_definitions());
+    let mut view = fonts.with_pixels_per_point(2.0);
+    let galley = view.layout_no_wrap(ARABIC.to_owned(), FontId::proportional(13.0), Color32::BLACK);
+    let row = &galley.rows[0].row;
+
+    // Noto Sans Arabic decomposes dotted letters (ث ن ي) into a base plus separate i'jam dot glyphs
+    // via `ccmp`, so a row has more glyphs than characters. Confirm this test actually exercises
+    // that case — otherwise the invariant below is trivially true.
+    let n = ARABIC.chars().count();
+    assert!(row.glyphs.len() > n, "expected decomposition (more glyphs than chars): {} glyphs, {n} chars", row.glyphs.len());
+
+    // The invariant egui's caret and selection rely on: one cursor column per character. The drawn
+    // i'jam dots are render-only glyphs, excluded from the cursor/text model, so the row reports
+    // exactly `n` columns and its text is the input in logical order with no duplicated mark chars.
+    // (Before this fix, the surplus dot glyphs each became a column, drifting the caret.)
+    assert_eq!(row.char_count_excluding_newline().0, n, "one caret column per character, not per glyph");
+    assert_eq!(row.text(), ARABIC, "cursor text is the input in logical order");
+
+    // Right-to-left: the advancing base glyphs step strictly leftwards in logical order.
+    // (`render_only` is crate-private to epaint, so bases are identified here by their advance.)
+    let bases: Vec<f32> = row.glyphs.iter().filter(|g| g.advance_width > 0.0).map(|g| g.pos.x).collect();
+    assert!(bases.first().unwrap() > bases.last().unwrap(), "RTL text must run right-to-left");
+    assert!(bases.windows(2).all(|w| w[1] < w[0]), "RTL base glyphs must descend in x: {bases:?}");
+
+    // Combining marks carry their base character and sit on it (no horizontal advance of their own).
+    for (i, g) in row.glyphs.iter().enumerate().filter(|(_, g)| g.advance_width == 0.0) {
+        let base = &row.glyphs[i - 1];
+        assert_eq!(g.chr, base.chr, "a mark repeats its base character");
+        assert!((g.pos.x - base.pos.x).abs() < 0.5, "a mark sits on its base");
+    }
+}
+
+/// PdfCraft patch: left-to-right text is untouched by the bidi path (it only engages when a row
+/// contains right-to-left script), so Latin glyphs still ascend in x exactly as upstream.
+#[test]
+fn latin_text_layout_is_unchanged_by_bidi() {
+    let mut fonts = Fonts::new(TextOptions::default(), theme::font_definitions());
+    let mut view = fonts.with_pixels_per_point(2.0);
+    let galley = view.layout_no_wrap("Hello world".to_owned(), FontId::proportional(13.0), Color32::BLACK);
+    let row = &galley.rows[0].row;
+    let xs: Vec<f32> = row.glyphs.iter().map(|g| g.pos.x).collect();
+    assert!(xs.windows(2).all(|w| w[0] <= w[1]), "LTR glyphs must ascend in x: {xs:?}");
+}
