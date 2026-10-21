@@ -171,7 +171,7 @@ impl PdfCraftApp {
         let mut windows = std::mem::take(&mut self.windows);
         for w in &mut windows {
             let mut builder = egui::ViewportBuilder::default()
-                .with_title(if w.slice.window_title.is_empty() { "PdfCraft" } else { w.slice.window_title.as_str() })
+                .with_title(if w.slice.window_title.is_empty() { "KreativPdf" } else { w.slice.window_title.as_str() })
                 .with_inner_size([1200.0, 820.0])
                 .with_min_inner_size([820.0, 520.0])
                 .with_drag_and_drop(true)

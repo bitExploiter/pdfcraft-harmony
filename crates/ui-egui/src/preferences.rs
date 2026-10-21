@@ -56,7 +56,7 @@ impl Section {
     fn description(self) -> &'static str {
         match self {
             Self::General => tl!("The interface's language and size, and the floating bars around the page."),
-            Self::Appearance => tl!("The colours PdfCraft's windows are drawn in."),
+            Self::Appearance => tl!("The colours KreativPdf's windows are drawn in."),
             Self::Documents => tl!("How documents open: the workspace, the page display and the zoom."),
             Self::Reading => tl!("Colours to read documents in, without changing the documents."),
             Self::Identity => tl!("Your name on comments, and how comments show."),
@@ -156,7 +156,7 @@ fn sidebar(ui: &mut egui::Ui, t: &Tokens, height: f32) {
                 17.0,
                 if on { t.accent_text } else { t.icon },
             );
-            widgets::paint_left(ui, body.left_center() + vec2(42.0, 0.0), section.title(), theme::medium(13.5), ink, (body.width() - 50.0).max(0.0));
+            widgets::paint_left(ui, body.left_center() + vec2(42.0, 0.0), section.title(), theme::regular(13.5), ink, (body.width() - 50.0).max(0.0));
             let title = section.title().to_owned();
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, on, title.clone()));
             if theme::hand(resp).clicked() {
@@ -257,11 +257,11 @@ fn named_row(ui: &mut egui::Ui, t: &Tokens, name: &str, about: Option<&str>, pai
                 ui.set_width((ui.available_width() - right - 12.0).max(120.0));
                 ui.spacing_mut().item_spacing.y = 2.0;
                 if painted {
-                    let galley = ui.painter().layout(name.to_owned(), theme::medium(13.0), t.text, ui.available_width());
+                    let galley = ui.painter().layout(name.to_owned(), theme::regular(13.0), t.text, ui.available_width());
                     let (r, _) = ui.allocate_exact_size(galley.size(), Sense::hover());
                     ui.painter().galley(r.min, galley, t.text);
                 } else {
-                    ui.label(RichText::new(name).font(theme::medium(13.0)).color(t.text));
+                    ui.label(RichText::new(name).font(theme::regular(13.0)).color(t.text));
                 }
                 if let Some(a) = about {
                     ui.add(egui::Label::new(RichText::new(a).font(theme::regular(12.0)).color(t.text_muted)).wrap());
@@ -320,7 +320,7 @@ fn segments(ui: &mut egui::Ui, items: &[(Option<&str>, &str, bool)]) -> Option<u
                     ui.painter().rect_filled(rect, CornerRadius::same(8), fill);
                 }
                 let ink = if *on { t.accent_text } else { t.text };
-                let font = theme::medium(13.0);
+                let font = theme::regular(13.0);
                 let text_w = widgets::text_width(ui, name, &font);
                 let icon_w = if icon.is_some() { 22.0 } else { 0.0 };
                 let room = (rect.width() - 12.0 - icon_w).max(0.0);
@@ -455,7 +455,7 @@ fn general(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
         );
     });
     card(ui, t, "gauge", tl!("Motion"), None, |ui| {
-        ui.label(RichText::new(tl!("Scroll speed (mouse wheel and arrow keys)")).font(theme::medium(13.0)).color(t.text));
+        ui.label(RichText::new(tl!("Scroll speed (mouse wheel and arrow keys)")).font(theme::regular(13.0)).color(t.text));
         let speeds = crate::scroll_speed::ScrollSpeed::ALL;
         let items: Vec<(Option<&str>, &str, bool)> =
             speeds.iter().map(|s| (None, tl_ctx!("scroll speed", s.label()), app.scroll_speed == *s)).collect();
@@ -464,7 +464,7 @@ fn general(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
         }
         // Whether anything animates, the wheel's scrolling and zooming included; left alone it
         // follows the system's animation setting.
-        ui.label(RichText::new(tl!("Animation effects")).font(theme::medium(13.0)).color(t.text));
+        ui.label(RichText::new(tl!("Animation effects")).font(theme::regular(13.0)).color(t.text));
         let effects = crate::motion::AnimationEffects::ALL;
         let items: Vec<(Option<&str>, &str, bool)> =
             effects.iter().map(|e| (None, tl_ctx!("animation effects", e.label()), app.animation_effects == *e)).collect();
@@ -533,7 +533,7 @@ fn documents(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
         });
     });
     card(ui, t, "folder-open", tl!("Files and units"), None, |ui| {
-        ui.label(RichText::new(tl!("Units")).font(theme::medium(13.0)).color(t.text));
+        ui.label(RichText::new(tl!("Units")).font(theme::regular(13.0)).color(t.text));
         let units = crate::units::Unit::ALL;
         let items: Vec<(Option<&str>, &str, bool)> = units.iter().map(|u| (None, u.label(), app.units == *u)).collect();
         if let Some(u) = segments(ui, &items).and_then(|i| units.get(i)) {
@@ -543,7 +543,7 @@ fn documents(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
         // The web build has no file paths to reopen, nor files on disk to watch.
         #[cfg(not(target_arch = "wasm32"))]
         {
-            switch_row(ui, t, &mut app.reopen_last_session, tl!("Reopen the files that were open when PdfCraft last closed"), None);
+            switch_row(ui, t, &mut app.reopen_last_session, tl!("Reopen the files that were open when KreativPdf last closed"), None);
             switch_row(ui, t, &mut app.reload_changed_files, tl!("Reload documents when their files change on disk"), None);
         }
     });
@@ -592,7 +592,7 @@ fn preview(ui: &mut egui::Ui, t: &Tokens, colors: pdfcraft_render::ReadingColors
                     ink.gamma_multiply(0.7),
                 );
             }
-            ui.label(RichText::new(label).font(theme::medium(11.5)).color(t.text_muted));
+            ui.label(RichText::new(label).font(theme::regular(11.5)).color(t.text_muted));
         });
     };
     ui.horizontal(|ui| {
@@ -612,7 +612,7 @@ fn identity(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) {
     // Identity: the author of new comments (Acrobat: Preferences ▸ Identity).
     card(ui, t, "user-round", tl!("Identity"), None, |ui| {
         ui.horizontal(|ui| {
-            let label = ui.label(RichText::new(tl!("Name on new comments")).font(theme::medium(13.0)).color(t.text));
+            let label = ui.label(RichText::new(tl!("Name on new comments")).font(theme::regular(13.0)).color(t.text));
             ui.add(widgets::line(&mut app.comment_prefs.author).desired_width(ui.available_width()).char_limit(crate::MAX_AUTHOR_CHARS))
                 .labelled_by(label.id);
         });

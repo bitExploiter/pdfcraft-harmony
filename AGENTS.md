@@ -46,7 +46,7 @@ Anything else is forbidden, including assets whose licence you cannot prove from
 - "free for personal use" material;
 - screenshots of other people's software.
 
-**Screenshots of PdfCraft** are contributor-original. Everything visible in them must itself be allowed: our UI, Lucide icons, OFL fonts, and demo documents built only from allowed assets. Never screenshot a document that uses proprietary fonts or images.
+**Screenshots of KreativPdf** are contributor-original. Everything visible in them must itself be allowed: our UI, Lucide icons, OFL fonts, and demo documents built only from allowed assets. Never screenshot a document that uses proprietary fonts or images.
 
 ### 1.3 Every asset is attributed
 
@@ -69,7 +69,7 @@ Anything else is forbidden, including assets whose licence you cannot prove from
 ### 1.4 Fonts live in craft-fonts
 
 - Font assets shared by the Crafting Apps, including every Japanese font, live in [`storytold/craft-fonts`](https://github.com/storytold/craft-fonts), not here. **Never commit a font file to this repository**; adding a font means adding it to craft-fonts. (The Latin UI fonts already in `assets/fonts/` — Inter, JetBrains Mono, Dancing Script — stay.) Team members: the shared rules are in [craftrules `standards/fonts.md`](https://github.com/storytold/craftrules/blob/main/standards/fonts.md) (internal).
-- craft-fonts is an **optional build input**, never a Cargo dependency: `CRAFT_FONTS_DIR=<checkout> cargo build` makes `crates/fonts/build.rs` embed its fonts as `pdfcraft_fonts::CRAFT_FONTS`. Without it PdfCraft builds, tests and runs, but has no Japanese face (Japanese UI text shows replacement boxes, and writing Japanese into a PDF returns a clear error). Release builds always set it (`.github/workflows/release.yml`), and `ATTRIBUTION.toml` lists it as a `[[build_input]]`.
+- craft-fonts is an **optional build input**, never a Cargo dependency: `CRAFT_FONTS_DIR=<checkout> cargo build` makes `crates/fonts/build.rs` embed its fonts as `pdfcraft_fonts::CRAFT_FONTS`. Without it KreativPdf builds, tests and runs, but has no Japanese face (Japanese UI text shows replacement boxes, and writing Japanese into a PDF returns a clear error). Release builds always set it (`.github/workflows/release.yml`), and `ATTRIBUTION.toml` lists it as a `[[build_input]]`.
 - The desktop app may read one font **already installed on the user's machine** at runtime, as the last interface fallback for characters no embedded face has (`crates/ui-egui/src/system_fonts.rs`). That font is never embedded, shipped, committed or copied, and never appears in published screenshots (`PDFCRAFT_SYSTEM_FONTS=0`, which `cargo xtask screenshots` sets). It is not a way around §1.2: nothing from it may enter a PDF, a package or the repository.
 
 ### 1.5 Procedure for adding or changing an asset
@@ -104,7 +104,7 @@ If you find an asset that breaks these rules, stop and remove it from the reposi
 
 ## 4. Never crash
 
-PdfCraft opens files from strangers, and people trust it with their work. A malformed PDF, a bad tool argument, a corrupt settings file or a full disk must produce an error the user (or agent) can act on, never a crash and never lost work. **This outranks feature work:** don't ship a feature by adding a panic path, and fix a crash before building on top of it. The rules below are the ones that bind this repository; the shared standard for every Crafting App, [`craftrules/standards/never-crash.md`](https://github.com/storytold/craftrules/blob/main/standards/never-crash.md), is internal to the storytold team.
+KreativPdf opens files from strangers, and people trust it with their work. A malformed PDF, a bad tool argument, a corrupt settings file or a full disk must produce an error the user (or agent) can act on, never a crash and never lost work. **This outranks feature work:** don't ship a feature by adding a panic path, and fix a crash before building on top of it. The rules below are the ones that bind this repository; the shared standard for every Crafting App, [`craftrules/standards/never-crash.md`](https://github.com/storytold/craftrules/blob/main/standards/never-crash.md), is internal to the storytold team.
 
 - **Fail with `Result`.** Non-test code returns errors through the crate's error type and `?`. Where readers are lenient by design, fall back gracefully and record the repair (see Fidelity in `CLAUDE.md`).
 - **No panicking shortcuts.** No `unwrap()`, `expect()`, `panic!`, `unreachable!`, `todo!` or `unimplemented!` outside tests, unless the call is provably infallible (e.g. writing to a `Vec`), with a comment saying why. `assert!` only for internal invariants that input cannot reach.

@@ -34,7 +34,7 @@ garbage-collected file (callers check the print permission).
 
 `spool` delegates discovery, driver options, preferences and submission to
 [`craft-print`](https://github.com/storytold/craft-libs/tree/main/crates/print).
-PdfCraft retains page selection, imposition, annotations and print-permission checks.
+KreativPdf retains page selection, imposition, annotations and print-permission checks.
 CUPS jobs stream through stdin with `fit-to-page=false`. Windows renders sheets through
 `Windows.Data.Pdf` and spools them at their physical PDF size with per-page paper and
 orientation, zero added margins and hardware-edge clipping. Long-edge and short-edge duplex
@@ -48,7 +48,7 @@ the dialog; the Windows backend starts without a console window. Physical printe
 still needs hardware validation.
 
 In a browser there is no spooler: the app (`pdfcraft-ui-egui`'s `web_print`) draws the print-ready
-PDF's sheets with PdfCraft's renderer and prints them through the browser's print dialog, which
+PDF's sheets with KreativPdf's renderer and prints them through the browser's print dialog, which
 sets copies, two-sided printing and colour. This crate stays free of web APIs.
 
 Not yet: print as image, poster labels, PostScript output, colour conversion for

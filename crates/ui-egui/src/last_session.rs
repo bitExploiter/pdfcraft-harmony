@@ -1,5 +1,5 @@
 //! Reopen the files from the last session (Preferences ▸ Documents and view, #442): which files
-//! were open when PdfCraft last closed, the page each showed and the active tab. Local only, like
+//! were open when KreativPdf last closed, the page each showed and the active tab. Local only, like
 //! the recent-files list, and kept only while the preference is on.
 
 use serde::Serialize;
@@ -9,7 +9,7 @@ use crate::PdfCraftApp;
 /// More files than anyone keeps open. Settings are untrusted, so a longer list is cut here.
 pub const MAX_FILES: usize = 64;
 
-/// The files open when PdfCraft last closed.
+/// The files open when KreativPdf last closed.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
 pub struct LastSession {
     pub files: Vec<SessionFile>,

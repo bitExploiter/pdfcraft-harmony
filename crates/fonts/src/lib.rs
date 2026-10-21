@@ -167,7 +167,7 @@ impl UnicodeCMap {
     }
 
     /// Encode `s`; tabs become spaces, and characters UCS-2 can't hold become `?` (check them
-    /// first with [`Self::first_unencodable`]: PdfCraft refuses such text rather than write `?`).
+    /// first with [`Self::first_unencodable`]: KreativPdf refuses such text rather than write `?`).
     pub fn encode(self, s: &str) -> Vec<u8> {
         let mut out = Vec::with_capacity(s.len().saturating_mul(2));
         let mut units = [0u16; 2];
@@ -204,7 +204,7 @@ pub fn first_non_win_ansi(s: &str) -> Option<char> {
 
 /// The first character of `s` the standard fonts (Helvetica and the rest of the standard 14, in
 /// WinAnsiEncoding) can't draw, so that a generated appearance would show it as `?`. Line breaks
-/// don't count: appearances lay lines out themselves. PdfCraft refuses such text with
+/// don't count: appearances lay lines out themselves. KreativPdf refuses such text with
 /// [`undrawable_message`] instead of writing `?` (AGENTS.md §4: never lose work silently).
 pub fn first_undrawable(s: &str) -> Option<char> {
     s.chars().find(|c| !matches!(c, '\n' | '\r') && !win_ansi_encodable(*c))
@@ -221,14 +221,14 @@ pub fn undrawable_message(what: &str, c: char) -> String {
     )
 }
 
-/// The private key on an annotation (a comment or a form field's widget) whose appearance PdfCraft
+/// The private key on an annotation (a comment or a form field's widget) whose appearance KreativPdf
 /// drew with `?` in place of characters its fonts can't draw: a text string holding the first
 /// such character. The text itself (a field's `/V`, a comment's `/Contents`) is stored as typed;
 /// the mark lets flattening refuse to make that `?` permanent, lets an edit report it, and tells
 /// such an appearance apart from one another program drew with a font that has those characters.
 pub const UNDRAWN_MARK: &[u8] = b"PCUndrawn";
 
-/// The character [`UNDRAWN_MARK`] records on `d`, if PdfCraft drew its appearance with `?`.
+/// The character [`UNDRAWN_MARK`] records on `d`, if KreativPdf drew its appearance with `?`.
 pub fn undrawn_mark(d: &pdfcraft_cos::Dict) -> Option<char> {
     d.get(UNDRAWN_MARK).and_then(pdfcraft_cos::Object::as_string).and_then(|s| s.to_text().chars().next())
 }

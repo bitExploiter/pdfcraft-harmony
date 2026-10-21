@@ -74,7 +74,7 @@ mkdir -p "$STAGE/usr/share/metainfo"
 sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$PDFCRAFT_BUILD_DATE/g" \
   "$HERE/$APP_ID.metainfo.xml.in" >"$STAGE/usr/share/metainfo/$APP_ID.metainfo.xml"
 mkdir -p "$STAGE/usr/share/icons"
-cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/usr/share/icons/"
+cp -R "$ROOT/assets/brand/hicolor" "$STAGE/usr/share/icons/"
 mkdir -p "$STAGE/usr/share/doc/pdfcraft"
 copy_docs "$STAGE/usr/share/doc/pdfcraft"
 # OCR models: the app finds them at <bin>/../share/pdfcraft/models, so in every format below.
@@ -130,7 +130,7 @@ if has appimage; then
   mv "$APPDIR/usr/share/doc" "$WORK/doc-unused"
   ln -s usr/bin/pdfcraft "$APPDIR/AppRun"
   cp "$HERE/$APP_ID.desktop" "$APPDIR/$APP_ID.desktop"
-  cp "$ROOT/assets/app-icon/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
+  cp "$ROOT/assets/brand/hicolor/256x256/apps/$APP_ID.png" "$APPDIR/$APP_ID.png"
   ln -s "$APP_ID.png" "$APPDIR/.DirIcon"
 
   TOOL="${APPIMAGETOOL:-$(command -v appimagetool || true)}"

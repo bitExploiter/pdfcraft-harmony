@@ -980,7 +980,7 @@ fn settings_column(ui: &mut egui::Ui, d: &mut PrintDraft, t: &Tokens, sizes: &[(
         d.driver_error = None;
     }
     // The spooler answered with no printer at all (#160): say so, rather than leaving Save as
-    // PDF looking like the only thing PdfCraft can do.
+    // PDF looking like the only thing KreativPdf can do.
     if !d.printers_loading && d.printers.is_empty() {
         note(ui, t, tl!("No printers were found. Check that the printer is installed and the print spooler is running, then open Print again."));
     }

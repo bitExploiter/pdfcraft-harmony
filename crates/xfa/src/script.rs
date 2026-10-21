@@ -561,7 +561,7 @@ pub fn rerender(doc: &mut Document, tpl: &Template) -> Result<Report, XfaError> 
     if form.pages.is_empty() {
         return Err(XfaError::Malformed("the template laid out to no pages".into()));
     }
-    // The AcroForm keeps only the fields PdfCraft did not generate.
+    // The AcroForm keeps only the fields KreativPdf did not generate.
     let Some(root) = doc.root() else { return Err(XfaError::NotXfa) };
     if let Some((acro_ref, mut acro)) = acroform(doc) {
         let fields = acro.get(b"Fields").map(|f| doc.resolve(f)).and_then(|f| f.as_array().cloned()).unwrap_or_default();

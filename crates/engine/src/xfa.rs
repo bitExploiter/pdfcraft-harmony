@@ -826,7 +826,7 @@ pub(crate) fn on_event(doc: &mut pdfcraft_cos::Document, tpl: &Template, som: &s
     r.finish().map(|_| ())
 }
 
-/// The SOM path of field `name` when PdfCraft generated it from an XFA template and the
+/// The SOM path of field `name` when KreativPdf generated it from an XFA template and the
 /// template has a click script for it (a button with a native action has none).
 pub(crate) fn clickable_som(doc: &pdfcraft_cos::Document, tpl: &Template, name: &str) -> Option<String> {
     let som = pdfcraft_xfa::fields_by_som(doc).into_iter().find(|(_, f)| f == name).map(|(s, _)| s)?;
@@ -840,7 +840,7 @@ pub(crate) fn template(doc: &pdfcraft_cos::Document) -> Option<Arc<Template>> {
     pdfcraft_xfa::template_of(doc).ok().filter(pdfcraft_xfa::has_scripts).map(Arc::new)
 }
 
-/// Push buttons PdfCraft generated for XFA click scripts carry no PDF action (the script is
+/// Push buttons KreativPdf generated for XFA click scripts carry no PDF action (the script is
 /// XFA's, not Acrobat JavaScript): give them one that runs the script by the field's SOM path.
 pub(crate) fn mark_script_buttons(doc: &pdfcraft_cos::Document, fields: &mut [pdfcraft_forms::Field]) {
     for f in fields.iter_mut() {

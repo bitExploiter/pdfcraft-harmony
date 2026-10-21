@@ -1,8 +1,8 @@
-//! The system's choice for Preferences ▸ "Reopen the files that were open when PdfCraft last closed".
+//! The system's choice for Preferences ▸ "Reopen the files that were open when KreativPdf last closed".
 //!
 //! On macOS, System Settings ▸ Desktop & Dock ▸ Windows ▸ "Close windows when quitting an
 //! application" is on by default; turning it off stores `NSQuitAlwaysKeepsWindows = 1`, and apps
-//! then reopen their windows on the next launch. A user who turned it off expects PdfCraft to
+//! then reopen their windows on the next launch. A user who turned it off expects KreativPdf to
 //! bring its documents back too (#871), so that setting is the preference's starting value. It
 //! is read once at launch through `defaults`; the user's own choice in Preferences, once saved,
 //! wins over it. Other systems have no such setting, and the preference starts off there.

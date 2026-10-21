@@ -1,9 +1,9 @@
 //! macOS open-documents and quit Apple events (#73).
 //!
-//! Finder double-clicks, Open With, drops on the Dock icon and `open -a PdfCraft file.pdf` don't
+//! Finder double-clicks, Open With, drops on the Dock icon and `open -a KreativPdf file.pdf` don't
 //! pass paths on the command line: LaunchServices sends the running (or just-launched) app a
 //! `kAEOpenDocuments` ('odoc') Apple event. winit 0.30 doesn't handle it and owns the
-//! `NSApplicationDelegate`, so AppKit answered "PdfCraft cannot open files in the PDF document
+//! `NSApplicationDelegate`, so AppKit answered "KreativPdf cannot open files in the PDF document
 //! format". Handling it ourselves needs Objective-C class declarations, i.e. `unsafe`, which this
 //! workspace forbids. The audited `fmv-macos-events` crate (also used by PhotoCraft) wraps exactly
 //! that, an `NSAppleEventManager` handler registered before Finder's launch event that leaves

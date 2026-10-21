@@ -393,7 +393,7 @@ pub fn choice_row(ui: &mut egui::Ui, choices: &[(&str, bool)], width: f32) -> Op
     let gap = 6.0;
     let n = choices.len().max(1) as f32;
     let w = ((width - gap * (n - 1.0)) / n).max(40.0);
-    let font = theme::medium(12.5);
+    let font = theme::regular(12.5);
     let mut clicked = None;
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = gap;

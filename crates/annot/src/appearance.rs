@@ -1,4 +1,4 @@
-//! Appearance streams (§12.5.5) for the comment types PdfCraft creates, execution plan M5.2.
+//! Appearance streams (§12.5.5) for the comment types KreativPdf creates, execution plan M5.2.
 //!
 //! [`build`] draws a normal appearance (`/AP /N`) from the annotation dictionary alone, so the
 //! same code serves new comments and restyled ones. Drawings are in page space with
@@ -6,7 +6,7 @@
 //! It returns `None` for anything it cannot draw faithfully (cloudy borders, unknown line
 //! endings, indirect geometry), so callers never replace an appearance with a worse one.
 //!
-//! The note icons are PdfCraft's own drawings (AGENTS.md §1). Text boxes use the standard
+//! The note icons are KreativPdf's own drawings (AGENTS.md §1). Text boxes use the standard
 //! Helvetica font with WinAnsi encoding; line breaking uses [`text_width`], an approximation of
 //! Helvetica's proportions by character class (no font program or metrics file is bundled).
 
@@ -590,7 +590,7 @@ pub fn build(d: &Dict) -> Option<Stream> {
                 }
                 return Some(stream);
             }
-            // Only PdfCraft's own Fill & Sign marks are drawn here.
+            // Only KreativPdf's own Fill & Sign marks are drawn here.
             let name = d.name(b"Name")?;
             let col = stroke.unwrap_or([0.0; 3]);
             let [x0, y0, x1, y1] = rect;
@@ -637,7 +637,7 @@ pub fn build(d: &Dict) -> Option<Stream> {
                     n(y0 + h / 2.0)
                 )),
                 other => {
-                    // Only stamps PdfCraft made: others keep their own artwork.
+                    // Only stamps KreativPdf made: others keep their own artwork.
                     if !matches!(d.get(b"PCStamp"), Some(Object::Bool(true))) {
                         return None;
                     }
@@ -778,7 +778,7 @@ pub fn build(d: &Dict) -> Option<Stream> {
         }
         _ => return None,
     }
-    // PdfCraft measurement captions are kept separate from the comment's free-form text.
+    // KreativPdf measurement captions are kept separate from the comment's free-form text.
     // A restyle regenerates the path and its value together.
     let mut out = c.into_bytes();
     if let Some(value) = d.get(b"PCMeasureValue").and_then(Object::as_string) {
@@ -947,9 +947,9 @@ fn ellipse(x0: f64, y0: f64, x1: f64, y1: f64) -> String {
     s
 }
 
-/// PdfCraft's note icons, drawn in a 20 × 20 box: a speech bubble for `/Comment`, a page
+/// KreativPdf's note icons, drawn in a 20 × 20 box: a speech bubble for `/Comment`, a page
 /// with a folded corner for everything else, both filled with the note colour.
-/// File attachment icons in a 20 × 20 box: PdfCraft's own drawings.
+/// File attachment icons in a 20 × 20 box: KreativPdf's own drawings.
 fn attach_icon(name: &str, col: Rgb) -> String {
     let mut s = format!("{}{}1.2 w 1 j 1 J\n", rg(col), rg_stroke(col));
     match name {

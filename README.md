@@ -18,23 +18,13 @@
   <img alt="No account, no telemetry" src="https://img.shields.io/badge/no%20account-no%20telemetry-0a7563">
 </p>
 
-<p align="center">
-  <a href="https://getartcraft.com/apps/pdfcraft"><b>PdfCraft on getartcraft.com</b></a> ·
-  <a href="https://getartcraft.com/">ArtCraft</a> ·
-  <a href="https://getartcraft.com/apps">All Crafting Apps</a>
-</p>
-
 <br>
 
 <p align="center">
-  <img src="docs/images/pdfcraft-viewer.png" alt="PdfCraft with the PdfCraft Showcase cover page open, the All tools panel on the left and 20 threaded comments on the right" width="100%">
+  <img src="docs/images/pdfcraft-viewer.png" alt="KreativPdf with the KreativPdf Showcase cover page open, the All tools panel on the left and 20 threaded comments on the right" width="100%">
   <br>
-  <sub>The PdfCraft Showcase, a 13-page specimen PDF, open with the All tools panel and threaded comments.</sub>
+  <sub>The KreativPdf Showcase, a 13-page specimen PDF, open with the All tools panel and threaded comments.</sub>
 </p>
-
-> [!NOTE]
-> **ArtCraft is a community of artists from all walks of life.** Digital, generative, music,
-> games &mdash; if you make things, you're one of us. **[Come say hi on Discord](https://discord.gg/artcraft).**
 
 <p align="center">
   <a href="#highlights">Highlights</a> ·
@@ -57,9 +47,10 @@
 
 ## Community
 
-PdfCraft is part of [ArtCraft](https://getartcraft.com). Come say hello, get help and follow development:
+KreativPdf is part of Kreativ Tools by Design Kreativ. Get the source, report a problem or ask for help:
 
 - **Source:** [github.com/designkreativ/pdfcraft](https://github.com/designkreativ/pdfcraft)
+- **Issues:** [github.com/designkreativ/pdfcraft/issues](https://github.com/designkreativ/pdfcraft/issues)
 
 ## Highlights
 
@@ -90,7 +81,7 @@ No account, no telemetry, no cloud. It works offline and opens instantly. The en
 
 ## Read anything, beautifully
 
-PdfCraft renders PDFs with care for the details that make a page feel right: kerning and ligatures, right-to-left and complex scripts, vertical CJK, colour emoji, shadings, blend modes, soft masks and optional content.
+KreativPdf renders PDFs with care for the details that make a page feel right: kerning and ligatures, right-to-left and complex scripts, vertical CJK, colour emoji, shadings, blend modes, soft masks and optional content.
 
 <p align="center">
   <img src="docs/images/pdfcraft-scripts.png" alt="The Scripts of the World page: Arabic, Hebrew, Devanagari, Thai, Greek, Cyrillic, Chinese, Korean, IPA, Armenian, Georgian and Tamil samples, with vertical Japanese in the right margin" width="100%">
@@ -163,7 +154,7 @@ Open **Organize pages** to see every page at once:
 
 When open documents exceed the window width, scroll over the tab strip with the mouse wheel or trackpad, or use its horizontal scrollbar. Opening or switching to a document brings its tab into view.
 
-Unsaved documents carry a dot on their tab, and closing or quitting asks before anything is lost. Changes are autosaved every minute. If PdfCraft ever quits unexpectedly, it offers to recover your work the next time it opens. Encrypted documents stay encrypted on disk.
+Unsaved documents carry a dot on their tab, and closing or quitting asks before anything is lost. Changes are autosaved every minute. If KreativPdf ever quits unexpectedly, it offers to recover your work the next time it opens. Encrypted documents stay encrypted on disk.
 
 </td>
 <td width="50%" valign="top"><img src="docs/images/pdfcraft-split.png" alt="The Split document dialog over the organize view, set to one page per file and reporting that it creates 13 files from 13 pages"><br><sub>Split document: one page per file makes 13 files.</sub></td>
@@ -194,12 +185,12 @@ pdfcraft-cli split   report.pdf --every 10 --out-dir parts/
 
 ## Open protected documents and respect their rules
 
-PdfCraft implements the PDF standard security handler completely:
+KreativPdf implements the PDF standard security handler completely:
 - every revision, from 40-bit RC4 to AES-256;
 - user and owner passwords, including Unicode passwords normalised with SASLprep;
 - crypt filters and attachment-only encryption.
 
-Documents restricted by their author show a clear notice, and PdfCraft honours their permissions. Enter the owner password and the restrictions lift. Edits to encrypted documents are saved encrypted, under the same keys.
+Documents restricted by their author show a clear notice, and KreativPdf honours their permissions. Enter the owner password and the restrictions lift. Edits to encrypted documents are saved encrypted, under the same keys.
 
 <table>
 <tr>
@@ -277,7 +268,7 @@ Every engine feature is reachable without the GUI, through one table of JSON-Sch
 
   With `--root`, every file the script's steps read or write stays in that directory, including the PNG a step saves with `"out"` (the script itself is read from wherever you name it).
 
-- **An MCP server**, for AI agents such as Claude. **It is opt-in:** PdfCraft never starts it on its own, and it opens no network port. It runs only while an agent launches `pdfcraft-cli mcp`, talks over stdin/stdout, and stops when the agent disconnects. To enable it, add it to your agent's MCP configuration:
+- **An MCP server**, for AI agents such as Claude. **It is opt-in:** KreativPdf never starts it on its own, and it opens no network port. It runs only while an agent launches `pdfcraft-cli mcp`, talks over stdin/stdout, and stops when the agent disconnects. To enable it, add it to your agent's MCP configuration:
 
   ```json
   { "mcpServers": { "pdfcraft": { "command": "pdfcraft-cli", "args": ["mcp", "--root", "/path/to/your/pdfs"] } } }
@@ -327,7 +318,7 @@ and floating geometry. Invalid requests return an error without changing the doc
 
 ## How it's built
 
-PdfCraft is a Cargo workspace of focused crates, layered so the core never depends on the UI:
+KreativPdf is a Cargo workspace of focused crates, layered so the core never depends on the UI:
 
 | Crate | What it does |
 |---|---|
@@ -356,14 +347,14 @@ On top of those, two corpus sweeps run over real-world files:
 The output is verified against independent implementations: hayro and qpdf on every CI run, and
 poppler over the corpus on demand (`cargo xtask text-oracle`).
 
-PdfCraft is a clean-room implementation. Its behaviour comes from the ISO 32000 specification and black-box observation, never from anyone else's code. Every icon, font and image is openly licensed and listed in [ATTRIBUTION.md](ATTRIBUTION.md).
+KreativPdf is a clean-room implementation. Its behaviour comes from the ISO 32000 specification and black-box observation, never from anyone else's code. Every icon, font and image is openly licensed and listed in [ATTRIBUTION.md](ATTRIBUTION.md).
 
 ## Get started
 
 Building needs Rust 1.95 or later.
 
 ```sh
-git clone https://github.com/storytold/pdfcraft
+git clone https://github.com/designkreativ/pdfcraft
 cd pdfcraft
 cargo xtask models                                # fetch the OCR models Scan & OCR needs (release builds include them)
 cargo run --release -p pdfcraft -- some.pdf     # desktop app
@@ -387,11 +378,11 @@ git clone https://github.com/storytold/craft-fonts ../craft-fonts
 CRAFT_FONTS_DIR=../craft-fonts cargo run --release -p pdfcraft -- some.pdf
 ```
 
-Each [GitHub release](https://github.com/storytold/pdfcraft/releases) has ready-made builds for macOS,
+Each [GitHub release](https://github.com/designkreativ/pdfcraft/releases) has ready-made builds for macOS,
 Windows, Linux (AppImage, Flatpak, `.deb`, `.rpm` and a tarball), FreeBSD and the web; see
 [Downloads](#downloads). On Gentoo, the community [::snakebyte
 overlay](https://github.com/switch87/snakebyte-overlay) packages the Linux release as
-`app-text/pdfcraft-bin` (not maintained by the PdfCraft team):
+`app-text/pdfcraft-bin` (not maintained by the KreativPdf team):
 
 ```sh
 eselect repository add snakebyte git https://github.com/switch87/snakebyte-overlay.git
@@ -404,9 +395,9 @@ Logs, environment variables and other development notes are in [docs/development
 
 ## What's next
 
-PdfCraft is young and moving fast. The aim is a workbench where you can view, organize, annotate, fill, sign and edit PDFs, for professional and everyday workflows.
+KreativPdf is young and moving fast. The aim is a workbench where you can view, organize, annotate, fill, sign and edit PDFs, for professional and everyday workflows.
 
-**Where it stands (October 2026), honestly:** PdfCraft is **alpha**. Most essential offline PDF features exist in some form (57% of the features tracked in [docs/target-app-parity.md](docs/target-app-parity.md), 94% of core essentials). For everyday work (viewing, commenting, filling and signing forms, organizing pages) readiness is about 55%; across all professional workflows, about 49%; for someone who only needs the essentials, about 66%. Every everyday workflow can be completed, but converting and sharing is weak: no office-document-to-PDF, and .docx export that loses layout.
+**Where it stands (October 2026), honestly:** KreativPdf is **alpha**. Most essential offline PDF features exist in some form (57% of the features tracked in [docs/target-app-parity.md](docs/target-app-parity.md), 94% of core essentials). For everyday work (viewing, commenting, filling and signing forms, organizing pages) readiness is about 55%; across all professional workflows, about 49%; for someone who only needs the essentials, about 66%. Every everyday workflow can be completed, but converting and sharing is weak: no office-document-to-PDF, and .docx export that loses layout.
 
 - **Good today:** viewing and search; organizing, combining and splitting; most kinds of comment; filling and authoring forms (with sandboxed JavaScript); passwords, redaction and sanitizing; basic digital signatures; printing; the Accessibility Checker; agent control through the CLI and MCP.
 - **Still borrowed:** pages are drawn by the `hayro` crate while our own renderer is built.
@@ -421,9 +412,9 @@ The summary is in **[ROADMAP.md](ROADMAP.md)**; the full assessment by dimension
 
 ## Downloads
 
-**New to PdfCraft?** Download it from the [PdfCraft page on getartcraft.com](https://getartcraft.com/apps/pdfcraft). That's the easiest way to install it.
+**New to KreativPdf?** Download it from the [latest release](https://github.com/designkreativ/pdfcraft/releases/latest). That's the easiest way to install it.
 
-**Want a specific build or format?** On GitHub, the [latest release](https://github.com/storytold/pdfcraft/releases/latest) has every build listed below, and [all releases](https://github.com/storytold/pdfcraft/releases) has earlier versions and their notes. `<ver>` in the file names is the version number, and `SHA256SUMS.txt` lists a checksum for every file.
+**Want a specific build or format?** On GitHub, the [latest release](https://github.com/designkreativ/pdfcraft/releases/latest) has every build listed below, and [all releases](https://github.com/designkreativ/pdfcraft/releases) has earlier versions and their notes. `<ver>` in the file names is the version number, and `SHA256SUMS.txt` lists a checksum for every file.
 
 ### Windows
 
@@ -439,8 +430,8 @@ The portable zip runs from any folder, a USB stick included. Its `portable.txt` 
 logs and crash recovery in a `PdfCraftData` folder next to `pdfcraft.exe`, so nothing is written to
 `%APPDATA%`; delete that file to use the normal per-user folders.
 
-The MSI installs for all users and requires administrator privileges. It adds "Edit with PdfCraft"
-to the right-click menu of PDF files and "Create PDF with PdfCraft…" to the right-click menu of
+The MSI installs for all users and requires administrator privileges. It adds "Edit with KreativPdf"
+to the right-click menu of PDF files and "Create PDF with KreativPdf…" to the right-click menu of
 images (.png .jpg .jpeg .tif .tiff .gif .bmp .jp2 .j2k .jpx) in File Explorer (on Windows 11, under
 "Show more options"), without changing which app opens them by default. For unattended deployment
 without a desktop shortcut, run from an elevated terminal:
@@ -452,8 +443,8 @@ msiexec /i "pdfcraft-<ver>-windows-x64.msi" /qn /norestart INSTALLDESKTOPSHORTCU
 | Property | `=0` leaves out |
 |---|---|
 | `INSTALLDESKTOPSHORTCUT` | the all-users desktop shortcut |
-| `INSTALLPDFCONTEXTMENU` | "Edit with PdfCraft" on PDF files |
-| `INSTALLIMAGECONTEXTMENU` | "Create PDF with PdfCraft…" on images |
+| `INSTALLPDFCONTEXTMENU` | "Edit with KreativPdf" on PDF files |
+| `INSTALLIMAGECONTEXTMENU` | "Create PDF with KreativPdf…" on images |
 
 All three are on for a first install. An upgrade keeps what the installed version has: a shortcut
 or menu entry that is there stays, and one that is missing (left out at install, or a desktop
@@ -508,48 +499,6 @@ Every other Linux build needs glibc 2.35 or newer (Ubuntu 22.04+, Debian 12+, Fe
 | Build | File | Notes |
 |---|---|---|
 | Static site | `pdfcraft-web-<ver>.zip` | Runs in a modern browser; host it on any static server |
-
----
-
-## The Crafting Apps
-
-PdfCraft is one of the **Crafting Apps**: free, open-source creative tools from the
-[ArtCraft](https://getartcraft.com/) team, each written from scratch in Rust and each able to
-stand on its own.
-
-| | App | What it's for | Code | Learn more |
-|:-:|---|---|---|---|
-| <img src="https://raw.githubusercontent.com/storytold/photocraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.photocraft.png" alt="" width="32" height="32"> | **PhotoCraft** | Image editing: layers, masks, type and real PSD files | [GitHub](https://github.com/storytold/photocraft) | [Website](https://getartcraft.com/apps/photocraft) |
-| <img src="https://raw.githubusercontent.com/storytold/vectorcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.vectorcraft.png" alt="" width="32" height="32"> | **VectorCraft** | Vector illustration | [GitHub](https://github.com/storytold/vectorcraft) | [Website](https://getartcraft.com/apps/vectorcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/filmcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.filmcraft.png" alt="" width="32" height="32"> | **FilmCraft** | Video editing, color and sound | [GitHub](https://github.com/storytold/filmcraft) | [Website](https://getartcraft.com/apps/filmcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/lightcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.lightcraft.png" alt="" width="32" height="32"> | **LightCraft** | Photo library and raw development | [GitHub](https://github.com/storytold/lightcraft) | [Website](https://getartcraft.com/apps/lightcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/pdfcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.pdfcraft.png" alt="" width="32" height="32"> | **PdfCraft** | **Reading, organizing and protecting PDFs · you are here** | [GitHub](https://github.com/storytold/pdfcraft) | [Website](https://getartcraft.com/apps/pdfcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/effectcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.effectcraft.png" alt="" width="32" height="32"> | **EffectCraft** | Motion graphics and visual effects | [GitHub](https://github.com/storytold/effectcraft) | [Website](https://getartcraft.com/apps/effectcraft) |
-| <img src="https://raw.githubusercontent.com/storytold/designcraft/main/assets/app-icon/hicolor/64x64/apps/ai.storyteller.designcraft.png" alt="" width="32" height="32"> | **DesignCraft** | Page layout and publishing | [GitHub](https://github.com/storytold/designcraft) | [Website](https://getartcraft.com/apps/designcraft) |
-
-And [**ArtCraft**](https://getartcraft.com/) itself, our AI image and video studio for artists who want real control.
-
-<br>
-
-<p align="center">
-  <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
-</p>
-
-<h3 align="center">Come make things with us</h3>
-
-<p align="center">
-  Our Discord is where artists of every kind hang out: people who paint, shoot, draw, cut film,
-  set type, and people still figuring out what they like to make. Share what you're working on,
-  ask for help, tell us what's broken, or tell us what you wish these tools could do.
-  Whatever your medium and however long you've been at it, you're welcome here.
-</p>
-
-<p align="center">
-  <a href="https://discord.gg/artcraft"><b>discord.gg/artcraft</b></a> ·
-  <a href="https://getartcraft.com/">getartcraft.com</a> ·
-  <a href="https://getartcraft.com/apps">The Crafting Apps</a> ·
-  <a href="https://getartcraft.com/apps/pdfcraft">PdfCraft</a>
-</p>
 
 ---
 

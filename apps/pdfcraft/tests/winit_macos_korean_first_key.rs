@@ -3,7 +3,7 @@
 #[test]
 fn winit_retries_the_first_apple_korean_key_once() {
     // On the first key in a freshly started app, Apple Korean can answer with `insertText` and the
-    // raw compatibility jamo instead of starting a composition, so typing g k s in PdfCraft gave
+    // raw compatibility jamo instead of starting a composition, so typing g k s in KreativPdf gave
     // ㅎㅏㄴ instead of 한. vendor/winit interprets that one key again before sending it to the
     // app, under the conditions `ImeStartup` checks (rust-windowing/winit#4744). A re-vendored copy
     // without the patch would silently bring the bug back: re-apply the patch, or drop the copy once

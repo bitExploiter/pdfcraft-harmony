@@ -142,7 +142,7 @@ fn every_tool_creates_a_drawable_comment() {
 }
 
 /// #260 (page 7): Acrobat draws an Ink annotation as a smooth curve through its `/InkList`
-/// points, where PdfCraft drew straight segments between them. Three or more points now make a
+/// points, where KreativPdf drew straight segments between them. Three or more points now make a
 /// Catmull-Rom spline through every point (as cubic Béziers); two points stay a line, one a dot.
 #[test]
 fn ink_strokes_are_smooth_curves_through_their_points() {

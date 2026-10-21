@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn missing_ocr_models_messages_are_translated() {
         let error = pdfcraft_engine::ocr::OcrError::NoModels.to_string();
-        let notice = "Text recognition isn't installed: its model files are missing. Reinstall PdfCraft, or set PDFCRAFT_MODELS to the folder that holds them.";
+        let notice = "Text recognition isn't installed: its model files are missing. Reinstall KreativPdf, or set PDFCRAFT_MODELS to the folder that holds them.";
         assert!(include_str!("../ocr_ui.rs").contains(notice), "keep in step with ocr_ui.rs");
         for code in ["bg", "cs", "de", "es", "fr", "hu", "ja", "ru", "te", "uk", "zh-hans", "zh-hant"] {
             let lang = Lang::from_code(code).expect("registered");
@@ -2324,7 +2324,7 @@ mod tests {
             "Virš kiekvieno žodžio prideda nematomą tekstą; puslapio vaizdas nesikeičia"
         );
         assert!(
-            tr(lt, "The fonts PdfCraft writes with can't draw “{c}” ({code}), so it shows as ? in every PDF viewer. The text is saved.")
+            tr(lt, "The fonts KreativPdf writes with can't draw “{c}” ({code}), so it shows as ? in every PDF viewer. The text is saved.")
                 .contains("visose PDF žiūryklėse")
         );
     }
@@ -3233,7 +3233,7 @@ mod tests {
         // "حفظ باسم…" as typed; the ellipsis ends the phrase on the left.
         assert_eq!(tr(ar, "Save as…"), "…باسم حفظ");
         // Latin names keep their own direction inside the phrase.
-        assert_eq!(tr(ar, "About PdfCraft"), "PdfCraft حول");
+        assert_eq!(tr(ar, "About KreativPdf"), "KreativPdf حول");
         // A caption's colon stays beside the widget on its right.
         assert_eq!(tr(ar, "Name:"), "الاسم:");
         assert_eq!(tr(ar, "Issued by: "), "عن صادرة: ");

@@ -21,7 +21,7 @@ pub fn exists(name: &str) -> bool {
 }
 
 fn source(name: &str) -> egui::ImageSource<'static> {
-    // PdfCraft caches an unknown name under the resolved fallback name.
+    // KreativPdf caches an unknown name under the resolved fallback name.
     white_icons().source(white_icons().canonical_name(name).unwrap_or("square"))
 }
 

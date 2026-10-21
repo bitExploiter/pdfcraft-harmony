@@ -2,7 +2,7 @@
 
 #[test]
 fn winit_maximizes_a_hidden_windows_window_only_when_it_is_shown() {
-    // eframe creates PdfCraft's window hidden, restores the saved maximized state and shows the
+    // eframe creates KreativPdf's window hidden, restores the saved maximized state and shows the
     // window once its first frame is drawn. winit 0.30.13 applies the maximized state with
     // `ShowWindow(SW_MAXIMIZE)`, which shows a hidden window, so a window closed maximized came back
     // unpainted (white) before its first frame and could lose its focus. vendor/winit maximizes a

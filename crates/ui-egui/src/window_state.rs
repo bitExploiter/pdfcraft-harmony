@@ -85,7 +85,7 @@ mod tests {
     const SHOWN: &str = "(outer_position_pixels:Some((x:200.0,y:200.0)),inner_size_points:Some((x:1320.0,y:940.0)))";
     const MINIMIZED: &str = "(outer_position_pixels:Some((x:-32000.0,y:-32000.0)),inner_size_points:Some((x:0.0,y:0.0)))";
 
-    /// Closing PdfCraft while it was minimized stored a 0 × 0 window off screen.
+    /// Closing KreativPdf while it was minimized stored a 0 × 0 window off screen.
     #[test]
     fn a_minimized_window_keeps_the_last_shown_settings() {
         let mut store = Store::default();

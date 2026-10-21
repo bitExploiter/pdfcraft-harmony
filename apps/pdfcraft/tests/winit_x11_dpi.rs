@@ -1,7 +1,7 @@
 #[test]
 fn winit_carries_the_x11_server_dpi_fallback() {
     // The behavior tests live beside the policy in winit (util::randr::tests).
-    // This guards PdfCraft's vendored copy, which workspace tests do not test itself.
+    // This guards KreativPdf's vendored copy, which workspace tests do not test itself.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let randr = std::fs::read_to_string(root.join("vendor/winit/src/platform_impl/linux/x11/util/randr.rs")).unwrap();
     assert!(randr.contains("let screen = self.default_root();"));

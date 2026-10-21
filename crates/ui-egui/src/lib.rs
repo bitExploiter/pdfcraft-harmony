@@ -1,4 +1,4 @@
-//! pdfcraft-ui-egui — the first PdfCraft shell (L7).
+//! pdfcraft-ui-egui — the first KreativPdf shell (L7).
 //!
 //! Layout grammar follows plan/acrobat/02-ui-ux.md §1, pared down for full-window reading: one tab
 //! strip (Home, Menu, tabs, window buttons), left tool panel, a floating bar at the left with the
@@ -408,7 +408,7 @@ pub enum OsEvent {
 /// Returns the [`OsEvent`]s that arrived since it was last called (set by the desktop app).
 pub type OsEventsFn = Box<dyn FnMut() -> Vec<OsEvent>>;
 
-/// Hands a saved PDF to the page embedding PdfCraft (web): `(name, bytes, save_as)`. `save_as`
+/// Hands a saved PDF to the page embedding KreativPdf (web): `(name, bytes, save_as)`. `save_as`
 /// is `true` for Save As. Set by the web app when a host page (such as a Nextcloud app) asked
 /// for saves; without it the browser downloads the file.
 pub type HostSaveFn = Box<dyn Fn(&str, &[u8], bool) -> Result<(), String>>;
@@ -571,9 +571,9 @@ pub struct PdfCraftApp {
     pub palette_query: String,
     pub all_tools_expanded: bool,
     pub recent: Vec<RecentFile>,
-    /// Preferences: reopen the files that were open when PdfCraft last closed (#442).
+    /// Preferences: reopen the files that were open when KreativPdf last closed (#442).
     pub reopen_last_session: bool,
-    /// The files open when PdfCraft last closed, read from the settings for
+    /// The files open when KreativPdf last closed, read from the settings for
     /// [`PdfCraftApp::reopen_last_files`].
     pub last_session: last_session::LastSession,
     /// Quitting closes unsaved tabs one by one: what was open when the quit began.
@@ -1982,7 +1982,7 @@ impl PdfCraftApp {
         client
     }
 
-    /// Open a web link in the system browser (a new tab on the web). Only for PdfCraft's own
+    /// Open a web link in the system browser (a new tab on the web). Only for KreativPdf's own
     /// links; an address that came from a document goes through [`Self::request_document_url`].
     pub fn open_url(&mut self, url: &str) {
         if let Some(ctx) = &self.ctx {
@@ -2005,9 +2005,9 @@ impl PdfCraftApp {
             Err(e) => {
                 use pdfcraft_engine::links::BlockedLink;
                 let template = if matches!(e, BlockedLink::MailFile | BlockedLink::MailEncodedWord) {
-                    "{who} in this document tried to open an address PdfCraft won't open: {e}."
+                    "{who} in this document tried to open an address KreativPdf won't open: {e}."
                 } else {
-                    "{who} in this document tried to open an address PdfCraft won't open: {e}. Only web (http, https) and email (mailto) links open from documents."
+                    "{who} in this document tried to open an address KreativPdf won't open: {e}. Only web (http, https) and email (mailto) links open from documents."
                 };
                 self.notify_fmt(template, &[("who", tl!(origin.noun())), ("e", &e.to_string())]);
             }
@@ -3236,7 +3236,7 @@ impl PdfCraftApp {
             .active
             .and_then(|i| crate::canvas::tab_label(self, i))
             .or_else(|| self.combine_showing().then(|| tl!("Combine files").to_owned()))
-            .map_or_else(|| "PdfCraft".to_owned(), |name| format!("{name} — PdfCraft"));
+            .map_or_else(|| "KreativPdf".to_owned(), |name| format!("{name} — KreativPdf"));
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.window_title = title;

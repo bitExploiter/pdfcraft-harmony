@@ -1,10 +1,10 @@
-//! The one chain PdfCraft follows when a document does not embed a font program, and a record of
+//! The one chain KreativPdf follows when a document does not embed a font program, and a record of
 //! what it chose and why.
 //!
 //! Substitution used to be decided per caller and never written down: `edit` picked a craft face
 //! by the script of the text it was drawing, `Std14::from_base_font` matched Latin names, and the
 //! renderer did its own thing. Nothing told the *user* that the glyphs they are looking at are not
-//! the ones the document asked for, which is the difference between "PdfCraft shows nothing for my
+//! the ones the document asked for, which is the difference between "KreativPdf shows nothing for my
 //! Chinese PDF" being a mystery and being a sentence.
 //!
 //! This module answers the *dictionary* question — "the document does not carry this program; what

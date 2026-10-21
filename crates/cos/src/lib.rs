@@ -2,7 +2,7 @@
 //!
 //! Parses the COS object graph lazily and tolerantly, keeps edits in a copy-on-write overlay
 //! (cheap snapshots for undo), and writes documents back either incrementally (original bytes
-//! untouched) or as a full, garbage-collected rewrite. The PDF object graph *is* PdfCraft's
+//! untouched) or as a full, garbage-collected rewrite. The PDF object graph *is* KreativPdf's
 //! document model (plan/architecture.md §5, ADR-0010).
 //!
 //! Done: every cross-reference form (tables, streams, hybrid `/XRefStm`), object streams, repair

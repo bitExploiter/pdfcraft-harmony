@@ -43,7 +43,7 @@ delete_field(&mut doc, "email")?;
   `undrawn_fields` lists the marked fields; the engine reports each edit that draws one, and
   flattening refuses to make that `?` permanent.
 - Check boxes and radio buttons switch `/V` and each widget's `/AS`. Widgets with no appearances
-  get PdfCraft's own (a drawn check mark or dot; no symbol font needed).
+  get KreativPdf's own (a drawn check mark or dot; no symbol font needed).
 - Values are validated (options, `MaxLen`, single vs multi-select, NoToggleToOff, read-only) and a
   failed call changes nothing.
 - `FieldProps::appearance` applies a `LookPatch` independently to each widget. `None` keeps

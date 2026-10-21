@@ -2,7 +2,7 @@
 //!
 //! The desktop app supplies how to ask ([`PdfCraftApp::update_source`]), so this crate has no
 //! network code; without a source (the web build, tests) the command opens the releases page.
-//! PdfCraft never downloads or installs anything itself: the user downloads the new version.
+//! KreativPdf never downloads or installs anything itself: the user downloads the new version.
 //! It asks only when the user does: there is no check at start (the owner's decision).
 
 use std::sync::Arc;
@@ -11,8 +11,8 @@ use egui::{Align, Layout};
 
 use crate::{PdfCraftApp, theme, widgets};
 
-/// Where every PdfCraft release is listed.
-pub const RELEASES_PAGE: &str = "https://github.com/storytold/pdfcraft/releases";
+/// Where every KreativPdf release is listed.
+pub const RELEASES_PAGE: &str = "https://github.com/designkreativ/pdfcraft/releases";
 
 /// The latest published release.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,7 +136,7 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
             }
             Check::Done(Ok(r)) if is_newer(&r.version, current) => {
                 let version = r.version.trim_start_matches(['v', 'V']);
-                ui.label(egui::RichText::new(crate::i18n::fmt(tl!("PdfCraft {v} is available."), &[("v", version)])).strong());
+                ui.label(egui::RichText::new(crate::i18n::fmt(tl!("KreativPdf {v} is available."), &[("v", version)])).strong());
                 ui.label(
                     egui::RichText::new(crate::i18n::fmt(
                         tl!("You have version {c}. Download the new version from its release page."),
@@ -147,7 +147,7 @@ pub(crate) fn dialog(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 download = Some(r.url.clone());
             }
             Check::Done(Ok(_)) => {
-                ui.label(crate::i18n::fmt(tl!("PdfCraft {c} is up to date."), &[("c", current)]));
+                ui.label(crate::i18n::fmt(tl!("KreativPdf {c} is up to date."), &[("c", current)]));
             }
             Check::Done(Err(e)) => {
                 ui.label(crate::i18n::fmt(tl!("Couldn't check for updates: {e}"), &[("e", &e.to_string())]));

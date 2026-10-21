@@ -137,7 +137,7 @@ fn text_keeps_leading_spaces_and_tabs() {
 }
 
 /// Text Helvetica can't draw is refused with its line and character, never set as `?`; text
-/// PdfCraft generates writes such characters as [U+XXXX] and says so.
+/// KreativPdf generates writes such characters as [U+XXXX] and says so.
 #[test]
 fn text_helvetica_cannot_draw_is_refused_or_escaped() {
     let err = from_text("notes", "Café —\tok\r\n\u{c}第二页 notes", LETTER, 11.0).unwrap_err();

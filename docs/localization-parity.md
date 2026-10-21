@@ -3,7 +3,7 @@
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (Vietnamese 100% of current key union; native-speaker community review; twelve-language mean ≈68%) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (Italian count after completing its catalog) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
-Per-language status of PdfCraft's interface against Acrobat Pro's. How translations work and how to
+Per-language status of KreativPdf's interface against Acrobat Pro's. How translations work and how to
 add a language: [localization.md](localization.md). Summary in [ROADMAP.md](../ROADMAP.md).
 
 ## How this was measured
@@ -73,10 +73,10 @@ none has translated help. Vietnamese's **To `full`** hours are therefore residua
 
 **14 other languages** ship (22 catalogs plus English = **23** interface languages in Preferences).
 The entry counts without percentages were measured on 2026-10-12–13; they are not percentages of the older 2,143-key snapshot above. Their presence does not imply a detailed linguistic or runtime review.
-Acrobat languages PdfCraft lacks: Danish, Dutch, Finnish, Norwegian, Swedish, Hebrew. Vietnamese is shipped here but not by Acrobat.
+Acrobat languages KreativPdf lacks: Danish, Dutch, Finnish, Norwegian, Swedish, Hebrew. Vietnamese is shipped here but not by Acrobat.
 **14 other languages** ship (21 catalogs plus English, 22 interface languages in Preferences).
 The entry counts without percentages were measured on 2026-10-12 (Italian on 2026-10-14); they are not percentages of the older 2,143-key snapshot above. Their presence does not imply a detailed linguistic or runtime review.
-Acrobat languages PdfCraft lacks: Danish, Dutch, Finnish, Norwegian, Swedish, Hebrew.
+Acrobat languages KreativPdf lacks: Danish, Dutch, Finnish, Norwegian, Swedish, Hebrew.
 
 ## Revision history
 

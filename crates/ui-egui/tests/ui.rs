@@ -34,7 +34,7 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, P
 #[test]
 fn home_shows_welcome_and_tools() {
     let h = harness(|_| {});
-    h.get_by_label_contains("Welcome to PdfCraft");
+    h.get_by_label_contains("Welcome to KreativPdf");
     assert!(h.query_all_by_label("Organize pages").count() >= 2, "tool list + home card");
     h.get_by_label("Open file");
 }
@@ -111,7 +111,7 @@ fn home_removes_one_recent_file_or_clears_them_all() {
     h.get_by_label("Clear Recent Files").click();
     h.run_steps(2);
     assert!(h.state().recent.is_empty(), "Clear empties the list");
-    h.get_by_label_contains("Files you open in PdfCraft appear here");
+    h.get_by_label_contains("Files you open in KreativPdf appear here");
     assert!(h.query_by_label("Clear Recent Files").is_none(), "and goes away with nothing left to clear");
 }
 
@@ -136,7 +136,7 @@ fn opening_a_pdf_shows_comments_and_bookmarks() {
     h.get_by_label("Beta section");
 }
 
-/// #1590: side panes the user closed stay closed when PdfCraft restarts and opens another PDF,
+/// #1590: side panes the user closed stay closed when KreativPdf restarts and opens another PDF,
 /// even one with comments and bookmarks, which would otherwise open on the Comments panel.
 #[test]
 fn closed_side_panes_stay_closed_after_a_restart_and_opening_a_pdf() {
@@ -1150,7 +1150,7 @@ fn closing_the_last_active_tab_selects_the_previous_one_then_home() {
         assert!(app.session.get(ids[removed]).is_none());
     }
     assert_eq!(h.state().active, None);
-    h.get_by_label_contains("Welcome to PdfCraft");
+    h.get_by_label_contains("Welcome to KreativPdf");
 }
 
 #[test]

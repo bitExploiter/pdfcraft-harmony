@@ -1,6 +1,6 @@
 # pdfcraft-fonts
 
-Layer L2. Font helpers for the appearance streams PdfCraft generates (comments, form fields).
+Layer L2. Font helpers for the appearance streams KreativPdf generates (comments, form fields).
 
 Today it holds what generated appearances need without a font program:
 

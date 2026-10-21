@@ -1,4 +1,4 @@
-//! PdfCraft desktop app.
+//! KreativPdf desktop app.
 //!
 //! Usage: `pdfcraft [options] [files…]`
 //! `--create-images [images…]` stages the images in one PDF and asks for the page DPI.
@@ -11,7 +11,7 @@
 //!  --combine-view grid|list  --combine-zoom 60..200`
 //!
 //! `--new-window` opens a window of its own. Without it, on Windows, a launch that only names files
-//! hands them to the PdfCraft already running, where they open as tabs (`single_instance`).
+//! hands them to the KreativPdf already running, where they open as tabs (`single_instance`).
 //!
 //! `--control <file>` enables the UI control channel (off by default): the app listens on a random
 //! loopback port and writes `{"port", "token", "pid"}` to `<file>` (owner-only permissions). The
@@ -60,7 +60,7 @@ const LEGACY_STORAGE_KEY: &str = "printcraft";
 
 /// The preferences folder (`app.ron`, docs/development.md). In portable mode
 /// it is `PdfCraftData` beside the executable (#157). XDG desktops use the configuration base;
-/// other platforms retain eframe's PdfCraft folder. Logs and recovery stay in the data folder.
+/// other platforms retain eframe's PdfCraft folder (a storage name, kept so settings carry over).
 fn settings_dir() -> Option<std::path::PathBuf> {
     let legacy = eframe::storage_dir("PdfCraft");
     match settings::directory(
@@ -231,13 +231,13 @@ fn main() -> eframe::Result {
         (logger, pdfcraft_ui_egui::portable::data_dir().map(std::path::Path::to_path_buf).or_else(|| eframe::storage_dir("PdfCraft")))
     {
         match logger.attach_dir(&dir.join("logs")) {
-            Ok(path) => log::info!("PdfCraft {}, log file {}", pdfcraft_engine::build_info::version(), path.display()),
+            Ok(path) => log::info!("KreativPdf {}, log file {}", pdfcraft_engine::build_info::version(), path.display()),
             // Standard error only by now (`attach_dir` gave up on the file); unlike `eprintln!`, never panics.
             Err(e) => log::warn!("no log file: {e}"),
         }
     }
     // Windows, Linux and the BSDs: a launch that only names files (an Outlook attachment, an
-    // Explorer double-click, a file manager or `xdg-open`) hands them to the PdfCraft already
+    // Explorer double-click, a file manager or `xdg-open`) hands them to the KreativPdf already
     // running and exits (#282, #317, #1726). Any option means the caller wants this launch's own
     // window.
     let may_hand_off = !new_window && !files.is_empty() && options.is_empty() && control_file.is_none() && !create_images;
@@ -259,7 +259,7 @@ fn main() -> eframe::Result {
     let started = Rc::new(Cell::new(false));
     let first = if choice == RendererChoice::Gl { eframe::Renderer::Glow } else { eframe::Renderer::Wgpu };
     let result = eframe::run_native(
-        "PdfCraft",
+        "KreativPdf",
         native_options(launch.integrated, launch.window_controls.is_some(), first),
         app_creator(
             launch.clone(),
@@ -277,7 +277,7 @@ fn main() -> eframe::Result {
             // usually still works there, so that's better than quitting.
             log::error!("the GPU renderer (wgpu) didn't start: {e}. Starting with OpenGL instead; set PDFCRAFT_RENDERER=gl to skip wgpu.");
             eframe::run_native(
-                "PdfCraft",
+                "KreativPdf",
                 native_options(launch.integrated, launch.window_controls.is_some(), eframe::Renderer::Glow),
                 app_creator(
                     launch,
@@ -320,7 +320,7 @@ fn retry_with_gl(choice: RendererChoice, app_started: bool) -> bool {
 /// The window and renderer settings for one run.
 fn native_options(integrated: bool, app_frame: bool, renderer: eframe::Renderer) -> eframe::NativeOptions {
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("PdfCraft")
+        .with_title("KreativPdf")
         .with_inner_size([1440.0, 920.0])
         .with_min_inner_size([820.0, 520.0])
         .with_drag_and_drop(true)
@@ -408,7 +408,7 @@ fn app_creator<'a>(
             app.os_events = Some(apple_events.connect(&cc.egui_ctx));
             // winit's Quit (⌘Q) ends the process without asking about unsaved changes (#1136). This
             // menu's Quit closes the window instead, so `guard_quit` asks, as for the close button.
-            if let Err(e) = craft_quit::install_app_menu(&cc.egui_ctx, "PdfCraft") {
+            if let Err(e) = craft_quit::install_app_menu(&cc.egui_ctx, "KreativPdf") {
                 log::warn!("couldn't install the app menu, so ⌘Q quits without asking to save: {e}");
             }
         }
@@ -470,7 +470,7 @@ fn app_creator<'a>(
 /// `unsafe` calls.
 fn notify_software_renderer(app: &mut PdfCraftApp, device_type: eframe::wgpu::DeviceType) {
     if device_type == eframe::wgpu::DeviceType::Cpu {
-        app.notify_tr("PdfCraft is drawing without a graphics processor, so it may be slow. Updating the graphics driver may help.");
+        app.notify_tr("KreativPdf is drawing without a graphics processor, so it may be slow. Updating the graphics driver may help.");
     }
 }
 
@@ -565,7 +565,7 @@ fn write_control_file(path: &str, port: u16, token: &str) -> std::io::Result<()>
 ///   on the discrete one.
 /// - On Windows, use Direct3D 12, falling back to OpenGL, and never load Vulkan drivers unless
 ///   `WGPU_BACKEND` asks for them. Creating a Vulkan instance loads every installed Vulkan driver
-///   into the process, and a faulty one (an Intel driver in issue #37) crashed PdfCraft before
+///   into the process, and a faulty one (an Intel driver in issue #37) crashed KreativPdf before
 ///   its window appeared. D3D12 is the native, best-supported backend there.
 fn configure_gpu(native: &mut eframe::NativeOptions) {
     let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut native.wgpu_options.wgpu_setup else { return };
@@ -1049,8 +1049,8 @@ mod tests {
     fn a_gpu_error_while_a_window_is_set_up_is_returned_not_a_panic() {
         // Issue #519: on a 2015 Intel GPU, wgpu's GL backend couldn't configure the window's
         // surface (`GpuWaitTimeout`), and wgpu's default error handler panicked before the app was
-        // created, so PdfCraft never got to retry with OpenGL. vendor/egui-wgpu configures a new
-        // window's surface inside `catch_errors`. A real device on PdfCraft's own GPU settings,
+        // created, so KreativPdf never got to retry with OpenGL. vendor/egui-wgpu configures a new
+        // window's surface inside `catch_errors`. A real device on KreativPdf's own GPU settings,
         // and an error wgpu raises before anything reaches the driver: a texture one pixel wider
         // than the device allows.
         use eframe::wgpu;

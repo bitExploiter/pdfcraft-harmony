@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::{Dialog, PdfCraftApp};
 
 const COMMUNITY_LABELS: [&str; 6] =
-    ["Discord", "Join the ArtCraft community", "Join our Discord", "PdfCraft web page", "PdfCraft on GitHub", "ArtCraft website"];
+    ["Discord", "Join the ArtCraft community", "Join our Discord", "KreativPdf web page", "KreativPdf on GitHub", "ArtCraft website"];
 
 fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, PdfCraftApp> {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
@@ -22,7 +22,7 @@ fn harness(setup: impl FnOnce(&mut PdfCraftApp) + 'static) -> Harness<'static, P
 #[test]
 fn home_screen_and_top_bar_have_no_community_links() {
     let h = harness(|_| {});
-    h.get_by_label("Welcome to PdfCraft");
+    h.get_by_label("Welcome to KreativPdf");
     h.get_by_label("Keyboard shortcuts");
     for label in COMMUNITY_LABELS {
         assert!(h.query_by_label(label).is_none(), "{label} is on screen");

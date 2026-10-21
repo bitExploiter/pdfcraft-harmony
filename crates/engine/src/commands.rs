@@ -372,7 +372,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     c("page.number", "Number pages…", PAGES, None, Assembly, "hash"),
     c("help.shortcuts", "Keyboard shortcuts", HELP, None, Nothing, "circle-help"),
     c("help.check_updates", "Check for updates…", HELP, None, Nothing, "cloud"),
-    c("help.about", "About PdfCraft", HELP, None, Nothing, "info"),
+    c("help.about", "About KreativPdf", HELP, None, Nothing, "info"),
 ];
 
 pub fn command(id: &str) -> Option<&'static CommandSpec> {

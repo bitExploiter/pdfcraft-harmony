@@ -13,9 +13,10 @@ fn main() {
         return;
     }
     let mut res = winresource::WindowsResource::new();
-    res.set("ProductName", "PdfCraft")
-        .set("FileDescription", "PdfCraft command-line tool")
-        .set("LegalCopyright", "Copyright (c) the PdfCraft contributors. MIT OR Apache-2.0.")
+    res.set("ProductName", "KreativPdf")
+        .set("CompanyName", "Design Kreativ")
+        .set("FileDescription", "KreativPdf command-line tool")
+        .set("LegalCopyright", "Copyright (c) 2026 Design Kreativ. Based on PdfCraft, copyright (c) the PdfCraft contributors. MIT OR Apache-2.0.")
         .set("OriginalFilename", "pdfcraft-cli.exe")
         .set("InternalName", "pdfcraft-cli");
     if let Err(e) = res.compile() {
