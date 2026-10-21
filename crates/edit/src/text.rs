@@ -564,9 +564,28 @@ pub(crate) fn splice(pieces: &Pieces, ops: &[Op], mut edit: impl FnMut(usize) ->
                 bytes.push(b'\n');
             }
             bytes.extend_from_slice(&serialize_ops(&insert));
+            // In place of an operator followed by white space, that white space ends the insert.
+            if !keep && data.get(op.span.end).is_some_and(u8::is_ascii_whitespace) {
+                while bytes.last().is_some_and(u8::is_ascii_whitespace) {
+                    bytes.pop();
+                }
+            }
         }
         let end = if keep { op.span.start } else { op.span.end };
-        edits.push((op.span.start..end, bytes));
+        // A run of dropped operators goes with the white space between them, so dropping a
+        // whole block leaves no blank lines behind.
+        let start = match i.checked_sub(1).and_then(|p| ops.get(p)) {
+            Some(prev)
+                if !keep
+                    && edits.last().is_some_and(|(r, _): &(std::ops::Range<usize>, _)| r.end == prev.span.end)
+                    && pieces.piece_of(prev.span.end) == pieces.piece_of(op.span.start)
+                    && data.get(prev.span.end..op.span.start).is_some_and(|gap| gap.iter().all(u8::is_ascii_whitespace)) =>
+            {
+                prev.span.end
+            }
+            _ => op.span.start,
+        };
+        edits.push((start..end, bytes));
     }
     pieces.splice(edits)
 }
@@ -2554,15 +2573,28 @@ fn rewrite_block_from(
         .iter()
         .enumerate()
         .any(|(i, op)| matches!(op.op.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"") && !drop.contains(&(emit.bt_op + i)));
-    // What the text after the paragraph expects: the state at its BT (or where it was split).
-    let after = if split { &emit.state } else { &emit.bt_state };
-    block_ops.extend(after.ops().into_iter().filter(|op| !op.is("Tf") || after.font.is_some()));
-    if split {
-        block_ops.insert(0, Op::new("ET", vec![]));
-        block_ops.push(Op::new("BT", vec![]));
-        block_ops.push(Op::new("Tm", emit.tlm.iter().map(|v| n(*v)).collect()));
-    }
-    let at = if split { start } else { emit.bt_op };
+    // A text object that shows only this paragraph, alone in its own `q [cm …] BT … ET Q` (the
+    // block an earlier edit wrote), is replaced whole: nesting the new block inside it would add
+    // one more `q` level and one more empty text object with every edit.
+    let replaced = if split { None } else { enclosing_block(&ops, emit.bt_op, &drop) };
+    let at = if let Some((q, end)) = replaced {
+        // Its transforms stay: the paragraph's position and the move are in the space they make.
+        let cms = ops.get(q + 1..emit.bt_op).unwrap_or_default().iter().cloned();
+        block_ops.splice(1..1, cms);
+        drop.extend(q..=end);
+        q
+    } else {
+        // What the text after the paragraph expects: the state at its BT (or where it was split).
+        // A replaced block's `Q` restores it, and the restatement after that block stays.
+        let after = if split { &emit.state } else { &emit.bt_state };
+        block_ops.extend(after.ops().into_iter().filter(|op| !op.is("Tf") || after.font.is_some()));
+        if split {
+            block_ops.insert(0, Op::new("ET", vec![]));
+            block_ops.push(Op::new("BT", vec![]));
+            block_ops.push(Op::new("Tm", emit.tlm.iter().map(|v| n(*v)).collect()));
+        }
+        if split { start } else { emit.bt_op }
+    };
     let new_data = splice(&pieces, &ops, |i| {
         let insert = if i == at { std::mem::take(&mut block_ops) } else { Vec::new() };
         (insert, !drop.contains(&i))
@@ -2579,6 +2611,18 @@ fn rewrite_block_from(
         }
     })?;
     Ok(LineEdit { substituted })
+}
+
+/// The `q` and `Q` around the text object starting at `bt`, when they hold only that object and
+/// the `cm`s before it (`q cm… BT … ET Q`) and the object shows nothing outside `drop`.
+fn enclosing_block(ops: &[Op], bt: usize, drop: &std::collections::HashSet<usize>) -> Option<(usize, usize)> {
+    let et = bt + ops.get(bt..)?.iter().position(|op| op.is("ET"))?;
+    let shows = |(i, op): (usize, &Op)| matches!(op.op.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"") && !drop.contains(&i);
+    if ops.get(bt..=et)?.iter().enumerate().any(|(i, op)| shows((bt + i, op))) {
+        return None;
+    }
+    let q = (0..bt).rev().find(|i| ops.get(*i).is_none_or(|op| !op.is("cm")))?;
+    (ops.get(q)?.is("q") && ops.get(et + 1)?.is("Q")).then_some((q, et + 1))
 }
 
 /// The cover (when [`BlockStyle::cover`] asks for one) and visible rendering that start a
