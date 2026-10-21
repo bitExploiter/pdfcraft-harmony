@@ -905,6 +905,15 @@ fn is_complex(c: char) -> bool {
     matches!(c as u32, 0x0300..=0x036F | 0x0900..=0x0DFF | 0x0E00..=0x0EFF | 0x1000..=0x109F | 0x1780..=0x17FF)
 }
 
+/// Hangul, which [`is_cjk`] counts as CJK: syllables, the two jamo blocks and the compatibility
+/// jamo. Korean is written with spaces between its words (띄어쓰기), unlike Chinese and Japanese,
+/// so a gap between two Korean syllables may be a word gap and is read as one from half a line
+/// height upwards -- a document that writes its spaces as position rather than as space
+/// characters would otherwise lose them (#3722 review).
+fn is_hangul(c: char) -> bool {
+    matches!(c as u32, 0x1100..=0x11FF | 0x3130..=0x318F | 0xA960..=0xA97F | 0xAC00..=0xD7AF)
+}
+
 fn is_cjk(c: char) -> bool {
     matches!(c as u32, 0x2E80..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFF00..=0xFFEF | 0x20000..=0x3134F | 0x1100..=0x11FF)
 }
@@ -1008,7 +1017,9 @@ struct Scratch {
     /// The current segment's glyphs in visual reading order, and its forced word breaks.
     placed: Vec<usize>,
     breaks: Vec<usize>,
-    /// The gaps between the current segment's glyphs, and its glyphs in logical order when it has right-to-left text.
+    /// The gaps between the current segment's glyphs, in pair order and sorted, and its glyphs in logical order when it
+    /// has right-to-left text.
+    pair_gaps: Vec<f32>,
     gaps: Vec<f32>,
     logical: Vec<usize>,
     /// `placed` with the marks merged in, built before it is swapped in.
@@ -1599,8 +1610,10 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
             place_glyphs(&glyphs, &height, &segs[si], &mut sc);
             let h = segs[si].h;
             // Word gaps relative to this line's typical letter gap (handles tracking).
+            sc.pair_gaps.clear();
+            sc.pair_gaps.extend(sc.placed.windows(2).map(|w| glyphs[w[1]].rect[0] - glyphs[w[0]].rect[2]));
             sc.gaps.clear();
-            sc.gaps.extend(sc.placed.windows(2).map(|w| glyphs[w[1]].rect[0] - glyphs[w[0]].rect[2]));
+            sc.gaps.extend_from_slice(&sc.pair_gaps);
             sc.gaps.sort_by(f32::total_cmp);
             let typical = sc.gaps.get(sc.gaps.len() / 3).copied().unwrap_or(0.0).max(0.0);
             let threshold = (typical + h * WORD_GAP).max(h * WORD_GAP);
@@ -1610,7 +1623,22 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
                 let &[p, c] = pair else { continue };
                 let gap = glyphs[c].rect[0] - glyphs[p].rect[2];
                 let (pt, ct) = (&glyphs[p].text, &glyphs[c].text);
-                let cjk = pt.chars().any(is_cjk) && ct.chars().any(is_cjk) && gap < h * 0.5;
+                // Character spacing is added after every glyph of a show (`Tc`, ISO 32000-2 §9.3.2), so text spread to a
+                // wider column -- a Chinese label on a form, 分散對齊 -- repeats one gap, while the gap between two cells
+                // of a row stands on its own. A repeated gap is therefore spacing at any width, and a gap of its own is
+                // read as spacing only below one line height. Chinese and Japanese write no spaces between these
+                // characters, so a space inferred inside a label changes what Copy gives and stops Find matching it
+                // (#3713). The whole-line typical gap cannot tell the two apart: on these lines most gaps are the zero
+                // of the value beside the label.
+                let spread = |w: usize| {
+                    let same = |other: Option<&f32>| other.is_some_and(|o| (o - gap).abs() <= h * 0.02);
+                    same(w.checked_sub(1).and_then(|i| sc.pair_gaps.get(i))) || same(sc.pair_gaps.get(w + 1))
+                };
+                // Korean keeps the narrower tolerance and no repetition: its words are separated by spaces, which
+                // a file may write as position rather than as space characters. Measured on three Korean words at
+                // one em, drawn without space glyphs: with the Chinese rule they read as 안녕하세요여러분.
+                let hangul = pt.chars().any(is_hangul) || ct.chars().any(is_hangul);
+                let cjk = pt.chars().any(is_cjk) && ct.chars().any(is_cjk) && if hangul { gap < h * 0.5 } else { gap < h || spread(w) };
                 let tight_cluster = (pt.chars().any(is_complex) || ct.chars().any(is_complex)) && gap < h * 0.6;
                 let run_start = sc.breaks.binary_search(&c).is_ok();
                 if let Some(space) = spaces.get_mut(w + 1) {
@@ -2204,6 +2232,73 @@ mod tests {
         let mut v = Vec::new();
         word(&mut v, "每个字", 10.0, 10.0, 9.0);
         assert_eq!(layout(v).plain_text(), "每个字");
+    }
+
+    /// #3713: a Chinese label spread to the width of a longer one (分散對齊, as on Taiwanese forms)
+    /// is one show with character spacing, so every gap of the label is the same, while the value
+    /// beside it has none. The line's typical gap is therefore the value's zero, and from half a
+    /// line height upwards each of the label's gaps read as a word gap: 「受文者」 copied as
+    /// 「受 文 者」 and Find no longer matched it. A repeated gap is spacing, whatever its width.
+    #[test]
+    fn a_chinese_label_spread_by_character_spacing_keeps_its_characters_together() {
+        // `Tc` is added after every glyph of the string (ISO 32000-2 §9.3.2), so the gap before
+        // the value is the spacing too; the value's own glyphs follow at `0 Tc`.
+        let line = |tc: f32| {
+            let mut v = Vec::new();
+            let mut x = 0.0;
+            for ch in ["受", "文", "者"] {
+                v.push(em_box(ch, x, 0.0, x + 12.0, 12.0));
+                x += 12.0 + tc;
+            }
+            for ch in ["如", "正", "本"] {
+                v.push(em_box(ch, x, 0.0, x + 12.0, 12.0));
+                x += 12.0;
+            }
+            layout(v).plain_text()
+        };
+        // A tenth of the font size up to a whole em: the issue's nine steps, the last three of
+        // which used to break.
+        for tc in [1.2, 2.4, 3.0, 3.6, 4.2, 4.8, 6.0, 9.0, 12.0] {
+            assert_eq!(line(tc), "受文者如正本", "{tc} pt of character spacing");
+        }
+
+        // A gap that stands on its own is still a word gap: two cells of a row, two character
+        // widths apart, keep the space between them.
+        let mut v = Vec::new();
+        for (i, ch) in ["姓", "名"].iter().enumerate() {
+            let x = i as f32 * 12.0;
+            v.push(em_box(ch, x, 0.0, x + 12.0, 12.0));
+        }
+        for (i, ch) in ["王", "小", "明"].iter().enumerate() {
+            let x = 48.0 + i as f32 * 12.0;
+            v.push(em_box(ch, x, 0.0, x + 12.0, 12.0));
+        }
+        assert_eq!(layout(v).plain_text(), "姓名 王小明");
+    }
+
+    /// Korean is written with spaces between words (띄어쓰기), and a file may write them as
+    /// position rather than as space characters, so the rule for Chinese and Japanese -- where a
+    /// gap between two characters is never a word gap -- must not reach Hangul (#3722 review).
+    #[test]
+    fn korean_words_separated_by_position_keep_their_spaces() {
+        let line = |gap: f32| {
+            let mut v = Vec::new();
+            let mut x = 0.0;
+            for word in ["안녕", "하세요", "여러분"] {
+                for ch in word.chars() {
+                    v.push(em_box(&ch.to_string(), x, 0.0, x + 12.0, 12.0));
+                    x += 12.0;
+                }
+                x += gap;
+            }
+            layout(v).plain_text()
+        };
+        // Half the line height upwards is a word gap, as it was before the Chinese rule changed.
+        for gap in [6.0, 7.0, 9.0, 12.0] {
+            assert_eq!(line(gap), "안녕 하세요 여러분", "{gap} pt between the words");
+        }
+        // Below that it is letter spacing, which is unchanged.
+        assert_eq!(line(3.0), "안녕하세요여러분");
     }
 
     /// #1062: the word gap stays between the runs when the right-hand run is drawn first, and
