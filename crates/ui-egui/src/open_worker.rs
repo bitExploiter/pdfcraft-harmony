@@ -59,8 +59,15 @@ pub(crate) struct OpenWorker {
 impl OpenWorker {
     pub fn new(#[cfg(test)] gate: Option<Arc<PrepareGate>>) -> std::io::Result<Self> {
         let queue = Arc::new((Mutex::new(Queue { jobs: VecDeque::new(), shutdown: false, repaint: None }), Condvar::new()));
-        let worker_queue = queue.clone();
-        std::thread::Builder::new().name("pdfcraft-open".into()).spawn(move || run(worker_queue))?;
+        for index in 0..2 {
+            let worker_queue = queue.clone();
+            if let Err(error) = std::thread::Builder::new().name(format!("pdfcraft-open-{index}")).spawn(move || run(worker_queue)) {
+                let (lock, ready) = &*queue;
+                lock.lock().unwrap_or_else(PoisonError::into_inner).shutdown = true;
+                ready.notify_all();
+                return Err(error);
+            }
+        }
         Ok(Self {
             queue,
             #[cfg(test)]
@@ -116,7 +123,7 @@ impl Drop for OpenWorker {
         queue.shutdown = true;
         queue.jobs.clear();
         queue.repaint = None;
-        ready.notify_one();
+        ready.notify_all();
     }
 }
 
@@ -187,12 +194,18 @@ pub(crate) struct PrepareGate {
     pub started: Sender<()>,
     release: Mutex<Receiver<()>>,
     pub finished: Sender<()>,
+    only_first: bool,
+    seen: std::sync::atomic::AtomicBool,
 }
 
 #[cfg(test)]
 impl PrepareGate {
     pub fn pause_before_prepare(&self) {
+        let hold = !self.only_first || !self.seen.swap(true, std::sync::atomic::Ordering::SeqCst);
         let _ = self.started.send(());
+        if !hold {
+            return;
+        }
         if let Ok(release) = self.release.lock() {
             let _ = release.recv();
         }
@@ -204,5 +217,23 @@ pub(crate) fn prepare_gate() -> (Arc<PrepareGate>, Receiver<()>, Sender<()>, Rec
     let (started, started_rx) = mpsc::channel();
     let (release_tx, release) = mpsc::channel();
     let (finished, finished_rx) = mpsc::channel();
-    (Arc::new(PrepareGate { started, release: Mutex::new(release), finished }), started_rx, release_tx, finished_rx)
+    (
+        Arc::new(PrepareGate { started, release: Mutex::new(release), finished, only_first: false, seen: std::sync::atomic::AtomicBool::new(false) }),
+        started_rx,
+        release_tx,
+        finished_rx,
+    )
+}
+
+#[cfg(test)]
+pub(crate) fn first_prepare_gate() -> (Arc<PrepareGate>, Receiver<()>, Sender<()>, Receiver<()>) {
+    let (started, started_rx) = mpsc::channel();
+    let (release_tx, release) = mpsc::channel();
+    let (finished, finished_rx) = mpsc::channel();
+    (
+        Arc::new(PrepareGate { started, release: Mutex::new(release), finished, only_first: true, seen: std::sync::atomic::AtomicBool::new(false) }),
+        started_rx,
+        release_tx,
+        finished_rx,
+    )
 }

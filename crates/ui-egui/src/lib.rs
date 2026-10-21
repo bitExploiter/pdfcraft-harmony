@@ -1197,7 +1197,20 @@ impl PdfCraftApp {
                 break;
             }
             match pending.receiver.try_recv() {
-                Ok(result) if result.token == pending.token => self.finish_pending_open(pending, result.kind),
+                Ok(result) if result.token == pending.token => {
+                    let activates = pending.activate;
+                    let before = self.views.len();
+                    self.finish_pending_open(pending, result.kind);
+                    if activates && self.views.len() > before {
+                        // A later successful open has taken focus. Earlier unfinished ordinary
+                        // opens may still finish, but must not take focus back from it.
+                        for earlier in &mut waiting {
+                            if earlier.then.is_none() {
+                                earlier.activate = false;
+                            }
+                        }
+                    }
+                }
                 Ok(_) => waiting.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Empty) => waiting.push(pending),
                 Err(std::sync::mpsc::TryRecvError::Disconnected) => {
@@ -1226,15 +1239,22 @@ impl PdfCraftApp {
             open_worker::ResultKind::Failed(reason) => {
                 self.notify_fmt("Couldn't open {name}: {reason}", &[("name", &pending.name), ("reason", &reason)]);
             }
-            open_worker::ResultKind::Conversion(bytes) => match self.open_converted(&pending.name, &bytes) {
-                Some(Ok(())) => {
-                    if let Some(command) = pending.then {
-                        self.execute(command);
-                    }
+            open_worker::ResultKind::Conversion(bytes) => {
+                let active = self.active;
+                let result = self.open_converted(&pending.name, &bytes);
+                if !pending.activate {
+                    self.active = active;
                 }
-                Some(Err(error)) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
-                None => {}
-            },
+                match result {
+                    Some(Ok(())) => {
+                        if let Some(command) = pending.then {
+                            self.execute(command);
+                        }
+                    }
+                    Some(Err(error)) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
+                    None => {}
+                }
+            }
             open_worker::ResultKind::Prepared { bytes, result } => match *result {
                 Ok(prepared) => match self.finish_open(&pending.name, pending.path.clone(), bytes.len(), prepared, pending.activate) {
                     Ok(id) => {

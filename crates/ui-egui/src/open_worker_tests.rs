@@ -670,3 +670,128 @@ fn startup_files_wait_for_absolute_link_consent_and_preparation() {
     assert_eq!(app.active, Some(1), "the user's approved navigation keeps focus");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn a_later_valid_open_can_finish_before_a_stalled_open() {
+    let (mut h, _) = harness();
+    let slow = tool_open_file("3414-held", "pdf", &fixture(2));
+    let fast = tool_open_file("3414-fast", "pdf", &fixture(1));
+    let (gate, started, release, finished) = open_worker::first_prepare_gate();
+    h.state_mut().open_prepare_gate = Some(gate);
+    h.state_mut().open_path(&slow.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("first preparation starts");
+    h.state_mut().open_path(&fast.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("second preparation starts while first is held");
+    finished.recv_timeout(Duration::from_secs(5)).expect("second preparation finishes while first is held");
+    h.step();
+    assert_eq!(h.state().views.len(), 2, "valid document opens while first is held");
+    let active_id = h.state().views[h.state().active.expect("active tab")].id;
+    release.send(()).expect("release the first preparation");
+    finished.recv_timeout(Duration::from_secs(5)).expect("first preparation finishes");
+    h.step();
+    assert_eq!(h.state().views.len(), 3);
+    assert_eq!(h.state().views[h.state().active.expect("active tab")].id, active_id, "older completion must not steal focus");
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn a_delayed_protected_open_preserves_focus_through_password_retries() {
+    let (mut h, _) = harness();
+    let older = tool_open_file("3414-protected", "pdf", &encrypted_tool_fixture());
+    let newer = tool_open_file("3414-protected-newer", "pdf", &fixture(2));
+    let (gate, started, release, finished) = open_worker::first_prepare_gate();
+    h.state_mut().open_prepare_gate = Some(gate);
+    h.state_mut().open_path(&older.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("protected preparation starts");
+    h.state_mut().open_path(&newer.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("newer preparation starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("newer preparation finishes");
+    h.step();
+    let active_id = h.state().views[h.state().active.expect("newer document is active")].id;
+    release.send(()).expect("release protected preparation");
+    finished.recv_timeout(Duration::from_secs(5)).expect("protected preparation finishes");
+    h.step();
+    assert!(h.state().password_prompt.is_some());
+    h.state_mut().submit_password(Some("wrong-password".into()));
+    started.recv_timeout(Duration::from_secs(5)).expect("wrong password retry starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("wrong password retry finishes");
+    h.step();
+    assert!(h.state().password_prompt.as_ref().expect("wrong-password prompt").error.is_some());
+    h.state_mut().submit_password(Some("tool-password".into()));
+    started.recv_timeout(Duration::from_secs(5)).expect("correct password retry starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("correct password retry finishes");
+    h.step();
+    assert!(h.state().password_prompt.is_none());
+    assert_eq!(h.state().views.len(), 3);
+    assert_eq!(h.state().views[h.state().active.expect("active tab")].id, active_id, "older unlock must not steal focus");
+    let unlocked = h.state().session.get(h.state().views[2].id).expect("unlocked document");
+    assert_eq!(unlocked.path.as_deref(), older.0.to_str());
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn a_failed_later_open_does_not_prevent_the_first_from_becoming_active() {
+    let (mut h, _) = harness();
+    let first = tool_open_file("3414-older", "pdf", &fixture(2));
+    let bad = tool_open_file("3414-bad", "pdf", b"not a PDF");
+    let (gate, started, release, finished) = open_worker::first_prepare_gate();
+    h.state_mut().open_prepare_gate = Some(gate);
+    h.state_mut().open_path(&first.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("first preparation starts");
+    h.state_mut().open_path(&bad.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("second preparation starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("bad open finishes");
+    h.step();
+    assert_eq!(h.state().views.len(), 1, "bad input did not open");
+    release.send(()).expect("release first");
+    finished.recv_timeout(Duration::from_secs(5)).expect("first preparation finishes");
+    h.step();
+    assert_eq!(h.state().views.len(), 2);
+    assert_eq!(h.state().active, Some(1), "first successful open becomes active");
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn an_older_converted_open_does_not_steal_focus_from_a_newer_pdf() {
+    let (mut h, _) = harness();
+    let older = tool_open_file("3414-older-text", "txt", b"Synthetic document.");
+    let newer = tool_open_file("3414-newer-pdf", "pdf", &fixture(1));
+    let (gate, started, release, finished) = open_worker::first_prepare_gate();
+    h.state_mut().open_prepare_gate = Some(gate);
+    h.state_mut().open_path(&older.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("first preparation starts");
+    h.state_mut().open_path(&newer.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("second preparation starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("second preparation finishes");
+    h.step();
+    let active_id = h.state().views[h.state().active.expect("active tab")].id;
+    release.send(()).expect("release first");
+    finished.recv_timeout(Duration::from_secs(5)).expect("first preparation finishes");
+    h.step();
+    assert_eq!(h.state().views.len(), 3);
+    assert_eq!(h.state().views[h.state().active.expect("active tab")].id, active_id, "older conversion must not steal focus");
+}
+
+#[test]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
+fn a_delayed_tool_open_keeps_its_own_document_after_a_newer_open() {
+    let (mut h, _) = harness();
+    let older = tool_open_file("3414-tool", "pdf", &fixture(2));
+    let newer = tool_open_file("3414-newer", "pdf", &fixture(1));
+    let (gate, started, release, finished) = open_worker::first_prepare_gate();
+    h.state_mut().open_prepare_gate = Some(gate);
+    h.state_mut().open_path_then(&older.0.to_string_lossy(), Some("export.text"));
+    started.recv_timeout(Duration::from_secs(5)).expect("tool preparation starts");
+    h.state_mut().open_path(&newer.0.to_string_lossy());
+    started.recv_timeout(Duration::from_secs(5)).expect("newer preparation starts");
+    finished.recv_timeout(Duration::from_secs(5)).expect("newer preparation finishes");
+    h.step();
+    release.send(()).expect("release tool preparation");
+    finished.recv_timeout(Duration::from_secs(5)).expect("tool preparation finishes");
+    h.step();
+    let active = h.state().active.expect("tool document active");
+    let doc = h.state().session.get(h.state().views[active].id).expect("tool document");
+    assert_eq!(doc.info.pages.len(), 2, "tool is bound to its requested document");
+    assert!(matches!(h.state().dialog, Some(crate::Dialog::Export(_))));
+}
