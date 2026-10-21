@@ -222,3 +222,19 @@ fn blocks_carry_family_and_lines() {
     let xml = docx_text(&out.bytes);
     assert!(xml.contains("w:ascii=\"Arial\""), "Helvetica opens in its metric twin: {xml}");
 }
+
+#[test]
+fn artwork_has_a_budget_across_the_document() {
+    // Five pages of 40 four-point rectangles each: 800 points against a budget of 300.
+    let rects: String = (0..40).map(|k| format!("{} 100 10 10 re f ", 20 + k * 12)).collect();
+    let page = rects.into_bytes();
+    let doc = pdf(&[&page, &page, &page, &page, &page]);
+    let cos = pdfcraft_cos::Document::open(std::sync::Arc::new(doc)).unwrap();
+    let boxes = page_boxes(&cos);
+    let (art, cut) = crate::shapes_within(&cos, &boxes, None, 300);
+    let points: usize = art.iter().flatten().map(|s| s.paths.iter().map(Vec::len).sum::<usize>()).sum();
+    assert!(points <= 300, "{points}");
+    assert_eq!(art.len(), 5, "every page keeps its place");
+    assert!(!cut.is_empty() && cut.iter().all(|&p| p < 5), "{cut:?}");
+    assert!(cut.contains(&4), "the last pages lose their artwork: {cut:?}");
+}

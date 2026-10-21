@@ -9,6 +9,10 @@
 
 use std::sync::Arc;
 
+/// Points of vector artwork [`shapes`] reads from a whole document (about 16 MB, and the slide
+/// XML they make): pages share content streams, so per-page limits alone don't bound a file.
+pub const MAX_DOCUMENT_POINTS: usize = 1_000_000;
+
 /// Biggest file [`convert`] reads (512 MiB). Larger ones are refused before anything is parsed.
 pub const MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
 
@@ -45,7 +49,9 @@ pub struct Converted {
     pub page_count: usize,
     /// Pages (0-based) that draw forms nested deeper than [`pdfcraft_edit::MAX_FORM_DEPTH`] or
     /// more of them than [`pdfcraft_edit::MAX_FORM_VISITS`]: reading stops there to stay bounded
-    /// on hostile files, so the text and images of those forms are missing.
+    /// on hostile files, so the text and images of those forms are missing. For
+    /// [`Target::PptxPages`], also pages whose vector artwork was left out, in part or whole, to
+    /// stay within [`MAX_DOCUMENT_POINTS`] or a page's own limits.
     pub truncated_pages: Vec<usize>,
     /// Converted pages (0-based) with pictures but no text: scans, whose words only text
     /// recognition can recover.
@@ -271,9 +277,23 @@ pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usiz
 
 /// The vector artwork of the pages of `cos` (`only`: these 0-based indices, in this order), each
 /// page's in drawing order and in display space (points, y up, after `/Rotate` and `/UserUnit`).
-pub fn shapes(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usize]>) -> Vec<Vec<pdfcraft_export::Shape>> {
+pub fn shapes(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usize]>) -> (Vec<Vec<pdfcraft_export::Shape>>, Vec<usize>) {
+    shapes_within(cos, info, only, MAX_DOCUMENT_POINTS)
+}
+
+/// [`shapes`] with at most `budget` points in all: pages past it keep their place with what fits,
+/// and are returned (0-based) with the pages whose own reading was cut short.
+pub(crate) fn shapes_within(
+    cos: &pdfcraft_cos::Document,
+    info: &[PageBox],
+    only: Option<&[usize]>,
+    budget: usize,
+) -> (Vec<Vec<pdfcraft_export::Shape>>, Vec<usize>) {
     let all: Vec<usize> = (0..info.len()).collect();
-    only.unwrap_or(&all)
+    let mut left = budget;
+    let mut cut = Vec::new();
+    let pages = only
+        .unwrap_or(&all)
         .iter()
         .filter_map(|&i| Some((i, info.get(i)?)))
         .map(|(i, b)| {
@@ -284,20 +304,36 @@ pub fn shapes(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usi
                 let [x, y] = b.user_to_view(p[0] as f32, p[1] as f32);
                 [f64::from(x), f64::from(b.height - y)]
             };
-            pdfcraft_edit::reading_shapes(cos, i)
-                .map(|r| r.shapes)
-                .unwrap_or_default()
-                .into_iter()
-                .map(|s| pdfcraft_export::Shape {
+            if left == 0 {
+                cut.push(i);
+                return Vec::new();
+            }
+            let read = pdfcraft_edit::reading_shapes(cos, i).unwrap_or_default();
+            let mut kept = Vec::new();
+            let mut full = !read.truncated;
+            for s in read.shapes {
+                let n: usize = s.paths.iter().map(Vec::len).sum();
+                if n > left {
+                    full = false;
+                    left = 0;
+                    break;
+                }
+                left -= n;
+                kept.push(pdfcraft_export::Shape {
                     paths: s.paths.iter().map(|sp| sp.iter().map(shown).collect()).collect(),
                     closed: s.closed,
                     fill: s.fill,
                     stroke: s.stroke,
                     line_width: s.line_width * unit,
-                })
-                .collect()
+                });
+            }
+            if !full {
+                cut.push(i);
+            }
+            kept
         })
-        .collect()
+        .collect();
+    (pages, cut)
 }
 
 /// `pages` as a file of `target`'s format, titled `title`.
@@ -358,10 +394,15 @@ fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Con
         return Err(Error::BadPageRange(format!("page {} isn't in this PDF (pages 1–{page_count})", missing.saturating_add(1))));
     }
     let (mut pages, truncated_pages) = pages(&cos, &boxes, opts.pages.as_deref());
+    let mut truncated_pages = truncated_pages;
     if target == Target::PptxPages {
-        for (page, art) in pages.iter_mut().zip(shapes(&cos, &boxes, opts.pages.as_deref())) {
+        let (art, cut) = shapes(&cos, &boxes, opts.pages.as_deref());
+        for (page, art) in pages.iter_mut().zip(art) {
             page.shapes = art;
         }
+        truncated_pages.extend(cut);
+        truncated_pages.sort_unstable();
+        truncated_pages.dedup();
     }
     let indices: Vec<usize> = opts.pages.clone().unwrap_or_else(|| (0..page_count).collect());
     let image_only_pages = pages.iter().zip(&indices).filter(|(p, _)| p.blocks.is_empty() && !p.images.is_empty()).map(|(_, &i)| i).collect();
