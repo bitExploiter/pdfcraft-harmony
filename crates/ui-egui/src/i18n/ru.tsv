@@ -2354,3 +2354,5 @@ animation effects	Off	Выкл
 	Save and Rename	Сохранить и переименовать
 	Renamed to {name}	Переименовано в {name}
 	Couldn't rename {name}: {e}	Не удалось переименовать {name}: {e}
+	Less	Меньше
+	Other options	Другие параметры

@@ -2440,3 +2440,5 @@ animation effects	Off	Ki
 	Save and Rename	Mentés és átnevezés
 	Renamed to {name}	Átnevezve erre: {name}
 	Couldn't rename {name}: {e}	Nem sikerült átnevezni ezt: {name}: {e}
+	Less	Kevesebb
+	Other options	Egyéb beállítások

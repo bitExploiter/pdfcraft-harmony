@@ -2653,3 +2653,5 @@ certificate	SHA-256 digest	Impronta SHA-256
 	Save and Rename	Salva e rinomina
 	Renamed to {name}	Rinominato in {name}
 	Couldn't rename {name}: {e}	Impossibile rinominare {name}: {e}
+	Less	Meno
+	Other options	Altre opzioni
