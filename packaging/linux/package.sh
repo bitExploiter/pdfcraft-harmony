@@ -18,7 +18,8 @@
 #
 # Usage: packaging/linux/package.sh [--skip-build] [--formats "appimage deb rpm tar cli"]
 #
-# Needs: cargo, curl and the network (the OCR models: cargo xtask models); nfpm for deb/rpm (https://nfpm.goreleaser.com); appimagetool for the AppImage
+# Needs: cargo; for the OCR models (cargo xtask models) curl and the network, or PDFCRAFT_ASSET_CACHE
+# seeded by `cargo xtask models DIR` on a connected machine (see packaging/env.sh); nfpm for deb/rpm (https://nfpm.goreleaser.com); appimagetool for the AppImage
 # (downloaded into $CARGO_TARGET_DIR if missing). Build on an old distro (CI: Ubuntu 22.04,
 # glibc 2.35) so the binaries run on newer ones. Optional: desktop-file-validate, appstreamcli,
 # zsyncmake (the zsync package) for the AppImage's .zsync.

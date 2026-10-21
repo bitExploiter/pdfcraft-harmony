@@ -11,7 +11,7 @@
   zip needs the Visual C++ redistributable. Signing is delegated to sign.ps1 (skipped with a
   warning when no signing secrets are set).
 
-  Needs: Rust (MSVC toolchain + the target), curl and the network (the OCR models), the Windows SDK (rc.exe, signtool.exe),
+  Needs: Rust (MSVC toolchain + the target), curl and the network for the OCR models (or PDFCRAFT_ASSET_CACHE, see packaging/env.sh), the Windows SDK (rc.exe, signtool.exe),
   and WiX v5: dotnet tool install --global wix --version 5.0.2
 
 .EXAMPLE

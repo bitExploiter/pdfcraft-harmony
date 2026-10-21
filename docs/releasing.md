@@ -72,7 +72,10 @@ deliberately.
 **OCR models:** every desktop package ships the Scan & OCR models (#103). The packaging scripts call
 `stage_models` (`packaging/env.sh`; `package.ps1` on Windows), which runs `cargo xtask models` to
 fetch every `kind = "model"` file in `ATTRIBUTION.toml` (verified by SHA-256) with its licence text
-and an `ATTRIBUTION.txt`, straight into the package, so packaging needs the network. They go where
+and an `ATTRIBUTION.txt`, straight into the package, so packaging needs the network, or
+`PDFCRAFT_ASSET_CACHE` set to a directory that `cargo xtask models DIR` filled on a connected machine
+(the xtask copies each file from there, still verified by SHA-256; an air-gapped build box carries
+that directory in instead of reaching out). They go where
 `pdfcraft_ocr::Models::dirs_beside_exe` looks: `models\` beside `pdfcraft.exe` (MSI, portable zip),
 `PdfCraft.app/Contents/Resources/models` (macOS), and `share/pdfcraft/models` beside `bin/`
 (deb, rpm, tar.gz, AppImage, Flatpak, FreeBSD). The web build doesn't include them yet.

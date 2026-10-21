@@ -309,33 +309,57 @@ pub fn check(root: &Path, m: &Manifest, repo_files: &[String], lock: &BTreeSet<(
 
 /// Download (if needed) and verify every `[[fetched]]` entry of `kind` into `dir`, with its licence
 /// text. Returns the paths of the fetched files. Uses `curl`, present on macOS, Windows 10+ and Linux.
+///
+/// A build box without network sets `PDFCRAFT_ASSET_CACHE` to a directory seeded on a connected
+/// machine (`cargo xtask models "$PDFCRAFT_ASSET_CACHE"` lays it out exactly right): a file found
+/// there under the same name is copied instead of downloaded, once its SHA-256 matches the manifest.
 pub fn fetch_all(m: &Manifest, dir: &Path, kind: &str) -> Result<Vec<PathBuf>> {
+    let cache = asset_cache(std::env::var_os("PDFCRAFT_ASSET_CACHE"));
     std::fs::create_dir_all(dir)?;
     let mut out = Vec::new();
     for f in m.fetched.iter().filter(|f| f.kind == kind) {
         let path = dir.join(&f.file);
-        fetch_verified(&f.url, &path, &f.sha256)?;
+        fetch_verified(&f.url, &path, &f.sha256, cache.as_deref())?;
         let licence = dir.join(format!("{}.LICENCE.txt", f.file));
-        fetch_verified(&f.licence_url, &licence, &f.licence_sha256)?;
+        fetch_verified(&f.licence_url, &licence, &f.licence_sha256, cache.as_deref())?;
         out.push(path);
     }
     Ok(out)
 }
 
-fn fetch_verified(url: &str, path: &Path, sha256: &str) -> Result<()> {
+/// The `PDFCRAFT_ASSET_CACHE` setting as a directory; unset or empty means download as usual.
+pub fn asset_cache(setting: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    setting.filter(|s| !s.is_empty()).map(PathBuf::from)
+}
+
+/// Puts the file with that hash at `path`: kept if already there, else copied from `cache` (when
+/// it holds a file of the same name), else downloaded. Whatever the source, the bytes are verified
+/// in a `.part` file first and a mismatch is an error, never a fallback to another source.
+fn fetch_verified(url: &str, path: &Path, sha256: &str, cache: Option<&Path>) -> Result<()> {
     if std::fs::read(path).is_ok_and(|b| sha256_hex(&b) == sha256) {
         return Ok(());
     }
-    println!("assets: fetching {url}");
     let tmp = path.with_extension("part");
-    let status = Command::new("curl").args(["-sSfL", "--retry", "3", "-o"]).arg(&tmp).arg(url).status().context("running curl")?;
-    if !status.success() {
-        bail!("download failed: {url}");
-    }
+    let name = path.file_name().with_context(|| format!("{}: no file name", path.display()))?;
+    let source = match cache.map(|c| c.join(name)).filter(|c| c.is_file()) {
+        Some(cached) => {
+            println!("assets: copying {}", cached.display());
+            std::fs::copy(&cached, &tmp).with_context(|| format!("copying {}", cached.display()))?;
+            cached.display().to_string()
+        }
+        None => {
+            println!("assets: fetching {url}");
+            let status = Command::new("curl").args(["-sSfL", "--retry", "3", "-o"]).arg(&tmp).arg(url).status().context("running curl")?;
+            if !status.success() {
+                bail!("download failed: {url} (no network? seed PDFCRAFT_ASSET_CACHE on a connected machine with `cargo xtask models DIR`)");
+            }
+            url.to_string()
+        }
+    };
     let bytes = std::fs::read(&tmp)?;
     if sha256_hex(&bytes) != sha256 {
         let _ = std::fs::remove_file(&tmp);
-        bail!("{url}: SHA-256 mismatch (expected {sha256}); refusing to use it");
+        bail!("{source}: SHA-256 mismatch (expected {sha256}); refusing to use it");
     }
     std::fs::rename(&tmp, path)?;
     Ok(())
@@ -344,6 +368,7 @@ fn fetch_verified(url: &str, path: &Path, sha256: &str) -> Result<()> {
 /// `cargo xtask models [DIR]`: fetch the OCR models (`kind = "model"`) into `assets/models/` (git-ignored),
 /// where the app and tests look for them. Each comes with its licence (`<file>.LICENCE.txt`), and
 /// `ATTRIBUTION.txt` credits them all, so the release packages can ship the directory as it is.
+/// Offline, the files come from `PDFCRAFT_ASSET_CACHE` (see [`fetch_all`]).
 pub fn models(args: &[String]) -> Result<()> {
     let root = root();
     let m = load(&root)?;
@@ -607,5 +632,45 @@ mod tests {
     #[test]
     fn spdx_expressions_split() {
         assert_eq!(licence_ids("(MIT OR Apache-2.0) AND OFL-1.1").collect::<Vec<_>>(), ["MIT", "Apache-2.0", "OFL-1.1"]);
+    }
+
+    /// A fresh `cache/` and `out/` for one test, in a directory removed with the guard.
+    fn scratch() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("cache")).unwrap();
+        std::fs::create_dir(dir.path().join("out")).unwrap();
+        dir
+    }
+
+    /// An offline build seeds PDFCRAFT_ASSET_CACHE on a connected machine; a cached file with the
+    /// manifest's hash is copied into place and nothing is downloaded.
+    #[test]
+    fn cached_asset_is_copied_instead_of_downloaded() {
+        let dir = scratch();
+        let root = dir.path();
+        std::fs::write(root.join("cache/model.rten"), b"weights").unwrap();
+        let dest = root.join("out/model.rten");
+        fetch_verified("https://invalid.invalid/model.rten", &dest, &sha256_hex(b"weights"), Some(&root.join("cache"))).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"weights");
+        assert!(!root.join("out/model.part").exists());
+    }
+
+    /// A cached file that fails its hash is refused outright, never quietly replaced by a download.
+    #[test]
+    fn corrupt_cached_asset_is_refused() {
+        let dir = scratch();
+        let root = dir.path();
+        std::fs::write(root.join("cache/model.rten"), b"tampered").unwrap();
+        let dest = root.join("out/model.rten");
+        let err = fetch_verified("https://invalid.invalid/model.rten", &dest, &sha256_hex(b"weights"), Some(&root.join("cache"))).unwrap_err();
+        assert!(err.to_string().contains("SHA-256 mismatch"), "{err}");
+        assert!(!dest.exists());
+    }
+
+    #[test]
+    fn asset_cache_ignores_an_empty_setting() {
+        assert_eq!(asset_cache(None), None);
+        assert_eq!(asset_cache(Some("".into())), None);
+        assert_eq!(asset_cache(Some("/seed".into())), Some(PathBuf::from("/seed")));
     }
 }

@@ -83,7 +83,9 @@ copy_font_licences() {
 # ATTRIBUTION.toml `kind = "model"` file, verified by SHA-256, with its licence text and an
 # ATTRIBUTION.txt crediting them. DEST must be where pdfcraft_ocr::Models::dirs_beside_exe looks
 # from the installed executable. Nothing here names a model file, so a model added to the manifest
-# later ships without changing the packaging.
+# later ships without changing the packaging. A build box without network sets
+# PDFCRAFT_ASSET_CACHE to a directory filled by `cargo xtask models DIR` on a connected machine;
+# the xtask then copies the files from there (still verified) instead of downloading.
 stage_models() {
   local dest="$1"
   mkdir -p "$dest"
