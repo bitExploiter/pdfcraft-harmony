@@ -677,8 +677,11 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             // Page navigation cluster at the bottom (as in Acrobat's rail).
             let view = &mut app.views[index];
             let mut page_display = None;
+            let mut full_screen = false;
             ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.y = 2.0;
+                // Below Zoom out (#2995). A screen, as the fit toggle already draws corner brackets.
+                full_screen = icons::button(ui, "monitor", 32.0, false, tl!("Full screen mode")).clicked();
                 let tip = crate::commands::key_tip(ui.ctx(), tl!("Zoom out ({key})"), crate::commands::ZOOM_OUT);
                 if icons::button(ui, "zoom-out", 32.0, false, &tip).clicked() {
                     view.zoom_step(false);
@@ -791,6 +794,9 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             });
             if let Some(id) = page_display {
                 app.execute(id);
+            }
+            if full_screen {
+                app.execute("view.full_screen");
             }
         });
 }

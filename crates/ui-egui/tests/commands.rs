@@ -495,6 +495,17 @@ fn full_screen_toggles_by_shortcut_and_command_and_escape_leaves() {
     assert!(!h.state().full_screen, "the command toggles back");
 }
 
+/// The page controls have a Full screen button right below Zoom out (#2995).
+#[test]
+fn the_page_controls_full_screen_button_enters_full_screen() {
+    let mut h = harness();
+    let (button, zoom_out) = (h.get_by_label("Full screen mode").rect(), h.get_by_label_contains("Zoom out").rect());
+    assert!(button.top() >= zoom_out.bottom() && (button.center().x - zoom_out.center().x).abs() < 1.0, "{button:?} below {zoom_out:?}");
+    h.get_by_label("Full screen mode").click();
+    h.run_steps(2);
+    assert!(h.state().full_screen);
+}
+
 #[test]
 fn the_about_dialog_shows_the_running_version() {
     let mut h = harness();
