@@ -1335,6 +1335,12 @@ pub enum Edit {
     DeleteBookmark {
         path: Vec<usize>,
     },
+    /// Delete several bookmarks, each with the bookmarks under it, as one undoable step. All
+    /// paths are read against the outline as it is before the edit; one that names no bookmark
+    /// fails the edit without changing anything.
+    DeleteBookmarks {
+        paths: Vec<Vec<usize>>,
+    },
     /// Move a bookmark to child `index` of `to_parent` (indices after removing it).
     MoveBookmark {
         from: Vec<usize>,
@@ -1829,6 +1835,7 @@ pub const EDIT_LABELS: &[&str] = &[
     "Add bookmark",
     "Rename bookmark",
     "Delete bookmark",
+    "Delete bookmarks",
     "Move bookmark",
     "Set bookmark destination",
     "New bookmarks from structure",
@@ -1968,6 +1975,8 @@ impl Edit {
             Edit::AddBookmark { .. } => Label::of("Add bookmark"),
             Edit::RenameBookmark { .. } => Label::of("Rename bookmark"),
             Edit::DeleteBookmark { .. } => Label::of("Delete bookmark"),
+            Edit::DeleteBookmarks { paths } if paths.len() == 1 => Label::of("Delete bookmark"),
+            Edit::DeleteBookmarks { .. } => Label::of("Delete bookmarks"),
             Edit::MoveBookmark { .. } => Label::of("Move bookmark"),
             Edit::SetBookmarkPage { .. } => Label::of("Set bookmark destination"),
             Edit::BookmarksFromStructure => Label::of("New bookmarks from structure"),
@@ -2132,6 +2141,7 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::AddBookmark { .. }
         | Edit::RenameBookmark { .. }
         | Edit::DeleteBookmark { .. }
+        | Edit::DeleteBookmarks { .. }
         | Edit::MoveBookmark { .. }
         | Edit::SetBookmarkPage { .. }
         | Edit::BookmarksFromStructure
@@ -2360,6 +2370,7 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         }
         Edit::RenameBookmark { path, title } => pdfcraft_organize::rename_bookmark(doc, path, title)?,
         Edit::DeleteBookmark { path } => pdfcraft_organize::delete_bookmark(doc, path)?,
+        Edit::DeleteBookmarks { paths } => pdfcraft_organize::delete_bookmarks(doc, paths)?,
         Edit::MoveBookmark { from, to_parent, index } => {
             pdfcraft_organize::move_bookmark(doc, from, to_parent, *index)?;
         }

@@ -96,6 +96,8 @@ const WATERMARK_MAX_OFFSET: f64 = 20_000.0;
 /// Bookmarks in one page of the bookmark list, by default and at most.
 const BOOKMARK_PAGE: usize = 100;
 const MAX_BOOKMARK_PAGE: usize = 1000;
+/// Bookmarks one `bookmark_delete` call may name.
+const MAX_BOOKMARK_PATHS: usize = 10_000;
 
 /// `text_find` extracts this many pages first, doubling each batch up to [`FIND_MAX_BATCH`], so a
 /// match near the start returns without touching the rest of a long document (#971).
@@ -345,10 +347,17 @@ impl Automation {
                 let (path, title) = (a.path("path")?, a.str("title")?.to_string());
                 self.apply(&a, Edit::RenameBookmark { path, title })?
             }
-            "bookmark_delete" => {
-                let path = a.path("path")?;
-                self.apply(&a, Edit::DeleteBookmark { path })?
-            }
+            "bookmark_delete" => match (a.get("path").is_some(), a.get("paths").is_some()) {
+                (true, true) => return Err(ToolError::InvalidArgs("give path or paths, not both".into())),
+                (false, true) => {
+                    let paths = a.bookmark_paths("paths")?;
+                    self.apply(&a, Edit::DeleteBookmarks { paths })?
+                }
+                _ => {
+                    let path = a.path("path")?;
+                    self.apply(&a, Edit::DeleteBookmark { path })?
+                }
+            },
             "bookmark_move" => {
                 let from = a.path("path")?;
                 let to_parent = a.opt_path("parent")?.unwrap_or_default();
@@ -2286,6 +2295,26 @@ impl Args<'_> {
     fn opt_path(&self, key: &str) -> Result<Option<Vec<usize>>> {
         let Some(v) = self.opt_ints(key)? else { return Ok(None) };
         v.iter().map(|i| if *i >= 1 { Ok(*i as usize - 1) } else { Err(Self::wrong(key, "1-based positions")) }).collect::<Result<Vec<_>>>().map(Some)
+    }
+    /// A list of 1-based bookmark paths → 0-based indices, at most [`MAX_BOOKMARK_PATHS`] and none empty.
+    fn bookmark_paths(&self, key: &str) -> Result<Vec<Vec<usize>>> {
+        let v = self.get(key).ok_or_else(|| Self::missing(key))?;
+        let list = v.as_array().ok_or_else(|| Self::wrong(key, "an array of bookmark paths"))?;
+        if list.is_empty() || list.len() > MAX_BOOKMARK_PATHS {
+            return Err(ToolError::InvalidArgs(format!("{key} must hold between 1 and {MAX_BOOKMARK_PATHS} bookmark paths")));
+        }
+        list.iter()
+            .map(|p| {
+                let positions = p.as_array().filter(|p| !p.is_empty()).ok_or_else(|| Self::wrong(key, "non-empty arrays of 1-based positions"))?;
+                positions
+                    .iter()
+                    .map(|i| match i.as_u64() {
+                        Some(n) if n >= 1 => usize::try_from(n - 1).map_err(|_| Self::wrong(key, "1-based positions")),
+                        _ => Err(Self::wrong(key, "1-based positions")),
+                    })
+                    .collect()
+            })
+            .collect()
     }
     fn strs(&self, key: &str) -> Result<Vec<&str>> {
         let v = self.get(key).ok_or_else(|| Self::missing(key))?;

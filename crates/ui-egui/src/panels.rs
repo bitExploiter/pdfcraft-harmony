@@ -1,6 +1,8 @@
 //! Left tool panel (All tools + tool sub-panels, generated from the engine catalogue) and the
 //! right-hand panels (Comments, Bookmarks, Pages, Fields, Layers, Attachments).
 
+use std::collections::BTreeSet;
+
 use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, Sense, Stroke, pos2, vec2};
 use pdfcraft_engine::catalog::{self, Availability, TOOL_GROUPS, ToolGroup};
 use pdfcraft_render::{DocInfo, FieldKind, OutlineItem};
@@ -650,6 +652,27 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         if info.outline.is_empty() {
                             empty(ui, &t, "bookmark", "This document has no bookmarks.");
                         }
+                        view.bookmark_pick.keep_only_if_current(doc.edit_generation());
+                        // With the pointer over the panel, Delete (or Backspace) deletes the picked
+                        // bookmarks and Escape drops the pick, unless a text field wants the key. An
+                        // inline rename owns Escape (it cancels) whether or not it has focus yet.
+                        if !modal
+                            && bm_rename.is_none()
+                            && !view.bookmark_pick.paths.is_empty()
+                            && !ui.ctx().egui_wants_keyboard_input()
+                            && ui.rect_contains_pointer(ui.clip_rect())
+                        {
+                            if bm_editable
+                                && ui.input_mut(|i| {
+                                    i.consume_key(egui::Modifiers::NONE, egui::Key::Delete)
+                                        || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace)
+                                })
+                            {
+                                bm_action = Some(BmAction::DeleteMany(view.bookmark_pick.paths.iter().cloned().collect()));
+                            } else if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape)) {
+                                view.bookmark_pick.clear();
+                            }
+                        }
                         let mut ctx = OutlineCtx {
                             nav: &mut nav,
                             action: &mut bm_action,
@@ -659,12 +682,19 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                             expand: bm_expand,
                             matches: &bookmark_matches,
                             searching: !bookmark_query.is_empty(),
+                            picked: &view.bookmark_pick.paths,
+                            visible: Vec::new(),
+                            click: None,
                         };
                         if ctx.searching && bookmark_matches.is_empty() && !info.outline.is_empty() {
                             ui.label(tl!("No matches."));
                         }
                         for (i, item) in info.outline.iter().enumerate() {
                             outline_item(ui, &t, info, item, &[i], info.outline.len(), &mut ctx);
+                        }
+                        if let Some((path, modifiers)) = ctx.click.take() {
+                            let visible = std::mem::take(&mut ctx.visible);
+                            view.bookmark_pick.click(doc.edit_generation(), &path, modifiers, &visible);
                         }
                         if info.outline_more {
                             ui.label(tl!("Some bookmarks are not shown here: the panel lists a limited number, nested a limited depth."));
@@ -852,6 +882,8 @@ pub enum BmAction {
     Rename(Vec<usize>, String),
     SetToCurrentPage(Vec<usize>),
     Delete(Vec<usize>),
+    /// Every picked bookmark, with what is under it, as one undoable step.
+    DeleteMany(Vec<Vec<usize>>),
     MoveUp(Vec<usize>),
     MoveDown(Vec<usize>),
     /// Make it the last child of the bookmark above it.
@@ -897,6 +929,66 @@ struct OutlineCtx<'a> {
     expand: Option<usize>,
     matches: &'a std::collections::HashSet<Vec<usize>>,
     searching: bool,
+    /// The bookmarks picked in this outline.
+    picked: &'a BTreeSet<Vec<usize>>,
+    /// The rows drawn this frame, top to bottom: what a ⇧-click ranges over.
+    visible: Vec<Vec<usize>>,
+    /// A row clicked this frame, with the modifiers held, for [`BookmarkPick::click`] to act on.
+    click: Option<(Vec<usize>, egui::Modifiers)>,
+}
+
+/// The bookmarks picked in the panel (⌘/Ctrl-click, ⇧-click), as paths into the outline they were
+/// picked in. Paths mean nothing once the outline changes (an edit, an undo, another tool), so
+/// the pick remembers the document's edit generation and is dropped when it no longer matches.
+/// What the panel shows can't tell: two bookmarks with the same title and page swap places without
+/// any visible difference.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct BookmarkPick {
+    paths: BTreeSet<Vec<usize>>,
+    /// Where a ⇧-click ranges from.
+    anchor: Option<Vec<usize>>,
+    /// The document's `edit_generation` when the pick was made.
+    generation: u64,
+}
+
+impl BookmarkPick {
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Forget the pick unless it was made in the document as it is now (`generation`).
+    fn keep_only_if_current(&mut self, generation: u64) {
+        if !self.paths.is_empty() && self.generation != generation {
+            self.clear();
+        }
+    }
+
+    /// A click on `path`: ⇧ picks the rows from the anchor to it, ⌘/Ctrl toggles it, a plain click
+    /// picks only it. `visible` is the rows on screen in order, which a range runs over.
+    fn click(&mut self, generation: u64, path: &[usize], m: egui::Modifiers, visible: &[Vec<usize>]) {
+        self.keep_only_if_current(generation);
+        self.generation = generation;
+        if m.shift {
+            let here = visible.iter().position(|p| p == path);
+            let from = self.anchor.as_ref().and_then(|a| visible.iter().position(|p| p == a));
+            match (from, here) {
+                (Some(a), Some(b)) => {
+                    self.paths = visible.get(a.min(b)..=a.max(b)).unwrap_or_default().iter().cloned().collect();
+                    return;
+                }
+                // No anchor on screen: the click starts the pick.
+                _ => self.anchor = None,
+            }
+        }
+        if m.command && !m.shift {
+            if !self.paths.remove(path) {
+                self.paths.insert(path.to_vec());
+            }
+        } else {
+            self.paths = BTreeSet::from([path.to_vec()]);
+        }
+        self.anchor = Some(path.to_vec());
+    }
 }
 
 /// The destination page label gets its own right-aligned column in a bookmark row; drawing
@@ -982,8 +1074,10 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
         let galley = ui.fonts_mut(|f| f.layout(item.title.clone(), font, t.text, wrap_w));
         let h = (galley.size().y + 12.0).max(28.0);
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &item.title));
-        theme::Press::track(ui, &resp).wash(ui, rect, 6, false);
+        let picked = cx.picked.contains(path);
+        resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, &item.title));
+        theme::Press::track(ui, &resp).wash(ui, rect, 6, picked);
+        cx.visible.push(path.to_vec());
         let x0 = rect.left() + indent;
         if !item.children.is_empty() {
             let tri = Rect::from_min_size(pos2(x0, rect.top() + 6.0), vec2(16.0, 16.0));
@@ -1000,10 +1094,18 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
             let pos = pos2(rect.right() - 6.0 - g.size().x, rect.top() + 14.0 - g.size().y / 2.0);
             ui.painter().galley(pos, g, t.text_faint);
         }
-        if theme::hand(resp.clone()).clicked()
-            && let Some(p) = item.page
-        {
-            *cx.nav = Some(Nav::Dest(p, item.view));
+        if theme::hand(resp.clone()).clicked() {
+            // ⌘/Ctrl-click and ⇧-click pick several bookmarks without going anywhere.
+            let m = ui.input(|i| i.modifiers);
+            cx.click = Some((path.to_vec(), m));
+            if !(m.shift || m.command)
+                && let Some(p) = item.page
+            {
+                *cx.nav = Some(Nav::Dest(p, item.view));
+            }
+        } else if resp.secondary_clicked() && !picked {
+            // A bookmark outside the pick becomes the pick, as in the Pages panel.
+            cx.click = Some((path.to_vec(), egui::Modifiers::NONE));
         }
         if resp.double_clicked() && cx.editable {
             *cx.action = Some(BmAction::StartRename(path.to_vec()));
@@ -1012,6 +1114,8 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
             && let Some(&i) = path.last()
         {
             let current = cx.current;
+            // Several picked: Delete takes them all, and what works on one bookmark is off.
+            let several = picked && cx.picked.len() > 1;
             resp.context_menu(|ui| {
                 let mut pick = |ui: &mut egui::Ui, label: &str, enabled: bool, a: BmAction| {
                     if ui.add_enabled(enabled, egui::Button::new(tl!(label))).clicked() {
@@ -1019,16 +1123,21 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
                         ui.close();
                     }
                 };
-                pick(ui, tl!("Rename"), true, BmAction::StartRename(path.to_vec()));
+                pick(ui, tl!("Rename"), !several, BmAction::StartRename(path.to_vec()));
                 let set_page = crate::i18n::fmt(tl!("Set to current page ({n})"), &[("n", &(current + 1).to_string())]);
-                pick(ui, &set_page, true, BmAction::SetToCurrentPage(path.to_vec()));
+                pick(ui, &set_page, !several, BmAction::SetToCurrentPage(path.to_vec()));
                 ui.separator();
-                pick(ui, tl!("Move up"), i > 0, BmAction::MoveUp(path.to_vec()));
-                pick(ui, tl!("Move down"), i + 1 < siblings, BmAction::MoveDown(path.to_vec()));
-                pick(ui, tl!("Indent"), i > 0, BmAction::Indent(path.to_vec()));
-                pick(ui, tl!("Outdent"), depth > 0, BmAction::Outdent(path.to_vec()));
+                pick(ui, tl!("Move up"), !several && i > 0, BmAction::MoveUp(path.to_vec()));
+                pick(ui, tl!("Move down"), !several && i + 1 < siblings, BmAction::MoveDown(path.to_vec()));
+                pick(ui, tl!("Indent"), !several && i > 0, BmAction::Indent(path.to_vec()));
+                pick(ui, tl!("Outdent"), !several && depth > 0, BmAction::Outdent(path.to_vec()));
                 ui.separator();
-                pick(ui, tl!("Delete"), true, BmAction::Delete(path.to_vec()));
+                if several {
+                    let label = crate::i18n::trn(crate::i18n::current(), cx.picked.len() as u64, "Delete {n} bookmark", "Delete {n} bookmarks");
+                    pick(ui, &label, true, BmAction::DeleteMany(cx.picked.iter().cloned().collect()));
+                } else {
+                    pick(ui, tl!("Delete"), true, BmAction::Delete(path.to_vec()));
+                }
             });
         }
     }
