@@ -467,11 +467,18 @@ mod tests {
             app,
         );
         h.run();
-        let page_visible = h.query_by_label("Inserted · page 2").is_some();
+        let page_visible = h.query_by_label("Inserted page · page 2").is_some();
         assert!(summary == "1 difference found" && page_visible, "summary={summary:?}, page_visible={page_visible}");
         if let Ok(path) = std::env::var("PDFCRAFT_COMPARE_SHOT") {
             h.render().unwrap().save(path).unwrap();
         }
+        h.state_mut().compare.as_mut().unwrap().result.page_changes = vec![
+            pdfcraft_engine::compare::PageChange { kind: PageKind::Deleted, old_page: 4, new_page: 1 },
+            pdfcraft_engine::compare::PageChange { kind: PageKind::Moved, old_page: 3, new_page: 2 },
+        ];
+        h.run();
+        assert!(h.query_by_label("Deleted page · page 5").is_some());
+        assert!(h.query_by_label("Moved page · page 3").is_some());
     }
 
     #[test]
