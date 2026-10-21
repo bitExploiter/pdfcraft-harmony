@@ -4154,16 +4154,16 @@ fn selection_actions(
     view.clear_selection();
     match action {
         SelectionAction::Note | SelectionAction::Replace => {
-            if matches!(action, SelectionAction::Replace) {
+            // Acrobat marks commented text with a highlight that carries the note, rather than
+            // dropping a sticky-note icon beside it; Replace strikes the text out instead.
+            let kind = if matches!(action, SelectionAction::Replace) {
                 view.comments.replace = Some(quads);
-            }
-            view.comments.composer = Some(comments::Composer {
-                page,
-                at,
-                kind: if matches!(action, SelectionAction::Replace) { comments::ComposerKind::Replace } else { comments::ComposerKind::Note },
-                text: String::new(),
-                focus: true,
-            });
+                comments::ComposerKind::Replace
+            } else {
+                view.comments.marked = Some(quads);
+                comments::ComposerKind::Highlight
+            };
+            view.comments.composer = Some(comments::Composer { page, at, kind, text: String::new(), focus: true });
         }
         SelectionAction::Markup(tool) => {
             // Every markup button carries a markup tool; anything else adds nothing.

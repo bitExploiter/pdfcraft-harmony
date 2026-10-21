@@ -402,6 +402,9 @@ pub enum ComposerKind {
     },
     /// Replace the selected text (`CommentView::replace` holds the quads).
     Replace,
+    /// Comment on the selected text: a highlight whose note is the typed text, as Acrobat's
+    /// "Comment" on a text selection makes (`CommentView::marked` holds the quads).
+    Highlight,
     /// Edit the text of the comment at this index on the composer's page.
     Edit(usize),
 }
@@ -514,6 +517,8 @@ pub struct CommentView {
     pub attachment_request: Option<(usize, usize, bool)>,
     /// Replace Text: the struck-out text's quads while the replacement is typed.
     pub replace: Option<Vec<[f64; 8]>>,
+    /// Comment on selected text: the highlighted text's quads while the comment is typed.
+    pub marked: Option<Vec<[f64; 8]>>,
     /// Attach file: where the icon goes (page, top-left in user space), for the app to pick a file.
     pub attach_at: Option<(usize, [f64; 2])>,
     pub search_focus: bool,
@@ -624,7 +629,19 @@ impl PageCx<'_> {
 
     /// The topmost comment under `p`.
     fn hit(&self, p: Pos2) -> Option<&Annotation> {
-        self.comments().filter(|a| self.screen_rects(a).iter().any(|r| r.expand(3.0).contains(p))).last()
+        self.comments()
+            .filter(|a| self.screen_rects(a).iter().any(|r| r.expand(3.0).contains(p)) || self.note_marker(a).is_some_and(|m| m.contains(p)))
+            .last()
+    }
+
+    /// Where the comment marker of commented text markup sits on screen: a small bubble just
+    /// above the start of its first marked line, kept small so it covers little of the text.
+    fn note_marker(&self, a: &Annotation) -> Option<Rect> {
+        if !has_note(a) {
+            return None;
+        }
+        let first = *self.screen_rects(a).first()?;
+        Some(Rect::from_center_size(pos2(first.left(), first.top() - NOTE_MARKER * 0.35), vec2(NOTE_MARKER, NOTE_MARKER)))
     }
 
     pub(crate) fn get(&self, index: usize) -> Option<&Annotation> {
@@ -674,6 +691,16 @@ impl PageCx<'_> {
 fn is_markup(subtype: &str) -> bool {
     matches!(subtype, "Highlight" | "Underline" | "StrikeOut" | "Squiggly")
 }
+
+/// Text markup that carries a comment. As in Acrobat it shows a small comment marker, and a
+/// click opens the comment; a sticky note is its own icon and needs neither.
+fn has_note(a: &Annotation) -> bool {
+    is_markup(&a.subtype) && a.contents.as_deref().is_some_and(|c| !c.trim().is_empty())
+}
+
+/// Side of the comment marker on commented text markup, in screen points: about a speech
+/// bubble's size, whatever the zoom, so it never grows over the surrounding text.
+const NOTE_MARKER: f32 = 14.0;
 
 /// Rectangles, ovals, text boxes, stamps and drawings (drawn signatures among them). A callout's
 /// `/Rect` also holds its leader line, so it only moves.
@@ -1144,6 +1171,17 @@ fn select_input(
                 cv.selected = Some((cx.page, a.index));
                 cv.reveal = true;
                 consumed = true;
+                // Acrobat opens a commented highlight's note on a single click; other comments
+                // (sticky notes among them) keep opening theirs on a double click, as before.
+                if cx.allowed && has_note(a) {
+                    cv.composer = Some(Composer {
+                        page: cx.page,
+                        at: [a.rect[2] as f64, a.rect[3] as f64],
+                        kind: ComposerKind::Edit(a.index),
+                        text: a.contents.clone().unwrap_or_default(),
+                        focus: true,
+                    });
+                }
             }
             None => cv.selected = None,
         }
@@ -1194,6 +1232,7 @@ pub(crate) fn page_after_text(resp: &egui::Response, cx: &PageCx<'_>, view: &mut
 
 /// Paint comment selection, hover and gesture previews on a page.
 pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
+    paint_note_markers(ui, painter, cx);
     let cv = &view.comments;
     let pointer = ui.input(|i| i.pointer.hover_pos());
     // A redaction mark shows its fill while the pointer is over it, as Acrobat's does, so the
@@ -1242,6 +1281,20 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
         }
     }
     paint_gesture(painter, cx, view);
+}
+
+/// The comment markers of commented text markup, in each comment's own colour, so a colour
+/// change recolours the marker with the highlight. Drawn by the viewer, never saved in the file.
+fn paint_note_markers(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>) {
+    for a in cx.comments() {
+        let Some(r) = cx.note_marker(a) else { continue };
+        // The Highlight tool's default yellow when the comment names no colour.
+        let fill = color32(a.color.map_or([1.0, 0.94, 0.0], |c| c.map(f64::from)));
+        let dark = Color32::from_rgb(fill.r() / 2, fill.g() / 2, fill.b() / 2);
+        painter.circle(r.center(), r.width() / 2.0, fill, Stroke::new(1.0, dark));
+        let icon = r.shrink(r.width() * 0.2);
+        icons::image("message-square-text", icon.width(), dark).paint_at(ui, icon);
+    }
 }
 
 fn paint_gesture(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
@@ -1377,6 +1430,7 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
     let c = view.comments.composer.as_mut()?;
     let title = match c.kind {
         ComposerKind::Note => "Sticky note",
+        ComposerKind::Highlight => "Highlight",
         ComposerKind::TextBox => "Text box",
         ComposerKind::Callout { .. } => "Callout",
         ComposerKind::Caret { .. } => "Inserted text",
@@ -1431,6 +1485,7 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
     });
     if cancel {
         view.comments.composer = None;
+        view.comments.marked = None;
         return None;
     }
     if !post {
@@ -1443,6 +1498,11 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
         ComposerKind::Note => {
             view.comments.tool_done = true;
             Some(new_comment(&cx, CommentTool::Note, Shape::Note { at: c.at, icon: NoteIcon::Comment }, text))
+        }
+        ComposerKind::Highlight => {
+            view.comments.tool_done = true;
+            let quads = view.comments.marked.take()?;
+            Some(new_comment(&cx, CommentTool::Highlight, Shape::TextMarkup { kind: Markup::Highlight, quads }, text))
         }
         ComposerKind::TextBox => {
             view.comments.tool_done = true;

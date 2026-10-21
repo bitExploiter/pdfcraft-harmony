@@ -3584,8 +3584,8 @@ milestone = "M5"
 status = "shipped"
 commands = ["comment.highlight"]
 tools = ["comment_add"]
-evidence = ["crates/ui-egui/tests/comments.rs::dragging_over_text_with_the_highlighter_highlights_it", "crates/ui-egui/tests/comments.rs::a_new_highlight_opens_its_note_for_typing", "crates/engine/src/tests.rs::highlight_multiplies_over_text"]
-notes = "drag over text, or pick the tool with text selected; a new highlight opens its note for typing in the Comments panel; agents can highlight by text search"
+evidence = ["crates/ui-egui/tests/comments.rs::dragging_over_text_with_the_highlighter_highlights_it", "crates/ui-egui/tests/comments.rs::a_new_highlight_opens_its_note_for_typing", "crates/ui-egui/tests/comments.rs::selected_text_comment_action_highlights_the_text_with_the_note", "crates/ui-egui/tests/comments.rs::a_click_on_commented_text_opens_its_comment_for_editing", "crates/ui-egui/tests/comments.rs::the_marker_on_commented_text_opens_the_comment_too", "crates/ui-egui/tests/comments.rs::right_clicking_commented_text_offers_the_comment_menu_and_recolours_the_highlight", "crates/engine/src/tests.rs::highlight_multiplies_over_text"]
+notes = "drag over text, or pick the tool with text selected; a new highlight opens its note for typing in the Comments panel; Add comment on a text selection highlights the text with the typed note on it, as Acrobat's Comment does, instead of placing a sticky note; commented text markup shows a small comment marker in its own colour, a single click on the text or marker opens the comment for editing and a right click gives the comment menu (marker drawn by the viewer only, and no hover popup on the marker yet); agents can highlight by text search"
 
 [[feature]]
 id = "comment.underline"

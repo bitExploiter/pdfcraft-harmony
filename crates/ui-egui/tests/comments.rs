@@ -412,14 +412,142 @@ fn selected_text_replace_action_opens_replacement_composer() {
 }
 
 #[test]
-fn selected_text_comment_action_opens_note_composer() {
+fn selected_text_comment_action_highlights_the_text_with_the_note() {
+    // Acrobat's Comment on a text selection highlights the text and keeps the note on that
+    // highlight; it does not drop a sticky-note icon beside the text.
     let mut h = harness(|_| {});
     h.state_mut().views[0].select_text(0, 4, 8);
     h.run_steps(3);
     h.get_by_label("Add comment").click();
     h.run_steps(2);
-    assert!(matches!(h.state().views[0].comments.composer.as_ref().map(|c| &c.kind), Some(pdfcraft_ui_egui::comments::ComposerKind::Note)));
+    assert!(matches!(h.state().views[0].comments.composer.as_ref().map(|c| &c.kind), Some(pdfcraft_ui_egui::comments::ComposerKind::Highlight)));
     assert!(h.state().views[0].selected_text().is_none());
+    field(&h, "Add a comment").type_text("Check this word");
+    h.run_steps(2);
+    h.get_by_label("Post").click();
+    h.run_steps(3);
+    let c = comments(&h);
+    assert_eq!(c.len(), 1, "one annotation, not a highlight plus a note: {c:?}");
+    assert_eq!((c[0].subtype.as_str(), c[0].contents.as_deref()), ("Highlight", Some("Check this word")));
+    // It covers the selected word on the text line (baseline 150, 14 pt).
+    let r = c[0].rect;
+    assert!(r[1] < 155.0 && r[3] > 150.0 && r[0] > 20.0 && r[2] < 150.0, "{r:?}");
+    assert!(h.state().views[0].comments.marked.is_none(), "the quads are consumed");
+}
+
+/// "The quick brown fox": "quick" selected, Add comment, `text` posted. Returns the highlight.
+fn commented_highlight(h: &mut Harness<'static, PdfCraftApp>, text: &str) -> Annotation {
+    h.state_mut().views[0].select_text(0, 4, 8);
+    h.run_steps(3);
+    h.get_by_label("Add comment").click();
+    h.run_steps(2);
+    field(h, "Add a comment").type_text(text);
+    h.run_steps(2);
+    h.get_by_label("Post").click();
+    h.run_steps(3);
+    settle(h);
+    let c = comments(h);
+    assert_eq!(c.len(), 1);
+    c[0].clone()
+}
+
+/// Screen point at the comment marker: just above the start of the highlight's first line.
+fn marker_point(h: &Harness<'static, PdfCraftApp>, a: &Annotation) -> Pos2 {
+    let q = a.quads[0];
+    let left = [q[0], q[2], q[4], q[6]].into_iter().fold(f32::MAX, f32::min);
+    let top = [q[1], q[3], q[5], q[7]].into_iter().fold(f32::MIN, f32::max);
+    at(h, left, top) + egui::vec2(0.0, -6.0)
+}
+
+fn right_click(h: &mut Harness<'static, PdfCraftApp>, p: Pos2) {
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Secondary, pressed, modifiers: Default::default() });
+    }
+    h.run_steps(3);
+}
+
+#[test]
+fn a_click_on_commented_text_opens_its_comment_for_editing() {
+    use pdfcraft_ui_egui::comments::ComposerKind;
+
+    // As in Acrobat: one click on a commented highlight opens its note, ready to edit.
+    let mut h = harness(|_| {});
+    let a = commented_highlight(&mut h, "Check this word");
+    assert!(h.state().views[0].comments.composer.is_none());
+    let [x0, y0, x1, y1] = a.rect;
+    click_pt(&mut h, ((x0 + x1) / 2.0, (y0 + y1) / 2.0));
+    let c = h.state().views[0].comments.composer.clone().expect("the comment opened");
+    assert_eq!((c.kind, c.text.as_str()), (ComposerKind::Edit(a.index), "Check this word"));
+    assert_eq!(h.state().views[0].comments.selected, Some((0, a.index)));
+}
+
+#[test]
+fn the_marker_on_commented_text_opens_the_comment_too() {
+    use pdfcraft_ui_egui::comments::ComposerKind;
+
+    let mut h = harness(|_| {});
+    let a = commented_highlight(&mut h, "Check this word");
+    let m = marker_point(&h, &a);
+    click(&mut h, m);
+    assert_eq!(h.state().views[0].comments.selected, Some((0, a.index)), "the marker belongs to the highlight");
+    assert_eq!(h.state().views[0].comments.composer.as_ref().map(|c| c.kind), Some(ComposerKind::Edit(a.index)));
+}
+
+#[test]
+fn a_click_on_a_plain_highlight_only_selects_it() {
+    // No comment, no marker: the click selects and nothing opens, as before.
+    let mut h = harness(|_| {});
+    h.state_mut().views[0].select_text(0, 4, 8);
+    assert!(h.state_mut().execute("comment.highlight"));
+    h.run_steps(3);
+    h.state_mut().set_option("quick", "select").unwrap();
+    settle(&mut h);
+    let a = comments(&h)[0].clone();
+    assert_eq!(a.subtype, "Highlight");
+    let m = marker_point(&h, &a);
+    click(&mut h, m);
+    assert_eq!(h.state().views[0].comments.selected, None, "a plain highlight has no marker to hit");
+    let [x0, y0, x1, y1] = a.rect;
+    click_pt(&mut h, ((x0 + x1) / 2.0, (y0 + y1) / 2.0));
+    assert_eq!(h.state().views[0].comments.selected, Some((0, a.index)));
+    assert!(h.state().views[0].comments.composer.is_none());
+}
+
+#[test]
+fn right_clicking_commented_text_offers_the_comment_menu_and_recolours_the_highlight() {
+    let mut h = harness(|_| {});
+    let a = commented_highlight(&mut h, "Check this word");
+    let m = marker_point(&h, &a);
+    right_click(&mut h, m);
+    assert_eq!(h.state().views[0].comments.selected, Some((0, a.index)));
+    h.get_by_label("Edit text…");
+    h.get_by_label("Properties…");
+    h.get_by_label("Colour ⏵").click();
+    h.run_steps(2);
+    h.get_all_by_label("Blue").last().expect("a blue swatch").click();
+    h.run_steps(3);
+    let state = h.state();
+    let doc = state.session.get(state.views[0].id).expect("document");
+    // The highlight itself is recoloured; its marker is drawn in the highlight's colour.
+    assert_eq!(doc.comment_props(0, a.index).and_then(|p| p.color), Some([0.0, 0.47, 0.84]));
+    let c = comments(&h);
+    assert_eq!((c[0].subtype.as_str(), c[0].contents.as_deref()), ("Highlight", Some("Check this word")), "still one commented highlight");
+}
+
+#[test]
+fn cancelling_a_comment_on_selected_text_adds_nothing() {
+    let mut h = harness(|_| {});
+    h.state_mut().views[0].select_text(0, 4, 8);
+    h.run_steps(3);
+    h.get_by_label("Add comment").click();
+    h.run_steps(2);
+    h.get_by_label("Cancel").click();
+    h.run_steps(3);
+    assert!(comments(&h).is_empty());
+    assert!(h.state().views[0].comments.composer.is_none());
+    assert!(h.state().views[0].comments.marked.is_none(), "no stale quads for the next comment");
 }
 
 #[test]
