@@ -397,6 +397,10 @@ pub type FailedInbox = std::sync::Arc<std::sync::Mutex<Vec<(String, String)>>>;
 pub enum OsEvent {
     /// Open these files.
     Open(Vec<String>),
+    /// Open these files in Edit mode.
+    Edit(Vec<String>),
+    /// Stage these files in the Combine tab.
+    Combine(Vec<String>),
     /// Quit (the Dock's Quit, logging out), asking about unsaved changes first.
     Quit,
 }
@@ -430,32 +434,35 @@ pub struct PasswordPrompt {
     then: Option<&'static str>,
     /// A link destination to apply after the linked PDF is unlocked.
     after_open: Option<pdfcraft_render::RemoteDestination>,
+    pub mode: Option<Mode>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct PendingOpen {
-    token: u64,
-    receiver: std::sync::mpsc::Receiver<open_worker::ResultMessage>,
-    name: String,
-    path: Option<String>,
-    stamp: Option<file_watch::Stamp>,
-    activate: bool,
-    after_open: Option<pdfcraft_render::RemoteDestination>,
-    recovered: Option<RecoveryMeta>,
-    then: Option<&'static str>,
+pub(crate) struct PendingOpen {
+    pub(crate) token: u64,
+    pub(crate) receiver: std::sync::mpsc::Receiver<open_worker::ResultMessage>,
+    pub(crate) name: String,
+    pub(crate) path: Option<String>,
+    pub(crate) stamp: Option<file_watch::Stamp>,
+    pub(crate) activate: bool,
+    pub(crate) after_open: Option<pdfcraft_render::RemoteDestination>,
+    pub(crate) recovered: Option<RecoveryMeta>,
+    pub(crate) then: Option<&'static str>,
+    pub(crate) mode: Option<Mode>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-struct OpenRequest {
-    name: String,
-    path: Option<String>,
-    stamp: Option<file_watch::Stamp>,
-    input: open_worker::Input,
-    password: Option<String>,
-    activate: bool,
-    after_open: Option<pdfcraft_render::RemoteDestination>,
-    recovered: Option<RecoveryMeta>,
-    then: Option<&'static str>,
+pub(crate) struct OpenRequest {
+    pub(crate) name: String,
+    pub(crate) path: Option<String>,
+    pub(crate) stamp: Option<file_watch::Stamp>,
+    pub(crate) input: open_worker::Input,
+    pub(crate) password: Option<String>,
+    pub(crate) activate: bool,
+    pub(crate) after_open: Option<pdfcraft_render::RemoteDestination>,
+    pub(crate) recovered: Option<RecoveryMeta>,
+    pub(crate) then: Option<&'static str>,
+    pub(crate) mode: Option<Mode>,
 }
 
 /// Asks for the permissions password of an open document whose security restricts it, which
@@ -700,6 +707,11 @@ pub struct PdfCraftApp {
     pub combine_zoom: f32,
     /// The Combine grid's thumbnails: rendered off the UI thread, a few at a time.
     pub(crate) combine_thumbs: combine_grid::Thumbs,
+    /// Channel to a background worker that reads and prepares imported files sequentially.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) file_import_worker: Option<std::sync::mpsc::Sender<files::FileJob>>,
+    pub(crate) file_import_name: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+    pub open_showing_progress: bool,
     /// Images waiting for the resolution choice (released on cancel).
     pub image_import: Option<create_ui::ImageImport>,
     /// The custom stamp library, and the stamp being created.
@@ -1014,6 +1026,10 @@ impl PdfCraftApp {
             combine_view: Default::default(),
             combine_zoom: 1.0,
             combine_thumbs: Default::default(),
+            #[cfg(not(target_arch = "wasm32"))]
+            file_import_worker: None,
+            file_import_name: Default::default(),
+            open_showing_progress: false,
             image_import: None,
             custom_stamps: Vec::new(),
             stamp_draft: Default::default(),
@@ -1141,6 +1157,27 @@ impl PdfCraftApp {
     fn open_bytes_with_focus(&mut self, name: &str, path: Option<String>, bytes: Vec<u8>, activate: bool) -> Result<(), String> {
         // Images and text files become new, unsaved PDFs (Create a PDF).
         let active = self.active;
+        #[cfg(not(target_arch = "wasm32"))]
+        if !self.run_inline
+            && pdfcraft_engine::source_kind(name, &bytes) != Some(pdfcraft_engine::SourceKind::Pdf)
+            && pdfcraft_platform::is_office_document(name)
+        {
+            self.startup_superseded = true;
+            return self
+                .schedule_open(OpenRequest {
+                    name: name.to_owned(),
+                    path,
+                    stamp: None,
+                    input: open_worker::Input::Bytes(std::sync::Arc::new(bytes)),
+                    password: None,
+                    activate,
+                    after_open: None,
+                    recovered: None,
+                    then: None,
+                    mode: None,
+                })
+                .map(|_| ());
+        }
         if let Some(r) = self.open_converted(name, &bytes) {
             if !activate {
                 self.active = active;
@@ -1179,6 +1216,7 @@ impl PdfCraftApp {
             after_open: request.after_open,
             recovered: request.recovered,
             then: request.then,
+            mode: request.mode,
         });
         Ok(token)
     }
@@ -1209,6 +1247,26 @@ impl PdfCraftApp {
         // earlier waiting replies, without consuming a blocked receiver's result.
         waiting.append(&mut self.pending_opens);
         self.pending_opens = waiting;
+
+        let active_import_name = self.file_import_name.lock().ok().and_then(|s| s.clone());
+        let active_name = self.pending_opens.first().map(|p| p.name.as_str()).or(active_import_name.as_deref());
+
+        if let Some(name) = active_name {
+            if self.progress_notice.is_none() || self.open_showing_progress {
+                let label = if pdfcraft_platform::is_office_document(name) {
+                    crate::i18n::fmt(tl!("Converting {name}…"), &[("name", name)])
+                } else {
+                    crate::i18n::fmt(tl!("Opening {name}…"), &[("name", name)])
+                };
+                self.progress_notice = Some(crate::widgets::ProgressNotice { label, fraction: 0.5, cancellable: false });
+                self.open_showing_progress = true;
+                if let Some(ctx) = &self.ctx {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                }
+            }
+        } else if std::mem::take(&mut self.open_showing_progress) {
+            self.progress_notice = None;
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1228,6 +1286,9 @@ impl PdfCraftApp {
             }
             open_worker::ResultKind::Conversion(bytes) => match self.open_converted(&pending.name, &bytes) {
                 Some(Ok(())) => {
+                    if let Some(mode) = pending.mode {
+                        self.switch_mode(mode, true);
+                    }
                     if let Some(command) = pending.then {
                         self.execute(command);
                     }
@@ -1235,6 +1296,24 @@ impl PdfCraftApp {
                 Some(Err(error)) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
                 None => {}
             },
+            open_worker::ResultKind::OfficeConversion(bytes) => {
+                let active = self.active;
+                let stem = pending.name.rsplit_once('.').map_or(pending.name.as_str(), |(stem, _)| stem);
+                match self.open_created_bytes(&format!("{stem}.pdf"), Ok(bytes)) {
+                    Ok(()) => {
+                        if !pending.activate {
+                            self.active = active;
+                        }
+                        if let Some(mode) = pending.mode {
+                            self.switch_mode(mode, true);
+                        }
+                        if let Some(command) = pending.then {
+                            self.execute(command);
+                        }
+                    }
+                    Err(error) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
+                }
+            }
             open_worker::ResultKind::Prepared { bytes, result } => match *result {
                 Ok(prepared) => match self.finish_open(&pending.name, pending.path.clone(), bytes.len(), prepared, pending.activate) {
                     Ok(id) => {
@@ -1246,6 +1325,9 @@ impl PdfCraftApp {
                         }
                         if let Some(meta) = &pending.recovered {
                             self.finish_recovery(meta);
+                        }
+                        if let Some(mode) = pending.mode {
+                            self.switch_mode(mode, true);
                         }
                         if let Some(command) = pending.then {
                             self.execute(command);
@@ -1267,6 +1349,7 @@ impl PdfCraftApp {
                         recovered: pending.recovered,
                         then: pending.then,
                         after_open: pending.after_open,
+                        mode: pending.mode,
                     });
                 }
                 Err(error) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error.to_string())]),
@@ -1301,6 +1384,7 @@ impl PdfCraftApp {
                     recovered: None,
                     then: None,
                     after_open: None,
+                    mode: None,
                 });
                 return Ok(());
             }
@@ -1357,7 +1441,13 @@ impl PdfCraftApp {
         }
         if activate && let Some(mode) = self.mode_override {
             // Explicit mode options do not reset independent --tool / --left choices.
-            self.mode = mode;
+            let left_open = self.left_open;
+            let left = self.left;
+            self.select_mode(mode);
+            if left != LeftPanel::AllTools {
+                self.left = left;
+            }
+            self.left_open = left_open;
         } else if activate && self.mode != self.default_mode {
             // Switch workspace like the mode bar, but a left panel the user (or `--left closed`)
             // closed stays closed, and an unchanged mode keeps the tool panel the user chose.
@@ -1402,6 +1492,7 @@ impl PdfCraftApp {
                         after_open: None,
                         recovered: None,
                         then: None,
+                        mode: None,
                     });
                     if let Err(error) = result {
                         self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
@@ -1488,6 +1579,26 @@ impl PdfCraftApp {
         };
         view.insert_at = Some(gap);
         if let Some(drop) = self.grid_drop.take() {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let has_office = drop.files.iter().any(|(name, _)| pdfcraft_platform::is_office_document(name));
+                if has_office {
+                    self.queue_import(
+                        files::FilePurpose::InsertPages,
+                        drop.files
+                            .into_iter()
+                            .map(|(name, source)| match source {
+                                Ok(bytes) => files::FileInput::Bytes(name, bytes),
+                                Err(path) => files::FileInput::Path(path),
+                            })
+                            .collect(),
+                        None,
+                    );
+                } else {
+                    self.insert_each(drop.files.into_iter().map(read_grid_file));
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
             self.insert_each(drop.files.into_iter().map(read_grid_file));
         }
     }
@@ -1618,6 +1729,7 @@ impl PdfCraftApp {
                 after_open: p.after_open.clone(),
                 recovered: p.recovered.clone(),
                 then: p.then,
+                mode: p.mode,
             });
             if let Err(error) = result {
                 let mut prompt = p;
@@ -1649,6 +1761,9 @@ impl PdfCraftApp {
                 if let Some(meta) = &p.recovered {
                     self.finish_recovery(meta);
                 }
+                if let Some(mode) = p.mode {
+                    self.switch_mode(mode, true);
+                }
                 if let Some(command) = p.then {
                     self.execute(command);
                 }
@@ -1660,6 +1775,7 @@ impl PdfCraftApp {
                     prompt.recovered = p.recovered;
                     prompt.then = p.then;
                     prompt.after_open = after_open;
+                    prompt.mode = p.mode;
                 }
             }
         }
@@ -1757,6 +1873,7 @@ impl PdfCraftApp {
             after_open: Some(destination),
             recovered: None,
             then: None,
+            mode: None,
         });
         if let Err(error) = result {
             self.notify_fmt("Couldn't follow linked PDF: {reason}", &[("reason", &error)]);
@@ -1790,33 +1907,62 @@ impl PdfCraftApp {
         }
     }
 
+    /// Sets the egui context for early startup paths (such as staged Combine files)
+    /// so worker callbacks can request a repaint when reads finish.
+    pub fn set_context(&mut self, ctx: &egui::Context) {
+        self.ctx = Some(ctx.clone());
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(worker) = &self.open_worker {
+            worker.set_context(ctx);
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) {
-        self.open_path_then(path, None);
+        self.open_path_then_mode(path, None, None);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn open_path_in_mode(&mut self, path: &str, mode: Mode) {
+        self.open_path_then_mode(path, None, Some(mode));
     }
 
     /// Keep a chosen tool with its file until preparation and any password entry finish.
     #[cfg(not(target_arch = "wasm32"))]
     fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
+        self.open_path_then_mode(path, then, None);
+    }
+
+    /// Keep a chosen tool or mode with its file until preparation and any password entry finish.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn open_path_then_mode(&mut self, path: &str, then: Option<&'static str>, mode: Option<Mode>) {
         // One file, one tab (#2166): a file that is open already comes to the front instead,
         // and the tool it was opened for runs on it. One still being opened is left to that.
         if let Some(i) = self.tab_showing(path) {
             self.active = Some(i);
+            if let Some(m) = mode {
+                self.switch_mode(m, true);
+            }
             if let Some(command) = then {
                 self.execute(command);
             }
             return;
         }
-        if self.pending_opens.iter().any(|p| p.path.as_deref().is_some_and(|p| same_file(p, path))) {
+        if let Some(pending) = self.pending_opens.iter_mut().find(|p| p.path.as_deref().is_some_and(|p| same_file(p, path))) {
+            if mode.is_some() {
+                pending.mode = mode;
+            }
+            if then.is_some() {
+                pending.then = then;
+            }
             return;
         }
         let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
         // Taken before reading: a build that rewrites the file meanwhile still counts as a change.
         let stamp = file_watch::Stamp::at(path);
-        // Before the first frame there is no interaction to keep responsive; this also preserves
-        // deterministic inline startup and test flows. Once live, reading and preparation use
-        // the bounded worker and commit on the UI thread.
-        if self.ctx.is_none() || self.run_inline {
+        // Preserve inline startup for PDFs and engine-supported images/text. Office conversion
+        // may wait on another application, so it uses the worker even before the first frame.
+        if self.run_inline || (self.ctx.is_none() && !pdfcraft_platform::is_office_document(&name)) {
             match std::fs::read(path) {
                 Ok(bytes) => {
                     let before = self.views.len();
@@ -1824,9 +1970,13 @@ impl PdfCraftApp {
                         self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
                     } else if let Some(prompt) = self.password_prompt.as_mut().filter(|p| p.path.as_deref() == Some(path)) {
                         prompt.then = then;
+                        prompt.mode = mode;
                     } else if self.views.len() > before {
                         if let Some(doc) = self.views.last().map(|view| view.id) {
                             self.watch.known_as(doc, stamp);
+                        }
+                        if let Some(m) = mode {
+                            self.switch_mode(m, true);
                         }
                         if let Some(command) = then {
                             self.execute(command);
@@ -1848,25 +1998,30 @@ impl PdfCraftApp {
             after_open: None,
             recovered: None,
             then,
+            mode,
         }) {
             self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &error)]);
         }
     }
 
-    /// The File ▸ Open picker: PDFs, and images and text that become PDFs.
+    /// The File ▸ Open picker: PDFs, and images, Office documents and text that become PDFs.
     #[cfg(not(target_arch = "wasm32"))]
     fn open_picker() -> rfd::AsyncFileDialog {
-        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE)
+        let convertible = create_ui::convertible_extensions();
+        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &convertible)
     }
 
     pub fn open_dialog(&mut self) {
         self.startup_superseded = true;
         #[cfg(not(target_arch = "wasm32"))]
-        self.pick(
-            pickers::PickFor::Open,
-            rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE),
-            true,
-        );
+        {
+            let convertible = create_ui::convertible_extensions();
+            self.pick(
+                pickers::PickFor::Open,
+                rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &convertible),
+                true,
+            );
+        }
         // Browsers pick files asynchronously; the bytes arrive through `inbox`.
         #[cfg(target_arch = "wasm32")]
         {
@@ -2193,7 +2348,7 @@ impl PdfCraftApp {
     /// mode closes the right panel, as Acrobat's Read mode hides its panes, and leaving it reopens
     /// that panel. The rail stays in Read mode, and its buttons open panels there too (#932).
     /// Read mode hides the quick toolbar, so entering it also puts the current tool down.
-    pub(crate) fn switch_mode(&mut self, mode: Mode, select_tools: bool) {
+    pub fn switch_mode(&mut self, mode: Mode, select_tools: bool) {
         let was_read = self.mode == Mode::Read;
         if select_tools {
             self.select_mode(mode);
@@ -2524,7 +2679,17 @@ impl PdfCraftApp {
             ("mode", _) => {
                 let mode = Mode::parse(value).unwrap_or(Mode::AllTools);
                 self.mode_override = Some(mode);
-                self.mode = mode;
+                let left = self.left;
+                let left_open = self.left_open;
+                let right = self.right;
+                self.switch_mode(mode, true);
+                if left != LeftPanel::AllTools {
+                    self.left = left;
+                }
+                self.left_open = left_open;
+                if right.is_some() {
+                    self.right = right;
+                }
             }
             ("default-mode", _) => {
                 self.default_mode = Mode::parse(value).ok_or("default-mode must be all, read, edit, convert or sign")?;
@@ -2795,6 +2960,11 @@ impl PdfCraftApp {
         Ok(())
     }
 
+    /// Override default mode when opening documents from intent-tagged launches (e.g. --edit).
+    pub fn set_mode_override(&mut self, mode: Mode) {
+        self.mode_override = Some(mode);
+    }
+
     fn shortcuts(&mut self, ctx: &egui::Context) {
         use egui::Key;
         // "Save changes?" is modal: its keys are its own (⌘D is Don't save there, not Document
@@ -3058,6 +3228,23 @@ impl eframe::App for PdfCraftApp {
                 OsEvent::Open(paths) => paths.iter().for_each(|p| self.open_path(p)),
                 #[cfg(target_arch = "wasm32")]
                 OsEvent::Open(_) => {}
+                #[cfg(not(target_arch = "wasm32"))]
+                OsEvent::Edit(paths) => {
+                    if paths.is_empty() {
+                        self.switch_mode(Mode::Edit, true);
+                    } else {
+                        paths.iter().for_each(|p| self.open_path_in_mode(p, Mode::Edit));
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                OsEvent::Edit(_) => {}
+                #[cfg(not(target_arch = "wasm32"))]
+                OsEvent::Combine(paths) => {
+                    self.open_combine_tab();
+                    self.add_paths_to_combine(&paths);
+                }
+                #[cfg(target_arch = "wasm32")]
+                OsEvent::Combine(_) => {}
                 // Like closing the window: `guard_quit` asks about unsaved changes.
                 OsEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }

@@ -146,6 +146,10 @@ sync_github_name = false
 display_name = "Netter"
 sync_github_name = false
 
+[people.E55IDDIK]
+real_name = "Essiddik Kharbouch"
+display_name = "E55IDDIK"
+
 [people.MortenHusted]
 sync_github_name = true
 

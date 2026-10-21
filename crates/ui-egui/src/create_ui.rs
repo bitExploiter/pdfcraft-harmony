@@ -44,6 +44,35 @@ pub(crate) fn image_import_body(ui: &mut egui::Ui, app: &mut PdfCraftApp) -> (bo
 /// File types Open accepts besides PDF (converted on open).
 pub use pdfcraft_engine::CONVERTIBLE;
 
+pub(crate) const OFFICE_CONVERTIBLE: [&str; 4] = ["doc", "docx", "ppt", "pptx"];
+
+pub(crate) fn convertible_extensions() -> Vec<&'static str> {
+    CONVERTIBLE.into_iter().chain(OFFICE_CONVERTIBLE).collect()
+}
+
+/// Convert an input supported either by the engine itself or the optional native Office sidecar.
+pub(crate) fn convert_input_to_pdf(session: &pdfcraft_engine::Session, name: &str, bytes: &[u8]) -> Result<Arc<Vec<u8>>, String> {
+    if pdfcraft_engine::source_kind(name, bytes) == Some(pdfcraft_engine::SourceKind::Pdf) {
+        return Ok(Arc::new(bytes.to_vec()));
+    }
+    let bytes = Arc::new(bytes.to_vec());
+    match session.convert_to_pdf(name, &bytes) {
+        Ok((_, pdf)) => Ok(pdf),
+        Err(_) if pdfcraft_platform::is_office_document(name) => pdfcraft_platform::office_to_pdf(name, &bytes).map(Arc::new),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(crate) fn convert_prepared_input_to_pdf(session: &pdfcraft_engine::Session, file: &crate::files::PreparedFile) -> Result<Arc<Vec<u8>>, String> {
+    if let Some(converted) = &file.converted {
+        return converted.clone();
+    }
+    if pdfcraft_engine::source_kind(&file.name, &file.bytes) == Some(pdfcraft_engine::SourceKind::Pdf) {
+        return Ok(Arc::new(file.bytes.clone()));
+    }
+    convert_input_to_pdf(session, &file.name, &file.bytes)
+}
+
 /// What Create ▸ Clipboard found on the clipboard.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Clip {
@@ -86,18 +115,23 @@ fn stem(name: &str) -> &str {
 }
 
 impl PdfCraftApp {
-    /// Convert a non-PDF file (image, text) into a new tab. Returns `None` when `bytes` is not
+    /// Convert a non-PDF file (image, text, Office document) into a new tab. Returns `None` when `bytes` is not
     /// something Create understands (the caller then tries to open it as a PDF).
     pub(crate) fn open_converted(&mut self, name: &str, bytes: &[u8]) -> Option<Result<(), String>> {
         use pdfcraft_engine::SourceKind;
-        if !matches!(pdfcraft_engine::source_kind(name, bytes), Some(SourceKind::Image | SourceKind::Text)) {
+        if pdfcraft_engine::source_kind(name, bytes) == Some(SourceKind::Pdf) {
             return None;
         }
-        let created = self.session.convert_to_pdf(name, &Arc::new(bytes.to_vec())).map(|(_, pdf)| pdf);
+        let convertible = matches!(pdfcraft_engine::source_kind(name, bytes), Some(SourceKind::Image | SourceKind::Text))
+            || pdfcraft_platform::is_office_document(name);
+        if !convertible {
+            return None;
+        }
+        let created = convert_input_to_pdf(&self.session, name, bytes);
         Some(self.open_created_bytes(&format!("{}.pdf", stem(name)), created.map_err(|e| e.to_string())))
     }
 
-    fn open_created_bytes(&mut self, name: &str, created: Result<Arc<Vec<u8>>, String>) -> Result<(), String> {
+    pub(crate) fn open_created_bytes(&mut self, name: &str, created: Result<Arc<Vec<u8>>, String>) -> Result<(), String> {
         let bytes = created?;
         let id = self.session.open_new(name, bytes).map_err(|e| e.to_string())?;
         // The reading-colours preference is app-wide: the newly created document starts with it.

@@ -2,6 +2,8 @@
 //!
 //! Usage: `pdfcraft [options] [files…]`
 //! `--create-images [images…]` stages the images in one PDF and asks for the page DPI.
+//! `--combine [files…]` stages the files in the Combine tab for review before merging.
+//! `--edit [files…]` opens the files in the Edit workspace.
 //!
 //! View options (applied after the files open; also the seed of the UI control channel):
 //! `--page N  --zoom 150  --layout single|continuous|two-up|two-page  --continuous on|off  --panel comments|bookmarks|pages|fields|layers|attachments|none
@@ -168,6 +170,7 @@ fn rejoin_split_paths(args: Vec<String>, exists: impl Fn(&str) -> bool) -> Vec<S
 }
 
 fn main() -> eframe::Result {
+    office_helper_mode();
     // First, so the panic hook and every start-up warning are recorded (`logging`).
     let logger = logging::install();
     // Last-resort guard (AGENTS.md §4): commands, edits, opens and saves catch panics and report
@@ -191,6 +194,8 @@ fn main() -> eframe::Result {
     let mut options: Vec<(String, String)> = Vec::new();
     let mut control_file: Option<String> = None;
     let mut create_images = false;
+    let mut combine = false;
+    let mut edit = false;
     let mut new_window = false;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
@@ -201,6 +206,8 @@ fn main() -> eframe::Result {
             }
             "--control" => control_file = args.next(),
             "--create-images" => create_images = true,
+            "--combine" => combine = true,
+            "--edit" => edit = true,
             "--new-window" => new_window = true,
             flag if flag.starts_with("--") => {
                 let value = args.next().unwrap_or_default();
@@ -226,21 +233,26 @@ fn main() -> eframe::Result {
             Err(e) => log::warn!("no log file: {e}"),
         }
     }
-    // Windows, Linux and the BSDs: a launch that only names files (an Outlook attachment, an
-    // Explorer double-click, a file manager or `xdg-open`) hands them to the PdfCraft already
-    // running and exits (#282, #317, #1726). Any option means the caller wants this launch's own
-    // window.
+    // Windows, Linux and the BSDs: ordinary file-open launches and explicit Combine launches hand
+    // their intent and paths to the running app. Other options and --new-window keep their own UI.
+    let intent = if combine {
+        single_instance::Intent::Combine
+    } else if edit {
+        single_instance::Intent::Edit
+    } else {
+        single_instance::Intent::Open
+    };
     let may_hand_off = !new_window && !files.is_empty() && options.is_empty() && control_file.is_none() && !create_images;
     // Absolute for this instance too: links relative to a document resolve against its folder,
     // never the working directory.
     let files = single_instance::absolute(&files);
-    let instance = match single_instance::claim(&files, may_hand_off) {
+    let instance = match single_instance::claim(intent, &files, may_hand_off) {
         single_instance::Claim::HandedOff => return Ok(()),
         single_instance::Claim::Primary(server) => Some(server),
         single_instance::Claim::Alone => None,
     };
     let choice = renderer_choice(std::env::var("PDFCRAFT_RENDERER").ok().as_deref());
-    let launch = Launch { files, options, control_file, create_images, integrated, window_controls };
+    let launch = Launch { files, options, control_file, create_images, combine, edit, integrated, window_controls };
     // Finder, Open With and the Dock deliver files as Apple events, not arguments; catch the one
     // that launched us as well as later ones. Lives until the event loop returns.
     #[cfg(target_os = "macos")]
@@ -280,6 +292,23 @@ fn main() -> eframe::Result {
         }
         other => other,
     }
+}
+
+/// Private subprocess entry point used to isolate potentially blocking Office COM automation.
+fn office_helper_mode() {
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    if args.first().is_none_or(|arg| arg != "--pdfcraft-office-convert") {
+        return;
+    }
+    let result = match (args.get(1), args.get(2), args.get(3)) {
+        (Some(source), Some(target), None) => pdfcraft_platform::office_to_pdf_internal(std::path::Path::new(source), std::path::Path::new(target)),
+        _ => Err("invalid internal Office conversion arguments".into()),
+    };
+    if let Err(error) = result {
+        let _ = std::io::Write::write_fmt(&mut std::io::stderr(), format_args!("pdfcraft Office conversion: {error}\n"));
+        std::process::exit(1);
+    }
+    std::process::exit(0);
 }
 
 /// Which renderer to start with, from `PDFCRAFT_RENDERER`.
@@ -344,6 +373,8 @@ struct Launch {
     options: Vec<(String, String)>,
     control_file: Option<String>,
     create_images: bool,
+    combine: bool,
+    edit: bool,
     integrated: bool,
     /// The window buttons the app draws, when the desktop leaves the frame to it.
     window_controls: Option<pdfcraft_ui_egui::window_controls::Layout>,
@@ -367,7 +398,7 @@ fn app_creator<'a>(
     instance: Option<&'a single_instance::Server>,
     #[cfg(target_os = "macos")] apple_events: &'a apple_events::AppleEvents,
 ) -> eframe::AppCreator<'a> {
-    let Launch { files, options, control_file, create_images, integrated, window_controls } = launch;
+    let Launch { files, options, control_file, create_images, combine, edit, integrated, window_controls } = launch;
     Box::new(move |cc| {
         started.set(true);
         let mut app = PdfCraftApp::new();
@@ -433,7 +464,13 @@ fn app_creator<'a>(
                 &[("folder", &w.folder.display().to_string()), ("error", &w.error)],
             );
         }
-        if create_images {
+        app.set_context(&cc.egui_ctx);
+        if combine {
+            app.open_combine_tab();
+            if !files.is_empty() {
+                app.add_paths_to_combine(&files);
+            }
+        } else if create_images {
             if let Err(e) = app.begin_image_import_paths(&files) {
                 app.notify(e);
             }
@@ -441,8 +478,15 @@ fn app_creator<'a>(
             // With the preference on, last session's files come back first; files named on
             // the command line open after them, in front (#442).
             app.reopen_last_files(&files);
-            for f in files {
-                app.open_path(&f);
+            for f in &files {
+                if edit {
+                    app.open_path_in_mode(f, pdfcraft_ui_egui::Mode::Edit);
+                } else {
+                    app.open_path(f);
+                }
+            }
+            if edit && files.is_empty() {
+                app.switch_mode(pdfcraft_ui_egui::Mode::Edit, true);
             }
         }
         for (k, v) in options {
