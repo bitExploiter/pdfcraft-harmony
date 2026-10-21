@@ -934,6 +934,7 @@ theme	Appearance	Giao diện
 	Redaction code:	Mã xóa nội dung nhạy cảm:
 	Reload	Tải lại
 	Reload documents when their files change on disk	Tải lại tài liệu khi tệp của chúng thay đổi trên đĩa
+	Show art, trim and bleed boxes	Hiện hộp hình ảnh, hộp xén và hộp tràn lề
 	Remove checkmark	Bỏ dấu kiểm
 	Remove invalid links and bookmarks	Gỡ các liên kết và dấu trang không hợp lệ
 	Remove page	Gỡ trang

@@ -199,6 +199,51 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
     (apply, cancel)
 }
 
+/// Show art, trim and bleed boxes: the colours of Acrobat's Set Page Boxes ▸ Show All Boxes
+/// (art red, trim green, bleed blue), drawn bleed, trim, art (outermost first).
+const SHOWN: [(usize, Color32); 3] =
+    [(0, Color32::from_rgb(0x00, 0x50, 0xF0)), (1, Color32::from_rgb(0x00, 0xA0, 0x00)), (2, Color32::from_rgb(0xE0, 0x00, 0x00))];
+
+/// The bleed, trim and art boxes each page sets, read once per document generation: walking
+/// the page tree every frame would cost a long document its frame rate.
+#[derive(Default)]
+pub(crate) struct ShownBoxes {
+    read_at: Option<u64>,
+    boxes: std::sync::Arc<Vec<[Option<[f64; 4]>; 3]>>,
+}
+
+impl ShownBoxes {
+    pub(crate) fn get(&mut self, doc: &pdfcraft_engine::Document) -> std::sync::Arc<Vec<[Option<[f64; 4]>; 3]>> {
+        let generation = doc.edit_generation();
+        if self.read_at != Some(generation) {
+            self.boxes = std::sync::Arc::new(doc.defined_page_boxes());
+            self.read_at = Some(generation);
+        }
+        self.boxes.clone()
+    }
+}
+
+/// Outline `page`'s own boxes, clipped to the page as shown: a box past the crop box is cut at
+/// the page's edge, as the rest of the page is.
+pub(crate) fn paint_shown(
+    painter: &egui::Painter,
+    xf: &crate::canvas::PageXform,
+    info: &pdfcraft_render::DocInfo,
+    page: usize,
+    boxes: &[[Option<[f64; 4]>; 3]],
+) {
+    let Some(own) = boxes.get(page) else { return };
+    if page >= info.pages.len() {
+        return;
+    }
+    let painter = painter.with_clip_rect(painter.clip_rect().intersect(xf.rect));
+    for (k, color) in SHOWN {
+        let Some(Some(r)) = own.get(k) else { continue };
+        let shown = xf.user_rect(info, page, [r[0] as f32, r[1] as f32, r[2] as f32, r[3] as f32]);
+        painter.rect_stroke(shown, CornerRadius::ZERO, Stroke::new(1.0, color), egui::StrokeKind::Middle);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

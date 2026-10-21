@@ -24,7 +24,7 @@ mod transition;
 pub mod view;
 mod xmp;
 
-pub use boxes::{BoxSpec, PageBox, page_boxes, set_page_box};
+pub use boxes::{BoxSpec, PageBox, defined_page_boxes, page_boxes, set_page_box};
 pub use dedupe::dedupe_resources;
 pub use import::{
     CombineOutcome, Combiner, FieldConflicts, ImportOutcome, Run, SplitBy, combine, combine_field_conflicts, combine_grouped, combine_grouped_with,

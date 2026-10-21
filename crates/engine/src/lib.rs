@@ -826,6 +826,12 @@ impl Document {
         self.editor.as_ref().and_then(|e| pdfcraft_organize::page_boxes(&e.cos).ok()).unwrap_or_default()
     }
 
+    /// Every page's bleed, trim and art boxes (user space) where the page sets them, for Show
+    /// art, trim and bleed boxes; `None` where a box falls back to the crop box.
+    pub fn defined_page_boxes(&self) -> Vec<[Option<[f64; 4]>; 3]> {
+        self.editor.as_ref().and_then(|e| pdfcraft_organize::defined_page_boxes(&e.cos).ok()).unwrap_or_default()
+    }
+
     /// Current value of a document-information entry (Title, Author, …).
     pub fn info_value(&self, key: &str) -> Option<String> {
         self.editor.as_ref().and_then(|e| pdfcraft_organize::info(&e.cos, key))

@@ -1823,11 +1823,11 @@ title = "Show art, trim and bleed boxes"
 area = "B"
 tier = "P2"
 milestone = "M11"
-status = "planned"
+status = "shipped"
 commands = []
 tools = []
-evidence = []
-notes = ""
+evidence = ["crates/ui-egui/tests/ui_group/show_boxes.rs::a_trim_box_inside_the_crop_is_outlined_where_it_is_on_the_page", "crates/ui-egui/tests/ui_group/show_boxes.rs::a_page_without_its_own_boxes_draws_none", "crates/ui-egui/tests/ui_group/show_boxes.rs::boxes_on_a_rotated_page_turn_with_it", "crates/ui-egui/tests/ui_group/show_boxes.rs::boxes_are_hidden_until_the_preference_is_on", "crates/ui-egui/tests/ui_group/show_boxes.rs::preferences_turn_the_boxes_on_and_the_choice_is_remembered"]
+notes = "Preferences ▸ Documents and view, remembered across restarts (control channel: page-boxes on/off). Only boxes the page sets are drawn, clipped to the crop box, in Set Page Boxes ▸ Show All Boxes' colours: art red, trim green, bleed blue. Not yet: the same checkbox in Output Preview, which PdfCraft does not have."
 
 [[feature]]
 id = "view.web-app"

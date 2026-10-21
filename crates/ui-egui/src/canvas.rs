@@ -507,6 +507,8 @@ pub struct DocView {
     /// Edit text & images: the images per page (by document generation), and the selected one.
     pub(crate) edit_images: HashMap<usize, (u64, Vec<pdfcraft_engine::PageImage>)>,
     pub(crate) objects: crate::object_ui::ObjectSelection,
+    /// Show art, trim and bleed boxes: the boxes the pages set, by document generation.
+    pub(crate) shown_boxes: crate::pageboxes::ShownBoxes,
     pub image_selection: Option<crate::edit_text_ui::ImageSelection>,
     /// Select tool: the picture clicked, to copy in its original format.
     pub picked_image: Option<crate::image_pick::PickedImage>,
@@ -774,6 +776,7 @@ impl DocView {
             move_background: Default::default(),
             edit_images: HashMap::new(),
             objects: Default::default(),
+            shown_boxes: Default::default(),
             image_selection: None,
             picked_image: None,
             block_drag: None,
@@ -2758,6 +2761,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let prefs = &app.comment_prefs;
     let redact_mark = (app.redact_prefs.hover_fill, app.redact_prefs.opacity);
     let units = app.units;
+    let shown_boxes = if app.show_page_boxes { view.shown_boxes.get(doc) } else { Default::default() };
     let allowed = doc.allows_annotation();
     let can_copy = doc.allows_copying();
     let mut copy_selected = false;
@@ -3038,6 +3042,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 view.move_background.paint(ui, painter, &xf, i, info, &view.content, page_tex);
             }
             painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(0.5, t.border.gamma_multiply(0.8)), egui::StrokeKind::Outside);
+            crate::pageboxes::paint_shown(painter, &xf, info, i, &shown_boxes);
 
             // Comments: tools, selection, moving and resizing come before text selection.
             let pcx = comments::PageCx { page: i, xf: &xf, info, tool, prefs, allowed, hidden: comments_hidden, redact_mark };

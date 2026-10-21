@@ -77,6 +77,23 @@ pub fn page_boxes(doc: &Document) -> Result<Vec<[[f64; 4]; 5]>, OrganizeError> {
         .collect())
 }
 
+/// The bleed, trim and art boxes each page sets itself, clipped to the media box; `None` where
+/// the page leaves the box to its default (the crop box). These are what Show art, trim and
+/// bleed boxes draws: a default box is the crop box, the page's own edge.
+pub fn defined_page_boxes(doc: &Document) -> Result<Vec<[Option<[f64; 4]>; 3]>, OrganizeError> {
+    Ok(walk(doc)?
+        .iter()
+        .map(|(page, inherited)| {
+            let obj = doc.get(*page);
+            let d = obj.as_dict().cloned().unwrap_or_default();
+            let media = rect_of(d.get(b"MediaBox").or_else(|| inherited.get(b"MediaBox")), doc).unwrap_or([0.0, 0.0, 612.0, 792.0]);
+            // Bleed, trim and art boxes are not inheritable (ISO 32000-2 table 31).
+            let own = |k: &[u8]| rect_of(d.get(k), doc).map(|c| intersect(c, media)).filter(|c| c[2] > c[0] && c[3] > c[1]);
+            [own(b"BleedBox"), own(b"TrimBox"), own(b"ArtBox")]
+        })
+        .collect())
+}
+
 /// Set a box on `pages` (0-based). Margins apply to each page's own media box.
 pub fn set_page_box(doc: &mut Document, pages: &[usize], which: PageBox, spec: BoxSpec) -> Result<(), OrganizeError> {
     let all = walk(doc)?;

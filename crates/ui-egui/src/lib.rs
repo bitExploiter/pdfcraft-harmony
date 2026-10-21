@@ -500,6 +500,9 @@ pub struct PdfCraftApp {
     pub view_defaults: canvas::ViewDefaults,
     /// The unit page sizes and margins are shown in (Preferences ▸ Documents and view).
     pub units: units::Unit,
+    /// Outline the art, trim and bleed boxes a page sets (Preferences ▸ Documents and view, as
+    /// Acrobat's Page Display preference). App-wide and remembered across restarts.
+    pub show_page_boxes: bool,
     /// The Preferences ▸ Date format box while it's being edited, or while it holds an invalid
     /// pattern (the session keeps the last valid one).
     pub date_format_draft: Option<String>,
@@ -908,6 +911,7 @@ impl PdfCraftApp {
             right_before_read: None,
             comments_panel_closed: false,
             right_panel_closed: false,
+            show_page_boxes: false,
             quick_tool: QuickTool::Select,
             space_hand: None,
             comment_prefs: Default::default(),
@@ -2309,6 +2313,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["show_page_boxes"] = serde_json::Value::Bool(self.show_page_boxes);
         v.to_string()
     }
 
@@ -2374,6 +2379,9 @@ impl PdfCraftApp {
         }
         if let Some(closed) = v["right_panel_closed"].as_bool() {
             self.right_panel_closed = closed;
+        }
+        if let Some(on) = v["show_page_boxes"].as_bool() {
+            self.show_page_boxes = on;
         }
         if let Some(defaults) = v["default_zoom"].as_str().and_then(|zoom| self.view_defaults.with_zoom(zoom)) {
             self.view_defaults = defaults;
@@ -2670,6 +2678,13 @@ impl PdfCraftApp {
                 v.rerun_find();
             }
             ("fields", Some(v)) => v.highlight_fields = value != "off",
+            ("page-boxes", _) => {
+                self.show_page_boxes = match value {
+                    "on" => true,
+                    "off" => false,
+                    _ => return Err("page-boxes must be on or off".into()),
+                };
+            }
             ("select", Some(v)) => {
                 // The same physical page ranges as the Organize Pages selection field.
                 let pages = crate::page_selection_ui::parse(value, v.page_count()).map_err(|e| e.to_string())?;
