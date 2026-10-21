@@ -172,6 +172,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-21 (M3):** Added macOS native File/Edit/Pages/View/Help menus alongside the in-window Menu button, sharing registry actions, shortcuts, live state and recent files. Focused regressions cover edit/undo/save/reopen, form typing, modal safety and the opt-in menu control adapter. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.

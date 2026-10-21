@@ -9,6 +9,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Меню
+	Quit	Выйти
 	File	Файл
 	Edit	Редактирование
 	Pages	Страницы

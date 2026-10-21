@@ -323,6 +323,8 @@ pdfcraft-cli ui --control ~/.pdfcraft-control.json screenshot --out window.png
 pdfcraft-cli ui --control ~/.pdfcraft-control.json resize width=1200 height=800
 pdfcraft-cli ui --control ~/.pdfcraft-control.json focus label="Read"
 pdfcraft-cli ui --control ~/.pdfcraft-control.json inspect focused=true
+pdfcraft-cli ui --control ~/.pdfcraft-control.json native_menus                 # macOS menu bar
+pdfcraft-cli ui --control ~/.pdfcraft-control.json native_menu id=page.rotate   # choose an enabled item
 pdfcraft-cli ui --control ~/.pdfcraft-control.json quit
 ```
 
@@ -492,6 +494,8 @@ notarized. The MSI's manufacturer, shown as the publisher in Installed apps, is
 `Learning Machines LLC`.
 
 ### macOS
+
+The native menu bar offers **File, Edit, Pages, View and Help**, alongside the in-window **Menu** button.
 
 | Build | File | Notes |
 |---|---|---|

@@ -16,6 +16,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	メニュー
+	Quit	終了
 	File	ファイル
 	Edit	編集
 	Pages	ページ

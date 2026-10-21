@@ -1,5 +1,7 @@
 # UI and interaction parity
 
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (native macOS menu bar added; estimates unchanged)
+
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-11 · **Change:** minor (column select #740, multi-object move #844, Shift-⌘-G #810 fixed) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 How PdfCraft's tools, panels, shortcuts and feel compare with Acrobat Pro's current interface (the
@@ -25,6 +27,7 @@ No dump of Acrobat's menu tree has been diffed against the registry yet (gap 24)
 | Element | Acrobat | PdfCraft | Status |
 |---|---|---|---|
 | Home view (recent files, recommended tools) | yes | yes | shipped |
+| Native macOS menu bar | yes | File, Edit, Pages, View and Help, plus guarded app-menu Quit; in-window menus remain | registry/model and input-adapter regressions in `crates/ui-egui/src/native_menu.rs`; native inspection via the opt-in `ui.native_menus` control method |
 | All tools pane, tool sets | yes | yes, with milestone badges | shipped |
 | Quick-action toolbar, customisable | yes | fixed | partial (`view.customize-quick-tools` planned) |
 | Command search | "Search tools" | command palette (⌘K), matches translated and English labels | shipped |

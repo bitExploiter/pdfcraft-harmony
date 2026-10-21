@@ -8,6 +8,7 @@
 # Context-sensitive wording and intentional unchanged strings are regression-tested in i18n/mod.rs.
 #
 	Menu	Trình đơn
+	Quit	Thoát
 	Edit	Chỉnh sửa
 	Pages	Trang
 	View	Xem

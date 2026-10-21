@@ -396,11 +396,9 @@ fn app_creator<'a>(
         #[cfg(target_os = "macos")]
         {
             app.os_events = Some(apple_events.connect(&cc.egui_ctx));
-            // winit's Quit (⌘Q) ends the process without asking about unsaved changes (#1136). This
-            // menu's Quit closes the window instead, so `guard_quit` asks, as for the close button.
-            if let Err(e) = craft_quit::install_app_menu(&cc.egui_ctx, "PdfCraft") {
-                log::warn!("couldn't install the app menu, so ⌘Q quits without asking to save: {e}");
-            }
+            // Includes File/Edit/Pages/View/Help and a Quit routed through the unsaved-work guard.
+            // Don't leave winit's unsafe, unconditional Quit installed if menu setup fails.
+            app.install_native_menus(&cc.egui_ctx)?;
         }
         if let Some(server) = instance {
             app.os_events = Some(server.connect(&cc.egui_ctx, native_wayland(cc)));

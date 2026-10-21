@@ -3,6 +3,7 @@
 # Translate from English meanings; retain placeholders and trailing ellipses.
 # Greek plural forms: one (1) | other (0, 2+).
 	Menu	Μενού
+	Quit	Έξοδος
 	File	Αρχείο
 	Edit	Επεξεργασία
 	Pages	Σελίδες

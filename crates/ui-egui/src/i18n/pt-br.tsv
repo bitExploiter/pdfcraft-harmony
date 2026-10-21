@@ -9,6 +9,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Menu
+	Quit	Sair
 	File	Arquivo
 	Rotation:	Rotação:
 	Edit	Editar

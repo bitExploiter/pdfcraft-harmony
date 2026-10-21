@@ -13,6 +13,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	మెనూ
+	Quit	నిష్క్రమించు
 	File	ఫైల్
 	Edit	సవరణ
 comment menu	Edit	సవరించు

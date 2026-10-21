@@ -16,6 +16,7 @@
 # the trailing "…" of dialog commands is kept.
 
 	Menu	Menu
+	Quit	Esci
 	File	File
 	Edit	Modifica
 	Pages	Pagine
