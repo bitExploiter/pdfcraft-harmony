@@ -261,13 +261,51 @@ fn area_taps(src: u32, dst: u32, t: u32) -> impl Iterator<Item = (usize, u64)> {
     })
 }
 
+/// PdfCraft patch: [`area_taps`] of every target sample of one axis, worked out once: for each
+/// target, the first source sample it covers and the weights of the samples from there on (the
+/// samples a target covers are consecutive). There are at most `src + dst` taps in all.
+struct AreaAxis {
+    first: Vec<usize>,
+    /// Where each target's weights start in `weights`, and where the last one's end.
+    offsets: Vec<usize>,
+    weights: Vec<u32>,
+}
+
+impl AreaAxis {
+    fn new(src: u32, dst: u32) -> Option<Self> {
+        let n = dst as usize;
+        let (mut first, mut offsets, mut weights) = (Vec::new(), Vec::new(), Vec::new());
+        first.try_reserve_exact(n).ok()?;
+        offsets.try_reserve_exact(n.checked_add(1)?).ok()?;
+        weights.try_reserve_exact((src as usize).checked_add(n.checked_mul(2)?)?).ok()?;
+        offsets.push(0);
+        for t in 0..dst {
+            let mut start = None;
+            for (s, w) in area_taps(src, dst, t) {
+                start.get_or_insert(s);
+                // A weight is at most AREA_ONE, so it fits in a u32.
+                weights.push(w as u32);
+            }
+            first.push(start?);
+            offsets.push(weights.len());
+        }
+        Some(Self { first, offsets, weights })
+    }
+
+    /// Target `t`'s first source sample and its weights.
+    fn get(&self, t: usize) -> Option<(usize, &[u32])> {
+        let (lo, hi) = (*self.offsets.get(t)?, *self.offsets.get(t.checked_add(1)?)?);
+        Some((*self.first.get(t)?, self.weights.get(lo..hi)?))
+    }
+}
+
 /// PdfCraft patch: shrinks `N`-channel samples from `source` to `target` (no side larger than its
 /// source side) by area averaging: each target sample is the mean of the source it covers,
 /// weighted by how much of it it covers. Nothing is invented between samples, which is what
 /// `/Interpolate` governs (ISO 32000-2 §8.9.5.3, for images drawn above their resolution), and
 /// nothing is dropped: nearest-neighbour keeps one sample in N per axis, so a scan shown at screen
 /// size lost the strokes of its text. Premultiplied input stays premultiplied. Work memory is one
-/// row of target accumulators plus a horizontally shrunk copy no larger than the source. `None` if
+/// row of target accumulators plus a vertically shrunk copy no larger than the source. `None` if
 /// nothing shrinks, the sizes don't fit or a buffer cannot be allocated.
 fn area_shrink<const N: usize>(data: &[u8], source: (u32, u32), target: (u32, u32)) -> Option<Vec<u8>> {
     let ((sw, sh), (tw, th)) = (source, target);
@@ -278,45 +316,53 @@ fn area_shrink<const N: usize>(data: &[u8], source: (u32, u32), target: (u32, u3
     if data.len() != source_byte_len(sw, sh, N, MAX_IMAGE_PIXELS)? {
         return None;
     }
-    let round = |acc: u64| ((acc + AREA_ONE / 2) / AREA_ONE).min(255) as u8;
-    // Horizontal pass: every source row shrunk to `tw` samples.
-    let wide = if tw == sw {
+    // Weights sum to AREA_ONE (2^16) and samples are at most 255, so every sum fits in a u32.
+    let round = |acc: u32| ((acc + (AREA_ONE as u32) / 2) >> 16).min(255) as u8;
+    // Vertical pass first: groups of whole source rows averaged into each target row. Rows are
+    // contiguous, so this pass is cheap, and it leaves the horizontal pass, which gathers samples
+    // per target, a third as many rows when a scan shrinks threefold.
+    let tall = if th == sh {
         None
     } else {
-        let mut rows = image_buffer(source_byte_len(tw, sh, N, MAX_IMAGE_PIXELS)?)?;
-        for row in data.chunks_exact(sw_us * N) {
-            for t in 0..tw {
-                let mut acc = [0_u64; N];
-                for (s, w) in area_taps(sw, tw, t) {
-                    let px = row.get(s * N..s * N + N)?;
-                    for (a, v) in acc.iter_mut().zip(px) {
-                        *a += w * u64::from(*v);
-                    }
+        let row_len = sw_us * N;
+        let mut rows = image_buffer(source_byte_len(sw, th, N, MAX_IMAGE_PIXELS)?)?;
+        let mut acc: Vec<u32> = Vec::new();
+        acc.try_reserve_exact(row_len).ok()?;
+        acc.resize(row_len, 0);
+        for t in 0..th {
+            acc.fill(0);
+            for (s, w) in area_taps(sh, th, t) {
+                let row = data.get(s * row_len..(s + 1) * row_len)?;
+                // A weight is at most AREA_ONE, so it fits in a u32.
+                let w = w as u32;
+                for (a, v) in acc.iter_mut().zip(row) {
+                    *a += w * u32::from(*v);
                 }
-                rows.extend(acc.map(round));
             }
+            rows.extend(acc.iter().map(|a| round(*a)));
         }
         Some(rows)
     };
-    if th == sh {
-        return wide;
+    if tw == sw {
+        return tall;
     }
-    let rows = wide.as_deref().unwrap_or(data);
-    // Vertical pass: groups of those rows averaged into each target row.
-    let row_len = tw_us * N;
+    let rows = tall.as_deref().unwrap_or(data);
+    // Horizontal pass: each of those rows shrunk to `tw` samples. The taps depend only on the
+    // widths, so they are worked out once, not again for each row.
+    let taps = AreaAxis::new(sw, tw)?;
     let mut out = image_buffer(image_byte_len(tw, th, N, MAX_IMAGE_PIXELS)?)?;
-    let mut acc: Vec<u64> = Vec::new();
-    acc.try_reserve_exact(row_len).ok()?;
-    acc.resize(row_len, 0);
-    for t in 0..th {
-        acc.fill(0);
-        for (s, w) in area_taps(sh, th, t) {
-            let row = rows.get(s * row_len..(s + 1) * row_len)?;
-            for (a, v) in acc.iter_mut().zip(row) {
-                *a += w * u64::from(*v);
+    for row in rows.chunks_exact(sw_us * N) {
+        for t in 0..tw_us {
+            let (first, weights) = taps.get(t)?;
+            let samples = row.get(first * N..(first + weights.len()) * N)?;
+            let mut acc = [0_u32; N];
+            for (w, px) in weights.iter().zip(samples.chunks_exact(N)) {
+                for (a, v) in acc.iter_mut().zip(px) {
+                    *a += w * u32::from(*v);
+                }
             }
+            out.extend(acc.map(round));
         }
-        out.extend(acc.iter().map(|a| round(*a)));
     }
     Some(out)
 }
@@ -972,6 +1018,15 @@ impl Renderer {
             None
         };
         let (new_width, new_height) = snapped.map_or((new_width, new_height), |s| (s.0, s.1));
+        // PdfCraft patch: an area shrink never enlarges. A side drawn at or above its resolution
+        // (an image shrunk across and stretched down, as a 204 × 98 dpi fax is, or a snapped side
+        // rounded past its source) keeps its samples and is enlarged by the sampler; the snap
+        // then no longer matches, so the full transform places the image.
+        let (new_width, new_height) = if area {
+            (new_width.min(source_width), new_height.min(source_height))
+        } else {
+            (new_width, new_height)
+        };
         let needs_resize = (new_width, new_height) != (source_width, source_height);
 
         // PdfCraft patch (#624): a minified Type 3 glyph image with a soft mask that is not
@@ -2146,7 +2201,7 @@ pub fn tiling_cell_scale(scale: f32, step: f32, max_pixels: f32) -> f32 {
 /// PdfCraft patch: the area-averaging shrink of non-interpolated images.
 #[cfg(test)]
 mod area_shrink_tests {
-    use super::{AREA_ONE, MAX_IMAGE_PIXELS, area_shrink, area_taps};
+    use super::{AREA_ONE, AreaAxis, MAX_IMAGE_PIXELS, area_shrink, area_taps};
 
     /// Every target sample's weights add up to exactly one, and together the targets take every
     /// source sample exactly once (each `dst / src` of it, in fixed point within rounding).
@@ -2168,6 +2223,23 @@ mod area_shrink_tests {
                     let share = (*w * u64::from(src)) as f64 / (AREA_ONE * u64::from(dst)) as f64;
                     assert!((share - 1.0).abs() < 1e-3, "{src} → {dst}: source {s} weighs {share}");
                 }
+            }
+        }
+    }
+
+    /// The table the horizontal pass reads holds exactly the taps of every target, in order.
+    #[test]
+    fn the_tap_table_holds_every_targets_taps() {
+        for src in 1..=40_u32 {
+            for dst in 1..=src {
+                let axis = AreaAxis::new(src, dst).expect("table");
+                for t in 0..dst {
+                    let (first, weights) = axis.get(t as usize).expect("target");
+                    let expected: Vec<(usize, u64)> = area_taps(src, dst, t).collect();
+                    let got: Vec<(usize, u64)> = weights.iter().enumerate().map(|(k, w)| (first + k, u64::from(*w))).collect();
+                    assert_eq!(got, expected, "{src} → {dst}, target {t}");
+                }
+                assert_eq!(axis.get(dst as usize), None, "{src} → {dst}: no target past the last");
             }
         }
     }

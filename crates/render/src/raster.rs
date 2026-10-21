@@ -5541,6 +5541,18 @@ trailer << /Root 1 0 R >>
         assert!(page.rgba.as_chunks::<4>().0.iter().all(|px| px[0] == 0 || px[0] == 255), "a small image was smoothed");
     }
 
+    /// An image shrunk across and stretched down (a 204 × 98 dpi fax shown at screen size): the
+    /// shrunk side is still averaged. The area shrink was asked to enlarge the other side too,
+    /// refused, and the image fell back to its source resolution and the nearest sampler, which
+    /// read single columns.
+    #[test]
+    fn an_image_shrunk_one_way_and_stretched_the_other_is_still_averaged() {
+        let ramp: Vec<u8> = [10u8, 20, 30, 40, 50, 60, 70, 80].repeat(2);
+        let page = draw_minified_image("DeviceGray", (8, 2), None, &ramp, None, (4, 4));
+        let grays: Vec<u8> = page.rgba.as_chunks::<4>().0.iter().map(|px| px[0]).collect();
+        assert_eq!(grays, [15, 35, 55, 75].repeat(4), "each pixel is the mean of the two columns it covers");
+    }
+
     /// Averaging straight colours would tint an opaque sample with the colour of a transparent
     /// neighbour: white beside transparent black, shrunk to one pixel, came out gray over the white
     /// page. Premultiplied, the transparent sample adds nothing but its transparency.
@@ -6310,7 +6322,7 @@ trailer << /Root 1 0 R >>
     /// and square caps, a sharp miter, a rotated and a stretched matrix, a hairline, dashes, a
     /// curve, text, and a page shown rotated.
     ///
-    /// Images are skipped the same way (vendored patch (10)): an image on a tile, one crossing
+    /// Images are skipped the same way (vendored patch (11)): an image on a tile, one crossing
     /// tile lines, and one fully off the page.
     #[test]
     fn skipping_paths_off_the_canvas_changes_no_pixel() {
