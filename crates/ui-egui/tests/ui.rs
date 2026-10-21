@@ -226,6 +226,27 @@ fn a_short_rail_does_not_overlap_on_its_first_frame() {
     assert_rail_controls_apart(&h, "200%");
 }
 
+/// A rail that fits can grow past its height between two frames: checking for accessibility adds
+/// its button. At 785 pt the groups fit without it and not with it, and the frame where it appears
+/// is laid out with the heights of the frame before: it must not overlap either.
+#[test]
+fn a_rail_that_grows_past_its_height_does_not_overlap_for_a_frame() {
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 785.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("fixture.pdf", None, FIXTURE.to_vec()).expect("fixture opens");
+        app
+    });
+    h.run_steps(6);
+    assert!(h.query_by_label("Accessibility Checker").is_none());
+    assert_rail_controls_apart(&h, "100%");
+    h.state_mut().run_accessibility_check();
+    h.step();
+    let tags = h.get_by_label("Tags").rect();
+    assert!(h.query_all_by_label("Accessibility Checker").any(|n| (tags.left()..tags.right()).contains(&n.rect().center().x)), "the rail has grown");
+    assert_rail_controls_apart(&h, "100%");
+}
+
 fn assert_rail_controls_apart(h: &Harness<'_, PdfCraftApp>, scale: &str) {
     use egui::accesskit::Role;
     use egui_kittest::kittest::by;

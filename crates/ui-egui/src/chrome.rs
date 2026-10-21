@@ -804,9 +804,10 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             };
             let heights =
                 if overflows { egui::ScrollArea::vertical().id_salt("rail").auto_shrink([false, false]).show(ui, body).inner } else { body(ui) };
-            // Unmeasured, this pass laid the groups out as if they fit: when they don't, it is
-            // redone with the heights rather than shown overlapping for a frame.
-            if measured.is_none() && heights.0 + 4.0 + heights.1 > height {
+            // This pass laid the groups out as if they fit, unmeasured or with the heights of a
+            // shorter rail (a button added since): when they don't, it is redone with the new
+            // heights rather than shown overlapping for a frame. Redone, it scrolls.
+            if !overflows && heights.0 + 4.0 + heights.1 > height {
                 ui.ctx().request_discard("right rail measured its groups");
             }
             ui.data_mut(|d| d.insert_temp(heights_id, heights));
