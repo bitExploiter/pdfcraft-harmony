@@ -2735,5 +2735,11 @@ certificate	Version	الإصدار
 	Certificate encryption will be applied when you save	سيُطبَّق التشفير بالشهادة عند الحفظ
 	Encrypt for recipient	تشفير لمستلم
 	Encrypt for recipients	تشفير لمستلمين
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى
