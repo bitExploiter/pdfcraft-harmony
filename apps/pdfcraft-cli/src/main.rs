@@ -9,7 +9,9 @@
 //! names, `"out"` included, must be inside DIR, and relative paths resolve inside it.
 //!
 //! The MCP server never starts on its own: it runs only when this command is launched (normally
-//! by an agent configured to use it), talks only over stdio, and exits when stdin closes.
+//! by an agent configured to use it), talks only over stdio, and exits when stdin closes. With
+//! `--connect FILE` its tools act on the documents of the open window started with
+//! `pdfcraft --control FILE`, through that window's authenticated control channel (`control`).
 //!
 //! `check` is the robustness harness: every file is opened, inspected and fully rendered in a
 //! *separate child process* with a wall-clock timeout, so hangs, panics and aborts in any
@@ -27,6 +29,8 @@ use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod control;
+
 use pdfcraft_engine::export::ImageFormat;
 use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind, inspect};
 
@@ -35,9 +39,11 @@ use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind, in
 macro_rules! mcp_usage {
     () => {
         "\
-pdfcraft-cli mcp    [--root DIR] [--compact] [--automation-read-root DIR] [--automation-write-root DIR]
+pdfcraft-cli mcp    [--root DIR] [--compact] [--connect FILE] [--automation-read-root DIR] [--automation-write-root DIR]
                                                            MCP server on stdin/stdout (opt-in)
                                                            --compact lists a core set of tools plus tool_search and tool_call
+                                                           --connect FILE: tools act on the open window started with
+                                                           `pdfcraft --control FILE`, plus read-only ui_* inspection tools
                                                            --automation-read-root / --automation-write-root confine the files the
                                                            agent's tools read (open, combine, import, fonts, certificates…) and
                                                            write (save, export, extract, split, reports…) to DIR, links followed;
@@ -271,7 +277,11 @@ const RUN_OPTIONS: &[OptionSpec] = &[
 const UI_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--control", takes_value: true }, OptionSpec { name: "--out", takes_value: true }];
 
 #[cfg(feature = "mcp")]
-const MCP_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--root", takes_value: true }, OptionSpec { name: "--compact", takes_value: false }];
+const MCP_OPTIONS: &[OptionSpec] = &[
+    OptionSpec { name: "--root", takes_value: true },
+    OptionSpec { name: "--compact", takes_value: false },
+    OptionSpec { name: "--connect", takes_value: true },
+];
 
 fn positional(args: &[String]) -> Vec<&str> {
     let mut out = Vec::new();
@@ -958,6 +968,9 @@ fn mcp(args: &[String]) -> Result<(), CliError> {
     let (roots, args) = automation_roots("mcp", args)?;
     let args = args.as_slice();
     validate_options("mcp", args, MCP_OPTIONS)?;
+    if flag(args, "--connect").is_some() && roots.is_some() {
+        return Err("mcp: --connect does not support --automation-read-root/--automation-write-root yet; use --root".into());
+    }
     let compact = args.iter().any(|a| a == "--compact");
     let mut auto = automation(args)?;
     if let Some(roots) = roots {
@@ -971,9 +984,20 @@ fn mcp(args: &[String]) -> Result<(), CliError> {
         auto = auto.with_automation_roots(Some(roots));
     }
     let mut server = pdfcraft_automation::mcp::McpServer::new(auto).with_compact(compact);
+    let mut connected = String::new();
+    if let Some(file) = flag(args, "--connect") {
+        // Allow headroom beyond the control server's 30 s frame wait.
+        let window = control::Connection::new(file, Duration::from_secs(90));
+        // A bad control file is refused now; a missing one may come when the app starts.
+        if !window.check().map_err(|e| format!("--connect {e}"))? {
+            let _ = writeln!(std::io::stderr().lock(), "pdfcraft-cli: {file} doesn't exist yet; start the app with `pdfcraft --control {file}`");
+        }
+        connected = format!(", connected to the window of {file}");
+        server = server.with_window(Box::new(window));
+    }
     let _ = writeln!(
         std::io::stderr().lock(),
-        "pdfcraft-cli: MCP server on stdio (protocol {}{}); close stdin to stop",
+        "pdfcraft-cli: MCP server on stdio (protocol {}{}{connected}); close stdin to stop",
         pdfcraft_automation::mcp::PROTOCOL_VERSIONS[0],
         if compact { ", compact tool list" } else { "" }
     );
@@ -985,37 +1009,21 @@ fn mcp(args: &[String]) -> Result<(), CliError> {
 /// One request to a running app's control channel (`pdfcraft --control FILE`).
 fn ui(args: &[String]) -> Result<(), CliError> {
     validate_options("ui", args, UI_OPTIONS)?;
-    use std::io::{BufRead, BufReader, Write as _};
     let file = flag(args, "--control").ok_or("ui: missing --control FILE (start the app with `pdfcraft --control FILE`)")?;
-    let info = read_control_file(file)?;
-    let port = info["port"].as_u64().ok_or(format!("{file}: no port"))?;
-    // Refused rather than truncated, which would quietly reach some other port.
-    let port = u16::try_from(port).map_err(|_| format!("{file}: {port} is not a port number"))?;
-    let token = info["token"].as_str().ok_or(format!("{file}: no token"))?;
+    let mut window = control::Connection::new(file, Duration::from_secs(40));
+    // The file is checked before anything else, as it always was.
+    window.check()?;
     let pos = positional(args);
-    let method = *pos.first().ok_or("ui: missing method (state, inspect, click, drag, type, key, command, commands, set, open, screenshot)")?;
-    let method = if method.starts_with("ui.") { method.to_string() } else { format!("ui.{method}") };
+    let method =
+        *pos.first().ok_or("ui: missing method (state, inspect, click, drag, type, key, command, commands, set, open, screenshot, tool.call)")?;
+    // `state` means `ui.state`; a full name such as `tool.call` is sent as it is.
+    let method = if method.contains('.') { method.to_string() } else { format!("ui.{method}") };
     let mut params = serde_json::Map::new();
     for kv in pos.iter().skip(1) {
         let (k, v) = kv.split_once('=').ok_or(format!("ui: expected key=value, got {kv:?}"))?;
         params.insert(k.to_string(), serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string())));
     }
-    let stream =
-        std::net::TcpStream::connect(("127.0.0.1", port)).map_err(|e| format!("can't reach the app on port {port}: {e} (is it still running?)"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(40))).map_err(|e| e.to_string())?;
-    let mut write = stream.try_clone().map_err(|e| e.to_string())?;
-    let mut lines = BufReader::new(stream).lines();
-    let mut rpc = |id: u64, method: &str, params: serde_json::Value| -> Result<serde_json::Value, String> {
-        writeln!(write, "{}", serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params })).map_err(|e| e.to_string())?;
-        let line = lines.next().ok_or("the app closed the connection")?.map_err(|e| e.to_string())?;
-        let reply: serde_json::Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
-        match reply.get("error") {
-            Some(e) => Err(e["message"].as_str().unwrap_or("error").to_string()),
-            None => Ok(reply["result"].clone()),
-        }
-    };
-    rpc(1, "auth", serde_json::json!({ "token": token }))?;
-    let mut result = rpc(2, &method, serde_json::Value::Object(params))?;
+    let mut result = window.call(&method, serde_json::Value::Object(params))?;
     if let (Some(out), Some(data)) = (flag(args, "--out"), result.get("png_base64").and_then(|d| d.as_str())) {
         use base64::Engine as _;
         let png = base64::engine::general_purpose::STANDARD.decode(data).map_err(|e| e.to_string())?;
@@ -1024,87 +1032,4 @@ fn ui(args: &[String]) -> Result<(), CliError> {
     }
     stdout_line(format_args!("{}", serde_json::to_string_pretty(&result).unwrap_or_default()))?;
     Ok(())
-}
-
-/// Most a control file may hold. The app writes under 100 bytes.
-const CONTROL_FILE_MAX: u64 = 64 * 1024;
-
-const CONTROL_FILE_ADVICE: &str =
-    "Start the app with a control file in a folder only you can write, such as `pdfcraft --control ~/.pdfcraft-control.json`";
-
-/// Read the file written by `pdfcraft --control FILE`.
-///
-/// It names the port that receives the token and every command, typed text included, so it must
-/// be the user's own. In a shared folder such as `/tmp`, another local user can create the file
-/// first; the app then can't write it, and the CLI would talk to the other user's listener.
-/// Refused: a symbolic link, anything but a regular file, and on Unix a file owned by someone
-/// else or open to other users (the app writes it with mode 600).
-fn read_control_file(file: &str) -> Result<serde_json::Value, String> {
-    use std::io::Read as _;
-    let at_path = std::fs::symlink_metadata(file).map_err(|e| format!("{file}: {e}"))?;
-    if at_path.file_type().is_symlink() {
-        return Err(format!("{file}: is a symbolic link, which could point at another user's file. {CONTROL_FILE_ADVICE}"));
-    }
-    if !at_path.is_file() {
-        return Err(format!("{file}: not a regular file. {CONTROL_FILE_ADVICE}"));
-    }
-    let f = std::fs::File::open(file).map_err(|e| format!("{file}: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        // Checked on the open file, so nothing swapped in after `symlink_metadata` gets through.
-        let opened = f.metadata().map_err(|e| format!("{file}: {e}"))?;
-        if (opened.dev(), opened.ino()) != (at_path.dev(), at_path.ino()) {
-            return Err(format!("{file}: was replaced while being opened. {CONTROL_FILE_ADVICE}"));
-        }
-        if let Some(problem) = control_file_problem(opened.uid(), opened.mode(), current_uid()) {
-            return Err(format!("{file}: {problem}. {CONTROL_FILE_ADVICE}"));
-        }
-    }
-    let mut text = String::new();
-    f.take(CONTROL_FILE_MAX.saturating_add(1)).read_to_string(&mut text).map_err(|e| format!("{file}: {e}"))?;
-    if u64::try_from(text.len()).unwrap_or(u64::MAX) > CONTROL_FILE_MAX {
-        return Err(format!("{file}: too large for a control file (over {} KiB)", CONTROL_FILE_MAX / 1024));
-    }
-    serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))
-}
-
-/// Why user `me` can't trust a control file with this owner and mode, if they can't.
-#[cfg(any(test, unix))]
-fn control_file_problem(owner: u32, mode: u32, me: u32) -> Option<String> {
-    if owner != me {
-        return Some(format!("owned by another user (uid {owner}; you are uid {me}), who may be the one listening for your commands"));
-    }
-    let permissions = mode & 0o7777;
-    (permissions & 0o077 != 0).then(|| format!("other users have access to it (mode {permissions:o}; the app writes it with mode 600)"))
-}
-
-/// The effective user id: the owner of the files this process creates, and so of a control file
-/// the app wrote for this user. std has no `geteuid` and this crate forbids `unsafe`; rustix's is
-/// safe and can't fail.
-#[cfg(unix)]
-fn current_uid() -> u32 {
-    rustix::process::geteuid().as_raw()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::control_file_problem;
-
-    #[test]
-    fn a_control_file_must_be_yours_and_private() {
-        // Regular file type bits (0o100000) don't matter, only the owner and the permission bits.
-        assert_eq!(control_file_problem(1000, 0o100600, 1000), None);
-        assert_eq!(control_file_problem(1000, 0o600, 1000), None);
-        assert_eq!(control_file_problem(1000, 0o400, 1000), None);
-        let other = control_file_problem(1001, 0o600, 1000).unwrap_or_default();
-        assert!(other.contains("owned by another user") && other.contains("1001"), "{other}");
-        // Root gets no exception: a file a user planted is still theirs.
-        assert!(control_file_problem(1000, 0o600, 0).is_some_and(|p| p.contains("owned by another user")));
-        for mode in [0o644, 0o640, 0o604, 0o660, 0o606, 0o620, 0o602, 0o610, 0o601, 0o100666] {
-            let open = control_file_problem(1000, mode, 1000).unwrap_or_default();
-            assert!(open.contains("other users"), "{mode:o}: {open}");
-        }
-        assert!(control_file_problem(1000, 0o100644, 1000).unwrap_or_default().contains("mode 644"));
-    }
 }
