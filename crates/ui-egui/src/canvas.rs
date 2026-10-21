@@ -2468,8 +2468,10 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let zoom_delta = crate::motion::zoom_delta(ui.ctx());
     // Exclude the previous frame's scrollbar tracks from gesture activation.
     let navigation_rect = if view.viewport_screen.is_positive() { avail.intersect(view.viewport_screen) } else { avail };
-    let navigation_enabled = app.dialog.is_none() && app.close_request.is_none() && !app.palette_open && ui.is_enabled() && ui.input(|i| i.focused);
-    if zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0 && navigation_enabled && ui.rect_contains_pointer(navigation_rect) {
+    // Wheel zoom works in a visible window without focus, as wheel scrolling does; the other gestures need focus.
+    let zoom_enabled = app.dialog.is_none() && app.close_request.is_none() && !app.palette_open && ui.is_enabled();
+    let navigation_enabled = zoom_enabled && ui.input(|i| i.focused);
+    if zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0 && zoom_enabled && ui.rect_contains_pointer(navigation_rect) {
         let z = view.zoom * zoom_delta;
         match ui.input(|i| i.pointer.hover_pos()) {
             Some(p) => view.zoom_at(z, p),
@@ -6202,6 +6204,39 @@ trailer << /Root 1 0 R >>
         let app = h.state();
         let generation = app.session.get(app.views[0].id).unwrap().edit_generation();
         assert_eq!(app.views[0].edit_lines.get(&0).map(|(g, _)| *g), Some(generation), "the boxes follow the edit while input is blocked");
+    }
+
+    /// Ctrl+wheel zooms a visible window that another application has focus over, as plain
+    /// wheel scrolling does; the palette still blocks it.
+    #[test]
+    fn ctrl_wheel_zooms_an_unfocused_window() {
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1400.0, 900.0)).build_eframe(|_cc| {
+            let mut app = PdfCraftApp::new();
+            let bytes = app.session.create_blank(300.0, 400.0, 1).unwrap();
+            app.open_bytes("blank.pdf", None, bytes.as_ref().clone()).unwrap();
+            app
+        });
+        h.run_steps(3);
+        let center = h.state().views[0].viewport_rect().center();
+        h.hover_at(center);
+        h.input_mut().focused = false;
+        h.run_steps(2);
+        let ctrl_wheel = egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: vec2(0.0, 1.0),
+            phase: egui::TouchPhase::Move,
+            modifiers: egui::Modifiers::COMMAND,
+        };
+        h.state_mut().palette_open = true;
+        let before = h.state().views[0].zoom;
+        h.event(ctrl_wheel.clone());
+        h.run_steps(10);
+        assert_eq!(h.state().views[0].zoom, before, "the palette still blocks zoom");
+        h.state_mut().palette_open = false;
+        h.run_steps(2);
+        h.event(ctrl_wheel);
+        h.run_steps(10);
+        assert!(h.state().views[0].zoom > before, "Ctrl+wheel zooms without window focus");
     }
 
     #[test]
