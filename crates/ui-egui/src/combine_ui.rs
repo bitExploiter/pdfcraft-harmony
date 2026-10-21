@@ -2620,7 +2620,10 @@ mod tests {
         // A clock before 1970 reads as the epoch, as the old `unwrap_or(0)` did.
         assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH - Duration::from_secs(5)), "1970-01-01 00:00 UTC");
         // Past chrono's range keeps the proleptic Gregorian date the old code gave, not the epoch.
-        assert_eq!(at(10_000_000_000_000), "318857-05-20 17:46 UTC");
+        // Windows' SystemTime holds only up to about year 30828, so this is checked where it fits.
+        if let Some(far) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(10_000_000_000_000)) {
+            assert_eq!(utc_stamp(far), "318857-05-20 17:46 UTC");
+        }
         // Windows' SystemTime can't hold u64::MAX / 2 seconds, so it is only checked where it exists.
         if let Some(far) = SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(u64::MAX / 2)) {
             assert_eq!(utc_stamp(far), "292277026596-12-04 15:30 UTC");
