@@ -2713,5 +2713,11 @@ certificate	Version	الإصدار
 	Page properties	خصائص الصفحة
 # Opening an EPUB book (#493).
 	Converted from an EPUB book. Details lists how it was laid out and what was left out.	تم التحويل من كتاب EPUB. تعرض التفاصيل كيف نُسّق وما الذي لم يُضمَّن.
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى

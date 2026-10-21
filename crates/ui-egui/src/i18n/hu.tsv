@@ -2435,5 +2435,12 @@ animation effects	Off	Ki
 	Page properties	Oldaltulajdonságok
 # Opening an EPUB book (#493).
 	Converted from an EPUB book. Details lists how it was laid out and what was left out.	EPUB-könyvből átalakítva. A Részletek megmutatják, hogyan lett tördelve, és mi maradt ki.
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

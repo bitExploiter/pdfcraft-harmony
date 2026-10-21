@@ -2450,5 +2450,12 @@ animation effects	Off	Desativados
 	Page properties	Propriedades da página
 # Opening an EPUB book (#493).
 	Converted from an EPUB book. Details lists how it was laid out and what was left out.	Convertido de um livro EPUB. Os detalhes mostram como foi diagramado e o que ficou de fora.
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
 	Less	Menos
 	Other options	Outras opções

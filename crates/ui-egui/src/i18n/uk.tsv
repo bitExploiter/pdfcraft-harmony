@@ -2458,5 +2458,12 @@ animation effects	Off	Вимкнено
 	Page properties	Властивості сторінки
 # Opening an EPUB book (#493).
 	Converted from an EPUB book. Details lists how it was laid out and what was left out.	Перетворено з книги EPUB. У подробицях указано, як її зверстано і що пропущено.
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
 	Less	Менше
 	Other options	Інші параметри
