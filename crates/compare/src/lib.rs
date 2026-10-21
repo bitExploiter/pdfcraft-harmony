@@ -133,7 +133,7 @@ impl Comparison {
     pub fn sync_new_page(&self, old_page: usize) -> usize {
         self.new_page(old_page)
             .or_else(|| self.page_changes.iter().find(|c| c.kind == PageKind::Deleted && c.old_page == old_page).map(|c| c.new_page))
-            .or_else(|| self.page_pairs.iter().filter(|&&(op, _)| op < old_page).map(|&(_, np)| np).last())
+            .or_else(|| self.page_pairs.iter().rev().find(|&&(op, _)| op < old_page).map(|&(_, np)| np))
             .unwrap_or(old_page)
     }
 }
@@ -528,8 +528,7 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
             let _ = prev_p;
             (prev_q, new_by_page.get(prev_q).and_then(|w| w.last().copied()))
         } else {
-            let q = 0usize.min(m.saturating_sub(1));
-            (q, new_by_page.get(q).and_then(|w| w.first().copied()))
+            (0, new_by_page.first().and_then(|w| w.first().copied()))
         }
     };
     let anchor_old_for_new = |q: usize| -> (usize, Option<&Word>) {
@@ -537,8 +536,7 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
             let _ = prev_q;
             (prev_p, old_by_page.get(prev_p).and_then(|w| w.last().copied()))
         } else {
-            let p = 0usize.min(n.saturating_sub(1));
-            (p, old_by_page.get(p).and_then(|w| w.first().copied()))
+            (0, old_by_page.first().and_then(|w| w.first().copied()))
         }
     };
 
@@ -559,8 +557,8 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
             Some(_) => {}
         }
     }
-    for q in 0..m {
-        if new_to_old[q].is_none() {
+    for (q, matched_old) in new_to_old.iter().enumerate() {
+        if matched_old.is_none() {
             let (anchor_old, _) = anchor_old_for_new(q);
             page_changes.push(PageChange { kind: PageKind::Inserted, old_page: anchor_old, new_page: q });
         }
