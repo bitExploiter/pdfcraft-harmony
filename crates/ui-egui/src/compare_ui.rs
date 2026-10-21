@@ -193,9 +193,21 @@ impl PdfCraftApp {
                         .filter(|ch| ch.kind != Kind::Inserted)
                         .flat_map(|ch| ch.old.rects.iter().map(move |r| (ch.old.page, r.map(|v| v as f32), colour(ch.kind))))
                         .collect();
+                    let old_pages = self.session.get(old).map(|d| d.info.pages.clone()).unwrap_or_default();
+                    let new_pages = self.session.get(new).map(|d| d.info.pages.clone()).unwrap_or_default();
                     for (p, r) in &visual {
                         let Some(old_p) = result.old_page(*p) else { continue };
-                        let r = r.map(|v| v as f32);
+                        let r = if let (Some(ni), Some(oi)) = (new_pages.get(*p), old_pages.get(old_p)) {
+                            let (nw, nh) = (ni.width.max(1e-3), ni.height.max(1e-3));
+                            let map = |x: f64, y: f64| {
+                                let v = ni.user_to_view(x as f32, y as f32);
+                                oi.view_to_user(v[0] / nw * oi.width, v[1] / nh * oi.height)
+                            };
+                            let (a, b) = (map(r[0], r[1]), map(r[2], r[3]));
+                            [a[0].min(b[0]), a[1].min(b[1]), a[0].max(b[0]), a[1].max(b[1])]
+                        } else {
+                            r.map(|v| v as f32)
+                        };
                         let covered = marks.iter().any(|(mp, m, _)| *mp == old_p && m[0] <= r[2] && r[0] <= m[2] && m[1] <= r[3] && r[1] <= m[3]);
                         if !covered {
                             marks.push((old_p, r, VISUAL));
@@ -319,19 +331,20 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
     let leader = app.compare.as_ref().map_or(1, |c| c.leader);
     let (lead, follow) = if leader == 0 { (old, new) } else { (new, old) };
     // The follower takes the leader's zoom and layout before either is drawn.
-    let (zoom, fit, layout, continuous, rotation, lead_cur) = {
+    let (zoom, fit, layout, continuous, cover, rotation, lead_cur) = {
         let v = &app.views[lead];
-        (v.zoom, v.fit, v.layout, v.continuous, v.rotation, v.current)
+        (v.zoom, v.fit, v.layout, v.continuous, v.cover, v.rotation, v.current)
     };
     let follow_cur =
         app.compare.as_ref().map_or(lead_cur, |c| if leader == 0 { c.result.sync_new_page(lead_cur) } else { c.result.sync_old_page(lead_cur) });
     {
         let v = &mut app.views[follow];
-        if v.zoom != zoom || v.fit != fit || v.layout != layout || v.continuous != continuous || v.rotation != rotation {
+        if v.zoom != zoom || v.fit != fit || v.layout != layout || v.continuous != continuous || v.cover != cover || v.rotation != rotation {
             v.zoom = zoom;
             v.fit = fit;
             v.layout = layout;
             v.continuous = continuous;
+            v.cover = cover;
             v.rotation = rotation;
         }
         if !continuous && v.current != follow_cur {
@@ -379,6 +392,9 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
 
 fn page_top_y(app: &PdfCraftApp, view_index: usize, page: usize) -> f32 {
     let Some(v) = app.views.get(view_index) else { return 0.0 };
+    if !v.continuous {
+        return 0.0;
+    }
     let Some(doc) = app.session.get(v.id) else { return 0.0 };
     let w = v.content_width(&doc.info, v.viewport_rect().width());
     v.layout(&doc.info, w).get(page).map_or(0.0, |r| r.min.y)

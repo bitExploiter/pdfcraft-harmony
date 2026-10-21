@@ -395,50 +395,6 @@ fn in_order_mask(n: usize, old_to_new: &[Option<usize>]) -> Vec<bool> {
     in_order
 }
 
-fn diff_page_words(old: &[&Word], old_page: usize, new: &[&Word], new_page: usize, out: &mut Vec<Change>) {
-    let a: Vec<u64> = old.iter().map(|w| hash(&w.text)).collect();
-    let b: Vec<u64> = new.iter().map(|w| hash(&w.text)).collect();
-    let mut ops = Vec::with_capacity(a.len().max(b.len()));
-    diff(&a, &b, &mut ops, 0);
-
-    let (mut i, mut j) = (0usize, 0usize);
-    let mut k = 0;
-    while k < ops.len() {
-        if ops[k] == Op::Equal {
-            i += 1;
-            j += 1;
-            k += 1;
-            continue;
-        }
-        let (mut del, mut ins): (Vec<&Word>, Vec<&Word>) = (Vec::new(), Vec::new());
-        while k < ops.len() && ops[k] != Op::Equal {
-            match ops[k] {
-                Op::Delete => {
-                    if let Some(&w) = old.get(i) {
-                        del.push(w);
-                    }
-                    i += 1;
-                }
-                _ => {
-                    if let Some(&w) = new.get(j) {
-                        ins.push(w);
-                    }
-                    j += 1;
-                }
-            }
-            k += 1;
-        }
-        let kind = match (del.is_empty(), ins.is_empty()) {
-            (false, false) => Kind::Replaced,
-            (false, true) => Kind::Deleted,
-            _ => Kind::Inserted,
-        };
-        let old_near = old.get(i).copied().or_else(|| old.last().copied());
-        let new_near = new.get(j).copied().or_else(|| new.last().copied());
-        out.push(Change { kind, old: side_on_page(&del, old_near, old_page), new: side_on_page(&ins, new_near, new_page) });
-    }
-}
-
 /// Compare two documents' words.
 pub fn compare(old: &[Word], new: &[Word]) -> Comparison {
     compare_with_pages(old, 0, new, 0)
@@ -466,22 +422,54 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
     }
 
     const MIN_PAGE_SIM: f64 = 0.25;
+    const MAX_POSTINGS: usize = 32;
+    const TOP_CANDIDATES: usize = 4;
     let old_profiles: Vec<PageProfile> = old_by_page.iter().map(|w| PageProfile::from_words(w)).collect();
     let new_profiles: Vec<PageProfile> = new_by_page.iter().map(|w| PageProfile::from_words(w)).collect();
 
-    let mut token_to_new: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
+    let mut token_to_new: std::collections::HashMap<u64, Vec<(usize, usize)>> = std::collections::HashMap::new();
     for (q, pb) in new_profiles.iter().enumerate() {
-        for &h in pb.unigrams.keys() {
-            token_to_new.entry(h).or_default().push(q);
+        for (&h, &c) in &pb.unigrams {
+            token_to_new.entry(h).or_default().push((q, c));
         }
     }
 
     let mut candidates: Vec<(usize, usize, f64)> = Vec::new();
+    let mut votes = vec![0usize; m];
+    let mut touched = Vec::new();
     for (p, pa) in old_profiles.iter().enumerate() {
-        let mut shared_new: Vec<usize> = pa.unigrams.keys().filter_map(|h| token_to_new.get(h)).flatten().copied().collect();
-        shared_new.sort_unstable();
-        shared_new.dedup();
-        for q in shared_new {
+        if pa.hashes.is_empty() {
+            continue;
+        }
+        for (&h, &c) in &pa.unigrams {
+            if let Some(postings) = token_to_new.get(&h)
+                && postings.len() <= MAX_POSTINGS
+            {
+                for &(q, qc) in postings {
+                    if votes[q] == 0 {
+                        touched.push(q);
+                    }
+                    votes[q] += c.min(qc);
+                }
+            }
+        }
+        if touched.is_empty() {
+            for (&h, &c) in &pa.unigrams {
+                if let Some(postings) = token_to_new.get(&h) {
+                    for &(q, qc) in postings {
+                        if votes[q] == 0 {
+                            touched.push(q);
+                        }
+                        votes[q] += c.min(qc);
+                    }
+                }
+            }
+        }
+        if p < m && votes[p] == 0 && !new_profiles[p].hashes.is_empty() {
+            touched.push(p);
+        }
+        touched.sort_unstable_by(|&qa, &qb| votes[qb].cmp(&votes[qa]).then_with(|| p.abs_diff(qa).cmp(&p.abs_diff(qb))));
+        for &q in touched.iter().take(TOP_CANDIDATES) {
             let pb = &new_profiles[q];
             let sim = page_similarity(pa, pb);
             if sim >= MIN_PAGE_SIM {
@@ -490,6 +478,10 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
                 candidates.push((p, q, sim + bonus));
             }
         }
+        for &q in &touched {
+            votes[q] = 0;
+        }
+        touched.clear();
     }
     candidates.sort_by(|a, b| b.2.total_cmp(&a.2).then_with(|| a.0.abs_diff(a.1).cmp(&b.0.abs_diff(b.1))).then_with(|| (a.0, a.1).cmp(&(b.0, b.1))));
 
@@ -585,34 +577,98 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
     }
     page_changes.sort_by_key(|c| (c.new_page, c.old_page));
 
-    let mut changes = Vec::new();
+    // Diff the full sequence of words after reordering moved `old` pages into `new` page order,
+    // so text that reflows across a page break matches across the boundary.
+    let mut reordered_old: Vec<&Word> = Vec::with_capacity(old.len());
+    let mut ordered_new: Vec<&Word> = Vec::with_capacity(new.len());
     for q in 0..m {
         for &del_p in &deleted_before_new[q] {
-            if !old_by_page[del_p].is_empty() {
-                let (anchor_new, new_near) = anchor_new_for_old(del_p);
-                changes.push(Change {
-                    kind: Kind::Deleted,
-                    old: side_on_page(&old_by_page[del_p], None, del_p),
-                    new: side_on_page(&[], new_near, anchor_new),
-                });
-            }
+            reordered_old.extend_from_slice(&old_by_page[del_p]);
         }
         if let Some(p) = new_to_old[q] {
-            diff_page_words(&old_by_page[p], p, &new_by_page[q], q, &mut changes);
-        } else if !new_by_page[q].is_empty() {
-            let (anchor_old, old_near) = anchor_old_for_new(q);
-            changes.push(Change { kind: Kind::Inserted, old: side_on_page(&[], old_near, anchor_old), new: side_on_page(&new_by_page[q], None, q) });
+            reordered_old.extend_from_slice(&old_by_page[p]);
         }
+        ordered_new.extend_from_slice(&new_by_page[q]);
     }
     for &del_p in &deleted_before_new[m] {
-        if !old_by_page[del_p].is_empty() {
-            let (anchor_new, new_near) = anchor_new_for_old(del_p);
-            changes.push(Change {
-                kind: Kind::Deleted,
-                old: side_on_page(&old_by_page[del_p], None, del_p),
-                new: side_on_page(&[], new_near, anchor_new),
-            });
+        reordered_old.extend_from_slice(&old_by_page[del_p]);
+    }
+
+    let a: Vec<u64> = reordered_old.iter().map(|w| hash(&w.text)).collect();
+    let b: Vec<u64> = ordered_new.iter().map(|w| hash(&w.text)).collect();
+    let mut ops = Vec::with_capacity(a.len().max(b.len()));
+    diff(&a, &b, &mut ops, 0);
+
+    let mut changes = Vec::new();
+    let (mut i, mut j) = (0usize, 0usize);
+    let mut k = 0;
+    while k < ops.len() {
+        if ops[k] == Op::Equal {
+            i += 1;
+            j += 1;
+            k += 1;
+            continue;
         }
+        let (mut del, mut ins): (Vec<&Word>, Vec<&Word>) = (Vec::new(), Vec::new());
+        while k < ops.len() && ops[k] != Op::Equal {
+            match ops[k] {
+                Op::Delete => {
+                    if let Some(&w) = reordered_old.get(i) {
+                        del.push(w);
+                    }
+                    i += 1;
+                }
+                _ => {
+                    if let Some(&w) = ordered_new.get(j) {
+                        ins.push(w);
+                    }
+                    j += 1;
+                }
+            }
+            k += 1;
+        }
+        let kind = match (del.is_empty(), ins.is_empty()) {
+            (false, false) => Kind::Replaced,
+            (false, true) => Kind::Deleted,
+            _ => Kind::Inserted,
+        };
+        let (old_page, old_near) = if let Some(&w) = del.first() {
+            (w.page, None)
+        } else {
+            let ins_page = ins.first().map_or(0, |w| w.page);
+            let target_old = new_to_old.get(ins_page).copied().flatten().unwrap_or_else(|| anchor_old_for_new(ins_page).0);
+            let near = reordered_old
+                .get(i)
+                .copied()
+                .filter(|w| w.page == target_old)
+                .or_else(|| i.checked_sub(1).and_then(|idx| reordered_old.get(idx).copied()).filter(|w| w.page == target_old))
+                .or_else(|| anchor_old_for_new(ins_page).1)
+                .or_else(|| reordered_old.get(i).copied())
+                .or_else(|| reordered_old.last().copied());
+            (target_old, near)
+        };
+        let (new_page, new_near) = if let Some(&w) = ins.first() {
+            (w.page, None)
+        } else {
+            let del_page = del.first().map_or(0, |w| w.page);
+            let target_new = old_to_new.get(del_page).copied().flatten().unwrap_or_else(|| anchor_new_for_old(del_page).0);
+            let near = ordered_new
+                .get(j)
+                .copied()
+                .filter(|w| w.page == target_new)
+                .or_else(|| j.checked_sub(1).and_then(|idx| ordered_new.get(idx).copied()).filter(|w| w.page == target_new))
+                .or_else(|| anchor_new_for_old(del_page).1)
+                .or_else(|| ordered_new.get(j).copied())
+                .or_else(|| ordered_new.last().copied());
+            (target_new, near)
+        };
+        changes.push(Change { kind, old: side_on_page(&del, old_near, old_page), new: side_on_page(&ins, new_near, new_page) });
+    }
+
+    // Pure pagination reflow of identical text produces no word changes; do not report reflowed
+    // page breaks as inserted or deleted pages.
+    if changes.is_empty() && (!old.is_empty() || !new.is_empty()) {
+        page_changes.retain(|c| c.kind == PageKind::Moved);
     }
 
     Comparison { changes, page_pairs, page_changes, old_words: old.len(), new_words: new.len() }
@@ -801,6 +857,26 @@ mod tests {
         assert_eq!(cd.sync_new_page(1), 0);
         assert_eq!(cd.sync_new_page(2), 1);
         assert_eq!(cd.sync_new_page(3), 2);
+    }
+
+    #[test]
+    fn word_pushed_across_page_break_is_not_reported_changed() {
+        // Inserting "very" near the start of page 0 pushes "zeta" from the end of page 0
+        // onto the start of page 1; only the single inserted word is reported.
+        let mut old = words("alpha beta gamma delta epsilon zeta", 0);
+        old.extend(words("eta theta iota kappa lambda mu", 1));
+        let mut new = words("alpha very beta gamma delta epsilon", 0);
+        new.extend(words("zeta eta theta iota kappa lambda mu", 1));
+
+        let c = compare(&old, &new);
+        let got: Vec<(Kind, usize, &str, usize, &str)> =
+            c.changes.iter().map(|ch| (ch.kind, ch.old.page, ch.old.text.as_str(), ch.new.page, ch.new.text.as_str())).collect();
+        assert_eq!(got, [(Kind::Inserted, 0, "", 0, "very")]);
+
+        // Pure pagination reflow of identical words remains identical.
+        let mut reflowed = words("alpha beta gamma delta epsilon", 0);
+        reflowed.extend(words("zeta eta theta iota kappa lambda mu", 1));
+        assert!(compare(&old, &reflowed).identical());
     }
 }
 
