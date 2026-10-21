@@ -37,6 +37,15 @@ impl Automation {
         Ok(json!({ "printer": printer, "count": list.len(), "options": list }))
     }
 
+    pub(crate) fn printer_papers(&self, a: &Args) -> Result<Value> {
+        let printer = a.str("printer")?;
+        let list: Vec<Value> = spool::printer_papers(printer)
+            .into_iter()
+            .map(|p| json!({ "key": p.key, "label": p.label, "width": p.size.0, "height": p.size.1, "default": p.default }))
+            .collect();
+        Ok(json!({ "printer": printer, "count": list.len(), "papers": list }))
+    }
+
     pub(crate) fn doc_print(&mut self, a: &Args) -> Result<Value> {
         let doc = self.doc(a)?;
         let (id, count) = (doc.id, doc.info.pages.len());
@@ -111,20 +120,46 @@ impl Automation {
             "form-fields-only" => Content::FormFieldsOnly,
             c => return Err(bad(format!("unknown comments_forms {c:?}"))),
         };
-        let paper = match a.opt_str("paper")? {
-            None => PAPERS[0].1,
-            Some(p) => PAPERS
-                .iter()
-                .find(|(n, _)| {
+        // The printer's own paper sizes (its PPD's, on CUPS): a paper may be one of them, by
+        // keyword or label, and a job on a size the printer has names it as the job's media.
+        // "default" is the default queue's (the job itself still goes to the spooler's default).
+        let own = match a.opt_str("printer")? {
+            Some("default") => spool::printers().into_iter().find(|p| p.default).map(|p| spool::printer_papers(&p.name)).unwrap_or_default(),
+            Some(printer) => spool::printer_papers(printer),
+            None => Vec::new(),
+        };
+        // The sheet, and the index of the standard size or of the printer's own it was named by.
+        let (paper, standard, chosen) = match a.opt_str("paper")? {
+            // None named: the printer's default size when its driver reports one, else US Letter.
+            None => {
+                own.iter().position(|q| q.default).and_then(|i| own.get(i).map(|q| (q.size, None, Some(i)))).unwrap_or((PAPERS[0].1, Some(0), None))
+            }
+            Some(p) => {
+                let standard = PAPERS.iter().position(|(n, _)| {
                     n.eq_ignore_ascii_case(p)
                         || n.replace("US ", "").eq_ignore_ascii_case(p)
                         || n.split(" (").next().is_some_and(|name| name.eq_ignore_ascii_case(p))
-                })
-                .map(|x| x.1)
-                .ok_or_else(|| {
-                    bad(format!("unknown paper {p:?}; choose one of {}", PAPERS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ")))
-                })?,
+                });
+                let chosen = own.iter().position(|q| q.key.eq_ignore_ascii_case(p) || q.label.eq_ignore_ascii_case(p));
+                match (standard.and_then(|i| PAPERS.get(i)), chosen.and_then(|i| own.get(i))) {
+                    (Some(x), _) => (x.1, standard, None),
+                    (None, Some(q)) => (q.size, None, chosen),
+                    (None, None) => {
+                        return Err(bad(format!(
+                            "unknown paper {p:?}; choose one of {}, or one of the printer's own sizes (printer_papers)",
+                            PAPERS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ")
+                        )));
+                    }
+                }
+            }
         };
+        // The media the job names: the printer's own keyword for the chosen size, else the CUPS
+        // name of the standard size, as the Print dialog does.
+        let media = chosen
+            .or_else(|| spool::paper_of_size(&own, paper))
+            .and_then(|i| own.get(i))
+            .map(|q| q.key.clone())
+            .or_else(|| standard.and_then(print::cups_media).map(str::to_string));
         // Print as image (Acrobat's Advanced Print Setup): pictures at `dpi`, grey when
         // `grayscale` is also asked for.
         let raster = if a.opt_bool("as_image")?.unwrap_or(false) {
@@ -172,7 +207,11 @@ impl Automation {
                             })
                             .collect::<Result<Vec<_>>>()?,
                         Some(_) => return Err(bad("options must be an object of option keys and choices from printer_options")),
-                    },
+                    }
+                    .into_iter()
+                    // The sheet the PDF was laid out on, not the queue's default paper (as the Print dialog).
+                    .chain(media.map(|m| ("media".to_string(), m)))
+                    .collect(),
                 };
                 out["job"] = json!(spool::submit(&bytes, &job).map_err(|e| failed(e.to_string()))?);
             }
