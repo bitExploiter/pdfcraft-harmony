@@ -154,6 +154,53 @@ pub fn page_boxes(cos: &pdfcraft_cos::Document) -> Vec<PageBox> {
         .collect()
 }
 
+/// A PDF font's family name as an Office file names it: the subset tag (`ABCDEF+`), style
+/// suffixes (`-Bold`, `,Italic`, `PSMT`) and joined words (`TimesNewRoman`) undone, and the 14
+/// standard fonts given their metric-compatible Office families. Empty for names that say nothing
+/// (`F1`).
+pub fn family(base_font: &str) -> String {
+    let name = base_font
+        .split_once('+')
+        .map_or(base_font, |(tag, rest)| if tag.len() == 6 && tag.bytes().all(|b| b.is_ascii_uppercase()) { rest } else { base_font });
+    let name = name.split([',', '-']).next().unwrap_or("").trim();
+    let name = ["PSMT", "MT", "PS"].iter().fold(name.to_string(), |n, suffix| n.strip_suffix(suffix).map(str::to_string).unwrap_or(n));
+    let lower = name.to_ascii_lowercase();
+    match lower.as_str() {
+        "times" | "timesroman" | "timesnewroman" => return "Times New Roman".into(),
+        "helvetica" | "arial" => return "Arial".into(),
+        "courier" | "couriernew" => return "Courier New".into(),
+        "symbol" => return "Symbol".into(),
+        "zapfdingbats" => return "ZapfDingbats".into(),
+        _ => {}
+    }
+    // A bare resource-like name (`F1`, `TT2`) is no family.
+    if name.len() <= 3 || name.chars().filter(char::is_ascii_alphabetic).count() < 3 {
+        return String::new();
+    }
+    // Split joined words: a capital after a lower-case letter, a digit after a letter, and a
+    // capital before a lower-case one after capitals (`DejaVuSans` → `DejaVu Sans`).
+    let chars: Vec<char> = name.chars().collect();
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let prev = i.checked_sub(1).and_then(|p| chars.get(p)).copied();
+        let next = chars.get(i + 1).copied();
+        let split = match prev {
+            Some(p) if c.is_ascii_uppercase() && p.is_ascii_lowercase() => {
+                // `DejaVu`: a single capital between lower-case letters inside a known word stays.
+                !(out.ends_with("Deja") && c == 'V')
+            }
+            Some(p) if c.is_ascii_digit() && p.is_ascii_alphabetic() => true,
+            Some(p) if c.is_ascii_uppercase() && p.is_ascii_uppercase() && next.is_some_and(|n| n.is_ascii_lowercase()) => true,
+            _ => false,
+        };
+        if split {
+            out.push(' ');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// The pages of `cos` (`only`: these 0-based indices, in this order) as paragraphs and images in
 /// display space (points, y up, after `/Rotate` and `/UserUnit`), including what form XObjects
 /// draw, and the pages whose forms were left partly unread. `info` is the document's page
@@ -195,6 +242,9 @@ pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usiz
                         color: b.color,
                         rotation: b.rotation - f64::from(info.rotation),
                         invisible: b.invisible || b.transparent,
+                        font: family(&b.base_font),
+                        lines: b.rows.len().max(1),
+                        indent: b.indent,
                     }
                 })
                 .collect();

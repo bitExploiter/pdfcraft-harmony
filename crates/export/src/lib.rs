@@ -34,6 +34,12 @@ pub struct Block {
     /// text drawn as outlines. The flowing writers treat it as text;
     /// [`pptx_positioned`] shows it only where outlines drew it.
     pub invisible: bool,
+    /// Font family name ("Times New Roman"), empty when unknown.
+    pub font: String,
+    /// Visual lines the paragraph had on the page (1 for a single line).
+    pub lines: usize,
+    /// How far its first line starts right of the others (points; negative: a hanging indent).
+    pub indent: f64,
 }
 
 /// An image of a page.
@@ -484,8 +490,12 @@ pub(crate) fn hex(c: [f64; 3]) -> Option<String> {
 }
 
 /// A formatted text run (shared by paragraphs and table cells).
-fn run_xml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3]) -> String {
+fn run_xml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3], font: &str) -> String {
     let mut rpr = String::new();
+    if !font.trim().is_empty() {
+        let f = esc(font.trim());
+        rpr.push_str(&format!("<w:rFonts w:ascii=\"{f}\" w:hAnsi=\"{f}\" w:cs=\"{f}\"/>"));
+    }
     if bold {
         rpr.push_str("<w:b/>");
     }
@@ -522,7 +532,7 @@ fn docx_table(t: &Table) -> String {
             let w: i64 = widths.iter().take(c.span.min(widths.len())).sum();
             s.push_str(&format!(
                 "<w:tc><w:tcPr><w:tcW w:w=\"{w}\" w:type=\"dxa\"/>{span}</w:tcPr><w:p>{}</w:p></w:tc>",
-                run_xml(&c.text, c.size, c.bold, c.italic, c.color)
+                run_xml(&c.text, c.size, c.bold, c.italic, c.color, "")
             ));
         }
         // Pad the grid so every row covers all columns (Word rejects short rows).
@@ -638,7 +648,7 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
         );
         s.push_str(&format!(
             "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent><w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p></w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
-            shape_id, run_xml(&b.text, b.size, b.bold, b.italic, b.color)
+            shape_id, run_xml(&b.text, b.size, b.bold, b.italic, b.color, &b.font)
         ));
     }
     for im in &page.images {
@@ -677,14 +687,99 @@ fn word_page_size(page: &Page) -> (i64, i64) {
     (twips(page.width), twips(page.height))
 }
 
+/// The page's text column `[left, bottom, right, top]` (points, y up): where its upright text
+/// starts and ends. `None` without such text.
+fn column(page: &Page) -> Option<[f64; 4]> {
+    let mut c: Option<[f64; 4]> = None;
+    for b in page.blocks.iter().filter(|b| b.rotation.abs() < 1.0 && !b.text.trim().is_empty() && b.rect.iter().all(|v| v.is_finite())) {
+        let [x0, y0, x1, y1] = b.rect;
+        c = Some(c.map_or([x0, y0, x1, y1], |c| [c[0].min(x0), c[1].min(y0), c[2].max(x1), c[3].max(y1)]));
+    }
+    c
+}
+
 fn section(page: &Page) -> String {
     let (pw, ph) = word_page_size(page);
     let (mx, my) = ((pw / 8).min(1440), (ph / 8).min(1440));
+    // Margins where the text is, when that leaves a sensible page: at least ¼ inch, at most a
+    // third of the page on each side.
+    let (mut top, mut right, mut bottom, mut left) = (my, mx, my, mx);
+    if let Some([x0, y0, x1, y1]) = column(page) {
+        let fits = |m: f64, of: i64| m.is_finite() && m * 20.0 >= 360.0 && m * 20.0 <= of as f64 / 3.0;
+        let (l, r, t, b) = (x0, page.width - x1, page.height - y1, y0);
+        if fits(l, pw) && fits(r, pw) {
+            (left, right) = ((l * 20.0).round() as i64, (r * 20.0).round() as i64);
+        }
+        if fits(t, ph) && fits(b.min(t * 2.0), ph) {
+            (top, bottom) = ((t * 20.0).round() as i64, ((b.min(t * 2.0)) * 20.0).round() as i64);
+        }
+    }
     format!(
-        "<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{pw}\" w:h=\"{ph}\"/><w:pgMar w:top=\"{my}\" w:right=\"{mx}\" w:bottom=\"{my}\" w:left=\"{mx}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/></w:sectPr>",
-        my / 2,
-        my / 2
+        "<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{pw}\" w:h=\"{ph}\"/><w:pgMar w:top=\"{top}\" w:right=\"{right}\" w:bottom=\"{bottom}\" w:left=\"{left}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/></w:sectPr>",
+        top / 2,
+        bottom / 2
     )
+}
+
+/// How a paragraph sat in its page's text column: alignment, left indent, the space above it
+/// (from `above`, the bottom of the paragraph before it on the page) and its line spacing, as
+/// `<w:pPr>` children.
+fn layout(b: &Block, column: Option<[f64; 4]>, above: Option<f64>) -> String {
+    let Some([left, _, right, _]) = column else { return String::new() };
+    let [x0, y0, x1, y1] = b.rect;
+    if ![x0, y0, x1, y1, b.size].iter().all(|v| v.is_finite()) || b.size <= 0.0 || b.rotation.abs() >= 1.0 {
+        return String::new();
+    }
+    let width = (right - left).max(1.0);
+    let slack = b.size * 0.6;
+    let mut out = String::new();
+    // Line spacing: baseline to baseline over the paragraph's lines, as a multiple of single
+    // spacing (about 1.17 × the font size in common fonts), in 240ths.
+    let lines = b.lines.max(1);
+    let mut spacing = Vec::new();
+    if lines >= 2 {
+        let pitch = ((y1 - y0) - b.size) / (lines - 1) as f64;
+        let multiple = pitch / (b.size * 1.17);
+        if multiple.is_finite() && (1.08..=3.0).contains(&multiple) {
+            spacing.push(format!("w:line=\"{}\" w:lineRule=\"auto\"", (multiple * 240.0).round() as i64));
+        }
+    }
+    if let Some(prev_bottom) = above {
+        let gap = prev_bottom - y1 - b.size * 0.3;
+        if gap.is_finite() && gap > 2.0 {
+            spacing.push(format!("w:before=\"{}\"", (gap.min(144.0) * 20.0).round() as i64));
+        }
+    }
+    if !spacing.is_empty() {
+        out.push_str(&format!("<w:spacing {}/>", spacing.join(" ")));
+    }
+    let from_left = x0 - left;
+    let from_right = right - x1;
+    let centred = (from_left - from_right).abs() <= slack.max(width * 0.02) && from_left > width * 0.05;
+    let jc = if centred {
+        Some("center")
+    } else if from_right <= slack && from_left > width * 0.25 && lines == 1 {
+        Some("right")
+    } else if lines >= 2 && from_right <= slack {
+        Some("both")
+    } else {
+        None
+    };
+    let mut ind = Vec::new();
+    if jc.is_none() && from_left > slack {
+        ind.push(format!("w:left=\"{}\"", (from_left.min(width) * 20.0).round() as i64));
+    }
+    if lines >= 2 && b.indent.is_finite() && b.indent.abs() > 2.0 && jc != Some("center") {
+        let twips = (b.indent.abs().min(width / 2.0) * 20.0).round() as i64;
+        ind.push(if b.indent > 0.0 { format!("w:firstLine=\"{twips}\"") } else { format!("w:hanging=\"{twips}\"") });
+    }
+    if !ind.is_empty() {
+        out.push_str(&format!("<w:ind {}/>", ind.join(" ")));
+    }
+    if let Some(jc) = jc {
+        out.push_str(&format!("<w:jc w:val=\"{jc}\"/>"));
+    }
+    out
 }
 
 /// A Word document (.docx, Office Open XML). Ordinary pages flow as paragraphs and tables;
@@ -694,7 +789,7 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
     let mut media: Vec<(String, &Image)> = Vec::new();
     // Word needs a paragraph between adjacent tables and after the last one in the body.
     let mut after_table = false;
-    let run = |b: &Block| run_xml(&b.text, b.size, b.bold, b.italic, b.color);
+    let run = |b: &Block| run_xml(&b.text, b.size, b.bold, b.italic, b.color, &b.font);
     let mut shape_id = 0usize;
     for (page_index, page) in pages.iter().enumerate() {
         let (pw, _) = word_page_size(page);
@@ -703,23 +798,30 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
             body.push_str(&positioned_page(page, &mut media, &mut shape_id));
             after_table = false;
         } else {
+            let col = column(page);
+            let mut above: Option<f64> = None;
             for it in items(std::slice::from_ref(page)) {
                 match &it {
                     Item::Para(b, lvl) => {
                         let style = match lvl {
-                            1 => "<w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr>",
-                            2 => "<w:pPr><w:pStyle w:val=\"Heading2\"/></w:pPr>",
+                            1 => "<w:pStyle w:val=\"Heading1\"/>",
+                            2 => "<w:pStyle w:val=\"Heading2\"/>",
                             _ => "",
                         };
-                        body.push_str(&format!("<w:p>{style}{}</w:p>", run(b)));
+                        let place = layout(b, col, above);
+                        above = Some(b.rect[1]);
+                        let ppr = if style.is_empty() && place.is_empty() { String::new() } else { format!("<w:pPr>{style}{place}</w:pPr>") };
+                        body.push_str(&format!("<w:p>{ppr}{}</w:p>", run(b)));
                     }
                     Item::Table(t) => {
+                        above = None;
                         if after_table {
                             body.push_str("<w:p/>");
                         }
                         body.push_str(&docx_table(t));
                     }
                     Item::Img(im) => {
+                        above = None;
                         if room_for(&media, im) {
                             let n = media.len() + 1;
                             let name = format!("image{n}.{}", im.ext);
@@ -921,6 +1023,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         Page {
             width: 612.0,
@@ -1004,6 +1109,9 @@ mod tests {
             color: [0.8; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         });
         p.images = page().images;
         let xml = part(&docx(&[p], "Invoice"), "word/document.xml");
@@ -1036,6 +1144,92 @@ mod tests {
     }
 
     /// One part of a package written by [`Zip`], inflated.
+    /// A letter page laid out like a typical document: a centred title, a justified paragraph of
+    /// four lines in Times, a right-aligned date and a short left-aligned line.
+    fn layout_page() -> Page {
+        let b = |t: &str, rect: [f64; 4], size: f64, lines: usize| Block {
+            text: t.into(),
+            rect,
+            size,
+            bold: false,
+            italic: false,
+            color: [0.0; 3],
+            rotation: 0.0,
+            invisible: false,
+            font: "Times New Roman".into(),
+            lines,
+            indent: 0.0,
+        };
+        Page {
+            width: 612.0,
+            height: 792.0,
+            blocks: vec![
+                Block { bold: true, ..b("Centred Title", [236.0, 700.0, 376.0, 724.0], 18.0, 1) },
+                b(
+                    "A justified paragraph that runs over four lines of text from the left margin to the right margin of the column.",
+                    [72.0, 600.0, 540.0, 670.0],
+                    11.0,
+                    4,
+                ),
+                b("21 October 2026", [460.0, 560.0, 540.0, 572.0], 11.0, 1),
+                b("Left line", [72.0, 520.0, 130.0, 532.0], 11.0, 1),
+            ],
+            images: vec![],
+            shapes: vec![],
+        }
+    }
+
+    /// The `<w:p>…</w:p>` holding `text`.
+    fn para_with<'a>(xml: &'a str, text: &str) -> &'a str {
+        let at = xml.find(text).unwrap_or(0);
+        let start = xml[..at].rfind("<w:p>").unwrap_or(0);
+        let end = xml[at..].find("</w:p>").map_or(xml.len(), |e| at + e);
+        &xml[start..end]
+    }
+
+    #[test]
+    fn docx_keeps_paragraph_alignment() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        assert!(para_with(&xml, "Centred Title").contains("<w:jc w:val=\"center\"/>"), "{xml}");
+        assert!(para_with(&xml, "A justified paragraph").contains("<w:jc w:val=\"both\"/>"), "{xml}");
+        assert!(para_with(&xml, "21 October 2026").contains("<w:jc w:val=\"right\"/>"), "{xml}");
+        assert!(!para_with(&xml, "Left line").contains("<w:jc"), "{xml}");
+    }
+
+    #[test]
+    fn docx_margins_follow_the_text_column() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        // Left 72 pt, right 612 − 540 = 72 pt, top 792 − 724 = 68 pt (twips: × 20).
+        assert!(xml.contains("w:top=\"1360\" w:right=\"1440\""), "{xml}");
+        assert!(xml.contains("w:left=\"1440\""), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_the_font_family() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        assert!(xml.contains("<w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\"/>"), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_a_first_line_indent() {
+        let mut p = layout_page();
+        if let Some(b) = p.blocks.get_mut(1) {
+            b.indent = 36.0;
+        }
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        assert!(para_with(&xml, "A justified paragraph").contains("w:firstLine=\"720\""), "{xml}");
+        assert!(!para_with(&xml, "Left line").contains("w:firstLine"), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_line_spacing() {
+        // Four lines in 70 pt of 11 pt text: baselines about 19.7 pt apart, 1.5 lines or so.
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        let p = para_with(&xml, "A justified paragraph");
+        let line: i64 = p.split("w:line=\"").nth(1).and_then(|r| r.split('"').next()).and_then(|v| v.parse().ok()).expect("line spacing set");
+        assert!((330..=400).contains(&line), "{line}: {p}");
+        assert!(!para_with(&xml, "Left line").contains("w:line="), "a single line keeps the default");
+    }
     pub(crate) fn part(zip: &[u8], name: &str) -> String {
         let at = |i: usize, n: usize| zip[i..i + n].iter().rev().fold(0usize, |v, b| v << 8 | *b as usize);
         let mut i = 0;
@@ -1067,6 +1261,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         });
         let xml = part(&docx(&[p.clone()], "Receipt\u{1}"), "word/document.xml");
         assert!(xml.contains(">Total 4.50\tGBP</w:t>"), "{xml}");
@@ -1121,6 +1318,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         });
         let r = rtf(&[p]);
         assert!(r.starts_with("{\\rtf1") && r.ends_with('}'));
@@ -1139,6 +1339,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         Page {
             width: 612.0,
@@ -1163,6 +1366,9 @@ mod tests {
                     color: [0.0; 3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 },
             ],
             images: Vec::new(),
@@ -1224,6 +1430,9 @@ mod tests {
                     color: [0.0; 3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 }
             })
             .collect();
@@ -1252,6 +1461,9 @@ mod tests {
                             color: [0.0; 3],
                             rotation: 0.0,
                             invisible: false,
+                            font: String::new(),
+                            lines: 1,
+                            indent: 0.0,
                         }
                     })
                 })
@@ -1266,7 +1478,19 @@ mod tests {
     }
 
     fn block(t: &str, x0: f64, y0: f64, x1: f64, y1: f64) -> Block {
-        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0, invisible: false }
+        Block {
+            text: t.into(),
+            rect: [x0, y0, x1, y1],
+            size: 12.0,
+            bold: false,
+            italic: false,
+            color: [0.0; 3],
+            rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+        }
     }
 
     /// #2806: a sentence whose link is set in another colour or font runs on as separate blocks
@@ -1346,6 +1570,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         let p = Page {
             width: 612.0,

@@ -190,3 +190,35 @@ fn pptx_pages_keep_layout_and_artwork() {
     assert!(!flow.contains("336699"), "{flow}");
     assert!(slide.matches("336699").count() == 1, "only the banner is that colour");
 }
+
+#[test]
+fn font_family_names() {
+    for (base, want) in [
+        ("ABCDEF+TimesNewRomanPSMT", "Times New Roman"),
+        ("TimesNewRomanPS-BoldMT", "Times New Roman"),
+        ("Times-Roman", "Times New Roman"),
+        ("Times-BoldItalic", "Times New Roman"),
+        ("ArialMT", "Arial"),
+        ("Arial-BoldMT", "Arial"),
+        ("Helvetica", "Arial"),
+        ("Helvetica-Oblique", "Arial"),
+        ("Courier", "Courier New"),
+        ("QWERTY+LiberationSerif-Bold", "Liberation Serif"),
+        ("Calibri,Bold", "Calibri"),
+        ("NotoSans-Regular", "Noto Sans"),
+        ("DejaVuSansMono", "DejaVu Sans Mono"),
+        ("SourceSerif4-SemiboldIt", "Source Serif 4"),
+        ("", ""),
+        ("F1", ""),
+    ] {
+        assert_eq!(family(base), want, "{base}");
+    }
+}
+
+#[test]
+fn blocks_carry_family_and_lines() {
+    let two_lines = b"BT /F1 11 Tf 72 700 Td (First line of a paragraph that goes on) Tj 0 -14 Td (and its second line) Tj ET";
+    let out = convert(&pdf(&[two_lines]), Target::Docx, &Options::default()).unwrap();
+    let xml = docx_text(&out.bytes);
+    assert!(xml.contains("w:ascii=\"Arial\""), "Helvetica opens in its metric twin: {xml}");
+}

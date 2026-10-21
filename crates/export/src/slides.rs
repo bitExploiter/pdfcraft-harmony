@@ -116,8 +116,9 @@ fn text_box(id: usize, b: &Block, page_h: f64, ink: Ink) -> String {
     format!(
         "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"TextBox {id}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>\
 <p:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
-<p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/><a:p>{}</a:p></p:txBody></p:sp>",
+<p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/><a:p>{}{}</a:p></p:txBody></p:sp>",
         xfrm(pos(left), pos(page_h - top), len(w), len(h), turned),
+        if b.lines >= 2 && b.indent.is_finite() && b.indent.abs() > 2.0 { format!("<a:pPr indent=\"{}\"/>", pos(b.indent)) } else { String::new() },
         run(b, ink)
     )
 }
@@ -240,7 +241,19 @@ mod tests {
     const EMU: i64 = 12700;
 
     fn block(text: &str, rect: [f64; 4], size: f64) -> Block {
-        Block { text: text.into(), rect, size, bold: false, italic: false, color: [0.0; 3], rotation: 0.0, invisible: false }
+        Block {
+            text: text.into(),
+            rect,
+            size,
+            bold: false,
+            italic: false,
+            color: [0.0; 3],
+            rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+        }
     }
 
     fn page() -> Page {
@@ -314,6 +327,14 @@ mod tests {
         assert!(slide.contains("<a:prstGeom prst=\"rect\">"), "an axis-aligned rectangle stays a rectangle");
         assert!(slide.contains(&format!("<a:ln w=\"{}\">", 2 * EMU)), "outline width");
         assert!(slide.contains("<a:srgbClr val=\"0000FF\"/>"), "outline colour");
+    }
+
+    #[test]
+    fn a_first_line_indent_is_kept() {
+        let mut p = page();
+        p.blocks = vec![Block { indent: 24.0, lines: 3, ..block("A paragraph of three lines", [72.0, 300.0, 400.0, 345.0], 12.0) }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert!(slide.contains(&format!("<a:pPr indent=\"{}\"/>", 24 * EMU)), "{slide}");
     }
 
     #[test]

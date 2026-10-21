@@ -388,6 +388,9 @@ mod tests {
                     color: [0.1, 0.2, 0.3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 },
                 Block {
                     text: "Revenue grew 25% year over year across all regions.".into(),
@@ -398,6 +401,9 @@ mod tests {
                     color: [0.0; 3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 },
                 Block {
                     text: "Operational expenses remained flat.".into(),
@@ -408,6 +414,9 @@ mod tests {
                     color: [0.0; 3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 },
             ],
             images: vec![Image {
@@ -532,6 +541,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         let table_page = Page {
             width: 612.0,
@@ -634,6 +646,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         let mut blocks = vec![huge("Title", f64::MAX, 500.0)];
         for k in 0..40 {
@@ -700,6 +715,9 @@ mod tests {
             color: [0.0; 3],
             rotation: 0.0,
             invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
         };
         let p = Page {
             width: 720.0,
@@ -715,6 +733,9 @@ mod tests {
                     color: [0.0; 3],
                     rotation: 0.0,
                     invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
                 },
                 // Table where one cell has a very large number (e.g. 36 pt callout in the table)
                 cell("Metric", 72.0, 400.0, 100.0, 12.0),
