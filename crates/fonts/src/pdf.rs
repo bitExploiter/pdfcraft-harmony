@@ -94,10 +94,10 @@ fn glyphless_font_name(name: &str) -> bool {
 }
 
 /// Whether `font` is an OCR placeholder font (such as Tesseract/PDFium `/Glyphless` or
-/// `/GlyphlessFont`, Adobe `/HiddenHorzOCR`, or a dummy TrueType program whose non-zero codes
-/// have no outlines or all map to a single placeholder rectangle).
+/// `/GlyphlessFont`, Adobe `/HiddenHorzOCR`, or a `CIDFontType2` whose embedded TrueType program
+/// has a single outlined glyph shared across the `/CIDToGIDMap` table).
 fn is_glyphless(doc: &Document, font: &Dict) -> bool {
-    use skrifa::{MetadataProvider as _, raw::TableProvider as _};
+    use skrifa::raw::TableProvider as _;
     let descendant = dict(doc, font.get(b"DescendantFonts").and_then(|o| doc.resolve(o).as_array().and_then(|a| a.first()).cloned()).as_ref());
     let descriptor = dict(doc, descendant.as_ref().unwrap_or(font).get(b"FontDescriptor"));
     for name in [font.name(b"BaseFont"), descendant.as_ref().and_then(|d| d.name(b"BaseFont")), descriptor.as_ref().and_then(|d| d.name(b"FontName"))]
@@ -108,31 +108,25 @@ fn is_glyphless(doc: &Document, font: &Dict) -> bool {
             return true;
         }
     }
-    let Some(descriptor) = descriptor else { return false };
-    for key in [b"FontFile2".as_slice(), b"FontFile3".as_slice()] {
-        let Some(object) = descriptor.get(key) else { continue };
-        let object = doc.resolve(object);
-        let Object::Stream(stream) = object.as_ref() else { continue };
-        let Ok(bytes) = stream.decoded_within(16 << 20) else { continue };
-        let Ok(face) = skrifa::FontRef::from_index(&bytes, 0) else { continue };
-        let Ok(loca) = face.loca(None) else { continue };
-        let mut outlined =
-            (1..loca.len().min(0x1_0000)).filter(|&gid| loca.get_raw(gid).zip(loca.get_raw(gid + 1)).is_some_and(|(start, end)| end > start));
-        let Some(only_gid) = outlined.next() else { return true };
-        if outlined.next().is_some() {
-            continue;
-        }
-        if let Some(Object::Stream(map)) = descendant.as_ref().and_then(|d| d.get(b"CIDToGIDMap")).map(|o| doc.resolve(o)).as_deref()
-            && let Ok(map) = map.decoded_within(1 << 17)
-            && map.as_chunks::<2>().0.iter().skip(1).filter(|gid| usize::from(u16::from_be_bytes(**gid)) == only_gid).take(2).count() > 1
-        {
-            return true;
-        }
-        if face.charmap().mappings().filter(|(_, gid)| gid.to_u32() as usize == only_gid).take(3).count() > 2 {
-            return true;
-        }
+    let cid_to_gid = descendant.as_ref().and_then(|d| d.get(b"CIDToGIDMap")).map(|o| doc.resolve(o));
+    let Some(Object::Stream(map)) = cid_to_gid.as_deref() else { return false };
+    let Ok(map) = map.decoded_within(1 << 17) else { return false };
+    let program = descriptor.as_ref().and_then(|d| d.get(b"FontFile2")).map(|o| doc.resolve(o));
+    let Some(Object::Stream(stream)) = program.as_deref() else { return false };
+    let Ok(bytes) = stream.decoded_within(16 << 20) else { return false };
+    let Ok(face) = skrifa::FontRef::from_index(&bytes, 0) else { return false };
+    let Ok(loca) = face.loca(None) else { return false };
+    let mut outlined =
+        (1..loca.len().min(0x1_0000)).filter(|&gid| loca.get_raw(gid).zip(loca.get_raw(gid + 1)).is_some_and(|(start, end)| end > start));
+    let Some(only_gid) = outlined.next() else { return false };
+    if outlined.next().is_some() {
+        return false;
     }
-    false
+    let mut mapped = 0usize;
+    map.as_chunks::<2>().0.iter().skip(1).map(|gid| usize::from(u16::from_be_bytes(*gid))).filter(|&gid| gid != 0).all(|gid| {
+        mapped += 1;
+        gid == only_gid
+    }) && mapped >= 64
 }
 
 /// Whether `base_font` (subset tag allowed) names a legacy Indic font family that is laid out in
@@ -1354,7 +1348,6 @@ mod tests {
         for base in ["Glyphless", "GlyphlessFont", "ABCDEF+GlyphlessFont", "HiddenHorzOCR", "HiddenVertOCR", "CustomOCR"] {
             let mut doc = Document::new_empty();
             let program = doc.add(Object::Stream(Stream::flate(Dict::new(), &one_glyph_ttf)));
-            let cid_to_gid = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0, 1].repeat(256))));
             let cmap = b"1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfrange <0000> <00FF> <0000> endbfrange";
             let tu = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap)));
             let mut descriptor = Dict::new();
@@ -1365,7 +1358,10 @@ mod tests {
             desc.set(b"Type".to_vec(), Object::name("Font"));
             desc.set(b"Subtype".to_vec(), Object::name("CIDFontType2"));
             desc.set(b"BaseFont".to_vec(), Object::name(base));
-            desc.set(b"CIDToGIDMap".to_vec(), Object::Ref(cid_to_gid));
+            if base == "CustomOCR" {
+                let cid_to_gid = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0, 1].repeat(256))));
+                desc.set(b"CIDToGIDMap".to_vec(), Object::Ref(cid_to_gid));
+            }
             desc.set(b"DW".to_vec(), Object::Int(500));
             desc.set(b"W".to_vec(), Object::Array(vec![Object::Int(32), Object::Array(vec![Object::Int(285)])]));
             desc.set(b"FontDescriptor".to_vec(), Object::Dict(descriptor));
@@ -1388,47 +1384,58 @@ mod tests {
             assert_eq!(m.encode(""), None, "{base} must not claim empty words");
         }
 
-        // A TrueType program with zero outlined glyphs is also rejected even under an ordinary name.
+        // Regression fixture 1: a valid whitespace-only subset (0 outlined glyphs in `loca` because
+        // space has no contours) remains exposed as an editor sfnt and encodes whitespace.
         let mut doc = Document::new_empty();
         let program = doc.add(Object::Stream(Stream::flate(Dict::new(), &zero_glyph_ttf)));
         let mut descriptor = Dict::new();
+        descriptor.set(b"FontName".to_vec(), Object::name("ABCDEF+WhitespaceSubset"));
         descriptor.set(b"FontFile2".to_vec(), Object::Ref(program));
-        let empty_font = font(
+        let whitespace_subset = font(
             &mut doc,
             vec![
                 ("Subtype", Object::name("TrueType")),
-                ("BaseFont", Object::name("EmptyOutlines")),
+                ("BaseFont", Object::name("ABCDEF+WhitespaceSubset")),
                 ("Encoding", Object::name("WinAnsiEncoding")),
+                ("FirstChar", Object::Int(32)),
+                ("LastChar", Object::Int(32)),
+                ("Widths", Object::Array(vec![Object::Int(250)])),
                 ("FontDescriptor", Object::Dict(descriptor)),
             ],
         );
-        assert!(embedded_sfnt(&doc, &empty_font).is_none());
-        assert_eq!(Metrics::from_dict(&doc, &empty_font).encode("A"), None);
+        assert!(embedded_sfnt(&doc, &whitespace_subset).is_some(), "whitespace-only subset keeps its sfnt");
+        assert_eq!(Metrics::from_dict(&doc, &whitespace_subset).encode(" ").as_deref(), Some(&[32][..]));
 
-        // Simple TrueType font whose cmap maps multiple distinct characters to the single outlined GID 1.
-        let mut shared_cmap_ttf = one_glyph_ttf.clone();
-        append_editor_cmap(&mut shared_cmap_ttf, &std::collections::BTreeMap::from([(65, 1), (66, 1), (67, 1)])).unwrap();
-        let program = doc.add(Object::Stream(Stream::flate(Dict::new(), &shared_cmap_ttf)));
+        // Regression fixture 2: a 1-glyph font with intentional cmap aliases (e.g. U+002D, U+2010,
+        // U+2011 hyphen variants sharing GID 1) remains exposed and encodes its characters.
+        let mut alias_cmap_ttf = one_glyph_ttf.clone();
+        append_editor_cmap(&mut alias_cmap_ttf, &std::collections::BTreeMap::from([(0x002D, 1), (0x2010, 1), (0x2011, 1)])).unwrap();
+        let program = doc.add(Object::Stream(Stream::flate(Dict::new(), &alias_cmap_ttf)));
         let mut descriptor = Dict::new();
+        descriptor.set(b"FontName".to_vec(), Object::name("ABCDEF+HyphenSubset"));
         descriptor.set(b"FontFile2".to_vec(), Object::Ref(program));
-        let shared_simple = font(
+        let cmap_alias_font = font(
             &mut doc,
             vec![
                 ("Subtype", Object::name("TrueType")),
-                ("BaseFont", Object::name("SimpleSharedGid")),
+                ("BaseFont", Object::name("ABCDEF+HyphenSubset")),
                 ("Encoding", Object::name("WinAnsiEncoding")),
+                ("FirstChar", Object::Int(45)),
+                ("LastChar", Object::Int(45)),
+                ("Widths", Object::Array(vec![Object::Int(333)])),
                 ("FontDescriptor", Object::Dict(descriptor)),
             ],
         );
-        assert!(embedded_sfnt(&doc, &shared_simple).is_none());
-        assert_eq!(Metrics::from_dict(&doc, &shared_simple).encode("A"), None);
+        assert!(embedded_sfnt(&doc, &cmap_alias_font).is_some(), "intentional cmap alias subset keeps its sfnt");
+        assert_eq!(Metrics::from_dict(&doc, &cmap_alias_font).encode("-").as_deref(), Some(&[45][..]));
 
-        // Control: a legitimate 1-glyph subset where only one CID and one character map to GID 1 stays usable.
+        // Regression fixture 3: a legitimate 1-glyph composite subset with intentional CIDToGIDMap
+        // aliases (CIDs 1..=3 all mapping to GID 1) stays usable and keeps its sfnt.
         let mut single_char_ttf = one_glyph_ttf;
-        append_editor_cmap(&mut single_char_ttf, &std::collections::BTreeMap::from([(65, 1)])).unwrap();
+        append_editor_cmap(&mut single_char_ttf, &std::collections::BTreeMap::from([(65, 1), (0xFF21, 1)])).unwrap();
         let program = doc.add(Object::Stream(Stream::flate(Dict::new(), &single_char_ttf)));
-        let cid_to_gid = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0, 0, 0, 1, 0, 0])));
-        let tu = doc.add(Object::Stream(Stream::flate(Dict::new(), b"1 beginbfchar <0001> <0041> endbfchar")));
+        let cid_to_gid = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0, 0, 0, 1, 0, 1, 0, 1])));
+        let tu = doc.add(Object::Stream(Stream::flate(Dict::new(), b"2 beginbfchar <0001> <0041> <0002> <FF21> endbfchar")));
         let mut descriptor = Dict::new();
         descriptor.set(b"FontName".to_vec(), Object::name("ABCDEF+SingleCharSubset"));
         descriptor.set(b"FontFile2".to_vec(), Object::Ref(program));
@@ -1436,7 +1443,7 @@ mod tests {
         desc.set(b"Subtype".to_vec(), Object::name("CIDFontType2"));
         desc.set(b"BaseFont".to_vec(), Object::name("ABCDEF+SingleCharSubset"));
         desc.set(b"CIDToGIDMap".to_vec(), Object::Ref(cid_to_gid));
-        desc.set(b"W".to_vec(), Object::Array(vec![Object::Int(1), Object::Array(vec![Object::Int(600)])]));
+        desc.set(b"W".to_vec(), Object::Array(vec![Object::Int(1), Object::Array(vec![Object::Int(600), Object::Int(600)])]));
         desc.set(b"FontDescriptor".to_vec(), Object::Dict(descriptor));
         let valid_subset = font(
             &mut doc,
@@ -1448,7 +1455,7 @@ mod tests {
                 ("ToUnicode", Object::Ref(tu)),
             ],
         );
-        assert!(embedded_sfnt(&doc, &valid_subset).is_some(), "legitimate 1-glyph subset keeps its sfnt");
+        assert!(embedded_sfnt(&doc, &valid_subset).is_some(), "legitimate 1-glyph subset with CID aliases keeps its sfnt");
         assert_eq!(Metrics::from_dict(&doc, &valid_subset).encode("A").as_deref(), Some(&[0, 1][..]));
     }
 

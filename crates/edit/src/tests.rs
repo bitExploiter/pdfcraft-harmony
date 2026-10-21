@@ -5333,4 +5333,51 @@ fn editing_glyphless_ocr_text_substitutes_a_visible_font() {
     let explicit_err =
         text::rewrite_block(&mut explicit, 0, 0, Some("De Kinderen"), &BlockStyle { resource: Some("F0".into()), ..Default::default() });
     assert!(explicit_err.is_err(), "explicitly selecting a glyphless font resource must be refused");
+
+    // Legitimate whitespace-only subsets and 1-glyph subsets with intentional CID aliases remain
+    // exposed to the inline editor and accepted when explicitly selected as a resource.
+    let mut zero_glyph_ttf = one_glyph_ttf.clone();
+    zero_glyph_ttf[loca_off..loca_off + loca_len].fill(0);
+    let mut ws_doc = text_page("BT /F0 12 Tf 1 0 0 1 72 700 Tm <0001> Tj /WS 12 Tf ( ) Tj ET");
+    let ws_prog = ws_doc.add(Object::Stream(Stream::flate(Dict::new(), &zero_glyph_ttf)));
+    let ws_desc = Dict::from_iter([(b"FontName".to_vec(), Object::name("ABCDEF+SpaceOnly")), (b"FontFile2".to_vec(), Object::Ref(ws_prog))]);
+    let ws_font = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("Font")),
+        (b"Subtype".to_vec(), Object::name("TrueType")),
+        (b"BaseFont".to_vec(), Object::name("ABCDEF+SpaceOnly")),
+        (b"Encoding".to_vec(), Object::name("WinAnsiEncoding")),
+        (b"FirstChar".to_vec(), Object::Int(32)),
+        (b"LastChar".to_vec(), Object::Int(32)),
+        (b"Widths".to_vec(), Object::Array(vec![Object::Int(250)])),
+        (b"FontDescriptor".to_vec(), Object::Dict(ws_desc)),
+    ]);
+    let alias_prog = ws_doc.add(Object::Stream(Stream::flate(Dict::new(), &one_glyph_ttf)));
+    let alias_map = ws_doc.add(Object::Stream(Stream::flate(Dict::new(), &[0, 0, 0, 1, 0, 1, 0, 1])));
+    let alias_tu = ws_doc.add(Object::Stream(Stream::flate(Dict::new(), b"2 beginbfchar <0001> <0041> <0002> <0061> endbfchar")));
+    let alias_desc = Dict::from_iter([(b"FontName".to_vec(), Object::name("ABCDEF+AliasOne")), (b"FontFile2".to_vec(), Object::Ref(alias_prog))]);
+    let alias_cid = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("Font")),
+        (b"Subtype".to_vec(), Object::name("CIDFontType2")),
+        (b"BaseFont".to_vec(), Object::name("ABCDEF+AliasOne")),
+        (b"CIDToGIDMap".to_vec(), Object::Ref(alias_map)),
+        (b"W".to_vec(), Object::Array(vec![Object::Int(1), Object::Array(vec![Object::Int(600), Object::Int(600)])])),
+        (b"FontDescriptor".to_vec(), Object::Dict(alias_desc)),
+    ]);
+    let alias_font = Dict::from_iter([
+        (b"Type".to_vec(), Object::name("Font")),
+        (b"Subtype".to_vec(), Object::name("Type0")),
+        (b"BaseFont".to_vec(), Object::name("ABCDEF+AliasOne")),
+        (b"Encoding".to_vec(), Object::name("Identity-H")),
+        (b"DescendantFonts".to_vec(), Object::Array(vec![Object::Dict(alias_cid)])),
+        (b"ToUnicode".to_vec(), Object::Ref(alias_tu)),
+    ]);
+    let p = pdfcraft_model::pages(&ws_doc)[0].obj;
+    let fonts = Dict::from_iter([(b"F0".to_vec(), Object::Dict(alias_font)), (b"WS".to_vec(), Object::Dict(ws_font))]);
+    ws_doc.update_dict(p, |d| d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])))).unwrap();
+    let editor_resources: Vec<_> = text::text_editor_fonts(&ws_doc, 0).unwrap().into_iter().map(|f| f.resource).collect();
+    assert!(editor_resources.contains(&"F0".to_string()) && editor_resources.contains(&"WS".to_string()), "{editor_resources:?}");
+    let mut ws_only = ws_doc.clone();
+    text::rewrite_block(&mut ws_only, 0, 0, Some(" "), &BlockStyle { resource: Some("WS".into()), ..Default::default() }).unwrap();
+    text::rewrite_block(&mut ws_doc, 0, 0, Some("Aa"), &BlockStyle { resource: Some("F0".into()), ..Default::default() }).unwrap();
+    assert_eq!(text::text_blocks(&reopen(&ws_doc), 0).unwrap()[0].text, "Aa");
 }
