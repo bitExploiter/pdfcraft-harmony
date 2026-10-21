@@ -2351,5 +2351,12 @@ animation effects	Off	Выкл
 	Add a paper size of your own to the list	Добавить в список свой размер бумаги
 	Take this paper size off the list	Убрать этот размер бумаги из списка
 	Remember this paper for {printer}	Запомнить эту бумагу для {printer}
+	Font	Шрифт
+	Bulleted list	Маркированный список
+	Numbered list	Нумерованный список
+	Alignment	Выравнивание
+	Superscript	Надстрочный
+	Subscript	Подстрочный
+	Paragraph spacing	Интервал между абзацами
 	Less	Меньше
 	Other options	Другие параметры

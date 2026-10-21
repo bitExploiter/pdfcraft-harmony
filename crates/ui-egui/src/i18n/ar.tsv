@@ -2715,5 +2715,11 @@ certificate	Version	الإصدار
 	Add a paper size of your own to the list	أضف مقاس ورق خاصًا بك إلى القائمة
 	Take this paper size off the list	أزل مقاس الورق هذا من القائمة
 	Remember this paper for {printer}	تذكّر هذا الورق لـ {printer}
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى
