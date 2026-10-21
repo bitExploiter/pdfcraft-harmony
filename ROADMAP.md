@@ -1,5 +1,7 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M2, #3712: vertical CJK text placed one upright glyph per baseline is laid out as columns for selection, copy and search; horizontal and Identity-V text unchanged; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -171,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-22 (M2, #3712):** Selection and copy read vertical Chinese and Japanese correctly when the text is written without a vertical font: one upright glyph placed on its own, top to bottom, columns right to left (the way OCR text layers and some converters write vertical text). Reading-order layout now groups consecutive upright CJK glyphs that stack with the same x into one vertical column before it forms horizontal segments, so it no longer lays out rows across the columns. Columns read top to bottom and are ordered right to left, which fixes copy, selection and search; text drawn with a vertical font (Identity-V) or a turned baseline and ordinary horizontal text are unchanged. Synthetic PDF regressions cover the reported page (copy, column selection, search hits), column spacing from 24 to 48 pt, a horizontal CJK paragraph and a vertical column under a heading. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
@@ -548,10 +552,13 @@ Newest first: the date, what moved, and the new overall estimate.
 
 ## Revision history
 
+**2026-10-22 · minor:** M2/#3712: reading-order layout groups upright CJK glyphs stacked one per baseline into vertical columns (top to bottom, columns right to left), so selection, copy and search follow vertical Chinese and Japanese instead of row-by-row order. Horizontal text, Identity-V text and turned baselines are unchanged. Estimates unchanged.
+
 **2026-10-15 · minor:** M14/#2383 candidate: GPU device requests clamp unsupported limits while retaining the adapter texture extent. Synthetic V3D/downlevel regressions and Windows GPU-required tests pass; Raspberry Pi hardware remains unverified. Estimates unchanged.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | M2/#3712: vertical CJK written with one upright glyph per baseline is laid out as columns (top to bottom, right to left) for selection, copy and search; horizontal, Identity-V and turned text unchanged. Estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |

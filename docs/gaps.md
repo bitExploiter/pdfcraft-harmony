@@ -1,5 +1,6 @@
 # Where PdfCraft falls short of Acrobat Pro
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M2/gap 6: vertical CJK placed one upright glyph per baseline copies and searches in column order, #3712; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (gap 12: reading order is scored, not just word F1) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-12 · **Last updated:** 2026-10-13 · **Change:** minor (gap 14: Vietnamese catalog shipped; Hindi/Indonesian/Korean and Arabic RTL remain) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -144,6 +145,13 @@ update the numbers.
 - **Fix verified (2026-10-14):** raw-deflate fallback returns a decoding-limit error instead of
   accepting an empty partial stream when a misleading zlib header triggers a retry. Synthetic
   filter and COS stream regressions cover refusal at the limit and decoding within it.
+- **Fix verified (2026-10-22):** vertical Chinese and Japanese written the way OCR text layers and
+  some converters do it — one upright glyph placed on its own, top to bottom, columns right to
+  left — selected and copied row by row across the columns (#3712). Such stacks are now read as
+  vertical columns (top to bottom, columns right to left) for selection, copy and search; text
+  drawn with a vertical font (Identity-V) and turned baselines is unchanged, and so is horizontal
+  text. Synthetic PDF regressions cover the reported page, search hits, column spacing of 24–48 pt
+  and a horizontal paragraph.
 - **Impact:** every one is a user who lost trust. Crash reports outrank feature work
   (`AGENTS.md` §4).
 - **Estimate:** 45–80 h (≈ 0.2–0.4 h per issue). **Doc:** this file.
