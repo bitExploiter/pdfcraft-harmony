@@ -5381,3 +5381,59 @@ fn editing_glyphless_ocr_text_substitutes_a_visible_font() {
     text::rewrite_block(&mut ws_doc, 0, 0, Some("Aa"), &BlockStyle { resource: Some("F0".into()), ..Default::default() }).unwrap();
     assert_eq!(text::text_blocks(&reopen(&ws_doc), 0).unwrap()[0].text, "Aa");
 }
+
+/// Same-face generated subsets share a source line; TJ adjustment must survive a style edit.
+#[test]
+fn split_subset_source_keeps_calibrated_advance() {
+    let mut doc = text_page("BT /A 12 Tf 72 700 Td [<01> -100] TJ /B 12 Tf <01> Tj ET BT /F1 13 Tf 1 0 0 1 85.2 700 Tm (X) Tj ET");
+    let mut fonts = Dict::new();
+    // AA sorts before B and encodes B too, but its unrelated face must not supply metrics.
+    for (name, unicode, face, width) in
+        [("A", "0041", "SyntheticSubset", 500), ("AA", "0042", "OtherFace", 900), ("B", "0042", "SyntheticSubset", 500)]
+    {
+        let cmap = format!("1 begincodespacerange <01> <FF> endcodespacerange 1 beginbfchar <01> <{unicode}> endbfchar");
+        let tu = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap.as_bytes())));
+        let proc = doc.add(Object::Stream(Stream::flate(Dict::new(), b"500 0 d0 0 0 400 700 re f")));
+        let font = Dict::from_iter([
+            (b"Type".to_vec(), Object::name("Font")),
+            (b"Subtype".to_vec(), Object::name("Type3")),
+            (b"Name".to_vec(), Object::name("PCJapanese")),
+            (b"BaseFont".to_vec(), Object::name(face)),
+            (b"FontBBox".to_vec(), Object::Array([0, 0, 500, 700].map(Object::Int).to_vec())),
+            (b"FontMatrix".to_vec(), Object::Array([0.001, 0.0, 0.0, 0.001, 0.0, 0.0].map(Object::Real).to_vec())),
+            (b"FirstChar".to_vec(), Object::Int(1)),
+            (b"LastChar".to_vec(), Object::Int(1)),
+            (b"Widths".to_vec(), Object::Array(vec![Object::Int(width)])),
+            (
+                b"Encoding".to_vec(),
+                Object::Dict(Dict::from_iter([(b"Differences".to_vec(), Object::Array(vec![Object::Int(1), Object::name("g01")]))])),
+            ),
+            (b"CharProcs".to_vec(), Object::Dict(Dict::from_iter([(b"g01".to_vec(), Object::Ref(proc))]))),
+            (b"ToUnicode".to_vec(), Object::Ref(tu)),
+        ]);
+        fonts.set(name.as_bytes().to_vec(), Object::Dict(font));
+    }
+    fonts.set(
+        b"F1".to_vec(),
+        Object::Dict(Dict::from_iter([
+            (b"Type".to_vec(), Object::name("Font")),
+            (b"Subtype".to_vec(), Object::name("Type1")),
+            (b"BaseFont".to_vec(), Object::name("Helvetica")),
+        ])),
+    );
+    let page = pdfcraft_model::pages(&doc)[0].obj;
+    doc.update_dict(page, |d| d.set(b"Resources".to_vec(), Object::Dict(Dict::from_iter([(b"Font".to_vec(), Object::Dict(fonts))])))).unwrap();
+    let before = text::text_lines(&doc, 0).unwrap();
+    assert_eq!(before[0].text, "AB");
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    assert_eq!(blocks[0].lines.len(), 2);
+    let original_width = before[0].rect[2] - before[0].rect[0];
+    for (draft, factor) in [("ABX", 1.0), ("ABAX", 1.5)] {
+        let mut edited = doc.clone();
+        text::rewrite_block(&mut edited, 0, 0, Some(draft), &BlockStyle { color: Some([0.0, 0.0, 1.0]), ..Default::default() }).unwrap();
+        let after = text::text_lines(&reopen(&edited), 0).unwrap();
+        let width = after[0].rect[2] - after[0].rect[0];
+        assert!((width - original_width * factor).abs() < 0.01, "{draft}: original {original_width}, rewritten {width}; {after:?}");
+    }
+}
