@@ -317,6 +317,31 @@ fn printers_listed_in_the_background_preselect_the_default_unless_one_was_picked
     assert_eq!(h.state().print_draft.printer, None, "Save as PDF, as picked");
 }
 
+/// The desktop app reads the printers at startup, so the dialog opens with them already listed
+/// instead of "Looking for printers…".
+#[test]
+fn printers_preloaded_at_startup_are_listed_when_the_dialog_opens() {
+    use pdfcraft_engine::print::spool::Printer;
+    let mut h = harness();
+    h.state_mut().printer_source = Some(std::sync::Arc::new(|| {
+        vec![Printer { name: "Office".into(), default: true, two_sided: None }, Printer { name: "Label".into(), default: false, two_sided: None }]
+    }));
+    h.state_mut().preload_printers();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while h.state().print_draft.printers.is_empty() && std::time::Instant::now() < deadline {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(h.state().print_draft.printers.len(), 2, "listed before the dialog was ever opened");
+    assert!(!h.state().print_draft.printers_loading);
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(2);
+    assert_eq!(h.state().dialog, Some(Dialog::Print));
+    assert_eq!(h.state().print_draft.printers.len(), 2);
+    assert!(!h.state().print_draft.printers_loading, "no \"Looking for printers…\" when they are already known");
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some("Office"));
+}
+
 #[test]
 fn architectural_page_can_be_matched_at_100_percent() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(|_cc| {

@@ -297,7 +297,10 @@ impl PdfCraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             Some(source) => {
                 self.list_printers_in_background(source);
-                (self.print_draft.printers.clone(), true)
+                // Already listed (at startup or the last time): show it now and refresh quietly.
+                let known = self.print_draft.printers.clone();
+                let looking = known.is_empty();
+                (known, looking)
             }
             _ => (listed_printers(), false),
         };
@@ -371,6 +374,16 @@ impl PdfCraftApp {
             })
             .collect();
         self.print_draft.crop_pages = Some(pages);
+    }
+
+    /// Start reading the printers now (the desktop app calls this at startup), so the Print
+    /// dialog already has them when it opens. Does nothing without a [`PrinterSource`].
+    pub fn preload_printers(&mut self) {
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(source) = self.printer_source.clone() {
+            self.print_draft.printers_loading = self.print_draft.printers.is_empty();
+            self.list_printers_in_background(source);
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
