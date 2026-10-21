@@ -73,7 +73,7 @@ struct ClipPath {
     even_odd: bool,
 }
 
-fn streams(doc: &Document, page: &Dict) -> Vec<(Object, Vec<u8>)> {
+pub(crate) fn streams(doc: &Document, page: &Dict) -> Vec<(Object, Vec<u8>)> {
     let list: Vec<Object> = match page.get(b"Contents") {
         None => Vec::new(),
         Some(c) => match &*doc.resolve(c) {
@@ -93,11 +93,11 @@ fn streams(doc: &Document, page: &Dict) -> Vec<(Object, Vec<u8>)> {
 }
 
 /// The page's streams joined into the one stream they are: an operator may span two of them.
-fn joined(streams: &[(Object, Vec<u8>)]) -> Pieces {
+pub(crate) fn joined(streams: &[(Object, Vec<u8>)]) -> Pieces {
     Pieces::join(&streams.iter().map(|(_, data)| data.as_slice()).collect::<Vec<_>>())
 }
 
-fn page_of(doc: &Document, page: usize) -> Result<pdfcraft_model::Page, EditError> {
+pub(crate) fn page_of(doc: &Document, page: usize) -> Result<pdfcraft_model::Page, EditError> {
     pdfcraft_model::pages(doc).into_iter().nth(page).ok_or(EditError::NoSuchPage(page))
 }
 
