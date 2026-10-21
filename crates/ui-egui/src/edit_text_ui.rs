@@ -1420,7 +1420,18 @@ pub(crate) struct VisualText {
     caret: Option<Caret>,
     /// An edit happened since the buffer was made, so egui's caret needs [`Self::settle`].
     edited: bool,
+    /// The display strings this editor has shown and the logical text each stood for.
+    history: DisplayHistory,
 }
+
+/// Display strings an editor has shown, each with the logical text it stood for, newest last,
+/// at most [`MAX_DISPLAY_HISTORY`]: egui's undo keeps `as_str()` snapshots, which are display
+/// order, and Undo and Redo hand them back through `replace_with`. Shared across frames in egui
+/// memory under the editor's id ([`VisualText::remember`]).
+type DisplayHistory = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<(String, String)>>>;
+
+/// More than egui's undo stack keeps (100 states).
+const MAX_DISPLAY_HISTORY: usize = 128;
 
 /// A caret egui holds at display index `shown`, standing for the logical boundary `logical`
 /// (between logical characters `logical - 1` and `logical`).
@@ -1450,11 +1461,56 @@ impl VisualText {
     pub(crate) fn new(text: String) -> (Self, Rc<RefCell<String>>) {
         let logical = Rc::new(RefCell::new(text));
         let (visual, order) = crate::bidi::visual_with_order(&logical.borrow());
-        (Self { logical: logical.clone(), visual, order, deleted: None, caret: None, edited: false }, logical)
+        let buf = Self { logical: logical.clone(), visual, order, deleted: None, caret: None, edited: false, history: DisplayHistory::default() };
+        buf.record();
+        (buf, logical)
     }
 
-    /// Pick up where the last edit in the editor `id` left its caret, if the text is unchanged.
+    /// Note the current display string and the logical text it shows. Only right-to-left text
+    /// needs it: elsewhere the two are the same.
+    fn record(&self) {
+        let logical = self.logical.borrow();
+        if self.visual == *logical {
+            return;
+        }
+        // A poisoned lock only means another frame panicked mid-update; the list is still usable.
+        let mut history = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if history.back().is_some_and(|(shown, _)| *shown == self.visual) {
+            return;
+        }
+        history.retain(|(shown, _)| *shown != self.visual);
+        history.push_back((self.visual.clone(), logical.clone()));
+        while history.len() > MAX_DISPLAY_HISTORY {
+            history.pop_front();
+        }
+    }
+
+    /// The logical text a display string this editor showed stood for; text it never showed is
+    /// taken as it is (correct for text without right-to-left script).
+    fn logical_for_display(&self, shown: &str) -> String {
+        if shown == self.visual {
+            return self.logical.borrow().clone();
+        }
+        let history = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        history.iter().rev().find(|(s, _)| s == shown).map_or_else(|| shown.to_owned(), |(_, logical)| logical.clone())
+    }
+
+    /// Pick up where the last edit in the editor `id` left its caret, if the text is unchanged,
+    /// and the display strings it has shown (for Undo and Redo).
     pub(crate) fn remember(&mut self, ctx: &egui::Context, id: egui::Id) {
+        let shared = ctx.data_mut(|d| d.get_temp_mut_or_default::<DisplayHistory>(id.with("visual-text-history")).clone());
+        {
+            let mine = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..).collect::<Vec<_>>();
+            self.history = shared;
+            for (shown, logical) in mine {
+                let mut history = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                history.retain(|(s, _)| *s != shown);
+                history.push_back((shown, logical));
+                while history.len() > MAX_DISPLAY_HISTORY {
+                    history.pop_front();
+                }
+            }
+        }
         let hash = text_hash(&self.logical.borrow());
         self.caret = ctx
             .data(|d| d.get_temp::<RememberedCaret>(caret_key(id)))
@@ -1552,6 +1608,7 @@ impl VisualText {
         let (visual, order) = crate::bidi::visual_with_order(&self.logical.borrow());
         self.visual = visual;
         self.order = order;
+        self.record();
     }
 }
 
@@ -1589,6 +1646,16 @@ impl egui::TextBuffer for VisualText {
 
     fn as_str(&self) -> &str {
         &self.visual
+    }
+
+    /// Undo and Redo: `text` is an earlier `as_str()`, a display string. Put back the logical
+    /// text it showed; egui then restores the snapshot's caret, which is in that display order.
+    fn replace_with(&mut self, text: &str) {
+        let logical = self.logical_for_display(text);
+        *self.logical.borrow_mut() = logical;
+        self.refresh();
+        self.caret = None;
+        self.edited = false;
     }
 
     fn insert_text(&mut self, text: &str, char_index: egui::text::CharIndex) -> usize {
@@ -2158,6 +2225,28 @@ mod tests {
         // at the end of what was typed.
         buf.insert_text("!", egui::text::CharIndex(egui_caret));
         assert_eq!(buf.logical_text(), "مرحبا سلام!");
+    }
+
+    #[test]
+    fn undo_and_redo_restore_the_logical_text_not_its_display_order() {
+        use egui::TextBuffer as _;
+        // egui's undo keeps `as_str()` snapshots, which are display order, and hands them back
+        // through `replace_with` (CodeRabbit on #3890).
+        let (mut buf, _) = VisualText::new("مرحبا سلام".to_owned());
+        let before = buf.as_str().to_owned();
+        assert_ne!(before, buf.logical_text(), "the display order differs from the text");
+        buf.insert_text(" שלום", egui::text::CharIndex(before.chars().count()));
+        let after = buf.as_str().to_owned();
+        let typed = buf.logical_text();
+        buf.replace_with(&before);
+        assert_eq!(buf.logical_text(), "مرحبا سلام", "Undo");
+        assert_eq!(buf.as_str(), before);
+        buf.replace_with(&after);
+        assert_eq!(buf.logical_text(), typed, "Redo");
+        // Text without right-to-left script is its own display order.
+        let (mut plain, _) = VisualText::new("abc".to_owned());
+        plain.replace_with("abd");
+        assert_eq!(plain.logical_text(), "abd");
     }
 
     #[test]

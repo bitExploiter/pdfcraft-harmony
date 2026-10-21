@@ -2004,3 +2004,30 @@ fn backspace_after_typing_right_to_left_removes_the_last_typed_character() {
         assert_eq!(text(&h).as_deref(), Some("שלום חבר 120 ₪"), "{what}: digits and symbols inside Hebrew keep typing order");
     }
 }
+
+/// CodeRabbit on #3890: egui's Undo hands back display-order snapshots; Undo and Redo in the Add
+/// text box restore the typed (logical) text, not its words swapped.
+#[test]
+fn undo_and_redo_of_right_to_left_typing_keep_typing_order() {
+    let (mut h, c) = harness_pages(1);
+    ok(&mut h, &c, "ui.command", json!({"id": "edit.text"}));
+    let state = ok(&mut h, &c, "ui.state", json!({}));
+    let page = state["active"]["pages_on_screen"][0]["rect"].clone();
+    let (left, right, top) = (page[0].as_f64().unwrap(), page[2].as_f64().unwrap(), page[1].as_f64().unwrap());
+    let bottom = page[3].as_f64().unwrap().min(state["window"]["height"].as_f64().unwrap() - 200.0);
+    ok(&mut h, &c, "ui.click", json!({"x": left + (right - left) * 0.6, "y": top + (bottom - top) * 0.6}));
+    h.run_steps(2);
+    let draft = |h: &Harness<'static, PdfCraftApp>| h.state().views[0].content.draft.as_ref().map(|d| d.text.clone());
+    ok(&mut h, &c, "ui.type", json!({"text": "مرحبا سلام"}));
+    // egui's undo takes a snapshot once the text has been still for a second.
+    h.run_steps(120);
+    ok(&mut h, &c, "ui.type", json!({"text": " שלום"}));
+    h.run_steps(120);
+    assert_eq!(draft(&h).as_deref(), Some("مرحبا سلام שלום"));
+    ok(&mut h, &c, "ui.key", json!({"key": "Z", "modifiers": ["command"]}));
+    h.run_steps(2);
+    assert_eq!(draft(&h).as_deref(), Some("مرحبا سلام"), "Undo restores the text as typed");
+    ok(&mut h, &c, "ui.key", json!({"key": "Z", "modifiers": ["command", "shift"]}));
+    h.run_steps(2);
+    assert_eq!(draft(&h).as_deref(), Some("مرحبا سلام שלום"), "Redo too");
+}
