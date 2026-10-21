@@ -33,16 +33,25 @@ fn paint_blurb(ui: &mut egui::Ui, t: &Tokens, body: Rect, blurb: &str) -> bool {
         ui.painter().galley(body.min + vec2(14.0, 46.0), galley, t.text_muted);
         return elided;
     }
+    const ELLIPSIS: char = '\u{2026}';
     let logical = blurb.split(" · ").map(crate::i18n::logical).collect::<Vec<_>>().join(" · ");
-    let mut lines = ui.fonts_mut(|f| crate::bidi::wrap(&logical, |s| f.layout_no_wrap(s.to_owned(), font.clone(), t.text_muted).size().x <= width));
-    let elided = lines.len() > MAX_ROWS;
+    let (mut lines, elided) = ui.fonts_mut(|f| {
+        let mut measure = |s: &str| f.layout_no_wrap(s.to_owned(), font.clone(), t.text_muted).size().x;
+        let lines = crate::bidi::wrap(&logical, |s| measure(s) <= width);
+        if lines.len() <= MAX_ROWS {
+            return (lines, false);
+        }
+        // Cut short: wrap again leaving room for the ellipsis, so the last line stays inside.
+        let room = width - measure(&ELLIPSIS.to_string());
+        (crate::bidi::wrap(&logical, |s| measure(s) <= room), true)
+    });
     lines.truncate(MAX_ROWS);
     if elided && let Some(last) = lines.last_mut() {
         // The ellipsis goes where the reading stops: the left end of a right-to-left line.
         if last.rtl {
-            last.text.insert(0, '\u{2026}');
+            last.text.insert(0, ELLIPSIS);
         } else {
-            last.text.push('\u{2026}');
+            last.text.push(ELLIPSIS);
         }
     }
     let mut y = body.top() + 46.0;
@@ -251,6 +260,45 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A long Arabic description is cut to two lines that stay inside the card, the ellipsis
+    /// included, each line against the card's right edge, whatever the card's width.
+    #[test]
+    fn arabic_card_description_stays_inside_the_card() {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        let blurb = "ملاحظة لاصقة · تمييز النص · تسطير · شبكة الصفحات · تدوير · حذف · قائمة الحقول · اكتشاف حقول النموذج";
+        let previous = crate::i18n::current();
+        crate::i18n::set_current(crate::i18n::Lang::from_code("ar").unwrap());
+        let mut cut_short = 0;
+        for width in 120..=260 {
+            let body = Rect::from_min_size(egui::pos2(10.0, 10.0), vec2(width as f32, 104.0));
+            let mut elided = false;
+            let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let t = Tokens::get(ui.ctx());
+                elided = paint_blurb(ui, &t, body, blurb);
+            });
+            let lines: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|shape| {
+                    if let egui::Shape::Text(text) = &shape.shape { Some((text.pos, text.galley.size(), text.galley.job.text.clone())) } else { None }
+                })
+                .collect();
+            output.drop_without_applying_deltas();
+            assert!(!lines.is_empty() && lines.len() <= 2, "{width}: {lines:?}");
+            if elided {
+                cut_short += 1;
+                assert!(lines.last().unwrap().2.starts_with('\u{2026}'), "{width}: the ellipsis sits at the left end of the last line: {lines:?}");
+            }
+            for (pos, size, text) in &lines {
+                assert!(pos.x >= body.left() + 14.0 - 0.5, "{width}: {text:?} starts inside the card: {pos:?} {size:?}");
+                assert!((pos.x + size.x - (body.right() - 14.0)).abs() < 0.5, "{width}: {text:?} ends at the card's right edge: {pos:?} {size:?}");
+            }
+        }
+        crate::i18n::set_current(previous);
+        assert!(cut_short > 0, "a description this long is cut short at some width");
+    }
 
     #[test]
     fn translated_card_description_leaves_room_for_the_action() {

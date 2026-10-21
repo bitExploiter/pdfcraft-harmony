@@ -306,6 +306,7 @@ pub fn paragraph(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Color
 /// [`egui::Response::on_hover_text`] for translated text, wrapped the right way round in a
 /// right-to-left language ([`paragraph`]); the tooltip stays as narrow as its longest line.
 pub trait HoverParagraph {
+    /// Show `text` (as [`tl!`] gave it) as this widget's tooltip, wrapped from its first words.
     fn on_hover_paragraph(self, text: impl Into<String>) -> Response;
 }
 

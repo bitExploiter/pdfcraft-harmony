@@ -1727,7 +1727,9 @@ fn password_modal(
 /// Password prompt for encrypted documents (Acrobat: "Password" dialog on open).
 fn password(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let Some(prompt) = app.password_prompt.as_mut() else { return };
-    let message = crate::i18n::fmt(tl!("“{name}” is protected. Enter a password to open it."), &[("name", &prompt.name)]);
+    // The template goes back to the catalog's order before the name is filled in, so the
+    // paragraph in the modal wraps an Arabic message from its first words.
+    let message = crate::i18n::fmt(crate::i18n::logical(tl!("“{name}” is protected. Enter a password to open it.")), &[("name", &prompt.name)]);
     match password_modal(ctx, "password", tl!("Password required"), message, &mut prompt.input, prompt.error.as_deref(), tl!("Open")) {
         Some(PasswordAnswer::Submit) => {
             let pw = prompt.input.clone();
@@ -1741,8 +1743,10 @@ fn password(app: &mut PdfCraftApp, ctx: &egui::Context) {
 /// Permissions password prompt: lifts the restrictions of an open document (#995).
 fn unlock(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let Some(prompt) = app.unlock_prompt.as_mut() else { return };
-    let message =
-        crate::i18n::fmt(tl!("“{name}” has security restrictions. Enter its permissions password to lift them."), &[("name", &prompt.name)]);
+    let message = crate::i18n::fmt(
+        crate::i18n::logical(tl!("“{name}” has security restrictions. Enter its permissions password to lift them.")),
+        &[("name", &prompt.name)],
+    );
     match password_modal(ctx, "unlock", tl!("Permissions password"), message, &mut prompt.input, prompt.error.as_deref(), tl!("Unlock")) {
         Some(PasswordAnswer::Submit) => {
             let pw = prompt.input.clone();
