@@ -13,6 +13,9 @@ workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 # `write_atomically`: a volume that refuses F_FULLFSYNC gets a plain fsync.
 rustix = { version = "1", features = ["fs"] }
+# `write_atomically`: clear the hidden flag an SMB volume gives the dot-named staging file. rustix
+# has no `chflags`, and calling libc directly needs unsafe; nix is the safe wrapper.
+nix = { version = "0.30", default-features = false, features = ["fs"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # Already in the dependency graph through the accessibility integration. The portal watcher

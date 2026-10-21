@@ -141,6 +141,8 @@ pub fn write_atomically_with(
             #[cfg(any(windows, target_os = "macos"))]
             keep_created(&file, created);
             sync_staged(&file, sync_all)?;
+            #[cfg(target_os = "macos")]
+            unhide(&file, &tmp);
         }
         std::fs::rename(&tmp, path)
     })();
@@ -161,6 +163,23 @@ fn keep_created(file: &std::fs::File, created: Option<std::time::SystemTime>) {
         #[cfg(windows)]
         use std::os::windows::fs::FileTimesExt as _;
         let _ = file.set_times(std::fs::FileTimes::new().set_created(created));
+    }
+}
+
+/// Clear the hidden flag on the staging file before it replaces the target. A Mac's SMB client
+/// gives every new file whose name starts with a dot the server's "hidden" attribute (`UF_HIDDEN`
+/// here), and the rename carries it over: the saved document would vanish from Finder and from
+/// Windows Explorer as if it had been deleted. Best effort: a volume without the flag has nothing
+/// to clear, and the save goes ahead either way.
+#[cfg(target_os = "macos")]
+fn unhide(file: &std::fs::File, tmp: &Path) {
+    use nix::sys::stat::FileFlag;
+    use std::os::macos::fs::MetadataExt as _;
+    if let Ok(meta) = file.metadata() {
+        let flags = FileFlag::from_bits_retain(meta.st_flags());
+        if flags.contains(FileFlag::UF_HIDDEN) {
+            let _ = nix::unistd::chflags(tmp, flags.difference(FileFlag::UF_HIDDEN));
+        }
     }
 }
 
@@ -331,6 +350,35 @@ mod tests {
         let plain = dir.join("plain");
         std::fs::write(&plain, b"").unwrap();
         assert_eq!(mode(&fresh), mode(&plain), "a new file is not made private");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A Mac's SMB client marks the dot-named staging file hidden, and the rename used to carry
+    /// that over to the saved document. Here the flag is set by hand, as the volume would.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_hidden_staging_file_does_not_hide_the_saved_file() {
+        use nix::sys::stat::FileFlag;
+        use std::os::macos::fs::MetadataExt as _;
+        let dir = test_dir("hidden");
+        let target = dir.join("out.pdf");
+        let hidden = |p: &Path| std::fs::metadata(p).unwrap().st_flags() & FileFlag::UF_HIDDEN.bits() != 0;
+        for existing in [true, false] {
+            let _ = std::fs::remove_file(&target);
+            if existing {
+                std::fs::write(&target, b"OLD").unwrap();
+            }
+            write_atomically_with(&target, b"NEW", StagingName::TagThenSuffix, [existing as u64], |f| {
+                // The staging file is the only other entry in the folder.
+                let tmp = std::fs::read_dir(&dir)?.map(|e| e.unwrap().path()).find(|p| p != &target).unwrap();
+                assert_eq!(f.metadata()?.len(), 3, "{} is the staging file", tmp.display());
+                nix::unistd::chflags(&tmp, FileFlag::UF_HIDDEN)?;
+                Ok(())
+            })
+            .unwrap();
+            assert_eq!(std::fs::read(&target).unwrap(), b"NEW");
+            assert!(!hidden(&target), "the saved file is visible (target existed: {existing})");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 
