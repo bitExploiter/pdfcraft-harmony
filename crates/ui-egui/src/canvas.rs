@@ -2055,7 +2055,17 @@ fn annotation_hover_text(a: &pdfcraft_render::Annotation) -> Option<String> {
     }
     let who = a.author.clone().unwrap_or_else(|| a.subtype.clone());
     let body = a.contents.clone().unwrap_or_default();
-    Some(if body.is_empty() { who } else { format!("{who}\n{body}") })
+    if is_text_markup(&a.subtype) && !body.trim().is_empty() {
+        Some(body)
+    } else if body.is_empty() {
+        Some(who)
+    } else {
+        Some(format!("{who}\n{body}"))
+    }
+}
+
+fn is_text_markup(subtype: &str) -> bool {
+    matches!(subtype, "Highlight" | "Underline" | "StrikeOut" | "Squiggly")
 }
 
 /// The scroll offset that puts `point` (content coordinates) at `rel` in the viewport, kept within
@@ -3513,8 +3523,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 let gesturing = view.comments.gesture.is_some() || freehand;
                 for a in info.annotations.iter().filter(|a| a.page == i && !gesturing) {
                     let sr = xf.user_rect(info, i, a.rect);
+                    let marker = pcx.comment_marker_rect(a);
                     let hidden = prefs.hide_empty_highlight_hover && a.subtype == "Highlight" && a.contents.as_deref().is_none_or(str::is_empty);
-                    if sr.contains(p)
+                    if (sr.contains(p) || marker.is_some_and(|r| r.contains(p)))
                         && hover_text.is_none()
                         && !hidden
                         && let Some(text) = annotation_hover_text(a)
@@ -4154,16 +4165,13 @@ fn selection_actions(
     view.clear_selection();
     match action {
         SelectionAction::Note | SelectionAction::Replace => {
-            if matches!(action, SelectionAction::Replace) {
+            let kind = if matches!(action, SelectionAction::Replace) {
                 view.comments.replace = Some(quads);
-            }
-            view.comments.composer = Some(comments::Composer {
-                page,
-                at,
-                kind: if matches!(action, SelectionAction::Replace) { comments::ComposerKind::Replace } else { comments::ComposerKind::Note },
-                text: String::new(),
-                focus: true,
-            });
+                comments::ComposerKind::Replace
+            } else {
+                comments::ComposerKind::TextNote { quads }
+            };
+            view.comments.composer = Some(comments::Composer { page, at, kind, text: String::new(), focus: true });
         }
         SelectionAction::Markup(tool) => {
             // Every markup button carries a markup tool; anything else adds nothing.
