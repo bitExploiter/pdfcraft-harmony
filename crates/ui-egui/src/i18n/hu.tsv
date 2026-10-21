@@ -2443,5 +2443,12 @@ animation effects	Off	Ki
 	No hairlines found on those pages	Ezeken az oldalakon nem találhatók hajszálvonalak
 	Fixed {n} hairlines on {p} pages	{n} hajszálvonal javítva {p} oldalon
 	Fix hairlines…	Hajszálvonalak javítása…
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

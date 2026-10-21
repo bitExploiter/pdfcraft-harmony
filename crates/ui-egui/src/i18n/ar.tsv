@@ -2721,5 +2721,11 @@ certificate	Version	الإصدار
 	No hairlines found on those pages	لم يُعثر على خطوط شعرية في تلك الصفحات
 	Fixed {n} hairlines on {p} pages	تم إصلاح {n} خطًا شعريًا في {p} صفحة
 	Fix hairlines…	إصلاح الخطوط الرفيعة…
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى
