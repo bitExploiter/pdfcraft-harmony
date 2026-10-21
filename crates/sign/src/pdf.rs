@@ -487,6 +487,28 @@ struct Field {
     widgets: Vec<(Option<ObjRef>, Dict)>,
 }
 
+/// Where a signature's own dictionary lives: the field that holds it and, when `/V` is
+/// indirect, the dictionary's object. A signature is the signer's only when both the field and
+/// its dictionary are part of the revision its byte range covers and are unchanged since. A copy
+/// added later under another field (the same `/ByteRange` and `/Contents`, a reason of the
+/// forger's choosing) has bytes that check out but was never signed, and so has a new field whose
+/// `/V` names the signer's own dictionary: its name, page and appearance were never signed.
+#[derive(Clone, Copy, Debug, Default)]
+struct Own {
+    field: Option<ObjRef>,
+    value: Option<ObjRef>,
+}
+
+impl Own {
+    /// Whether the signature's field, and its dictionary when indirect, are in `old` (the signed
+    /// revision) as they are in `doc`. A field that is a direct object can't be found there, so it
+    /// is never the signed one (ISO 32000-2 requires fields to be indirect).
+    fn unchanged(&self, doc: &Document, old: &Document) -> bool {
+        let same = |r: ObjRef| old.generation(r.num) == r.generation && old.try_get(r.num).ok().is_some_and(|o| *o == *doc.get(r));
+        self.field.is_some_and(same) && self.value.is_none_or(same)
+    }
+}
+
 impl Field {
     /// The signature dictionary in /V. A field without one is unsigned, whether /V is missing,
     /// null or not a dictionary.
@@ -611,7 +633,8 @@ pub fn list_cached(doc: &Document, bytes: &[u8], trust: &TrustStore, cache: &Dig
             details: Vec::new(),
         };
         if let Some(v) = v {
-            validate_into(doc, bytes, trust, &v, &mut info, cache);
+            let own = Own { field: f.r, value: f.dict.get(b"V").and_then(Object::as_ref) };
+            validate_into(doc, bytes, trust, &v, &mut info, cache, own);
         }
         out.push(info);
     }
@@ -680,7 +703,7 @@ fn is_doc_timestamp(d: &Dict) -> bool {
     d.name(b"SubFilter") == Some(b"ETSI.RFC3161") && matches!(d.name(b"Type"), Some(b"DocTimeStamp" | b"Sig"))
 }
 
-fn validate_into(doc: &Document, bytes: &[u8], trust: &TrustStore, v: &Dict, info: &mut SignatureInfo, cache: &DigestCache) {
+fn validate_into(doc: &Document, bytes: &[u8], trust: &TrustStore, v: &Dict, info: &mut SignatureInfo, cache: &DigestCache, own: Own) {
     // A document timestamp can also be the value of a signature field (Documenso writes
     // `Timestamp_1` that way). Its `/Contents` is a bare RFC 3161 token, not a signature over the
     // document, so it must not be read as one.
@@ -737,7 +760,7 @@ fn validate_into(doc: &Document, bytes: &[u8], trust: &TrustStore, v: &Dict, inf
         info.details.push(Detail::of("PdfCraft can't check this signature yet: {}.", Fill::Reason(why.to_owned())));
     };
     if info.sub_filter.as_deref() == Some("adbe.x509.rsa_sha1") {
-        return validate_x509_rsa_sha1(doc, bytes, trust, v, info, cache, (l0, o1, covered), &contents);
+        return validate_x509_rsa_sha1(doc, bytes, trust, v, info, cache, (l0, o1, covered), &contents, own);
     }
     let sd = match SignedData::parse(&contents) {
         Ok(sd) => sd,
@@ -814,7 +837,7 @@ fn validate_into(doc: &Document, bytes: &[u8], trust: &TrustStore, v: &Dict, inf
             return invalid(info, Detail::of("The signature could not be checked ({}).", Fill::Reason(e.to_string())));
         }
     }
-    finish_validation(doc, bytes, trust, info, cache, covered, cert, &sd.certificates, s.signing_time, unverified_time);
+    finish_validation(doc, bytes, trust, info, cache, covered, cert, &sd.certificates, s.signing_time, unverified_time, own);
 }
 
 /// The verdict once the signature value has been checked: chain and trust, the signing time
@@ -831,6 +854,7 @@ fn finish_validation(
     embedded: &[Certificate],
     cms_time: Option<Time>,
     unverified_time: Option<Time>,
+    own: Own,
 ) {
     info.signing_time = cms_time.or_else(|| info.date.as_deref().and_then(Time::from_pdf));
     let mut pool = embedded.to_vec();
@@ -855,7 +879,7 @@ fn finish_validation(
     info.modification = if covered == bytes.len() || bytes[covered..].iter().all(|b| b.is_ascii_whitespace() || *b == 0) {
         Modification::None
     } else {
-        classify_changes(doc, cache.revision(doc, bytes, covered), info.certify)
+        classify_changes(doc, cache.revision(doc, bytes, covered), info.certify, Some(own))
     };
     let mut problems = false;
     // The changes are handed over as the words they are, not stitched into the sentence, so an
@@ -1040,7 +1064,7 @@ fn validate_doc_timestamp(doc: &Document, bytes: &[u8], v: &Dict, info: &mut Sig
     info.modification = if covered == bytes.len() || bytes[covered..].iter().all(|b| b.is_ascii_whitespace() || *b == 0) {
         Modification::None
     } else {
-        classify_changes(doc, cache.revision(doc, bytes, covered), None)
+        classify_changes(doc, cache.revision(doc, bytes, covered), None, None)
     };
     match &info.modification {
         Modification::None => info.details.push(Detail::plain("This document has not been modified since this timestamp was applied.")),
@@ -1127,6 +1151,7 @@ fn validate_x509_rsa_sha1(
     cache: &DigestCache,
     (l0, o1, covered): (usize, usize, usize),
     contents: &[u8],
+    own: Own,
 ) {
     let fail = |info: &mut SignatureInfo, why: Detail| {
         info.status = Status::Invalid;
@@ -1174,12 +1199,13 @@ fn validate_x509_rsa_sha1(
     }
     info.details.push(Detail::plain("The signature uses the legacy adbe.x509.rsa_sha1 format."));
     info.details.extend(DigestAlg::Sha1.weakness().map(Detail::plain));
-    finish_validation(doc, bytes, trust, info, cache, covered, cert, &certs, None, None);
+    finish_validation(doc, bytes, trust, info, cache, covered, cert, &certs, None, None, own);
 }
 
 /// What later revisions changed, classified as Acrobat reports it, under DocMDP `p` (or none:
-/// an approval signature permits form fill, comments and further signatures).
-fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Modification {
+/// an approval signature permits form fill, comments and further signatures). `own` is the
+/// signature being validated, whose dictionary must be the signed one, unchanged.
+fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>, own: Option<Own>) -> Modification {
     let Some(old) = old else {
         return Modification::Disallowed(vec![kind::UNREADABLE]);
     };
@@ -1209,6 +1235,26 @@ fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Mod
     let signed_resources = signed_page_resources(&old, &signed_pages);
     let old_info = old.trailer().get(b"Info").and_then(Object::as_ref);
     let (mut allowed, mut disallowed): (Vec<&'static str>, Vec<&'static str>) = (Vec::new(), Vec::new());
+    let mut note = |what: &'static str| {
+        let list = if permitted(what, p) { &mut allowed } else { &mut disallowed };
+        if !list.contains(&what) {
+            list.push(what);
+        }
+    };
+    // The catalog is whatever the trailer's /Root names. A revision that points /Root at another
+    // object (a new catalog, or one planted unreferenced before signing) changes the signed
+    // catalog, whichever object now holds it: judge the two catalogs against each other.
+    let root = doc.root();
+    let root_moved = root != old.root();
+    if root_moved {
+        let now = root.map(|r| doc.get(r));
+        let was = old.root().map(|r| old.get(r));
+        match (now.as_deref().and_then(Object::as_dict), was.as_deref().and_then(Object::as_dict)) {
+            (Some(n), Some(w)) if n == w => {}
+            (Some(n), Some(w)) => note(catalog_change_kind(doc, &old, n, w)),
+            _ => note(kind::STRUCTURE),
+        }
+    }
     let dss = dss_parts(doc, &old);
     // Stored at the same place in both (and not edited since): the same bytes, unchanged.
     let same_place = |num: u32| -> bool {
@@ -1231,10 +1277,7 @@ fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Mod
     // add such an entry after signing: it is never a permitted change.
     for (_, num) in doc.xref_oddities().iter().filter(|o| !old.xref_oddities().contains(o)) {
         let r = ObjRef { num: *num, generation: doc.generation(*num) };
-        let what = if old_content.contains(&r) || signed_pages.contains(&r) { kind::PAGE_CONTENT } else { kind::OTHER };
-        if !disallowed.contains(&what) {
-            disallowed.push(what);
-        }
+        note(if old_content.contains(&r) || signed_pages.contains(&r) { kind::PAGE_CONTENT } else { kind::OTHER });
     }
     for num in doc.object_numbers() {
         if same_place(num) {
@@ -1243,12 +1286,18 @@ fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Mod
         let r = ObjRef { num, generation: doc.generation(num) };
         let new = doc.get(r);
         let before = old.try_get(num).ok().filter(|o| !matches!(**o, Object::Null));
+        if root_moved && Some(r) == root && before.is_none() {
+            // A new catalog object: judged above, against the signed catalog. One that existed
+            // when signed is judged by that role too (signed page content overwritten with a copy
+            // of the catalog must not pass as an unchanged catalog).
+            continue;
+        }
         if before.as_deref() == Some(&*new) {
             // The same content at a new place. That is true for the renderer as well only when
             // the entry locates the object itself: where this reader had to search for the
             // object, another reader may arrive at a different one.
-            if !doc.is_edited(num) && !doc.xref_entry_is_exact(num) && !disallowed.contains(&kind::OTHER) {
-                disallowed.push(kind::OTHER);
+            if !doc.is_edited(num) && !doc.xref_entry_is_exact(num) {
+                note(kind::OTHER);
             }
             continue;
         }
@@ -1269,16 +1318,21 @@ fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Mod
             // The Document Security Store's own arrays and dictionaries, when they only grew.
             (_, _) if dss.contains(&num) => kind::SECURITY_STORE,
             (_, Object::Dict(d)) => {
-                let was = before.as_deref().and_then(Object::as_dict);
                 if signed_pages.contains(&r) {
                     // A signed page is always judged by what the page shows, whatever it is now
                     // relabelled: a rewritten /Contents or /Resources is a page content change.
-                    page_change_kind(doc, &old, d, was)
-                } else if was.is_some() && Some(r) == old_info {
-                    // Only the signed revision's own /Info dictionary is a metadata change.
-                    kind::METADATA
+                    page_change_kind(doc, &old, d, before.as_deref().and_then(Object::as_dict))
+                } else if old_content.contains(&r) {
+                    kind::PAGE_CONTENT
                 } else {
-                    change_kind(doc, &old, d, was)
+                    match before.as_deref() {
+                        // Only the signed revision's own /Info dictionary is a metadata change.
+                        Some(Object::Dict(_)) if Some(r) == old_info => kind::METADATA,
+                        Some(Object::Dict(b)) => existing_change_kind(doc, &old, d, b),
+                        // Something else when signed (a stream, an array) is a dictionary now.
+                        Some(_) => kind::OTHER,
+                        None => new_object_kind(doc, &old, d),
+                    }
                 }
             }
             (_, Object::Stream(s)) => {
@@ -1302,20 +1356,53 @@ fn classify_changes(doc: &Document, old: Option<Document>, p: Option<u8>) -> Mod
             _ if before.is_none() => continue,
             _ => kind::OTHER,
         };
-        let ok = match (what, p) {
-            (kind::SIGNATURE | kind::SECURITY_STORE, _) => true,
-            (kind::FORM_FILL, Some(2 | 3) | None) => true,
-            (kind::COMMENTS, Some(3) | None) => true,
-            // Every save updates /Info (ModDate), signing included.
-            (kind::METADATA, _) => true,
-            _ => false,
-        };
-        let list = if ok { &mut allowed } else { &mut disallowed };
-        if !list.contains(&what) {
-            list.push(what);
+        note(what);
+    }
+    if own.is_some_and(|own| !own.unchanged(doc, &old)) {
+        // The dictionary this signature was validated from is not the signed one: rewritten
+        // since, or a copy added later.
+        note(kind::OTHER);
+    }
+    // DocMDP P=1 permits no changes at all (ISO 32000-2 §12.8.2.2), and signing the document
+    // again is one. Validation data is not: a document timestamp (§12.8.5) and the security store
+    // (§12.8.4.3) may follow. So signature changes break a P=1 certification unless every
+    // signature added since is a document timestamp.
+    if p == Some(1) && allowed.contains(&kind::SIGNATURE) && later_approval_signature(doc, &old) {
+        allowed.retain(|k| *k != kind::SIGNATURE);
+        if !disallowed.contains(&kind::SIGNATURE) {
+            disallowed.push(kind::SIGNATURE);
         }
     }
+    // The catalog's /Perms names the certification signature itself. Elsewhere a change to it is
+    // judged as signing; under P=1, dropping or redirecting it is a change like any other,
+    // whichever object holds the catalog now.
+    let perms = |d: &Document| d.root().and_then(|r| d.get(r).as_dict().and_then(|c| c.get(b"Perms").cloned()));
+    if p == Some(1) && perms(doc) != perms(&old) && !disallowed.contains(&kind::STRUCTURE) {
+        disallowed.push(kind::STRUCTURE);
+    }
     if disallowed.is_empty() { Modification::Allowed(allowed) } else { Modification::Disallowed(disallowed) }
+}
+
+/// Whether a signature field of `doc` holds a value that `old` (a signed revision) didn't give it,
+/// other than a document timestamp: an approval or certification signature made since.
+fn later_approval_signature(doc: &Document, old: &Document) -> bool {
+    sig_fields(doc).iter().any(|f| {
+        let Some(v) = f.signature(doc) else { return false };
+        let before = f.r.and_then(|r| old.try_get(r.num).ok()).and_then(|o| o.as_dict().and_then(|d| d.get(b"V")).map(|v| old.resolve(v)));
+        !is_doc_timestamp(&v) && before.as_deref().and_then(Object::as_dict) != Some(&v)
+    })
+}
+
+/// Whether a change of kind `what` is permitted under DocMDP `p` (none: an approval signature).
+fn permitted(what: &str, p: Option<u8>) -> bool {
+    match (what, p) {
+        (kind::SIGNATURE | kind::SECURITY_STORE, _) => true,
+        (kind::FORM_FILL, Some(2 | 3) | None) => true,
+        (kind::COMMENTS, Some(3) | None) => true,
+        // Every save updates /Info (ModDate), signing included.
+        (kind::METADATA, _) => true,
+        _ => false,
+    }
 }
 
 /// Where an object sits in the Document Security Store (ISO 32000-2 §12.8.4.3).
@@ -1495,13 +1582,6 @@ fn without(x: &Dict, keys: &[&[u8]]) -> Vec<(Vec<u8>, Object)> {
     v
 }
 
-/// Whether a dictionary was a signature object: a signature or timestamp value, a signature
-/// reference or its transform parameters, or a signature form field. Used to decide from the
-/// signed revision, so a later relabel of some other object cannot pose as a signature change.
-fn is_signature_dict(d: &Dict) -> bool {
-    matches!(d.name(b"Type"), Some(b"Sig" | b"DocTimeStamp" | b"SigRef" | b"TransformParams")) || d.name(b"FT") == Some(b"Sig")
-}
-
 /// The objects the signed pages draw from, by reference, with the role each held when signed
 /// (#1787): `true` for a container (a page's resources dictionary, or one of its category
 /// dictionaries), where a name added later can't be reached by unchanged content; `false` for
@@ -1599,65 +1679,123 @@ fn page_change_kind(doc: &Document, old: &Document, d: &Dict, before: Option<&Di
     }
 }
 
-fn change_kind(doc: &Document, old: &Document, d: &Dict, before: Option<&Dict>) -> &'static str {
-    let ty = d.name(b"Type");
-    // A later revision cannot make an existing object a signature by relabelling it: a signature
-    // change is only a brand-new object, or one that was already a signature object when signed.
-    let signature_ok = before.is_none_or(is_signature_dict);
-    match ty {
-        Some(b"Sig" | b"DocTimeStamp" | b"SigRef" | b"TransformParams") if signature_ok => return kind::SIGNATURE,
-        Some(b"Catalog") => {
-            let keys: &[&[u8]] = &[b"AcroForm", b"DSS", b"Perms", b"Metadata", b"NeedsRendering"];
-            return match before {
-                Some(b) if without(d, keys) != without(b, keys) => kind::STRUCTURE,
-                Some(b) => {
-                    if d.get(b"AcroForm") != b.get(b"AcroForm") {
-                        // Compare the forms themselves, inline or not.
-                        let now = acroform(doc).unwrap_or_default();
-                        acroform_kind(doc, old, &now, None)
-                    } else if b.get(b"Perms") != d.get(b"Perms") {
-                        kind::SIGNATURE
-                    } else {
-                        kind::METADATA
-                    }
-                }
-                None => kind::FORM_FILL,
-            };
-        }
-        Some(b"Page") => {
-            return match before {
-                Some(b) if without(d, &[b"Annots"]) != without(b, &[b"Annots"]) => kind::PAGE_CONTENT,
-                Some(b) => {
-                    let was = refs(old, b.get(b"Annots"));
-                    let added: Vec<ObjRef> = refs(doc, d.get(b"Annots")).into_iter().filter(|r| !was.contains(r)).collect();
-                    added_annots(doc, &added)
-                }
-                None => kind::COMMENTS,
-            };
-        }
-        Some(b"Pages") => return if before.is_some() { kind::PAGES } else { kind::STRUCTURE },
+/// A changed dictionary that existed in the signed revision, judged by what it was then (`b`),
+/// never by keys its new version (`d`) carries: those are written by whoever changed it (#1787
+/// for page resources, which `signed_page_resources` judges first). An indirect `/OCProperties`
+/// rewritten with an added `/FT` still decides which layers show.
+fn existing_change_kind(doc: &Document, old: &Document, d: &Dict, b: &Dict) -> &'static str {
+    match b.name(b"Type") {
+        // A signature value, its references and its transform parameters are what the signer
+        // signed (the DocMDP level, the signing date and the reason are read from them). They
+        // never change afterwards: signing again adds new ones.
+        Some(b"Sig" | b"DocTimeStamp" | b"SigRef" | b"TransformParams") => return kind::OTHER,
+        Some(b"Catalog") => return catalog_change_kind(doc, old, d, b),
+        // A page outside the signed page tree; pages in it are judged by `page_change_kind` first.
+        Some(b"Page") => return page_change_kind(doc, old, d, Some(b)),
+        Some(b"Pages") => return kind::PAGES,
         _ => {}
     }
-    match d.name(b"Subtype") {
-        Some(b"Widget") => return if d.name(b"FT") == Some(b"Sig") && signature_ok { kind::SIGNATURE } else { kind::FORM_FILL },
+    let (ft, value) = field_info(old, b);
+    if ft.as_deref() == Some(b"Sig") {
+        // A signature field, or a widget of one. Once signed it is part of what the signer saw:
+        // moving, resizing or redrawing its widget afterwards (a full-page /Rect with a new
+        // appearance) is not permitted.
+        let signature = |doc: &Document, v: Option<Object>| v.map(|v| doc.resolve(&v)).is_some_and(|v| v.as_dict().is_some());
+        if signature(old, value) {
+            return kind::OTHER;
+        }
+        // Unsigned when signed. Signing it writes its value and its appearance (a writer that
+        // re-encrypts the file may also write its strings in another form), and leaves the field
+        // where it is and what it is: that is a signature change. A change that signs nothing is a
+        // form field edit like any other, and one that also moves or restructures the field is
+        // neither.
+        const PLACE: [&[u8]; 5] = [b"Parent", b"Kids", b"P", b"Subtype", b"FT"];
+        let placed = |doc: &Document, x: &Dict| (nums(doc, x, b"Rect"), PLACE.map(|k| x.get(k).cloned()));
+        return if !signature(doc, field_info(doc, d).1) {
+            kind::FORM_FILL
+        } else if placed(doc, d) == placed(old, b) {
+            kind::SIGNATURE
+        } else {
+            kind::OTHER
+        };
+    }
+    match b.name(b"Subtype") {
+        Some(b"Widget") => return kind::FORM_FILL,
         Some(b"Link") => return kind::LINKS,
-        Some(_) if ty == Some(b"Annot") || d.contains(b"Rect") => return kind::COMMENTS,
+        Some(_) if b.name(b"Type") == Some(b"Annot") || b.contains(b"Rect") => return kind::COMMENTS,
         _ => {}
     }
-    if d.name(b"FT") == Some(b"Sig") && signature_ok {
-        return kind::SIGNATURE;
+    if b.contains(b"Fields") {
+        return acroform_kind(doc, old, d, Some(b));
     }
-    if d.contains(b"Fields") {
-        return acroform_kind(doc, old, d, before);
-    }
-    if d.contains(b"FT") || (d.contains(b"T") && d.contains(b"Kids")) || d.contains(b"DR") {
-        return kind::FORM_FILL;
-    }
-    if before.is_none() {
-        // New objects referenced by changed ones (fonts, appearance resources).
+    if b.contains(b"FT") || (b.contains(b"T") && b.contains(b"Kids")) || b.contains(b"DR") {
         return kind::FORM_FILL;
     }
     kind::OTHER
+}
+
+/// A dictionary the signed revision didn't have. It only shows anything once a changed object
+/// refers to it, and that object is judged by what it was when signed.
+fn new_object_kind(doc: &Document, old: &Document, d: &Dict) -> &'static str {
+    match d.name(b"Type") {
+        Some(b"Sig" | b"DocTimeStamp" | b"SigRef" | b"TransformParams") => return kind::SIGNATURE,
+        Some(b"Page") => return kind::COMMENTS,
+        Some(b"Pages") => return kind::STRUCTURE,
+        _ => {}
+    }
+    match d.name(b"Subtype") {
+        Some(b"Widget") => return if d.name(b"FT") == Some(b"Sig") { kind::SIGNATURE } else { kind::FORM_FILL },
+        Some(b"Link") => return kind::LINKS,
+        Some(_) if d.name(b"Type") == Some(b"Annot") || d.contains(b"Rect") => return kind::COMMENTS,
+        _ => {}
+    }
+    if d.name(b"FT") == Some(b"Sig") {
+        return kind::SIGNATURE;
+    }
+    if d.contains(b"Fields") {
+        return acroform_kind(doc, old, d, None);
+    }
+    // New objects referenced by changed ones (fonts, appearance resources, field values). A new
+    // catalog is judged as the signed one's replacement when the trailer names it.
+    kind::FORM_FILL
+}
+
+/// The catalog `d` against the signed revision's catalog `b`. Only the form, the security store,
+/// permissions, metadata and the XFA rendering flag may differ.
+fn catalog_change_kind(doc: &Document, old: &Document, d: &Dict, b: &Dict) -> &'static str {
+    let keys: &[&[u8]] = &[b"AcroForm", b"DSS", b"Perms", b"Metadata", b"NeedsRendering"];
+    if without(d, keys) != without(b, keys) {
+        kind::STRUCTURE
+    } else if d.get(b"AcroForm") != b.get(b"AcroForm") {
+        // Compare the forms themselves, inline or not.
+        let now = acroform(doc).unwrap_or_default();
+        acroform_kind(doc, old, &now, None)
+    } else if b.get(b"Perms") != d.get(b"Perms") {
+        kind::SIGNATURE
+    } else {
+        kind::METADATA
+    }
+}
+
+/// The field type and the value of `d` in `doc`, each from `d` itself or from the nearest ancestor
+/// through `/Parent` that has it: both are inheritable (ISO 32000-2 §12.7.4.1), and a signed
+/// terminal field can hold `/V` below the ancestor that sets `/FT`. The walk is bounded, so a
+/// `/Parent` cycle ends it.
+fn field_info(doc: &Document, d: &Dict) -> (Option<Vec<u8>>, Option<Object>) {
+    const MAX_FIELD_DEPTH: usize = 32;
+    let (mut ft, mut value) = (None, None);
+    let mut d = d.clone();
+    for _ in 0..MAX_FIELD_DEPTH {
+        ft = ft.or_else(|| d.name(b"FT").map(<[u8]>::to_vec));
+        value = value.or_else(|| d.get(b"V").cloned());
+        if ft.is_some() && value.is_some() {
+            break;
+        }
+        let Some(parent) = d.get(b"Parent").map(|p| doc.resolve(p)) else { break };
+        let Some(parent) = parent.as_dict() else { break };
+        d = parent.clone();
+    }
+    (ft, value)
 }
 
 // ── signing ─────────────────────────────────────────────────────────────────────────────────
