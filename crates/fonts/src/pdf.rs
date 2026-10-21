@@ -111,6 +111,16 @@ fn is_glyphless(doc: &Document, font: &Dict) -> bool {
     let cid_to_gid = descendant.as_ref().and_then(|d| d.get(b"CIDToGIDMap")).map(|o| doc.resolve(o));
     let Some(Object::Stream(map)) = cid_to_gid.as_deref() else { return false };
     let Ok(map) = map.decoded_within(1 << 17) else { return false };
+    let mut gids = map.as_chunks::<2>().0.iter().skip(1).map(|gid| usize::from(u16::from_be_bytes(*gid))).filter(|&gid| gid != 0);
+    let mapped_gid = gids.clone().next().unwrap_or(0);
+    let mut mapped = 0usize;
+    if !gids.all(|gid| {
+        mapped += 1;
+        gid == mapped_gid
+    }) || mapped < 64
+    {
+        return false;
+    }
     let program = descriptor.as_ref().and_then(|d| d.get(b"FontFile2")).map(|o| doc.resolve(o));
     let Some(Object::Stream(stream)) = program.as_deref() else { return false };
     let Ok(bytes) = stream.decoded_within(16 << 20) else { return false };
@@ -118,15 +128,7 @@ fn is_glyphless(doc: &Document, font: &Dict) -> bool {
     let Ok(loca) = face.loca(None) else { return false };
     let mut outlined =
         (1..loca.len().min(0x1_0000)).filter(|&gid| loca.get_raw(gid).zip(loca.get_raw(gid + 1)).is_some_and(|(start, end)| end > start));
-    let Some(only_gid) = outlined.next() else { return false };
-    if outlined.next().is_some() {
-        return false;
-    }
-    let mut mapped = 0usize;
-    map.as_chunks::<2>().0.iter().skip(1).map(|gid| usize::from(u16::from_be_bytes(*gid))).filter(|&gid| gid != 0).all(|gid| {
-        mapped += 1;
-        gid == only_gid
-    }) && mapped >= 64
+    outlined.next() == Some(mapped_gid) && outlined.next().is_none()
 }
 
 /// Whether `base_font` (subset tag allowed) names a legacy Indic font family that is laid out in
@@ -1457,6 +1459,26 @@ mod tests {
         );
         assert!(embedded_sfnt(&doc, &valid_subset).is_some(), "legitimate 1-glyph subset with CID aliases keeps its sfnt");
         assert_eq!(Metrics::from_dict(&doc, &valid_subset).encode("A").as_deref(), Some(&[0, 1][..]));
+
+        // Distinct non-zero GIDs across >= 64 CIDs, or a single-GID map whose FontFile2 has 0 or
+        // multiple outlined glyphs (or a different outlined GID), are not classified as glyphless.
+        let mut multi_gid_map = [0u8, 1].repeat(65);
+        multi_gid_map.extend_from_slice(&[0, 2]);
+        let multi_gid = doc.add(Object::Stream(Stream::flate(Dict::new(), &multi_gid_map)));
+        let single_gid_64 = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0u8, 1].repeat(65))));
+        let single_gid_2_64 = doc.add(Object::Stream(Stream::flate(Dict::new(), &[0u8, 2].repeat(65))));
+        let full_ttf = doc.add(Object::Stream(Stream::flate(Dict::new(), include_bytes!("../../../assets/fonts/Inter-Regular.ttf"))));
+        let zero_ttf = doc.add(Object::Stream(Stream::flate(Dict::new(), &zero_glyph_ttf)));
+        for (map_ref, prog_ref) in [(multi_gid, program), (single_gid_64, full_ttf), (single_gid_64, zero_ttf), (single_gid_2_64, program)] {
+            let mut fd = Dict::new();
+            fd.set(b"FontFile2".to_vec(), Object::Ref(prog_ref));
+            let mut desc = Dict::new();
+            desc.set(b"Subtype".to_vec(), Object::name("CIDFontType2"));
+            desc.set(b"CIDToGIDMap".to_vec(), Object::Ref(map_ref));
+            desc.set(b"FontDescriptor".to_vec(), Object::Dict(fd));
+            let d = font(&mut doc, vec![("Subtype", Object::name("Type0")), ("DescendantFonts", Object::Array(vec![Object::Dict(desc)]))]);
+            assert!(!is_glyphless(&doc, &d));
+        }
     }
 
     /// #2130: with no `/Widths`, an embedded program's advances win over a guess from the name
