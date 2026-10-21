@@ -2418,5 +2418,12 @@ animation effects	Off	Wyłączone
 	One sheet per page	Jeden arkusz na stronę
 	Each page on its own sheet, named Page 1, Page 2…	Każda strona w osobnym arkuszu o nazwie Page 1, Page 2…
 	Tables become cells; numbers, amounts, percentages and dates become values Excel can compute with, shown as on the page.	Tabele stają się komórkami; liczby, kwoty, procenty i daty stają się wartościami, na których Excel może liczyć, wyświetlanymi tak jak na stronie.
+	Font	Czcionka
+	Bulleted list	Lista punktowana
+	Numbered list	Lista numerowana
+	Alignment	Wyrównanie
+	Superscript	Indeks górny
+	Subscript	Indeks dolny
+	Paragraph spacing	Odstęp między akapitami
 	Less	Mniej
 	Other options	Inne opcje

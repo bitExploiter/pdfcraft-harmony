@@ -2516,5 +2516,12 @@ animation effects	Off	Vypnuto
 	One sheet per page	Jeden list na stránku
 	Each page on its own sheet, named Page 1, Page 2…	Každá stránka na vlastním listu s názvem Page 1, Page 2…
 	Tables become cells; numbers, amounts, percentages and dates become values Excel can compute with, shown as on the page.	Z tabulek se stanou buňky; čísla, částky, procenta a data se stanou hodnotami, se kterými Excel umí počítat, zobrazenými jako na stránce.
+	Font	Písmo
+	Bulleted list	Odrážkový seznam
+	Numbered list	Číslovaný seznam
+	Alignment	Zarovnání
+	Superscript	Horní index
+	Subscript	Dolní index
+	Paragraph spacing	Mezera mezi odstavci
 	Less	Méně
 	Other options	Další možnosti

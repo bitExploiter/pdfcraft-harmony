@@ -2441,5 +2441,12 @@ animation effects	Off	Ki
 	One sheet per page	Oldalanként egy munkalap
 	Each page on its own sheet, named Page 1, Page 2…	Minden oldal külön munkalapon, ezek neve: Page 1, Page 2…
 	Tables become cells; numbers, amounts, percentages and dates become values Excel can compute with, shown as on the page.	A táblázatokból cellák lesznek; a számok, összegek, százalékok és dátumok olyan értékek lesznek, amelyekkel az Excel számolni tud, és úgy jelennek meg, mint az oldalon.
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások
