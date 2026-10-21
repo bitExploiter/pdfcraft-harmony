@@ -7,6 +7,7 @@ use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
 use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, widgets};
 
 /// The preview pane, and the paper inside it (12 pt inset on each side).
@@ -1133,7 +1134,9 @@ pub(crate) fn body(
             ui.painter().rect_filled(area, 6.0, t.hover);
             match (&settings, sheets.get(d.sheet)) {
                 (Err(e), _) => {
-                    ui.put(area.shrink(16.0), egui::Label::new(egui::RichText::new(tl!(e)).color(t.text_muted)).wrap());
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(area.shrink(16.0)), |ui| {
+                        widgets::paragraph(ui, tl!(e), egui::TextStyle::Body.resolve(ui.style()), t.text_muted);
+                    });
                 }
                 (Ok(_), Some(sheet)) => {
                     let k = (PREVIEW_BOX.0 / sheet.size.0 as f32).min(PREVIEW_BOX.1 / sheet.size.1 as f32);
@@ -1198,7 +1201,7 @@ pub(crate) fn body(
             }
             ui.horizontal(|ui| {
                 let n = sheets.len();
-                if ui.add_enabled(d.sheet > 0, egui::Button::new("‹")).on_hover_text(tl!("Previous sheet")).clicked() {
+                if ui.add_enabled(d.sheet > 0, egui::Button::new("‹")).on_hover_paragraph(tl!("Previous sheet")).clicked() {
                     d.sheet -= 1;
                 }
                 ui.label(if n == 0 {
@@ -1206,7 +1209,7 @@ pub(crate) fn body(
                 } else {
                     crate::i18n::fmt(tl!("Sheet {s} of {n}"), &[("s", &(d.sheet + 1).to_string()), ("n", &n.to_string())])
                 });
-                if ui.add_enabled(d.sheet + 1 < n, egui::Button::new("›")).on_hover_text(tl!("Next sheet")).clicked() {
+                if ui.add_enabled(d.sheet + 1 < n, egui::Button::new("›")).on_hover_paragraph(tl!("Next sheet")).clicked() {
                     d.sheet += 1;
                 }
             });

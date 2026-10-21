@@ -5,6 +5,7 @@ use egui::{Align, Layout};
 use crate::theme::{self, Tokens};
 use pdfcraft_engine::Edit;
 
+use crate::widgets::HoverParagraph as _;
 use crate::{CloseRequest, Dialog, PdfCraftApp, PropsTab, panels::human_size, widgets};
 
 const INFO_KEYS: [&str; 4] = ["Title", "Author", "Subject", "Keywords"];
@@ -361,7 +362,7 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                         for n in (1..ends.len()).rev().take(12) {
                                             if ui
                                                 .small_button(crate::i18n::fmt(tl!("View revision {n}"), &[("n", &n.to_string())]))
-                                                .on_hover_text(tl!("Open the file as it was saved then"))
+                                                .on_hover_paragraph(tl!("Open the file as it was saved then"))
                                                 .clicked()
                                             {
                                                 open_revision = Some(n);
@@ -1479,12 +1480,11 @@ fn save_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.set_width(420.0);
         ui.horizontal(|ui| {
             ui.add(crate::icons::image("save", 22.0, t.accent));
-            let title = ui.add(
-                egui::Label::new(
-                    egui::RichText::new(crate::i18n::fmt(tl!("Save changes to “{name}” before closing?"), &[("name", &shown)]))
-                        .font(theme::semibold(16.0)),
-                )
-                .wrap(),
+            let title = widgets::paragraph(
+                ui,
+                &crate::i18n::fmt(crate::i18n::logical(tl!("Save changes to “{name}” before closing?")), &[("name", &shown)]),
+                theme::semibold(16.0),
+                t.text,
             );
             if shown != name {
                 title.on_hover_text(&name);
@@ -1610,11 +1610,13 @@ fn full_screen_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
             ui.label(egui::RichText::new(tl!("Open in Full Screen mode?")).font(theme::semibold(16.0)));
         });
         ui.add_space(6.0);
-        ui.add(
-            egui::Label::new(tl!(
+        widgets::paragraph(
+            ui,
+            tl!(
                 "This document asks to open in Full Screen mode: the page fills the screen and nothing else shows. Press Esc at any time to leave it."
-            ))
-            .wrap(),
+            ),
+            egui::TextStyle::Body.resolve(ui.style()),
+            t.text,
         );
         ui.add_space(14.0);
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1695,7 +1697,7 @@ fn password_modal(
             ui.label(egui::RichText::new(title).font(theme::semibold(17.0)));
         });
         ui.add_space(6.0);
-        ui.add(egui::Label::new(message).wrap());
+        widgets::paragraph(ui, &message, egui::TextStyle::Body.resolve(ui.style()), t.text);
         ui.add_space(8.0);
         let r = ui.add(widgets::line(input).password(true).hint_text(tl!("Password")).desired_width(f32::INFINITY));
         // Enter submits. The field keeps focus (we request it every frame), so check the key

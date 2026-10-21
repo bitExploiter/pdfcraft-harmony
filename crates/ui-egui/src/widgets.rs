@@ -291,6 +291,41 @@ pub fn row_text(ui: &egui::Ui, pos: egui::Pos2, text: impl Into<String>, font: e
 /// right edge ([`crate::bidi::wrap`]); text without one is an ordinary wrapping label.
 /// `truncate` keeps the first line only, with an ellipsis where the text goes on.
 pub fn wrapped_text(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Color32, truncate: bool) -> Response {
+    wrapped_text_in(ui, text, font, color, truncate, false)
+}
+
+/// Interface text that may wrap: a translated sentence (a dialog's message, a card's
+/// description, a long tooltip). Pass what [`tl!`] gave. A right-to-left language's translation
+/// comes in display order, which egui would wrap from the wrong end (the last words on the first
+/// line), so it goes back to the catalog's order ([`crate::i18n::logical`]) and [`wrapped_text`]
+/// breaks and right-aligns its lines. Anything else is an ordinary wrapping label.
+pub fn paragraph(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Color32) -> Response {
+    wrapped_text(ui, crate::i18n::logical(text), font, color, false)
+}
+
+/// [`egui::Response::on_hover_text`] for translated text, wrapped the right way round in a
+/// right-to-left language ([`paragraph`]); the tooltip stays as narrow as its longest line.
+pub trait HoverParagraph {
+    fn on_hover_paragraph(self, text: impl Into<String>) -> Response;
+}
+
+impl HoverParagraph for Response {
+    fn on_hover_paragraph(self, text: impl Into<String>) -> Response {
+        let text = text.into();
+        if !crate::bidi::has_rtl(&text) {
+            return self.on_hover_text(text);
+        }
+        self.on_hover_ui(|ui| {
+            let font = egui::TextStyle::Body.resolve(ui.style());
+            let color = ui.visuals().text_color();
+            wrapped_text_in(ui, crate::i18n::logical(&text), font, color, false, true);
+        })
+    }
+}
+
+/// [`wrapped_text`]; with `shrink`, the widget is only as wide as its widest line (a tooltip)
+/// instead of the full available width (a column of comments, where lines hug the right edge).
+fn wrapped_text_in(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Color32, truncate: bool, shrink: bool) -> Response {
     if !crate::bidi::has_rtl(text) {
         let mut label = egui::Label::new(egui::RichText::new(text).font(font).color(color)).wrap();
         if truncate {
@@ -298,10 +333,11 @@ pub fn wrapped_text(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Co
         }
         return ui.add(label);
     }
-    let width = ui.available_width().max(1.0);
-    let lines = wrapped_lines(ui, text, &font, width, truncate);
+    let available = ui.available_width().max(1.0);
+    let lines = wrapped_lines(ui, text, &font, available, truncate);
     let galleys: Vec<_> = lines.iter().map(|line| (line.rtl, ui.painter().layout_no_wrap(line.text.clone(), font.clone(), color))).collect();
     let height = galleys.iter().map(|(_, g)| g.size().y).sum();
+    let width = if shrink { galleys.iter().map(|(_, g)| g.size().x).fold(1.0, f32::max).min(available) } else { available };
     let (rect, resp) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
     // Painted text only: the accessibility name keeps the logical order.
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, text));
@@ -775,6 +811,62 @@ mod tests {
         })
         .drop_without_applying_deltas();
         assert!(cache_len(&ctx) <= WRAP_CACHE_MAX, "bounded: {}", cache_len(&ctx));
+    }
+
+    /// The text shapes `paragraph` paints for `text` as [`tl!`] gave it, in a 120 pt column.
+    fn paragraph_shapes(text: &str) -> Vec<(Pos2, Rect, String)> {
+        let ctx = egui::Context::default();
+        ctx.set_fonts(theme::font_definitions());
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let column = Rect::from_min_size(Pos2::ZERO, vec2(120.0, 400.0));
+            ui.scope_builder(egui::UiBuilder::new().max_rect(column), |ui| {
+                paragraph(ui, text, theme::regular(13.0), Color32::WHITE);
+            });
+        });
+        let shapes = output
+            .shapes
+            .iter()
+            .filter_map(|shape| if let egui::Shape::Text(t) = &shape.shape { Some((t.pos, t.galley.rect, t.galley.job.text.clone())) } else { None })
+            .collect();
+        output.drop_without_applying_deltas();
+        shapes
+    }
+
+    /// An Arabic translation comes out of `tl!` in display order; `paragraph` wraps it from its
+    /// first words, each line against the right edge, instead of from its last words as a plain
+    /// wrapping label would (the catalog's display order puts the last words first).
+    #[test]
+    fn translated_paragraph_wraps_from_its_first_words() {
+        let previous = crate::i18n::current();
+        crate::i18n::set_current(crate::i18n::Lang::from_code("ar").unwrap());
+        let english = "Click to sort, drag to move the column. Drag its edge to resize it.";
+        let shown = tl!(english).to_owned();
+        let logical = crate::i18n::logical(&shown).to_owned();
+        let lines = paragraph_shapes(&shown);
+        crate::i18n::set_current(previous);
+        assert_ne!(shown, logical, "the Arabic catalog is in display order");
+        assert!(lines.len() > 1, "{lines:?}");
+        // Punctuation moves to the other end of a right-to-left line; the letters stay together.
+        let letters = |word: &str| word.trim_matches(|c: char| !c.is_alphabetic()).to_owned();
+        let first_word = letters(logical.split_whitespace().next().unwrap());
+        let last_word = letters(logical.split_whitespace().last().unwrap());
+        let (top, bottom) = (lines.first().unwrap(), lines.last().unwrap());
+        assert!(top.0.y < bottom.0.y);
+        assert!(top.2.contains(&first_word), "the first word reads on the top line: {:?}", top.2);
+        assert!(bottom.2.contains(&last_word), "the last word reads on the bottom line: {:?}", bottom.2);
+        let right = lines.iter().map(|(pos, rect, _)| pos.x + rect.width()).fold(0.0, f32::max);
+        for (pos, rect, text) in &lines {
+            assert!((pos.x + rect.width() - right).abs() < 0.5, "{text:?} must be right-aligned");
+        }
+        assert!(right <= 120.5, "lines stay inside the column: {right}");
+    }
+
+    /// English, and a translation egui lays out left to right, stay ordinary wrapping labels.
+    #[test]
+    fn left_to_right_paragraph_is_a_plain_label() {
+        let lines = paragraph_shapes("Click to sort, drag to move the column. Drag its edge to resize it.");
+        assert_eq!(lines.len(), 1, "one galley, wrapped by egui: {lines:?}");
+        assert!(lines[0].1.height() > 20.0, "it wraps onto several rows: {:?}", lines[0].1);
     }
 
     #[test]

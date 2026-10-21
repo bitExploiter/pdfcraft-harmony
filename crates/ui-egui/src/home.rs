@@ -5,6 +5,7 @@ use egui::{Align2, CornerRadius, Rect, Sense, Stroke, vec2};
 use pdfcraft_engine::catalog;
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, icons, panels::human_size, widgets};
 
 const RECOMMENDED: [&str; 5] = ["organize", "comment", "form", "edit", "protect"];
@@ -16,6 +17,43 @@ fn card_lift(ui: &egui::Ui, t: &Tokens, rect: Rect, press: theme::Press) {
         let shadow = egui::Shadow { offset: [0, 3], blur: (14.0 * lift) as u8, spread: 0, color: t.page_shadow.gamma_multiply(0.85 * lift) };
         ui.painter().add(shadow.as_shape(rect, CornerRadius::same(10)));
     }
+}
+
+/// The card's description, at most two lines inside `body`; whether it was cut short. A
+/// right-to-left language's labels come in display order (the three joined with `·` would read
+/// as the last tool first), so the lines are built from the logical text and hug the right edge.
+fn paint_blurb(ui: &mut egui::Ui, t: &Tokens, body: Rect, blurb: &str) -> bool {
+    const MAX_ROWS: usize = 2;
+    let (font, width) = (theme::regular(11.5), body.width() - 28.0);
+    if !crate::i18n::current().rtl() || !crate::bidi::has_rtl(blurb) {
+        let mut job = egui::text::LayoutJob::simple(blurb.to_owned(), font, t.text_muted, width);
+        job.wrap.max_rows = MAX_ROWS;
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
+        let elided = galley.elided;
+        ui.painter().galley(body.min + vec2(14.0, 46.0), galley, t.text_muted);
+        return elided;
+    }
+    let logical = blurb.split(" · ").map(crate::i18n::logical).collect::<Vec<_>>().join(" · ");
+    let mut lines = ui.fonts_mut(|f| crate::bidi::wrap(&logical, |s| f.layout_no_wrap(s.to_owned(), font.clone(), t.text_muted).size().x <= width));
+    let elided = lines.len() > MAX_ROWS;
+    lines.truncate(MAX_ROWS);
+    if elided && let Some(last) = lines.last_mut() {
+        // The ellipsis goes where the reading stops: the left end of a right-to-left line.
+        if last.rtl {
+            last.text.insert(0, '\u{2026}');
+        } else {
+            last.text.push('\u{2026}');
+        }
+    }
+    let mut y = body.top() + 46.0;
+    for line in lines {
+        let galley = ui.painter().layout_no_wrap(line.text, font.clone(), t.text_muted);
+        let x = if line.rtl { body.right() - 14.0 - galley.size().x } else { body.left() + 14.0 };
+        let height = galley.size().y;
+        ui.painter().galley(egui::pos2(x, y), galley, t.text_muted);
+        y += height;
+    }
+    elided
 }
 
 pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
@@ -84,11 +122,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 .map(|s| s.items.iter().take(3).map(|i| tl!(i.label)).collect::<Vec<_>>().join(" · "))
                                 .unwrap_or_default();
                             // Fixed-height cards must leave room for their action in every language.
-                            let mut job = egui::text::LayoutJob::simple(blurb.clone(), theme::regular(11.5), t.text_muted, body.width() - 28.0);
-                            job.wrap.max_rows = 2;
-                            let galley = ui.fonts_mut(|f| f.layout_job(job));
-                            let blurb_elided = galley.elided;
-                            ui.painter().galley(body.min + vec2(14.0, 46.0), galley, t.text_muted);
+                            let blurb_elided = paint_blurb(ui, &t, body, &blurb);
                             ui.painter().text(
                                 body.left_bottom() + vec2(14.0, -14.0),
                                 Align2::LEFT_CENTER,
@@ -135,7 +169,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         let resp = widgets::ghost_button(ui, "trash-2", tl!("Clear"));
                         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Clear Recent Files")));
-                        clear = resp.on_hover_text(tl!("Clear Recent Files")).clicked();
+                        clear = resp.on_hover_paragraph(tl!("Clear Recent Files")).clicked();
                     });
                 }
             });
@@ -167,7 +201,7 @@ pub fn show(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         ui.painter().rect_filled(x_rect, CornerRadius::same(6), t.pressed);
                     }
                     icons::paint(ui, x_rect.shrink(6.0), "x", 16.0, t.icon);
-                    if x.on_hover_text(tl!("Remove from Recent")).clicked() {
+                    if x.on_hover_paragraph(tl!("Remove from Recent")).clicked() {
                         remove = Some(r.path.clone());
                     }
                 }

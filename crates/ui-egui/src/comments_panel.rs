@@ -12,6 +12,7 @@ use crate::canvas::DocView;
 use crate::comments::{CommentPrefs, CommentTool, SortBy, color32, status_badge};
 use crate::panels::Nav;
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{icons, widgets};
 
 /// Accent bar of the selected card (11-visual-spec §3: `#0165DD`).
@@ -312,10 +313,10 @@ fn card(
                             edit = Some(Edit::MarkAnnotation { page: a.page, index: a.index, marked: !marked, author: prefs.author.clone() });
                         }
                     } else if marked {
-                        ui.add(icons::image("circle-check", 14.0, t.accent)).on_hover_text(tl!("Marked"));
+                        ui.add(icons::image("circle-check", 14.0, t.accent)).on_hover_paragraph(tl!("Marked"));
                     }
                     if a.locked {
-                        ui.add(icons::image("lock", 13.0, t.text_faint)).on_hover_text(tl!("Locked"));
+                        ui.add(icons::image("lock", 13.0, t.text_faint)).on_hover_paragraph(tl!("Locked"));
                     }
                     buttons_left = ui.min_rect().left();
                 });

@@ -14,6 +14,7 @@ use egui_extras::{Column, TableBuilder};
 use pdfcraft_engine::SourceProblem;
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, icons, widgets};
 
 /// Same reds and ambers as the signature status (`sign_ui`).
@@ -925,7 +926,7 @@ fn skip_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
         ui.set_width(460.0);
         ui.horizontal(|ui| {
             ui.add(icons::image("triangle-alert", 22.0, ERROR));
-            ui.add(egui::Label::new(egui::RichText::new(tl!("Leave out files that can't be read?")).font(theme::semibold(16.0))).wrap());
+            widgets::paragraph(ui, tl!("Leave out files that can't be read?"), theme::semibold(16.0), t.text);
         });
         ui.add_space(6.0);
         ui.label(egui::RichText::new(tl!("These files can't be read, so they won't be in the combined PDF:")).color(t.text_muted));
@@ -1190,7 +1191,7 @@ fn zoom_controls(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, edge: f32
             egui::Button::new(egui::RichText::new(format!("{:.0}%", zoom * 100.0)).font(theme::medium(12.0)).color(t.text_muted)).frame(false);
         let percent = ui.add_sized([44.0, 30.0], percent);
         percent.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Reset page size")));
-        if percent.on_hover_text(tl!("Reset page size")).clicked() {
+        if percent.on_hover_paragraph(tl!("Reset page size")).clicked() {
             app.combine_tab.zoom_request = Some(1.0);
         }
         let mut value = zoom;
@@ -1199,7 +1200,7 @@ fn zoom_controls(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, edge: f32
         // Read out as a percentage, as shown beside it.
         slider.widget_info(|| egui::WidgetInfo::slider(true, f64::from(value * 100.0).round(), tl!("Page size")));
         app.combine_tab.zoom_slider = Some(slider.id);
-        if slider.on_hover_text(tl!("Page size")).changed() {
+        if slider.on_hover_paragraph(tl!("Page size")).changed() {
             app.combine_tab.zoom_request = Some(value);
         }
         let smaller = ui.add_enabled_ui(zoom > *ZOOM_RANGE.start(), |ui| icons::button(ui, "zoom-out", 30.0, false, tl!("Smaller pages"))).inner;
@@ -1257,12 +1258,12 @@ fn add_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             app.combine_dialog();
             ui.close();
         }
-        if item(ui, "folder", tl!("Add folder…")).on_hover_text(tl!("Every PDF, image and text file in the folder")).clicked() {
+        if item(ui, "folder", tl!("Add folder…")).on_hover_paragraph(tl!("Every PDF, image and text file in the folder")).clicked() {
             app.combine_add_folder(false);
             ui.close();
         }
         if item(ui, "folder-open", tl!("Add folder and subfolders…"))
-            .on_hover_text(tl!("Every PDF, image and text file in the folder and the folders inside it"))
+            .on_hover_paragraph(tl!("Every PDF, image and text file in the folder and the folders inside it"))
             .clicked()
         {
             app.combine_add_folder(true);
@@ -1382,7 +1383,7 @@ fn heading(ui: &mut egui::Ui, t: &Tokens, key: SortKey, sort: Option<(SortKey, b
     }
     let response = response
         .on_hover_cursor(if being_dragged { egui::CursorIcon::Grabbing } else { egui::CursorIcon::PointingHand })
-        .on_hover_text(tl!("Click to sort, drag to move the column. Drag its edge to resize it."));
+        .on_hover_paragraph(tl!("Click to sort, drag to move the column. Drag its edge to resize it."));
     response.context_menu(|ui| {
         if ui.button(tl!("Reset columns")).clicked() {
             event = Some(HeadingEvent::Reset);
@@ -1461,7 +1462,7 @@ fn table_body(
                         })
                         .response
                         .on_hover_cursor(egui::CursorIcon::Grab)
-                        .on_hover_text(tl!("Drag to reorder"));
+                        .on_hover_paragraph(tl!("Drag to reorder"));
                     });
                     for kind in order {
                         row.col(|ui| match kind {

@@ -9,6 +9,7 @@ use pdfcraft_engine::DocId;
 use pdfcraft_engine::ocr::{LANGUAGES, OcrPage, OcrSettings};
 
 use crate::theme::{self, Tokens};
+use crate::widgets::HoverParagraph as _;
 use crate::{PdfCraftApp, widgets};
 
 /// Which pages to read.
@@ -108,7 +109,7 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
             egui::ComboBox::from_id_salt("ocr-output").selected_text(tl!("Searchable Image (Exact)")).width(220.0).show_ui(ui, |ui| {
                 let _ = ui
                     .selectable_label(true, tl!("Searchable Image (Exact)"))
-                    .on_hover_text(tl!("Adds invisible text over each word; the page image is not changed"));
+                    .on_hover_paragraph(tl!("Adds invisible text over each word; the page image is not changed"));
             });
             ui.end_row();
             ui.label(tl!("Downsample to"));
@@ -121,7 +122,7 @@ pub(crate) fn body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> (boo
         });
         ui.add_space(4.0);
         ui.add(crate::widgets::checkbox(&mut d.text_pages, tl!("Also recognize pages that already have text")))
-            .on_hover_text(tl!("Pictures on those pages are recognized too; words already in the page's text are not added again"));
+            .on_hover_paragraph(tl!("Pictures on those pages are recognized too; words already in the page's text are not added again"));
     });
     if !available {
         ui.label(

@@ -8,6 +8,7 @@ use pdfcraft_cos::ObjRef;
 use pdfcraft_engine::a11y::{TagContentItem, TagInfo, TagPlacement, TagProperty};
 use pdfcraft_engine::{DocId, Edit};
 
+use crate::widgets::HoverParagraph as _;
 use crate::{icons, theme::Tokens, widgets};
 
 #[derive(Clone, Debug, Default)]
@@ -223,7 +224,7 @@ pub(crate) fn panel(
         later = ui.add_enabled(can_edit && !dirty && after.is_some(), egui::Button::new(tl!("Move tag later"))).clicked();
         artifact = ui
             .add_enabled(can_edit && !dirty, egui::Button::new(tl!("Mark as artifact")))
-            .on_hover_text(tl!("Remove this leaf tag from reading order and mark its direct content as an artifact"))
+            .on_hover_paragraph(tl!("Remove this leaf tag from reading order and mark its direct content as an artifact"))
             .clicked();
     });
     ui.separator();
