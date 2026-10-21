@@ -526,8 +526,9 @@ impl TextDevice {
     /// search) covers everything it replaces and no other searchable text (drawings, glyphs
     /// without Unicode or ones a filter excludes between them may fall inside its box).
     /// Otherwise each sequence keeps its own glyphs' text, as a marked-content replacement over
-    /// several lines does: an element over several lines, or around other text, is read as drawn. Its sequences' own nested
-    /// /ActualText, suppressed while the element's replacement was open, isn't recovered then.
+    /// several lines does: an element over several lines, or around other text, is read as
+    /// drawn. Its sequences' own nested /ActualText, suppressed while the element's replacement
+    /// was open, isn't recovered then.
     fn place_held(&mut self) {
         let held = std::mem::take(&mut self.held);
         self.held_index.clear();
@@ -587,6 +588,8 @@ impl TextDevice {
         self.replaced.extend(placed_replacements);
     }
 
+    /// Appends `item` to the page: its own glyphs, or the replacement glyph (when there is one)
+    /// with the text it gives and the glyphs it stands for.
     fn place(&mut self, item: Placed) {
         match item {
             Placed::Own(drawn) => self.glyphs.extend(drawn),
