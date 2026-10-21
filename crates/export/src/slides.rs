@@ -4,7 +4,7 @@
 //! body text, for a deck to rework).
 
 use crate::pptx::{MAX_ITEM_EMU, emu, package, run_drawingml, slide_rels, slide_xml};
-use crate::{Block, Image, Page, Shape, hex};
+use crate::{Block, Image, Page, Shape, esc, hex};
 
 /// Points along an axis to EMU, clamped to `±MAX_ITEM_EMU` (NaN reads as 0).
 fn pos(pt: f64) -> i64 {
@@ -116,8 +116,11 @@ fn text_box(id: usize, b: &Block, page_h: f64, ink: Ink) -> String {
     format!(
         "<p:sp><p:nvSpPr><p:cNvPr id=\"{id}\" name=\"TextBox {id}\"/><p:cNvSpPr txBox=\"1\"/><p:nvPr/></p:nvSpPr>\
 <p:spPr>{}<a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom><a:noFill/></p:spPr>\
-<p:txBody><a:bodyPr wrap=\"square\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/>{}</p:txBody></p:sp>",
+<p:txBody><a:bodyPr wrap=\"{}\" lIns=\"0\" tIns=\"0\" rIns=\"0\" bIns=\"0\" rtlCol=\"0\" anchor=\"t\"><a:noAutofit/></a:bodyPr><a:lstStyle/>{}</p:txBody></p:sp>",
         xfrm(pos(left), pos(page_h - top), len(w), len(h), turned),
+        // Lines the page drew stay as drawn: a font that sets wider than the PDF's must not wrap
+        // them onto the box below. Only a paragraph given without its lines may rewrap.
+        if b.lines <= 1 || b.rows.len() >= 2 { "none" } else { "square" },
         paragraphs(b, ink)
     )
 }
@@ -152,6 +155,22 @@ fn paragraphs(b: &Block, ink: Ink) -> String {
 }
 
 fn run(b: &Block, text: &str, ink: Ink) -> String {
+    with_font(&styled_run(b, text, ink), &b.font)
+}
+
+/// `run` set in `font` (when it is known), after its fill as DrawingML orders run properties.
+fn with_font(run: &str, font: &str) -> String {
+    let font = font.trim();
+    match run.find("</a:rPr>") {
+        Some(at) if !font.is_empty() => {
+            let f = esc(font);
+            format!("{}<a:latin typeface=\"{f}\"/><a:cs typeface=\"{f}\"/>{}", &run[..at], &run[at..])
+        }
+        _ => run.to_string(),
+    }
+}
+
+fn styled_run(b: &Block, text: &str, ink: Ink) -> String {
     match ink {
         Ink::Own => run_drawingml(text, b.size, b.bold, b.italic, b.color),
         Ink::Outlines(c) => run_drawingml(text, b.size, b.bold, b.italic, c),
@@ -355,6 +374,21 @@ mod tests {
         p.blocks = vec![Block { indent: 24.0, lines: 3, ..block("A paragraph of three lines", [72.0, 300.0, 400.0, 345.0], 12.0) }];
         let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
         assert!(slide.contains(&format!("<a:pPr indent=\"{}\"/>", 24 * EMU)), "{slide}");
+    }
+
+    #[test]
+    fn text_boxes_keep_their_lines_and_font() {
+        // Drawn lines never rewrap in a font that sets wider than the PDF's, and the family is named.
+        let mut p = page();
+        p.blocks = vec![Block { font: "Times New Roman".into(), ..block("Kaan Doğan", [72.0, 700.0, 180.0, 724.0], 24.0) }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert!(slide.contains("wrap=\"none\""), "{slide}");
+        assert!(slide.contains("<a:latin typeface=\"Times New Roman\"/>"), "{slide}");
+        // A paragraph the page wrapped, given as one block without its lines, may wrap again.
+        let mut p = page();
+        p.blocks = vec![Block { lines: 3, ..block("A paragraph the page set over three lines", [72.0, 300.0, 200.0, 345.0], 12.0) }];
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert!(slide.contains("wrap=\"square\""), "{slide}");
     }
 
     #[test]
