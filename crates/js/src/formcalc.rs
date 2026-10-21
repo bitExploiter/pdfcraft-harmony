@@ -1852,6 +1852,8 @@ fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
         .map_or(0, |date| i64::from(date.num_days_from_ce() - FORMCALC_EPOCH_FROM_CE))
 }
 
+/// The civil date (year, month, day) at FormCalc day number `n` (day 1 is 1900-01-01); an
+/// out-of-range count reads as 1900-01-01.
 fn civil_from_days(n: i64) -> (i64, u32, u32) {
     use chrono::Datelike;
     // `num2date`/`format` clamp `n` to `MAX_DAYS`, so the rebased count fits chrono's range.
@@ -1924,9 +1926,11 @@ fn parse_date(text: &str, picture: &str) -> Option<(i64, u32, u32)> {
 /// Number of days in month `m` (1-12) of year `y`, leap years included.
 fn days_in(y: i64, m: u32) -> u32 {
     // The length of the month from chrono (the first of the next month, less the first of this
-    // one). An out-of-range month or year keeps the old 31-day default.
+    // one). An out-of-range month or year keeps the old 31-day default. `y + 1` is checked so a
+    // crafted picture that parses a near-`i64::MAX` year can't overflow it.
     let first = |y: i64, m: u32| i32::try_from(y).ok().and_then(|y| chrono::NaiveDate::from_ymd_opt(y, m, 1));
-    match (first(y, m), if m == 12 { first(y + 1, 1) } else { first(y, m + 1) }) {
+    let next = if m == 12 { y.checked_add(1).and_then(|next| first(next, 1)) } else { first(y, m + 1) };
+    match (first(y, m), next) {
         (Some(a), Some(b)) => (b - a).num_days() as u32,
         _ => 31,
     }

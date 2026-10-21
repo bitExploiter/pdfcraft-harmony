@@ -578,8 +578,11 @@ fn ensure_id(trailer: &mut Dict, opts: &SaveOptions, content: &[u8]) {
 
 /// A PDF date string for "now" given seconds since the Unix epoch (UTC).
 pub fn pdf_date(unix_secs: i64) -> String {
+    use chrono::Datelike;
     let t = chrono::DateTime::from_timestamp(unix_secs, 0).unwrap_or_default();
-    t.format("D:%Y%m%d%H%M%SZ").to_string()
+    // `{:04}` rather than `%Y`, which writes a `+` before years past 9999 (and a PDF date is a
+    // bare four-plus-digit year, never signed).
+    format!("D:{:04}{}", t.year(), t.format("%m%d%H%M%SZ"))
 }
 
 #[cfg(test)]
@@ -655,6 +658,8 @@ mod tests {
         assert_eq!(pdf_date(1_767_225_599), "D:20251231235959Z");
         // Before the epoch (seconds into a day are counted forward from midnight UTC).
         assert_eq!(pdf_date(-1), "D:19691231235959Z");
+        // Years past 9999 keep the plain zero-padded year (no `+`), as the hand-rolled code did.
+        assert_eq!(pdf_date(253_402_300_800), "D:100000101000000Z");
     }
 
     #[test]

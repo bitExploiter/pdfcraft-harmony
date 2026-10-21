@@ -290,7 +290,9 @@ fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &st
                         .strong(),
                     );
                     if ui.small_button("›").on_hover_text(tl!("Next month")).clicked() {
-                        (y, m) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+                        // `y + 1` would overflow at `i32::MAX` (a date parsed or persisted with
+                        // that year); stay put on December of the last year instead of panicking.
+                        (y, m) = if m == 12 { y.checked_add(1).map_or((y, m), |next| (next, 1)) } else { (y, m + 1) };
                     }
                 });
                 // Weekday of the 1st (0 = Sunday), Zeller-style via days since 1970-01-01 (a Thursday).
@@ -300,7 +302,10 @@ fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &st
                 // 31-day month starting on Sunday, which only the arrows can reach.
                 let first_of = |y: i32, m: u32| chrono::NaiveDate::from_ymd_opt(y, m, 1);
                 let first = first_of(y, m).map_or(0, |d| d.weekday().num_days_from_sunday() as usize);
-                let len = match (first_of(y, m), first_of(if m == 12 { y + 1 } else { y }, if m == 12 { 1 } else { m + 1 })) {
+                // `y + 1` for December would overflow at `i32::MAX`; a year chrono can't represent
+                // (or that overflows here) falls back to the plain 31-day month.
+                let next_y = if m == 12 { y.checked_add(1) } else { Some(y) };
+                let len = match (first_of(y, m), next_y.and_then(|next| first_of(next, if m == 12 { 1 } else { m + 1 }))) {
                     (Some(a), Some(b)) => (b - a).num_days() as usize,
                     _ => 31,
                 };

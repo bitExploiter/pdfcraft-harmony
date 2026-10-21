@@ -75,8 +75,11 @@ impl Stamp {
     }
 
     pub fn from_unix(secs: i64) -> Self {
+        use chrono::Datelike;
         let t = chrono::DateTime::from_timestamp(secs, 0).unwrap_or_default();
-        Stamp { unix: secs, pdf: t.format("D:%Y%m%d%H%M%SZ").to_string(), iso: t.format("%Y-%m-%dT%H:%M:%SZ").to_string() }
+        // `{:04}` rather than `%Y`, which writes a `+` before years past 9999.
+        let (y, rest) = (t.year(), t.format("%m%d%H%M%SZ").to_string());
+        Stamp { unix: secs, pdf: format!("D:{y:04}{rest}"), iso: format!("{:04}-{}", y, t.format("%m-%dT%H:%M:%SZ")) }
     }
 
     /// The same moment shifted by `minutes` (used to order threaded replies).
@@ -417,6 +420,9 @@ mod tests {
         assert_eq!(s.iso, "2026-09-21T14:13:20Z");
         assert_eq!(s.plus_minutes(0).pdf, s.pdf);
         assert_eq!(s.plus_minutes(60 * 24).iso, "2026-09-22T14:13:20Z");
+        // Years past 9999 keep the plain zero-padded year (no `+`).
+        assert_eq!(Stamp::from_unix(253_402_300_800).iso, "10000-01-01T00:00:00Z");
+        assert_eq!(Stamp::from_unix(253_402_300_800).pdf, "D:100000101000000Z");
     }
 
     #[test]

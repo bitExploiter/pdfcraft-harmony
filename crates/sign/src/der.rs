@@ -341,6 +341,7 @@ impl Time {
         days * 86_400 + self.hour as i64 * 3600 + self.minute as i64 * 60 + self.second as i64
     }
 
+    /// The UTC time at `t` seconds since 1970-01-01; a `t` outside chrono's range reads as the epoch.
     pub fn from_unix(t: i64) -> Time {
         let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default();
         use chrono::{Datelike, Timelike};

@@ -1861,10 +1861,13 @@ pub(crate) fn ago(time: SystemTime) -> String {
     }
 }
 
-/// `time` as "2026-10-08 14:05 UTC".
+/// `time` as "2026-10-08 14:05 UTC". A clock before 1970, or past chrono's range, reads as the epoch.
 fn utc_stamp(time: SystemTime) -> String {
-    let t = time.max(SystemTime::UNIX_EPOCH);
-    format!("{} UTC", chrono::DateTime::<chrono::Utc>::from(t).format("%Y-%m-%d %H:%M"))
+    use chrono::Datelike;
+    let since = time.duration_since(SystemTime::UNIX_EPOCH).unwrap_or_default();
+    let t = i64::try_from(since.as_secs()).ok().and_then(|s| chrono::DateTime::from_timestamp(s, 0)).unwrap_or_default();
+    // `{:04}` rather than `%Y`, which writes a `+` before years past 9999.
+    format!("{:04}-{} UTC", t.year(), t.format("%m-%d %H:%M"))
 }
 
 impl PdfCraftApp {
@@ -2594,6 +2597,10 @@ mod tests {
         assert_eq!(at(951_782_400), "2000-02-29 00:00 UTC");
         // A clock before 1970 reads as the epoch, as the old `unwrap_or(0)` did.
         assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH - Duration::from_secs(5)), "1970-01-01 00:00 UTC");
+        // Past chrono's range reads as the epoch instead of panicking.
+        assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH + Duration::from_secs(u64::MAX / 2)), "1970-01-01 00:00 UTC");
+        // Years past 9999 keep the plain zero-padded year (no `+`).
+        assert_eq!(at(253_402_300_800), "10000-01-01 00:00 UTC");
     }
 
     /// A one-page PDF that opens with "pw".
