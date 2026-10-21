@@ -5,6 +5,12 @@ licence files unchanged. Every patch is marked `PdfCraft patch:` in the source, 
 PdfCraft test, and should be proposed upstream. Remove the vendored copy once upstream releases
 the fix. Vendoring copyleft code is never allowed (plan/adr/0001).
 
+`hayro-syntax::content::UntypedIter::next` accepts a PDF delimiter as well as whitespace after an
+inline image's `EI` (#3578), using the existing regular-character table. Candidate look-ahead,
+window completion and resource limits are unchanged. The synthetic workspace regression suite
+is `crates/render/tests/inline_image_ei_delimiter.rs`; execution is pending CI (no local Rust
+commands were run for this patch).
+
 A PdfCraft patch in `hayro-syntax::Page::base_dimensions` expresses the existing one-point floor as a raw reciprocal of `/UserUnit`, rounded upward only when f32 multiplication would fall below one point. Five `pdfcraft-render` regressions with prefix `raster::tests::raw_crop_` cover the observed dimensions, origins and rotations, units 41/47, bounded vector rasters and unchanged nearly-zero A4 fallback. Accepted page-unit policy and licences are unchanged.
 
 In `hayro-interpret`, Type 3 glyph bounding boxes are transformed to device space before intersecting clip and shading bounds; `raster::tests::shaded_type3_glyph_draws_at_multiple_positions` covers translated glyphs (#3178).

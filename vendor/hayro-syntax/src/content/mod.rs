@@ -40,7 +40,7 @@ use crate::object::name::{Name, skip_name_like};
 use crate::object::{Array, Null, Number, Object, Stream};
 use crate::reader::Reader;
 use crate::reader::{Readable, ReaderContext, ReaderExt, Skippable};
-use crate::trivia::{Comment, is_white_space_character};
+use crate::trivia::{Comment, is_regular_character, is_white_space_character};
 use crate::util::find_needle;
 use core::array;
 use core::fmt::{Debug, Formatter};
@@ -246,11 +246,12 @@ impl<'a> UntypedIter<'a> {
                         self.reader.read_bytes(pos)?;
 
                         if self.reader.peek_bytes(2) == Some(b"EI") {
-                            // If the following character is not a whitespace character, then we are in a ASCII-85 stream.
+                            // PdfCraft patch: whitespace and delimiters both end the EI token.
+                            // A regular character (as in EIQ) still makes it part of the image data.
                             if self
                                 .reader
                                 .peek_bytes(3)
-                                .is_some_and(|b| !is_white_space_character(b[2]))
+                                .is_some_and(|b| is_regular_character(b[2]))
                             {
                                 self.reader.read_bytes(3)?;
 
@@ -929,7 +930,7 @@ mod tests {
 
     /// Content whose instructions are hard to read in pieces: inline images with `EI` in their
     /// data or right after it, unterminated tokens, and operands that are too many or invalid.
-    const WINDOWED_CORPUS: [&[u8]; 14] = [
+    const WINDOWED_CORPUS: [&[u8]; 18] = [
         b"% comment\n1 -2.5 /Name /A#20B (a\\(b\\) \\101) <4869> [1 2] << /Key (value) >> [(a) 1] TJ BI /W 1 /H 1 /BPC 8 /CS /DeviceGray ID \x00 EI q Q",
         b"BT /F1 12 Tf 10 20 Td [(Hel) -250 (lo)] TJ (x) Tj ET",
         b"q 1 0 0 1 0 0 cm BI /W 2 /H 2 /BPC 8 /CS /G ID \x00\x01EI\x00 EI Q 0 0 m 1 1 l S",
@@ -944,6 +945,10 @@ mod tests {
         b"[1 [2 [3]]] 0 d q Q",
         b"/Lbl BDC EMC 1 w",
         b"<</A 1>> BDC BI /W 1 /H 1 /BPC 8 /CS /G ID \x07 EI (end) Tj",
+        b"BI /W 1 /H 1 /BPC 8 /CS /G ID \x80 EI%comment\nBT (AFTER) Tj ET",
+        b"BI /W 1 /H 1 /BPC 8 /CS /G ID \x80 EI[] 0 d BT (AFTER) Tj ET",
+        b"BI /W 6 /H 1 /BPC 8 /CS /G /F /A85 ID EI[]!!!!~> EI%comment\nBT (AFTER) Tj ET",
+        b"BI /W 1 /H 1 /BPC 8 /CS /G ID \x80 EI",
     ];
 
     #[test]
