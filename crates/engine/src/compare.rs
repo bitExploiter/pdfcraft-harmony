@@ -176,7 +176,13 @@ impl crate::Document {
     /// ([`OfficeExport::truncated_pages`]).
     fn export_pages_checked(&self) -> (Vec<pdfcraft_export::Page>, Vec<usize>) {
         let Some(cos) = self.editor.as_ref().map(|e| &e.cos) else { return (Vec::new(), Vec::new()) };
-        pdfcraft_office::pages(cos, &self.info.pages, None)
+        let boxes: Vec<pdfcraft_office::PageBox> = self
+            .info
+            .pages
+            .iter()
+            .map(|p| pdfcraft_office::PageBox { width: p.width, height: p.height, crop: p.crop, rotation: p.rotation })
+            .collect();
+        pdfcraft_office::pages(cos, &boxes, None)
     }
 
     /// The document as a Word, PowerPoint, HTML or RTF file.

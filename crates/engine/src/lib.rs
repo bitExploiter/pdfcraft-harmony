@@ -2783,7 +2783,10 @@ fn keys_after(edit: &Edit) -> Option<Keys> {
 /// PDFDocEncoding can't hold, such as "şifre") stay UTF-8, and other bytes are read as
 /// PDFDocEncoding, so either way the renderer gets back exactly these bytes.
 fn renderer_password(bytes: &[u8]) -> String {
-    pdfcraft_office::renderer_password(bytes)
+    match std::str::from_utf8(bytes) {
+        Ok(text) => text.to_owned(),
+        Err(_) => bytes.iter().map(|b| pdfcraft_cos::pdfdoc_char(*b)).collect(),
+    }
 }
 
 /// The last-resort guard (AGENTS.md §4): run `f`, turning a panic that escapes it into an error

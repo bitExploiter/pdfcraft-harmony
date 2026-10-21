@@ -4231,7 +4231,7 @@ dependencies = [
  "pdfcraft-create",
  "pdfcraft-edit",
  "pdfcraft-export",
- "pdfcraft-render",
+ "pdfcraft-model",
  "pdfcraft-testkit",
  "thiserror 2.0.21",
 ]

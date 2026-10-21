@@ -3,7 +3,7 @@
 PDF ▸ Word (.docx), PowerPoint (.pptx), HTML or RTF, as a library: the way the other Craft apps
 open a PDF. WordCraft reads the .docx it returns, DeckCraft the .pptx (one slide per page).
 
-- **Layer:** L5. Depends on `cos`, `render` (page sizes and passwords), `edit` (reading-order
+- **Layer:** L5. Depends on `cos`, `model` (page geometry), `edit` (reading-order
   paragraphs and images), `create` (image files) and `export` (the writers). No UI, wasm-clean.
 - **One reduction.** [`pages`] is what PdfCraft's own Export a PDF uses
   (`Document::export_office_checked`), so the apps that open PDFs and PdfCraft's export cannot

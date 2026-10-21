@@ -12,7 +12,7 @@ workspace = true
 
 [dependencies]
 pdfcraft-cos = { workspace = true }
-pdfcraft-render = { workspace = true }
+pdfcraft-model = { workspace = true }
 pdfcraft-edit = { workspace = true }
 pdfcraft-create = { workspace = true }
 pdfcraft-export = { workspace = true }

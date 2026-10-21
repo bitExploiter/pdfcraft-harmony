@@ -9,8 +9,6 @@
 
 use std::sync::Arc;
 
-use pdfcraft_render::PageInfo;
-
 /// Biggest file [`convert`] reads (512 MiB). Larger ones are refused before anything is parsed.
 pub const MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
 
@@ -103,11 +101,59 @@ pub fn parse_page_range(text: &str, count: usize) -> Result<Vec<usize>, Error> {
     Ok(out)
 }
 
+/// A page's displayed geometry: what [`pages`] needs to put reading-order content on the page as
+/// shown.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PageBox {
+    /// Displayed size in points, after `/Rotate` and `/UserUnit`.
+    pub width: f32,
+    pub height: f32,
+    /// Effective crop box in user space `[x0, y0, x1, y1]` (the visible region).
+    pub crop: [f32; 4],
+    /// Clockwise page rotation in degrees (0, 90, 180, 270).
+    pub rotation: u16,
+}
+
+impl PageBox {
+    /// PDF user space → view space (points, y down, after `/Rotate`).
+    pub fn user_to_view(&self, x: f32, y: f32) -> [f32; 2] {
+        let [cx0, cy0, cx1, cy1] = self.crop;
+        let (u, v) = ((x - cx0) / (cx1 - cx0).max(1e-3), (cy1 - y) / (cy1 - cy0).max(1e-3));
+        let (a, b) = match self.rotation {
+            90 => (1.0 - v, u),
+            180 => (1.0 - u, 1.0 - v),
+            270 => (v, 1.0 - u),
+            _ => (u, v),
+        };
+        [a * self.width, b * self.height]
+    }
+}
+
+/// Every page's [`PageBox`], from the page tree. A degenerate box gets a Letter-sized placeholder
+/// so layout never divides by zero.
+pub fn page_boxes(cos: &pdfcraft_cos::Document) -> Vec<PageBox> {
+    pdfcraft_model::pages(cos)
+        .iter()
+        .map(|p| {
+            let c = p.crop(cos);
+            let (w, h) = p.display_size(cos);
+            let (w, h) = if w.is_finite() && h.is_finite() && w >= 1.0 && h >= 1.0 { (w as f32, h as f32) } else { (612.0, 792.0) };
+            let rotation = match p.rotation(cos) {
+                90 => 90,
+                180 => 180,
+                270 => 270,
+                _ => 0,
+            };
+            PageBox { width: w, height: h, crop: [c[0] as f32, c[1] as f32, c[2] as f32, c[3] as f32], rotation }
+        })
+        .collect()
+}
+
 /// The pages of `cos` (`only`: these 0-based indices, in this order) as paragraphs and images in
 /// display space (points, y up, after `/Rotate` and `/UserUnit`), including what form XObjects
-/// draw, and the pages whose forms were left partly unread. `info` is the renderer's page list
-/// for the same document.
-pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageInfo], only: Option<&[usize]>) -> (Vec<pdfcraft_export::Page>, Vec<usize>) {
+/// draw, and the pages whose forms were left partly unread. `info` is the document's page
+/// geometry ([`page_boxes`], or the renderer's own in PdfCraft).
+pub fn pages(cos: &pdfcraft_cos::Document, info: &[PageBox], only: Option<&[usize]>) -> (Vec<pdfcraft_export::Page>, Vec<usize>) {
     let all: Vec<usize> = (0..info.len()).collect();
     let mut truncated = Vec::new();
     let pages = only
@@ -196,44 +242,30 @@ pub fn convert(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted
 fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted, Error> {
     let data = Arc::new(bytes.to_vec());
     let password = opts.password.as_deref();
-    let cos = pdfcraft_cos::Document::open_with_password(data.clone(), password);
-    // The renderer authenticates on its own and cannot use the owner password of R2–R4 files:
-    // give it the user password that owner authentication recovers (as the engine does).
-    let info = match pdfcraft_render::inspect(data.clone(), password) {
-        Err(pdfcraft_render::OpenError::WrongPassword) => {
-            let user = cos.as_ref().ok().and_then(|d| d.security()).and_then(|s| s.recovered_user_password()).ok_or(Error::WrongPassword)?;
-            pdfcraft_render::inspect(data, Some(&renderer_password(&user))).map_err(open_error)?
-        }
-        other => other.map_err(open_error)?,
-    };
-    let cos = cos.map_err(|e| Error::Damaged(e.to_string()))?;
-    let page_count = info.pages.len();
+    let cos = pdfcraft_cos::Document::open_with_password(data, password).map_err(|e| match e {
+        pdfcraft_cos::CosError::NeedsPassword => Error::NeedsPassword,
+        pdfcraft_cos::CosError::WrongPassword => Error::WrongPassword,
+        other => Error::Damaged(other.to_string()),
+    })?;
+    let boxes = page_boxes(&cos);
+    let page_count = boxes.len();
     if let Some(only) = &opts.pages
         && let Some(missing) = only.iter().find(|&&p| p >= page_count)
     {
         return Err(Error::BadPageRange(format!("page {} isn't in this PDF (pages 1–{page_count})", missing.saturating_add(1))));
     }
-    let (pages, truncated_pages) = pages(&cos, &info.pages, opts.pages.as_deref());
+    let (pages, truncated_pages) = pages(&cos, &boxes, opts.pages.as_deref());
     let indices: Vec<usize> = opts.pages.clone().unwrap_or_else(|| (0..page_count).collect());
     let image_only_pages = pages.iter().zip(&indices).filter(|(p, _)| p.blocks.is_empty() && !p.images.is_empty()).map(|(_, &i)| i).collect();
-    let title = opts.title.clone().or_else(|| info.title.clone()).unwrap_or_default();
+    let title = opts.title.clone().or_else(|| info_title(&cos)).unwrap_or_default();
     Ok(Converted { bytes: write(&pages, target, &title), page_count, truncated_pages, image_only_pages })
 }
 
-/// A recovered user password as the renderer takes it: UTF-8 when it is, else PDFDocEncoding.
-pub fn renderer_password(bytes: &[u8]) -> String {
-    match std::str::from_utf8(bytes) {
-        Ok(text) => text.to_owned(),
-        Err(_) => bytes.iter().map(|b| pdfcraft_cos::pdfdoc_char(*b)).collect(),
-    }
-}
-
-fn open_error(e: pdfcraft_render::OpenError) -> Error {
-    match e {
-        pdfcraft_render::OpenError::NeedsPassword => Error::NeedsPassword,
-        pdfcraft_render::OpenError::WrongPassword => Error::WrongPassword,
-        other => Error::Damaged(other.to_string()),
-    }
+/// The document's `/Info` `/Title`, when it has a non-empty one.
+fn info_title(cos: &pdfcraft_cos::Document) -> Option<String> {
+    let info = cos.resolve(cos.trailer().get(b"Info")?);
+    let title = cos.resolve(info.as_dict()?.get(b"Title")?);
+    Some(title.as_string()?.to_text()).filter(|t| !t.trim().is_empty())
 }
 
 #[cfg(test)]
