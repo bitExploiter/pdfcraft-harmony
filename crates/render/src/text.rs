@@ -1043,6 +1043,11 @@ fn union_find(parent: &mut [usize], mut r: usize) -> usize {
     r
 }
 
+/// A 64-bit FNV-1a hash of one glyph text.
+fn text_hash(text: &str) -> u64 {
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3))
+}
+
 /// A 64-bit fingerprint of a run's glyph texts. Each text is hashed with its length, so ["ab", "c"] and
 /// ["a", "bc"] differ. Equal fingerprints are only candidates: `redraws` decides.
 fn fingerprint(glyphs: &[&TextGlyph], run: Run) -> u64 {
@@ -1422,17 +1427,36 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
     // also overlaps most of its own width: a narrow letter in condensed text (80 Tz and below) sits
     // closer than a fifth of its height to its double, as the second "l" of "Alle" (#1467).
     let mut keep = vec![true; glyphs.len()];
-    for i in 1..glyphs.len() {
+    // The twin is usually among the last few glyphs. A page drawn once per column clip also redraws the glyph on the clip
+    // edge thousands of glyphs later: the last glyph of one run is the first of another (#3173). So a glyph that starts a
+    // run is also checked against the latest kept glyph of its text and grid cell (a fifth of a line) and its neighbours,
+    // if that one ends a run. A glyph inside a run stays for the redraw check on whole runs below, which keeps a run
+    // that only starts like an earlier one.
+    let follows = |p: usize, q: usize| {
+        let (a, b) = (&glyphs[p].rect, &glyphs[q].rect);
+        let ph = (a[3] - a[1]).max(0.1).min((b[3] - b[1]).max(0.1));
+        ((a[1] + a[3]) / 2.0 - (b[1] + b[3]) / 2.0).abs() < ph * 0.5 && b[0] - a[2] < ph * 3.0 && b[0] > a[0] - ph * 2.0
+    };
+    let mut latest: HashMap<(u64, i32, i32), usize> = HashMap::new();
+    for i in 0..glyphs.len() {
         let g = &glyphs[i];
         let h = (g.rect[3] - g.rect[1]).max(0.1);
         let w = g.rect[2] - g.rect[0];
         let dx = if w > 0.05 * h { (h * 0.2).min(w * 0.5) } else { h * 0.2 };
-        for j in (i.saturating_sub(4)..i).rev() {
+        let same = |j: usize| {
             let p = &glyphs[j];
-            if keep[j] && p.text == g.text && (p.rect[0] - g.rect[0]).abs() < dx && (p.rect[1] - g.rect[1]).abs() < h * 0.2 {
-                keep[i] = false;
-                break;
-            }
+            keep[j] && p.text == g.text && (p.rect[0] - g.rect[0]).abs() < dx && (p.rect[1] - g.rect[1]).abs() < h * 0.2
+        };
+        let (fp, cx, cy_) = (text_hash(&g.text), (g.rect[0] / (0.2 * h)).floor() as i32, (g.rect[1] / (0.2 * h)).floor() as i32);
+        let key = |ox: i32, oy: i32| (fp, cx.saturating_add(ox), cy_.saturating_add(oy));
+        let ends_run = |j: usize| j + 1 >= glyphs.len() || !follows(j, j + 1);
+        let starts_run = i == 0 || !follows(i - 1, i);
+        let far = |ox: i32, oy: i32| latest.get(&key(ox, oy)).is_some_and(|&j| same(j) && ends_run(j));
+        let twin = (i.saturating_sub(4)..i).rev().any(&same) || (starts_run && (-1..=1i32).any(|ox| (-1..=1i32).any(|oy| far(ox, oy))));
+        if twin {
+            keep[i] = false;
+        } else {
+            latest.insert((fp, cx, cy_), i);
         }
     }
     let kept: Vec<usize> = (0..glyphs.len()).filter(|i| keep[*i]).collect();
@@ -2173,6 +2197,27 @@ mod tests {
             let bold: Vec<TextGlyph> = v.iter().flat_map(|c| [c.clone(), g(&c.text, c.rect[0] + 0.2, 10.0, c.rect[2] + 0.2)]).collect();
             assert_eq!(layout(bold).plain_text(), "Alle", "fake bold at {scale} horizontal scaling");
         }
+    }
+
+    /// #3173: a page drawn once per column clip draws a glyph on the clip edge in both passes, far apart in drawing order.
+    #[test]
+    fn a_glyph_redrawn_by_the_other_column_pass_is_dropped() {
+        let mut v = Vec::new();
+        word(&mut v, "WO", 10.0, 10.0, 6.0);
+        v.push(g("R", 22.0, 10.0, 28.0));
+        word(&mut v, "illu", 10.0, 30.0, 6.0);
+        v.push(g("s", 34.0, 30.0, 40.0));
+        // The other pass: lots of other text, then the same glyphs at (almost) the same place and the rest of each word.
+        for k in 0..50 {
+            word(&mut v, "xx", 100.0, 40.0 + 14.0 * k as f32, 6.0);
+        }
+        v.push(g("R", 22.0, 10.0, 28.0));
+        word(&mut v, "LD", 28.0, 10.0, 6.0);
+        v.push(g("s", 33.99, 30.0, 39.99));
+        word(&mut v, "trated", 40.0, 30.0, 6.0);
+        let text = layout(v).plain_text();
+        assert!(text.lines().any(|l| l == "WORLD"), "{text}");
+        assert!(text.lines().any(|l| l == "illustrated"), "{text}");
     }
 
     #[test]
