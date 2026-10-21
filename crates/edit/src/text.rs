@@ -581,6 +581,39 @@ pub(crate) fn splice(pieces: &Pieces, ops: &[Op], mut edit: impl FnMut(usize) ->
     pieces.splice(edits)
 }
 
+/// Splice rewritten paragraph `block_ops` at `at` while replacing `partial_patches` in place
+/// and dropping `drop` operators. When `split` is `true`, sibling operators at `at` are emitted
+/// before the closing `ET` in `block_ops`.
+pub(crate) fn splice_rewrite(
+    pieces: &Pieces,
+    ops: &[Op],
+    drop: &std::collections::HashSet<usize>,
+    mut partial_patches: HashMap<usize, Op>,
+    at: usize,
+    split: bool,
+    mut block_ops: Vec<Op>,
+) -> Vec<Vec<u8>> {
+    splice(pieces, ops, |i| {
+        let mut insert = Vec::new();
+        let keep = if let Some(patched) = partial_patches.remove(&i) {
+            insert.push(patched);
+            false
+        } else {
+            !drop.contains(&i)
+        };
+        if i == at {
+            if split {
+                insert.extend(std::mem::take(&mut block_ops));
+            } else {
+                let mut b = std::mem::take(&mut block_ops);
+                b.extend(insert);
+                insert = b;
+            }
+        }
+        (insert, keep)
+    })
+}
+
 /// The page's `/Contents` after a [`splice`]: pieces whose bytes changed become new streams
 /// (keeping their dictionaries), the others stay as they were.
 pub(crate) fn rewritten_contents(doc: &mut Document, streams: &[(Object, Vec<u8>)], new: Vec<Vec<u8>>) -> Object {
@@ -690,6 +723,7 @@ impl Shown {
         (dir, start, to_frame(dir, (self.end_x, self.end_y)).0, across)
     }
 
+    /// The `TJ` operand slice and equivalent thousandths-of-an-em adjustment for this segment.
     fn tj_slice(&self) -> Option<TjSlice> {
         let range = self.slice.clone()?;
         let denom = self.state.size * self.state.scale;
@@ -698,6 +732,7 @@ impl Shown {
     }
 }
 
+/// Whether `line` owns the interpreted run `s` (matching its `TJ` operand slice when segmented).
 fn line_owns_shown(line: &TextLine, s: &Shown) -> bool {
     if line.slices.iter().any(|ts| ts.op == s.op) {
         s.slice.as_ref().is_some_and(|slice| line.slices.iter().any(|ts| ts.op == s.op && ts.range == *slice))
@@ -706,6 +741,7 @@ fn line_owns_shown(line: &TextLine, s: &Shown) -> bool {
     }
 }
 
+/// Rewrite a subrange of a `TJ` operand array by replacing each matched slice with its advance adjustment.
 fn patch_tj_subarray(pieces: &[Object], range: std::ops::Range<usize>, slices: &[&TjSlice]) -> Vec<Object> {
     let mut out = Vec::new();
     let mut idx = range.start;
@@ -721,6 +757,7 @@ fn patch_tj_subarray(pieces: &[Object], range: std::ops::Range<usize>, slices: &
     out
 }
 
+/// Patch a `TJ` operator in place by replacing `slices` with numeric advance adjustments.
 fn patch_tj_slices(op: &Op, slices: &[&TjSlice]) -> Option<Op> {
     if !op.is("TJ") || slices.is_empty() {
         return None;
@@ -791,14 +828,20 @@ fn tj_tracking(pieces: &[Object], metrics: &Metrics, size: f64, scale: f64) -> f
     typical_tracking(&mut gaps, size * scale.abs() * 0.5)
 }
 
+/// Horizontal advance of a single encoded glyph in text space (`((w0 * Tfs + Tc + Tw) * Th)`).
+fn glyph_advance(m: &Metrics, code: u32, len: usize, ts: &Ts) -> f64 {
+    let w = m.width(code) * ts.size + ts.char_spacing + if m.is_space(code, len) { ts.word_spacing } else { 0.0 };
+    w * ts.scale
+}
+
+/// Total horizontal advance of a slice of `TJ` or `Tj` operands in text space.
 fn pieces_advance(pieces: &[Object], m: &Metrics, ts: &Ts) -> f64 {
     let mut x = 0.0;
     for p in pieces {
         match p {
             Object::String(s) => {
                 for (code, len) in m.codes(&s.bytes) {
-                    let w = m.width(code) * ts.size + ts.char_spacing + if m.is_space(code, len) { ts.word_spacing } else { 0.0 };
-                    x += w * ts.scale;
+                    x += glyph_advance(m, code, len, ts);
                 }
             }
             other => {
@@ -811,13 +854,24 @@ fn pieces_advance(pieces: &[Object], m: &Metrics, ts: &Ts) -> f64 {
     x
 }
 
+/// Reach in font-size `em`s beyond which an intra-`BT` horizontal gap starts a new cell.
+fn column_reach(ts: &Ts) -> f64 {
+    if ts.render_mode == 3 { 0.6 } else { 3.0 }
+}
+
+/// Whether a `TJ` gap `dx` (already scaled by `ts.size * ts.scale`) exceeds the intra-`BT`
+/// line-join threshold of [`Pen::continues`].
+fn is_column_jump(dx: f64, tracking: f64, ts: &Ts) -> bool {
+    let em = ts.size.abs();
+    let step = dx * (ts.size * ts.scale).signum();
+    em.is_finite() && ts.scale.is_finite() && em > 0.0 && ts.scale != 0.0 && (step - tracking >= em * column_reach(ts) || step <= -em)
+}
+
 /// Non-overlapping index ranges of `pieces` for each column run inside a `TJ` array.
 /// Runs separated by at least the intra-`BT` line join threshold (`3 em`, or `0.6 em` for
 /// invisible OCR text, or `-1 em` backwards) split into separate runs so table columns
 /// emitted in a single `TJ` operator become independent cells (#3744).
 fn tj_segments(pieces: &[Object], m: &Metrics, ts: &Ts, tracking: f64) -> Vec<std::ops::Range<usize>> {
-    let em = ts.size * ts.scale;
-    let reach = if ts.render_mode == 3 { 0.6 } else { 3.0 };
     let mut segments: Vec<std::ops::Range<usize>> = Vec::new();
     let mut current: Option<std::ops::Range<usize>> = None;
     let mut gap_dx = 0.0;
@@ -832,12 +886,11 @@ fn tj_segments(pieces: &[Object], m: &Metrics, ts: &Ts, tracking: f64) -> Vec<st
                     if !blank {
                         has_ink = true;
                     }
-                    let w = m.width(code) * ts.size + ts.char_spacing + if m.is_space(code, len) { ts.word_spacing } else { 0.0 };
-                    str_dx += w * ts.scale;
+                    str_dx += glyph_advance(m, code, len, ts);
                 }
                 if has_ink {
                     if let Some(range) = &mut current {
-                        if em.is_finite() && em > 0.0 && (gap_dx - tracking >= em * reach || gap_dx <= -em) {
+                        if is_column_jump(gap_dx, tracking, ts) {
                             segments.push(range.clone());
                             *range = idx..idx + 1;
                         } else {
@@ -1091,9 +1144,7 @@ fn interpret(
                 // Tc is already included in the pen advance; TJ may encode tracking instead.
                 let tracking = if op.is("TJ") { tj_tracking(&pieces, &m, ts.size, ts.scale) } else { 0.0 };
                 let segments = if op.is("TJ") { tj_segments(&pieces, &m, &ts, tracking) } else { Vec::new() };
-                let em = ts.size * ts.scale;
-                let reach = if ts.render_mode == 3 { 0.6 } else { 3.0 };
-                let is_col_jump = |dx: f64| em.is_finite() && em > 0.0 && (dx - tracking >= em * reach || dx <= -em);
+                let is_col_jump = |dx: f64| is_column_jump(dx, tracking, &ts);
                 let runs: Vec<(std::ops::Range<usize>, Option<std::ops::Range<usize>>)> = if segments.len() >= 2 {
                     segments.into_iter().map(|r| (r.clone(), Some(r))).collect()
                 } else if let Some(seg) = segments
@@ -1147,8 +1198,7 @@ fn interpret(
                                         }
                                     }
                                     in_word = !blank;
-                                    let w = m.width(code) * ts.size + ts.char_spacing + if m.is_space(code, len) { ts.word_spacing } else { 0.0 };
-                                    x_text += w * ts.scale;
+                                    x_text += glyph_advance(&m, code, len, &ts);
                                 }
                             }
                             other => {
@@ -2784,7 +2834,7 @@ fn rewrite_block_from(
     block_ops.push(Op::new("Q", vec![]));
     // The paragraph's operators go, and so does another drawing on the same baseline (a fake-bold
     // second copy, an invisible text layer): the new text is all that may show.
-    let (drop, mut partial_patches) = drop_and_patch(&lines, &members, &ops);
+    let (drop, partial_patches) = drop_and_patch(&lines, &members, &ops);
     // Text shown earlier in the same text object stays first: the paragraph then goes where its
     // last row was, after any backgrounds between the rows, or between two halves of the text object.
     let start = last.ops.first().copied().unwrap_or(emit.bt_op);
@@ -2803,25 +2853,7 @@ fn rewrite_block_from(
         block_ops.push(Op::new("Tm", emit.tlm.iter().map(|v| n(*v)).collect()));
     }
     let at = if split { start } else { emit.bt_op };
-    let new_data = splice(&pieces, &ops, |i| {
-        let mut insert = Vec::new();
-        let keep = if let Some(patched) = partial_patches.remove(&i) {
-            insert.push(patched);
-            false
-        } else {
-            !drop.contains(&i)
-        };
-        if i == at {
-            if split {
-                insert.extend(std::mem::take(&mut block_ops));
-            } else {
-                let mut b = std::mem::take(&mut block_ops);
-                b.extend(insert);
-                insert = b;
-            }
-        }
-        (insert, keep)
-    });
+    let new_data = splice_rewrite(&pieces, &ops, &drop, partial_patches, at, split, block_ops);
     let contents = rewritten_contents(doc, &streams, new_data);
     if new_font {
         res.set(b"Font".to_vec(), Object::Dict(fonts_res));

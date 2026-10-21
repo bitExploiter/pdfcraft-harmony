@@ -5389,8 +5389,12 @@ fn tj_table_row_splits_into_per_column_cells_and_edits_without_collapsing_neighb
         );
     }
 
-    // Condensed horizontal scaling (`50 Tz`) still splits multi-em TJ column gaps into separate blocks.
-    let condensed = text_page("BT /F1 10 Tf 50 Tz 1 0 0 1 72 500 Tm [(ColA) -4000 (ColB)] TJ ET");
-    let condensed_blocks = text::text_blocks(&condensed, 0).unwrap();
-    assert_eq!(condensed_blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["ColA", "ColB"]);
+    // Condensed horizontal scaling (`50 Tz`) measures TJ gaps in page-scaled ems: `-4000` is 2 em
+    // (stays one line), while `-8000` is 4 em (splits into separate cells).
+    let condensed_join = text_page("BT /F1 12 Tf 50 Tz 1 0 0 1 72 500 Tm [(Item one) -4000 (Amount)] TJ ET");
+    let condensed_join_blocks = text::text_blocks(&condensed_join, 0).unwrap();
+    assert_eq!(condensed_join_blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["Item one Amount"]);
+    let condensed_split = text_page("BT /F1 10 Tf 50 Tz 1 0 0 1 72 500 Tm [(ColA) -8000 (ColB)] TJ ET");
+    let condensed_split_blocks = text::text_blocks(&condensed_split, 0).unwrap();
+    assert_eq!(condensed_split_blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["ColA", "ColB"]);
 }
