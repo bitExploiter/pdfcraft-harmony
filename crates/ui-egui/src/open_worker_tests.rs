@@ -670,3 +670,17 @@ fn startup_files_wait_for_absolute_link_consent_and_preparation() {
     assert_eq!(app.active, Some(1), "the user's approved navigation keeps focus");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+#[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+fn a_relative_link_is_parked_for_consent_without_being_read() {
+    let dir = std::env::temp_dir().join(format!("pdfcraft-open-relative-consent-{}", std::process::id()));
+    let mut app = PdfCraftApp::new();
+    app.open_bytes("source.pdf", Some(dir.join("source.pdf").to_string_lossy().into_owned()), fixture(1)).expect("source document");
+    let source = app.views[0].id;
+    app.open_remote_link(source, "sub/../target.pdf".into(), pdfcraft_render::RemoteDestination::Default);
+    // `schedule_open` queues on this same call, so a read at click time would already show here.
+    assert!(app.pending_opens.is_empty(), "nothing is read before the user answers");
+    let pending = app.pending_remote_link.as_ref().expect("a relative target asks first");
+    assert_eq!(pending.path, dir.join("target.pdf"));
+}

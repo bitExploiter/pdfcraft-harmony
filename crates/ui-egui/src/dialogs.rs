@@ -1634,7 +1634,7 @@ fn full_screen_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
     }
 }
 
-/// Absolute document-controlled local paths require consent before any filesystem access.
+/// Document-controlled local paths, absolute or relative, require consent before any filesystem access.
 fn remote_link_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let Some(pending) = app.pending_remote_link.clone() else { return };
     let mut choice = None;
