@@ -203,6 +203,16 @@ fn read_whole_pdf(path: &str, stamp: Stamp) -> Version {
     Version::Ready(Arc::new(bytes))
 }
 
+/// Whether the file at `path`, of stamp `now`, holds exactly `bytes`. Its length is compared
+/// first, so a file of another size is never read, and one of the same size needs no more
+/// memory than `bytes` already takes.
+fn holds(path: &str, now: Stamp, bytes: &[u8]) -> bool {
+    if u64::try_from(bytes.len()).ok() != Some(now.len) {
+        return false;
+    }
+    std::fs::read(path).is_ok_and(|disk| disk == bytes)
+}
+
 /// The worker thread: watches the newest list the UI thread sent and hands back new versions,
 /// waking the UI for them. It ends when the app (its inbox's sender) is gone.
 fn run(inbox: mpsc::Receiver<Vec<Watched>>, out: Arc<Mutex<Vec<Changed>>>, ctx: egui::Context) {
@@ -278,10 +288,13 @@ impl FileWatch {
     /// Whether the file at `path` is another version than the one `doc` came from: something
     /// else wrote it since the document was opened, reloaded or last saved (#2166). A file
     /// that is missing or can't be looked at, or a document whose version was never recorded,
-    /// is not a difference.
-    pub fn disk_differs(&self, doc: DocId, path: &str) -> bool {
+    /// is not a difference. Nor is a file whose metadata alone changed: when the stamp differs,
+    /// the file is compared with `saved`, the bytes the document came from (macOS adds extended
+    /// attributes after a save, which moves the change time, #3755). A file that can't be read
+    /// then counts as a difference, so Save still asks.
+    pub fn disk_differs(&self, doc: DocId, path: &str, saved: &[u8]) -> bool {
         match (Stamp::at(path), self.basis.get(&doc)) {
-            (Some(now), Some(basis)) => now != *basis,
+            (Some(now), Some(basis)) => now != *basis && !holds(path, now, saved),
             _ => false,
         }
     }
@@ -379,6 +392,14 @@ impl PdfCraftApp {
             return;
         }
         self.watch.known.insert(c.doc, c.stamp);
+        // The same bytes the document came from: only the file's metadata changed (macOS adds
+        // extended attributes after a save, which moves the change time; a `touch`; a sync
+        // tool). Not a new version: no reload, which would drop the undo history, and no
+        // notice (#3755). It is the version the document came from, so Save need not ask.
+        if self.session.get(c.doc).is_some_and(|d| d.saved_bytes().as_slice() == c.bytes.as_slice()) {
+            self.watch.basis.insert(c.doc, c.stamp);
+            return;
+        }
         if self.has_unsaved_work(i) {
             if let Some(view) = self.views.get_mut(i) {
                 view.disk_changed = true;
@@ -561,5 +582,79 @@ mod tests {
         assert_eq!(d.path.as_deref(), Some(new_path.as_str()));
         assert_eq!(d.info.pages.len(), 2, "the old file's version was not applied to the new one");
         assert!(d.can_undo().is_some() && !d.dirty, "the saved document and its history stay");
+    }
+
+    /// Change `path`'s metadata and not its bytes, as macOS does when it adds extended attributes
+    /// after a save (#3755): a later modification time, which moves the change time too.
+    fn touch(path: &str) {
+        let before = Stamp::at(path);
+        let file = std::fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(SystemTime::now() + Duration::from_secs(120)).unwrap();
+        drop(file);
+        assert_ne!(Stamp::at(path), before, "the file's stamp changed");
+    }
+
+    /// Rotate the first page and save over the file: the document has undo history and no
+    /// unsaved changes.
+    fn edit_and_save(h: &mut Harness<'static, PdfCraftApp>) {
+        let app = h.state_mut();
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        assert!(app.save_active(SaveTarget::InPlace), "saved without asking");
+        assert!(!doc(h).dirty && doc(h).can_undo().is_some());
+    }
+
+    /// #3755: after a save, only the file's metadata changes. The document is not reloaded, so
+    /// its undo history stays, there is no notice, and the next save doesn't ask.
+    #[test]
+    fn a_metadata_change_after_a_save_keeps_the_undo_history() {
+        let (_dir, path) = TempDir::new("metadata-clean", &fixture(2));
+        let mut h = harness(&path);
+        edit_and_save(&mut h);
+        touch(&path);
+        h.run_steps(4);
+        let d = doc(&h);
+        assert!(d.can_undo().is_some() && !d.dirty, "not reloaded: the undo history stays");
+        assert!(!h.state().views[0].disk_changed, "no notice");
+        assert_eq!(h.state().watch.known.get(&h.state().views[0].id).copied(), Stamp::at(&path), "the watcher has seen it");
+        edit_and_save(&mut h);
+    }
+
+    /// #3755: a metadata change while there are unsaved changes shows no notice, and Save
+    /// writes without asking.
+    #[test]
+    fn a_metadata_change_with_unsaved_changes_is_not_a_conflict() {
+        let (_dir, path) = TempDir::new("metadata-dirty", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        touch(&path);
+        h.run_steps(4);
+        assert!(!h.state().views[0].disk_changed, "no notice");
+        assert!(doc(&h).dirty, "the unsaved changes stay");
+        assert!(h.state_mut().save_active(SaveTarget::InPlace), "saved without asking");
+    }
+
+    /// #3755 with reloading turned off: nothing watches the file, so Save itself tells a
+    /// metadata change from a new version.
+    #[test]
+    fn save_tells_a_metadata_change_from_a_new_version() {
+        let (_dir, path) = TempDir::new("metadata-unwatched", &fixture(2));
+        let mut h = harness(&path);
+        h.state_mut().reload_changed_files = false;
+        h.run_steps(1);
+        edit_and_save(&mut h);
+        touch(&path);
+        edit_and_save(&mut h);
+        // Another version with the same length, as a rebuild can write: still asked about.
+        let mut other = std::fs::read(&path).unwrap();
+        *other.last_mut().unwrap() = b' ';
+        rebuild(&path, &other);
+        let app = h.state_mut();
+        app.views[0].select_pages(&[1]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![1], degrees: 90 });
+        assert!(!app.save_active(SaveTarget::InPlace), "asks before writing over another version");
+        assert!(matches!(app.dialog, Some(crate::Dialog::OverwriteChanged)));
     }
 }

@@ -695,7 +695,7 @@ impl PdfCraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     fn save_doc_to_then(&mut self, id: pdfcraft_engine::DocId, dest: &str, target: SaveTarget, after: Box<dyn FnOnce(&mut Self) + Send>) -> bool {
         let own = self.session.get(id).and_then(|d| d.path.as_deref()).is_some_and(|p| crate::same_file(p, dest));
-        if own && self.watch.disk_differs(id, dest) {
+        if own && self.session.get(id).is_some_and(|d| self.watch.disk_differs(id, dest, &d.saved_bytes())) {
             self.pending_overwrite = Some(PendingOverwrite { id, dest: dest.to_string(), target, after });
             self.dialog = Some(crate::Dialog::OverwriteChanged);
             return false;
