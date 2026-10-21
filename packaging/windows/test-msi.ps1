@@ -178,14 +178,13 @@ if ([int] $remove[0] -le [int] $validate[0] -or [int] $remove[0] -ge [int] $init
 # (on for a first install, kept on update only while present, secure), with the .png label as key
 # path so uninstall removes every row. No image default association is changed.
 $imageKey = 'Software\Classes\SystemFileAssociations\.png\shell\PdfCraft.CreatePdf'
+# U+2026 by code: Windows PowerShell 5.1 reads this BOM-less file in the ANSI code page, where a
+# literal ellipsis can swallow the closing quote (CP949 on Korean Windows).
+$imageMenuLabel = "Create PDF with PdfCraft$([char]0x2026)"
 foreach ($ext in @('png', 'jpg', 'jpeg', 'tif', 'tiff', 'gif', 'bmp', 'jp2', 'j2k', 'jpx')) {
   $key = 'Software\Classes\SystemFileAssociations\.' + $ext + '\shell\PdfCraft.CreatePdf'
   $menu = Read-Row ('SELECT `Value`, `Component_`, `Root` FROM `Registry` WHERE `Key` = ''' + $key + ''' AND `Name` IS NULL') 3
-  # U+2026 by code: Windows PowerShell 5.1 reads this BOM-less file in the ANSI code page, where a
-  # literal ellipsis can swallow the closing quote (CP949 on Korean Windows).
-  Assert-Equal $menu[0] "Create PDF with PdfCraft$([char]0x2026)" "$ext context menu label"
-  Assert-Equal $menu[1] 'PdfcraftApp' "$ext context menu component"
-  Assert-Equal $menu[0] 'Create PDF with PdfCraft…' "$ext context menu label"
+  Assert-Equal $menu[0] $imageMenuLabel "$ext context menu label"
   Assert-Equal $menu[1] 'PdfcraftImageContextMenu' "$ext context menu component"
   Assert-Equal $menu[2] '2' "$ext context menu HKLM root"
   $command = Read-Row ('SELECT `Value`, `Component_` FROM `Registry` WHERE `Key` = ''' + $key + '\command''') 2
@@ -207,7 +206,7 @@ $imageComponent = Read-Row 'SELECT `KeyPath`, `Attributes` FROM `Component` WHER
 Assert-Equal $imageComponent[0] $imageKeyPath[0] 'Image context menu key path'
 # msidbComponentAttributesRegistryKeyPath (4).
 if (([int] $imageComponent[1] -band 4) -eq 0) { throw "Image context menu key path is not a registry value: attributes $($imageComponent[1])" }
-Assert-KeptOnUpdate 'INSTALLIMAGECONTEXTMENU' 'IMAGECONTEXTMENURELEASE' 'EXISTINGIMAGECONTEXTMENU' 'Create PDF with PdfCraft…' 'PdfcraftImageContextMenu' 'Image context menu'
+Assert-KeptOnUpdate 'INSTALLIMAGECONTEXTMENU' 'IMAGECONTEXTMENURELEASE' 'EXISTINGIMAGECONTEXTMENU' $imageMenuLabel 'PdfcraftImageContextMenu' 'Image context menu'
 Assert-MenuSearch 'EXISTINGIMAGECONTEXTMENU' $imageKey 'IMAGECONTEXTMENURELEASE' '0.4.0' 'Image context menu'
 if (($secure[0] -split ';') -notcontains 'INSTALLIMAGECONTEXTMENU') { throw "INSTALLIMAGECONTEXTMENU is not secure: '$($secure[0])'" }
 

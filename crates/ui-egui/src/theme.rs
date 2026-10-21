@@ -657,6 +657,8 @@ mod tests {
         assert!(!add_hangul_fallback(&mut fonts, hangul));
         assert_eq!(fonts.families, before);
         assert!(!fonts.font_data.contains_key(SYSTEM_HANGUL_FALLBACK));
+    }
+
     /// The baseline of each glyph of `text` laid out by egui at `size` points, in points from the
     /// top of the row: its position plus its face's `y_offset_factor`, as epaint draws it.
     fn baselines(fallback: FontData, size: f32, text: &str) -> Vec<f32> {

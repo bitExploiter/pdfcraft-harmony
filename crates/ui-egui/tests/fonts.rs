@@ -192,6 +192,8 @@ fn system_fallback_covers_telugu() {
         assert!(fonts.has_glyphs(&id, TELUGU), "{id:?} lacks {TELUGU}");
     }
     assert!(layout_widths(&mut fonts, TELUGU).iter().all(|w| w.is_finite() && *w > 0.0));
+}
+
 /// A Korean bookmark title and file name, as a Korean user's documents carry them.
 const KOREAN_BOOKMARK: &str = "한글 북마크 테스트";
 const KOREAN_FILE_NAME: &str = "안티바이러스제품 보안요구사항.pdf";

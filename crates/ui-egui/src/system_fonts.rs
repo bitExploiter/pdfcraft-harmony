@@ -3,14 +3,10 @@
 //! The embedded faces (Inter, egui's defaults, craft-fonts) come first in every family; this one
 //! only draws characters none of them has, such as an Arabic file name in a build without
 //! craft-fonts, or the Simplified Chinese interface in a build without a `Hans` face (#826). A
-//! second and a third installed face, [`devanagari_fallback`] and [`telugu_fallback`], draw Hindi
-//! and Telugu when one is installed. It is
-//! second installed face, [`devanagari_fallback`], draws Hindi when one is installed, and a third,
-//! [`hangul_fallback`], draws Korean (a Hangul file name or bookmark title in any interface
-//! language) when no embedded face covers the Hangul syllables. They are
 //! few more installed faces, [`devanagari_fallback`], [`telugu_fallback`], [`sinhala_fallback`]
-//! and [`tamil_fallback`], draw Hindi, Telugu, Sinhala and Tamil when one is installed. It is
-//! read at runtime and never embedded or shipped (AGENTS.md §1.4), and `PDFCRAFT_SYSTEM_FONTS=0`
+//! and [`tamil_fallback`], draw Hindi, Telugu, Sinhala and Tamil when one is installed, and
+//! [`hangul_fallback`] draws Korean (a Hangul file name or bookmark title in any interface
+//! language) when no embedded face covers the Hangul syllables. They are all read at runtime and never embedded or shipped (AGENTS.md §1.4), and `PDFCRAFT_SYSTEM_FONTS=0`
 //! turns it off (published screenshots do).
 
 use std::path::{Path, PathBuf};
