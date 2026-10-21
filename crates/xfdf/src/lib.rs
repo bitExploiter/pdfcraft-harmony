@@ -734,10 +734,15 @@ pub fn comment_count(text: &str) -> usize {
 }
 
 /// The box around every comment in an XFDF text, in the pages' user space: [x0, y0, x1, y1],
-/// or `None` without a comment with a rect. What a paste shows hanging on the pointer.
+/// or `None` without a comment with a rect. What a paste shows hanging on the pointer and centres
+/// on the point: replies, which have no place of their own (some tools still give them a rect, at
+/// 0,0 or away from their parent), are left out, as [`comment_outlines`] leaves them out.
 pub fn comments_bounds(text: &str) -> Option<[f64; 4]> {
     let mut bounds: Option<[f64; 4]> = None;
-    for (_, _, rect) in comment_nodes(text) {
+    for (_, in_reply_to, rect) in comment_nodes(text) {
+        if in_reply_to.is_some() {
+            continue;
+        }
         if let [x0, y0, x1, y1] = rect.as_slice()
             && rect.iter().all(|v| v.is_finite())
         {

@@ -996,7 +996,18 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             if over_page {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             }
-            let finish = resp.double_clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) || std::mem::take(&mut cv.finish_request);
+            // The menu's Complete is taken by the page the drawing is on: every page on screen
+            // passes here in a frame, and an earlier one must not swallow it. With no drawing
+            // left, a request is stale.
+            let drawing_here = match &cv.gesture {
+                Some(Gesture::Draw { page, .. }) => *page == cx.page,
+                _ => {
+                    cv.finish_request = false;
+                    false
+                }
+            };
+            let finish =
+                resp.double_clicked() || ui.input(|i| i.key_pressed(egui::Key::Enter)) || (drawing_here && std::mem::take(&mut cv.finish_request));
             // Backspace (or Delete) takes back the last point, e.g. after a wrong click; Undo does too.
             // Only while a drawing is in progress: otherwise Delete belongs to the selected comment.
             if matches!(cv.gesture, Some(Gesture::Draw { page, .. }) if page == cx.page)
@@ -1333,11 +1344,12 @@ fn select_input(
                 let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
                 if from.distance(p) >= 2.0 {
                     // The other selected comments on this page (not text markup, which is where
-                    // its text is) move with the dragged one, as one undo step.
+                    // its text is, nor a locked one, which would refuse the whole step) move with
+                    // the dragged one, as one undo step.
                     let others: Vec<usize> = cv
                         .also
                         .iter()
-                        .filter(|(p, i)| *p == page && *i != index && cx.get(*i).is_some_and(|a| !is_markup(&a.subtype)))
+                        .filter(|(p, i)| *p == page && *i != index && cx.get(*i).is_some_and(|a| !is_markup(&a.subtype) && !a.locked))
                         .map(|(_, i)| *i)
                         .collect();
                     view.pending_edit = Some(if others.is_empty() {

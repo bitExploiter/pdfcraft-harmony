@@ -1906,6 +1906,13 @@ fn copies_placed_with_an_offset_move_whole_and_the_text_reports_its_bounds() {
     assert!(bounds[0] <= 10.0 && bounds[1] <= 10.0 && bounds[2] >= 100.0 && bounds[3] >= 500.0, "{bounds:?}");
     assert_eq!(comment_count("just text"), 0);
     assert_eq!(comments_bounds("<xfdf><annots></annots></xfdf>"), None);
+    // A reply with a rect of its own (some tools write one, at 0,0 or away from its parent)
+    // doesn't widen the box the paste is centred on: it has no place on the page.
+    let with_reply = r#"<xfdf xmlns="http://ns.adobe.com/xfdf/"><annots>
+        <square page="0" name="a" rect="100,100,140,120"/>
+        <text page="0" name="r" inreplyto="a" rect="500,600,520,620"><contents>re</contents></text>
+    </annots></xfdf>"#;
+    assert_eq!(comments_bounds(with_reply), Some([100.0, 100.0, 140.0, 120.0]));
     let mut dst = blank();
     import_comments(&mut dst, &xfdf, Some(0), Some("p"), Some([100.0, -50.0])).unwrap();
     let moved = summaries(&dst);

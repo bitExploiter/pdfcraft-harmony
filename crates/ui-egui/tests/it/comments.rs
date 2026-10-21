@@ -2352,6 +2352,11 @@ fn ctrl_click_selects_several_comments_and_delete_removes_them_all() {
     // A plain click selects one alone again.
     click_pt(&mut h, (120.0, 40.0));
     assert_eq!(h.state().views[0].comments.selection(), vec![(0, 1)]);
+    // On the page ⇧-click adds one too, and takes it out again (a range is the panel's).
+    click_pt_with(&mut h, (200.0, 40.0), egui::Modifiers::SHIFT);
+    assert_eq!(h.state().views[0].comments.selection().len(), 2, "{:?}", h.state().views[0].comments.selection());
+    click_pt_with(&mut h, (200.0, 40.0), egui::Modifiers::SHIFT);
+    assert_eq!(h.state().views[0].comments.selection(), vec![(0, 1)]);
 }
 
 /// Dragging one of several selected comments moves them all, whichever of them is grabbed: the
@@ -2380,6 +2385,25 @@ fn dragging_any_selected_comment_moves_the_whole_selection() {
     assert_eq!(selection.len(), 3, "all three stay selected: {selection:?}");
     assert_eq!(selection[0], (0, 0), "the grabbed one has the handles");
     let id = h.state().views[0].id;
+    assert_eq!(h.state().session.get(id).unwrap().can_undo(), Some("Move comments"));
+    // A locked one in the selection stays where it is; the others still move (it would refuse
+    // the whole step otherwise, and nothing would move).
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::LockAnnotation { page: 0, index: 1, locked: true }));
+    h.run_steps(2);
+    assert_eq!(h.state().views[0].comments.selection().len(), 3);
+    let before = comments(&h);
+    drag_pt(&mut h, (40.0, 70.0), (40.0, 90.0));
+    let after = comments(&h);
+    // By index: the list isn't kept in index order.
+    let bottom = |list: &[Annotation], i: usize| list.iter().find(|a| a.index == i).map(|a| a.rect[1]).expect("still there");
+    for i in 0..3 {
+        let moved = bottom(&after, i) - bottom(&before, i);
+        if i == 1 {
+            assert!(moved.abs() < 0.01, "the locked one stays: moved {moved}");
+        } else {
+            assert!((moved - 20.0).abs() < 1.5, "rectangle {i} moved up 20 pt: moved {moved}");
+        }
+    }
     assert_eq!(h.state().session.get(id).unwrap().can_undo(), Some("Move comments"));
 }
 
@@ -2517,6 +2541,35 @@ fn connected_lines_are_completed_from_the_context_menu() {
     assert_eq!(drawn_points(&h), 0);
     assert!(h.state().views[0].comments.gesture.is_none());
     assert_eq!(comments(&h).len(), 1, "nothing else was drawn");
+    // On the second page, with the first on screen in the same frame: Complete reaches the page
+    // the drawing is on (the first page passes first and must not take the request).
+    h.state_mut().set_option("quick", "polyline").unwrap();
+    h.state_mut().set_option("zoom", "50").unwrap();
+    settle(&mut h);
+    assert!(h.state().views[0].page_screen_rect(0).is_some(), "page 1 is on screen too");
+    let at2 = |h: &Harness<'static, PdfCraftApp>, x: f32, y: f32| {
+        let r = h.state().views[0].page_screen_rect(1).expect("page 2 on screen");
+        pos2(r.left() + x / 300.0 * r.width(), r.top() + (200.0 - y) / 200.0 * r.height())
+    };
+    for (x, y) in [(20.0, 100.0), (60.0, 80.0)] {
+        let p = at2(&h, x, y);
+        click(&mut h, p);
+    }
+    assert_eq!(drawn_points(&h), 2);
+    let p = at2(&h, 150.0, 150.0);
+    h.hover_at(p);
+    h.run_steps(1);
+    for pressed in [true, false] {
+        h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE });
+        h.run_steps(1);
+    }
+    h.run_steps(2);
+    h.get_by_label("Complete").click();
+    h.run_steps(3);
+    let c = comments(&h);
+    assert_eq!(c.len(), 2, "{c:?}");
+    assert!(c.iter().any(|a| a.page == 1 && a.subtype == "PolyLine"), "{c:?}");
+    assert!(h.state().views[0].comments.gesture.is_none());
 }
 
 /// Properties on one of several selected comments changes all of them, each where it applies: the
