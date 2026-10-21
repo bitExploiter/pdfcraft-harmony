@@ -59,6 +59,43 @@ fn tools_panel_side_preference_moves_and_persists() {
     assert!(!h.state().docking.tools_on_right());
 }
 
+#[test]
+fn quick_bar_follows_the_tools_panel_side() {
+    let drawn = |h: &Harness<'static, PdfCraftApp>, id: &str| h.ctx.memory(|m| m.area_rect(egui::Id::new(id))).expect("drawn");
+    let mut h = harness(|app| {
+        app.open_bytes("text.pdf", None, TEXT_FIXTURE.to_vec()).expect("opens");
+        app.set_option("left", "closed").unwrap();
+        app.set_option("find", "brown").unwrap();
+    });
+    settle(&mut h);
+    let middle = h.ctx.content_rect().center().x;
+    let (bar, find) = (drawn(&h, "quick-bar"), drawn(&h, "find-bar"));
+    assert!(bar.center().x < middle, "the quick-action bar starts at the left: {bar:?}");
+    let find_edge = find.right();
+
+    h.state_mut().set_option("tools-side", "right").unwrap();
+    h.run_steps(3);
+    let (bar, find) = (drawn(&h, "quick-bar"), drawn(&h, "find-bar"));
+    assert!(bar.center().x > middle, "the quick-action bar moves to the right: {bar:?}");
+    assert!(!find.intersects(bar) && find.right() < bar.left(), "the find bar stands beside it: {find:?} {bar:?}");
+    // A flyout opens towards the page, not off the window's edge.
+    h.get_by_label("Add a sticky note").click_secondary();
+    h.run_steps(3);
+    let entry = h.get_by_label("Add a text box").rect();
+    assert!(entry.right() <= bar.left(), "the flyout opens to the left: {entry:?} {bar:?}");
+    // Escape would close the find bar too. The flyout lists the tool as well, so pick the bar's button.
+    h.query_all_by_label("Add a sticky note").find(|n| bar.contains(n.rect().center())).expect("the bar's button").click_secondary();
+    h.run_steps(3);
+    assert!(h.query_by_label("Add a text box").is_none(), "the flyout closed");
+
+    h.state_mut().set_option("tools-side", "left").unwrap();
+    h.run_steps(3);
+    let (bar, find) = (drawn(&h, "quick-bar"), drawn(&h, "find-bar"));
+    assert!(bar.center().x < middle, "the quick-action bar returns to the left: {bar:?}");
+    // Within the rounding of its text's width.
+    assert!((find.right() - find_edge).abs() < 1.0, "the find bar returns to the edge: {find:?}, was at {find_edge}");
+}
+
 /// Every piece of text painted on the last frame: its whole text, whether it was cut with "…",
 /// and where it was drawn.
 fn painted_text(h: &Harness<'static, PdfCraftApp>) -> Vec<(String, bool, egui::Rect)> {

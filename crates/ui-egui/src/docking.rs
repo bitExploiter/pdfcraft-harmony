@@ -80,14 +80,25 @@ impl Default for Workspace {
 }
 
 impl Workspace {
-    /// Side of the Tools panel, including its saved position while closed.
+    /// Side of the Tools panel, including where it reopens while closed.
     pub fn tools_on_right(&self) -> bool {
-        let location = self
-            .layout
-            .location(&Panel::Tools)
-            .ok()
-            .or_else(|| self.hidden.iter().find(|(panel, _)| *panel == Panel::Tools).map(|(_, location)| location.clone()));
-        location.is_some_and(|location| matches!(location.placement, Placement::Split(Zone::Right)))
+        self.on_right(Panel::Tools) == Some(true)
+    }
+
+    /// Whether `panel` is right of the document view (`None` when it floats or has no place),
+    /// counting a closed panel where it would reopen.
+    fn on_right(&self, panel: Panel) -> Option<bool> {
+        let mut probe = Layout { root: self.layout.root.clone(), floating: Vec::new() };
+        let mut pending: Vec<_> = self.hidden.iter().filter(|(_, location)| location.floating.is_none()).collect();
+        // A closed panel may reopen beside another closed one, so restore them in rounds.
+        for _ in 0..Panel::ALL.len() {
+            pending.retain(|(id, location)| probe.restore(*id, location).is_err());
+        }
+        // Docked panels in left-to-right order (a panel below another counts as after it).
+        let order = probe.panels();
+        let at = order.iter().position(|id| **id == panel)?;
+        let canvas = order.iter().position(|id| **id == Panel::Canvas)?;
+        Some(at > canvas)
     }
 
     /// Place Tools at the outer left or right edge while preserving its open state.
@@ -202,11 +213,15 @@ impl Workspace {
         }
         let restored = location.as_ref().is_some_and(|location| next.layout.restore(panel, location).is_ok());
         if !restored {
+            // Its saved neighbour is closed too: open beside the document view on the side it
+            // would reopen on once that neighbour is back.
+            let side = match self.on_right(panel) {
+                Some(true) => Zone::Right,
+                Some(false) => Zone::Left,
+                None => panel.default_side(),
+            };
             next.layout
-                .apply_with_permissions(
-                    Action::OpenAt { panel, anchor: Panel::Canvas, placement: Placement::Split(panel.default_side()) },
-                    permissions,
-                )
+                .apply_with_permissions(Action::OpenAt { panel, anchor: Panel::Canvas, placement: Placement::Split(side) }, permissions)
                 .map_err(|error| error.to_string())?;
         }
         next.validate()?;
@@ -368,7 +383,9 @@ fn saved_split_path(saved: &Layout<Panel>, rendered: &Layout<Panel>, path: &[boo
 
 pub fn show(app: &mut crate::PdfCraftApp, ui: &mut egui::Ui) {
     let t = crate::theme::Tokens::get(ui.ctx());
-    let mut workspace = std::mem::take(&mut app.docking);
+    // A copy, not `mem::take`: the panes read the layout while they draw (the document area
+    // puts its quick-action bar on the Tools panel's side). It is stored back below.
+    let mut workspace = app.docking.clone();
     if let Err(error) = workspace.validate().and_then(|()| sync(&mut workspace, app)) {
         app.notify_fmt("Panel layout could not be restored: {error}", &[("error", &error)]);
         workspace = Workspace::default();
@@ -476,6 +493,26 @@ mod tests {
         workspace.set_visible(Panel::Tools, true).unwrap();
         assert!(!workspace.tools_on_right());
         workspace.validate().unwrap();
+    }
+
+    #[test]
+    fn tools_reopens_on_its_side_after_its_neighbour_closed_too() {
+        for close_first in [Panel::Tools, Panel::Inspector] {
+            for right in [true, false] {
+                let mut workspace = Workspace::default();
+                workspace.set_tools_on_right(right).unwrap();
+                let close_second = if close_first == Panel::Tools { Panel::Inspector } else { Panel::Tools };
+                workspace.set_visible(close_first, false).unwrap();
+                workspace.set_visible(close_second, false).unwrap();
+                assert_eq!(workspace.tools_on_right(), right, "closed, {close_first:?} first");
+                // Tools' saved neighbour may be the closed Inspector.
+                workspace.set_visible(Panel::Tools, true).unwrap();
+                assert_eq!(workspace.tools_on_right(), right, "reopened, {close_first:?} closed first");
+                workspace.set_visible(Panel::Inspector, true).unwrap();
+                assert_eq!(workspace.tools_on_right(), right);
+                workspace.validate().unwrap();
+            }
+        }
     }
 
     #[test]

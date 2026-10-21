@@ -2433,6 +2433,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     }
     // No dialog, close prompt or palette over the page: only then does page input count.
     let unobstructed = !app.modal_open() && !app.palette_open;
+    let quick_bar_right = app.docking.tools_on_right();
     let view = &mut app.views[index];
     if view.organize {
         organize_grid(view, info, doc.allows_assembly(), doc.dirty, unobstructed, ui, &t);
@@ -3886,10 +3887,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             });
         });
     }
-    find_bar(view, info.pages.len(), avail, ui, &t);
+    let top_right_bars = beside_quick_bar(ui.ctx(), avail, quick_bar_right);
+    find_bar(view, info.pages.len(), top_right_bars, ui, &t);
     page_size_hint(view, info, units, avail, unobstructed, ui, &t);
     if tool == QuickTool::EnhanceCamera {
-        crate::camera_ui::bar(ui.ctx(), view, avail, &t, can_modify);
+        crate::camera_ui::bar(ui.ctx(), view, top_right_bars, &t, can_modify);
     }
     if let Some(e) = comments::composer(ui.ctx(), view, info, prefs) {
         view.pending_edit = Some(e);
@@ -4624,11 +4626,41 @@ fn notice_bar(ui: &mut egui::Ui, t: &Tokens, icon: &str, icon_color: Color32, te
     });
 }
 
-/// The floating quick-action bar at the left edge of the document area.
+const QUICK_BAR: &str = "quick-bar";
+/// The quick-action bar's distance from the document area's corner.
+const QUICK_BAR_INSET: f32 = 14.0;
+
+/// The part of the document area the find and Enhance bars right-align to: all of it, or, when
+/// the quick-action bar is at the right edge, the part left of that bar.
+fn beside_quick_bar(ctx: &egui::Context, area: Rect, quick_bar_right: bool) -> Rect {
+    if !quick_bar_right {
+        return area;
+    }
+    // Last frame's bar, unless it was still at the left edge. Before that, its narrowest form:
+    // one 32-point button with 6-point margins and a 1-point border on each side.
+    let left = ctx
+        .memory(|m| m.area_rect(egui::Id::new(QUICK_BAR)))
+        .filter(|bar| bar.center().x > area.center().x)
+        .map_or(area.right() - QUICK_BAR_INSET - 46.0, |bar| bar.left());
+    // The bars stand 18 points in from this edge, so they end 8 points short of the quick-action bar.
+    // `min`/`max` rather than `clamp`, which panics on an inverted (degenerate) area.
+    let mut beside = area;
+    beside.max.x = (left + 10.0).min(area.right()).max(area.left());
+    beside
+}
+
+/// The floating quick-action bar at the top of the document area, on the side Preferences ▸
+/// Tools panel side chooses. Its flyouts open towards the page.
 fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
-    let pos = area.left_top() + vec2(14.0, 14.0);
-    egui::Area::new(egui::Id::new("quick-bar")).order(egui::Order::Middle).fixed_pos(pos).show(ui.ctx(), |ui| {
+    let right = app.docking.tools_on_right();
+    let (pivot, pos) = if right {
+        (Align2::RIGHT_TOP, area.right_top() + vec2(-QUICK_BAR_INSET, QUICK_BAR_INSET))
+    } else {
+        (Align2::LEFT_TOP, area.left_top() + vec2(QUICK_BAR_INSET, QUICK_BAR_INSET))
+    };
+    let bar = egui::Area::new(egui::Id::new(QUICK_BAR)).order(egui::Order::Middle).pivot(pivot).fixed_pos(pos);
+    bar.show(ui.ctx(), |ui| {
         egui::Frame::NONE
             .fill(t.card)
             .stroke(Stroke::new(1.0, t.border))
@@ -4660,7 +4692,7 @@ fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
                         }
                         egui::Popup::menu(&resp)
                             .open_memory(open.then_some(egui::SetOpenCommand::Toggle))
-                            .align(egui::RectAlign::RIGHT_START)
+                            .align(if right { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START })
                             .gap(6.0)
                             .show(|ui| {
                                 for tool in comments::GROUPS[g] {
@@ -4736,7 +4768,7 @@ fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
                     let open = (resp.clicked() && current_fill.is_some()) || resp.secondary_clicked();
                     egui::Popup::menu(&resp)
                         .open_memory(open.then_some(egui::SetOpenCommand::Toggle))
-                        .align(egui::RectAlign::RIGHT_START)
+                        .align(if right { egui::RectAlign::LEFT_START } else { egui::RectAlign::RIGHT_START })
                         .gap(6.0)
                         .show(|ui| {
                             for tool in crate::fill_sign::FILL_TOOLS {
