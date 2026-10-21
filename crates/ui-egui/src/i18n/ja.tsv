@@ -2464,3 +2464,4 @@ animation effects	Off	オフ
 	The interface's language and size, and the floating bars around the page.	インターフェイスの言語とサイズ、ページ周りのフローティングバー。
 	What scripts in PDF files may do.	PDF ファイル内のスクリプトに許可すること。
 	Your name on comments, and how comments show.	コメントに付く名前と、コメントの表示方法。
+	It includes open-source components under their own licences, listed in the NOTICE file installed with it.	独自のライセンスによるオープンソースのコンポーネントを含みます。一覧は一緒にインストールされる NOTICE ファイルにあります。

@@ -33,6 +33,7 @@ macro_rules! tl_ctx {
 mod a11y_ui;
 mod actions_ui;
 mod appearance;
+mod brand;
 pub mod canvas;
 mod chrome;
 mod combine_grid;
@@ -53,7 +54,6 @@ mod compare_ui;
 pub mod control;
 mod create_multiple_ui;
 mod create_ui;
-mod credits;
 mod crop;
 mod drag_pointer;
 mod export_ui;

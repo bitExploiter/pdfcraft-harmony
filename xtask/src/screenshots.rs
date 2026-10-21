@@ -110,7 +110,7 @@ fn update_attribution(root: &Path) -> Result<()> {
         // source; AGENTS.md §1.2), so the screenshot's licence is not read as covering it.
         let shows_home = scene.is_some_and(|(.., args)| args.windows(2).any(|w| w[0] == "--home" && w[1] == "on"));
         let contents = if shows_home {
-            "Shows PdfCraft UI, Lucide icons, the showcase PDF built from the [[fetched]] OFL fonts, and the ArtCraft mark (Storyteller trademark from docs/brand/, not covered by this licence)"
+            "Shows PdfCraft UI, Lucide icons, the showcase PDF built from the [[fetched]] OFL fonts, and the Design Kreativ mark (Design Kreativ trademark from assets/brand/, not covered by this licence)"
         } else {
             "Shows only PdfCraft UI, Lucide icons and the showcase PDF built from the [[fetched]] OFL fonts"
         };

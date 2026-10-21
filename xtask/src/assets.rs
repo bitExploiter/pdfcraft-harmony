@@ -36,10 +36,10 @@ pub const ALLOWED_LICENCES: &[&str] = &[
 ];
 
 /// The closed list of Adobe-authored, non-visual technical data (AGENTS.md §1.1): (crate, path).
-/// Storyteller's own brand marks (the ArtCraft name and logos): shipped in the app and docs, but
-/// not licensed for reuse by forks. Allowed only for `kind = "logo"` entries under `docs/brand/`
-/// (AGENTS.md §1.2).
-pub const BRAND_LICENCE: &str = "LicenseRef-Storyteller-Trademark";
+/// Design Kreativ's own brand marks (its name and logos, and the KreativPdf app icon): shipped in
+/// the app, but not licensed for reuse by others. Allowed only for `kind = "logo"` entries under
+/// `assets/brand/` (AGENTS.md §1.2).
+pub const BRAND_LICENCE: &str = "LicenseRef-DesignKreativ-Trademark";
 
 pub const ADOBE_DATA_ALLOWED: &[(&str, &str)] = &[("hayro-cmap", "assets/cmaps.brotli"), ("hayro-interpret", "src/font/generated/metrics.rs")];
 
@@ -241,7 +241,7 @@ pub fn check(root: &Path, m: &Manifest, repo_files: &[String], lock: &BTreeSet<(
         if !seen.insert(a.path.clone()) {
             problems.push(format!("{}: listed twice", a.path));
         }
-        let brand = a.licence == BRAND_LICENCE && a.kind == "logo" && a.path.starts_with("docs/brand/");
+        let brand = a.licence == BRAND_LICENCE && a.kind == "logo" && a.path.starts_with("assets/brand/");
         if !brand {
             licence_ok(&a.path, &a.licence, &mut problems);
         }
@@ -553,12 +553,12 @@ mod tests {
     fn brand_licence_only_for_brand_logos() {
         let root = super::root();
         for (path, kind, pass) in [
-            ("docs/brand/artcraft-mark.svg", "logo", true),
-            ("docs/brand/artcraft-mark.svg", "icon", false),
+            ("assets/brand/design-kreativ-mark.png", "logo", true),
+            ("assets/brand/design-kreativ-mark.png", "icon", false),
             ("assets/icons/mark.svg", "logo", false),
         ] {
-            let mut a = asset(path, "Storyteller", kind, BRAND_LICENCE);
-            a.licence_file = "docs/brand/LICENSE-brand.txt".into();
+            let mut a = asset(path, "Design Kreativ", kind, BRAND_LICENCE);
+            a.licence_file = "assets/brand/LICENSE-brand.txt".into();
             let m = Manifest { asset: vec![a], ..Default::default() };
             let p = check(&root, &m, &[], &BTreeSet::new());
             assert_eq!(p.iter().all(|p| !p.contains("allowlist")), pass, "{path} {kind}: {p:?}");

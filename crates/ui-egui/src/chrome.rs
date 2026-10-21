@@ -367,7 +367,7 @@ pub fn no_strip(ctx: &egui::Context) {
 fn app_icon(ui: &mut egui::Ui, size: f32) {
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
     let icon = Rect::from_center_size(rect.center(), vec2(18.0, 18.0));
-    egui::Image::from_bytes("bytes://pdfcraft-app-icon.svg", include_bytes!("../../../assets/app-icon/pdfcraft-small.svg")).paint_at(ui, icon);
+    widgets::paint_brand_mark(ui, icon);
 }
 
 /// Both theme entry points use the same choices and command path.
