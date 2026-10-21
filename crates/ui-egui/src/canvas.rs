@@ -269,6 +269,15 @@ impl Selection {
     }
 }
 
+/// A text selection tried where there is no text: on `page`, starting at `at` in view space, at
+/// input time `since` (a press after it closes the bar).
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct NoText {
+    page: usize,
+    at: [f32; 2],
+    since: f64,
+}
+
 /// The glyphs `clicks` quick clicks select around glyph `a`: two the word, three the line, more
 /// the page.
 fn click_unit(text: &PageText, clicks: u32, a: usize) -> Option<(usize, usize)> {
@@ -444,6 +453,12 @@ pub struct DocView {
     /// Text layers, extracted in the background on demand (selection, find, copy).
     pub(crate) texts: HashMap<usize, Arc<PageText>>,
     pub(crate) text_failed: HashSet<usize>,
+    /// Text recognised in the background on pages whose own text layer is empty (scans): the
+    /// view's, never the document's, and the page's text layer whenever that is read again.
+    /// Dropped when pages may have moved ([`Self::document_changed`]).
+    pub(crate) ocr_texts: HashMap<usize, Arc<PageText>>,
+    /// The background recognition of this document's scanned pages.
+    pub(crate) auto_ocr: crate::auto_ocr::AutoOcr,
     pub find: Option<Find>,
     selection: Option<Selection>,
     /// The selection whose action bar was closed by its Copy button: the bar stays hidden
@@ -452,6 +467,9 @@ pub struct DocView {
     /// The drag in progress started a text selection: the wheel scrolls the page during it
     /// (#721), which egui's scroll area refuses while anything is dragged.
     selection_drag: bool,
+    /// A text selection tried on a page whose text layer is empty: the bar offering Recognize
+    /// text. A scan has nothing to select until its text is recognized.
+    no_text: Option<NoText>,
     /// Clicks in the current run on the text layer: two select a word, three the line, four the page.
     clicks: u32,
     last_press_time: f64,
@@ -739,10 +757,13 @@ impl DocView {
             tiles: HashMap::new(),
             texts: HashMap::new(),
             text_failed: HashSet::new(),
+            ocr_texts: HashMap::new(),
+            auto_ocr: crate::auto_ocr::AutoOcr::default(),
             find: None,
             selection: None,
             actions_dismissed: None,
             selection_drag: false,
+            no_text: None,
             clicks: 0,
             last_press_time: 0.0,
             last_press_pos: None,
@@ -821,6 +842,9 @@ impl DocView {
     /// adopt the new page geometry, keeping the reader's place where possible.
     pub fn document_changed(&mut self, info: &DocInfo) {
         self.invalidate_content();
+        // Pages may have moved, so text recognised on one may belong to another now.
+        self.ocr_texts.clear();
+        self.auto_ocr.reset();
         self.frame_geometry_changed = true;
         self.page_count = info.pages.len();
         self.page_heights = info.pages.iter().map(|p| p.height).collect();
@@ -977,6 +1001,7 @@ impl DocView {
         self.waiting_since.clear();
         self.last_queue.clear();
         self.selection = None;
+        self.no_text = None;
         if let Some(f) = self.find.as_mut() {
             f.matches.clear();
             f.current = None;
@@ -1014,6 +1039,9 @@ impl DocView {
         self.last_queue.clear();
         if self.selection.is_some_and(|s| s.page == page) {
             self.selection = None;
+        }
+        if self.no_text.is_some_and(|n| n.page == page) {
+            self.no_text = None;
         }
     }
 
@@ -1099,7 +1127,7 @@ impl DocView {
         }
     }
 
-    fn refresh_find_page(&mut self, page: usize) {
+    pub(crate) fn refresh_find_page(&mut self, page: usize) {
         let (Some(f), Some(text)) = (self.find.as_mut(), self.texts.get(&page)) else { return };
         if f.case_query.trim().is_empty() {
             return;
@@ -1168,6 +1196,27 @@ impl DocView {
         let (_, xf) = self.screen_xforms.iter().find(|(p, _)| *p == page)?;
         let g = self.texts.get(&page)?.glyphs.get(glyph)?;
         Some(xf.view_rect(g.rect).center())
+    }
+
+    /// Glyphs in `page`'s text layer, once it is loaded (used by UI tests and automation).
+    pub fn text_glyph_count(&self, page: usize) -> Option<usize> {
+        self.texts.get(&page).map(|t| t.glyphs.len())
+    }
+
+    /// `page`'s text layer as plain text, once it is loaded (used by UI tests and automation).
+    pub fn page_plain_text(&self, page: usize) -> Option<String> {
+        self.texts.get(&page).map(|t| t.plain_text())
+    }
+
+    /// The page whose bar offers Recognize text, after a text selection there found no text.
+    pub fn no_text_page(&self) -> Option<usize> {
+        self.no_text.map(|n| n.page)
+    }
+
+    /// The page being recognised in the background (1-based) and the pages to read, while that
+    /// runs (used by UI tests and automation).
+    pub fn auto_ocr_progress(&self) -> Option<(usize, usize)> {
+        self.auto_ocr.progress()
     }
 
     /// Selected text, if any (⌘C).
@@ -1828,6 +1877,13 @@ impl DocView {
         if r.request.kind == RequestKind::Text {
             match r.text {
                 Some(t) => {
+                    // A page without text may be a scan: recognise it, or use what was.
+                    let t = if t.is_empty() {
+                        self.auto_ocr.wanted = true;
+                        self.ocr_texts.get(&r.request.page).cloned().unwrap_or(t)
+                    } else {
+                        t
+                    };
                     self.texts.insert(r.request.page, t);
                     self.refresh_find_page(r.request.page);
                 }
@@ -3300,6 +3356,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     // Column select (#740): the Column select tool, or Alt (Option on macOS) held
                     // while a drag starts, as in Acrobat.
                     let column = tool == QuickTool::ColumnSelect || ui.input(|inp| inp.modifiers.alt);
+                    // Selecting on a page with no text at all (a scan) offers to recognize it,
+                    // unless that is already happening in the background.
+                    let offers_ocr = text.is_empty() && !view.auto_ocr.running() && matches!(tool, QuickTool::Select | QuickTool::ColumnSelect);
                     // A link or a form field under the pointer keeps its own cursor: a check box
                     // drawn with a glyph, or set on printed text, shows the hand, not the I-beam.
                     let cursor_free = !over_link && !over_field;
@@ -3343,6 +3402,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                                 view.selection = Some(Selection::run(i, first, last));
                             }
                         }
+                        if clicks >= 2 && offers_ocr {
+                            view.no_text = Some(NoText { page: i, at: [vx, vy], since: now });
+                        }
                     }
                     if resp.drag_started() && press_here && !over_link {
                         // A drag replaces the selection without passing through none, so a
@@ -3358,6 +3420,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                                 text.nearest(ox, oy).map(|a| Selection::run(i, a, a))
                             };
                         }
+                        view.no_text = offers_ocr.then(|| NoText { page: i, at: [ox, oy], since: ui.input(|inp| inp.time) });
                     }
                     let clicks = if view.clicks > 2 && tool != QuickTool::Select { 1 } else { view.clicks };
                     if resp.dragged()
@@ -3741,6 +3804,14 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     view.auto_scroll.paint(ui, avail);
     if unobstructed && matches!(tool, QuickTool::Select | QuickTool::ColumnSelect) {
         copy_selected |= selection_actions(ui, avail, view, info, prefs, allowed && !comments_hidden, can_copy);
+        if let Some(page) = no_text_bar(ui, avail, view, can_modify) {
+            image_action = Some(crate::edit_text_ui::ImageAction::Recognize(page));
+        }
+    } else {
+        view.no_text = None;
+    }
+    if unobstructed {
+        crate::auto_ocr::progress_bar(ui, avail, view);
     }
 
     // Collect all main-page demand, including cached surfaces, for byte admission later.
@@ -4180,6 +4251,46 @@ fn selection_actions(
         SelectionAction::Copy => {}
     }
     false
+}
+
+/// The bar shown after a text selection is tried on a page with no text: such a page is most
+/// likely a scan, whose words can be selected and found once Recognize text has added a text
+/// layer. It closes on the next press outside it, on Escape, and once the page has text. Returns
+/// the page to recognize when its button is clicked.
+fn no_text_bar(ui: &mut egui::Ui, viewport: Rect, view: &mut DocView, can_recognize: bool) -> Option<usize> {
+    let hint = view.no_text?;
+    let id = egui::Id::new(("no-text-actions", view.id.0));
+    let bar = ui.ctx().memory(|m| m.area_rect(id));
+    let (pressed_elsewhere, escape) = ui.input(|i| {
+        let elsewhere =
+            i.pointer.any_pressed() && i.time > hint.since && !i.pointer.press_origin().is_some_and(|p| bar.is_some_and(|r| r.contains(p)));
+        (elsewhere, i.key_pressed(egui::Key::Escape))
+    });
+    let has_text = view.texts.get(&hint.page).is_some_and(|t| !t.is_empty());
+    if pressed_elsewhere || escape || has_text {
+        view.no_text = None;
+        return None;
+    }
+    let xf = view.page_xform(hint.page)?;
+    let [x, y] = hint.at;
+    let at = xf.view_rect([x, y, x, y]).left_top();
+    if !viewport.contains(at) {
+        return None;
+    }
+    let left = at.x.clamp(viewport.left() + 8.0, (viewport.right() - 420.0).max(viewport.left() + 8.0));
+    let top = if at.y + 96.0 < viewport.bottom() { at.y + 12.0 } else { (at.y - 96.0).max(viewport.top() + 6.0) };
+    let mut recognize = false;
+    egui::Area::new(id).order(egui::Order::Foreground).fixed_pos(pos2(left, top)).show(ui.ctx(), |ui| {
+        egui::Frame::popup(ui.style()).show(ui, |ui| {
+            ui.set_max_width(400.0);
+            ui.label(tl!("There is no selectable text on this page. If it is a scan or a picture of text, recognize its text to select it."));
+            recognize = ui.add_enabled(can_recognize, egui::Button::new(tl!("Recognize text…"))).clicked();
+        });
+    });
+    if recognize {
+        view.no_text = None;
+    }
+    recognize.then_some(hint.page)
 }
 
 /// Run a push button's action (the ones that need no JavaScript engine).
@@ -6477,5 +6588,48 @@ trailer << /Root 1 0 R >>
         assert_eq!(v.find.as_ref().unwrap().current, Some(0));
         assert_eq!(v.find.as_ref().unwrap().matches, vec![(1, 5..9)]);
         assert!(v.goto.is_none());
+    }
+
+    /// Text recognised in the background stays the page's text layer when that layer is read
+    /// again (scrolled away and back), so the page is not read a second time; an edit on the page
+    /// (a comment) keeps it, and a change that may move pages drops it.
+    #[test]
+    fn recognised_text_is_kept_for_its_page_until_pages_may_move() {
+        let mut v = view(3, PageLayout::Single, true);
+        let ctx = egui::Context::default();
+        let empty = |v: &mut DocView| {
+            let req = RenderRequest { page: 1, kind: RequestKind::Text, ..Default::default() };
+            v.last_queue = vec![req];
+            let r = pdfcraft_render::RenderedPage {
+                request: req,
+                width: 0,
+                height: 0,
+                rgba: Default::default(),
+                error: None,
+                text: Some(Arc::new(PageText::default())),
+                warnings: Vec::new(),
+                millis: 0,
+            };
+            v.receive_result(&ctx, r);
+        };
+        empty(&mut v);
+        assert!(v.auto_ocr.wanted, "an empty text layer asks for recognition");
+        assert_eq!(v.text_glyph_count(1), Some(0));
+        let recognised = PageText {
+            glyphs: vec![pdfcraft_render::TextGlyph { text: "x".into(), rect: [0.0, 0.0, 10.0, 10.0], quad: [[0.0, 0.0]; 4], direction: [1.0, 0.0] }],
+            line_of: vec![0],
+            space_before: vec![false],
+        };
+        v.ocr_texts.insert(1, Arc::new(recognised));
+        v.texts.remove(&1);
+        empty(&mut v);
+        assert_eq!(v.page_plain_text(1).as_deref(), Some("x"), "read again, the page keeps its recognised text");
+        v.page_changed(1);
+        empty(&mut v);
+        assert_eq!(v.page_plain_text(1).as_deref(), Some("x"), "a comment on the page keeps it");
+        v.document_changed(&thumbnail_info(3));
+        assert!(v.ocr_texts.is_empty() && !v.auto_ocr.wanted, "pages may have moved");
+        empty(&mut v);
+        assert_eq!(v.text_glyph_count(1), Some(0));
     }
 }
