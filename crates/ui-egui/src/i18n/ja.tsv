@@ -2383,6 +2383,11 @@ animation effects	Off	オフ
 	Move tag earlier	タグを前へ移動
 	Move tag later	タグを後へ移動
 
+	Ink	インク
+
+	Dark ink	濃いインク
+
+	Light ink	明るいインク
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	「{from}」の署名済みバージョン（リビジョン {rev}）を表示しています。これはスナップショットであり、ここでの変更は元の文書に影響しません。
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	「{from}」のリビジョン {rev} を表示しています。これはスナップショットであり、ここでの変更は元の文書に影響しません。
@@ -2434,3 +2439,5 @@ animation effects	Off	オフ
 	Make properties default	プロパティをデフォルトに設定
 	Pages selected	選択したページ
 	Page properties	ページのプロパティ
+	No signature was found. Adjust the ink sensitivity or keep the original image.	署名が見つかりません。インクの感度を調整するか、元の画像を保持してください。
+	Signature cleanup stopped unexpectedly.	署名のクリーンアップが予期せず停止しました。

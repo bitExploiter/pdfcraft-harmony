@@ -2404,6 +2404,11 @@ animation effects	Off	معطّلة
 	Move tag earlier	نقل العلامة للأعلى
 	Move tag later	نقل العلامة للأسفل
 
+	Ink	الحبر
+
+	Dark ink	حبر داكن
+
+	Light ink	حبر فاتح
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	أنت تعرض النسخة الموقعة من “{from}” (المراجعة {rev}). هذه لقطة: التغييرات هنا لن تؤثر على الأصل.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	أنت تعرض المراجعة {rev} من “{from}”. هذه لقطة: التغييرات هنا لن تؤثر على الأصل.
@@ -2711,3 +2716,5 @@ certificate	Version	الإصدار
 	Make properties default	جعل الخصائص افتراضية
 	Pages selected	الصفحات المحددة
 	Page properties	خصائص الصفحة
+	No signature was found. Adjust the ink sensitivity or keep the original image.	لم يتم العثور على توقيع. اضبط حساسية الحبر أو احتفظ بالصورة الأصلية.
+	Signature cleanup stopped unexpectedly.	توقفت معالجة التوقيع بشكل غير متوقع.

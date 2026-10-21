@@ -2382,6 +2382,11 @@ animation effects	Off	Ki
 	Move tag earlier	Címke korábbra helyezése
 	Move tag later	Címke későbbre helyezése
 
+	Ink	Tinta
+
+	Dark ink	Sötét tinta
+
+	Light ink	Világos tinta
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	A(z) „{from}“ aláírt változatát (a {rev}. változatot) tekinti meg. Ez egy pillanatkép: az itteni módosítások nem érintik az eredetit.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	A(z) „{from}“ {rev}. változatát tekinti meg. Ez egy pillanatkép: az itteni módosítások nem érintik az eredetit.
@@ -2433,3 +2438,5 @@ animation effects	Off	Ki
 	Make properties default	Tulajdonságok beállítása alapértelmezettként
 	Pages selected	Kijelölt oldalak
 	Page properties	Oldaltulajdonságok
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Nem található aláírás. Módosítsa a tintaérzékenységet, vagy tartsa meg az eredeti képet.
+	Signature cleanup stopped unexpectedly.	Az aláírás tisztítása váratlanul leállt.

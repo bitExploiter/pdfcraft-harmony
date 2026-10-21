@@ -2392,6 +2392,11 @@ animation effects	Off	Disattivati
 	Move tag earlier	Sposta tag prima
 	Move tag later	Sposta tag dopo
 
+	Ink	Inchiostro
+
+	Dark ink	Inchiostro scuro
+
+	Light ink	Inchiostro chiaro
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Stai visualizzando la versione firmata di “{from}” (revisione {rev}). È un'istantanea: le modifiche qui non influiscono sull'originale.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Stai visualizzando la revisione {rev} di “{from}”. È un'istantanea: le modifiche qui non influiscono sull'originale.
@@ -2646,3 +2651,5 @@ certificate	Key usage	Utilizzo chiave
 certificate	Self-signed	Autofirmato
 certificate	SHA-1 digest	Impronta SHA-1
 certificate	SHA-256 digest	Impronta SHA-256
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Nessuna firma trovata. Regola la sensibilità all’inchiostro o mantieni l’immagine originale.
+	Signature cleanup stopped unexpectedly.	La pulizia della firma si è interrotta in modo imprevisto.

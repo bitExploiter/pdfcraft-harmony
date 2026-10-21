@@ -2397,6 +2397,11 @@ animation effects	Off	Desativados
 	Move tag earlier	Mover tag para antes
 	Move tag later	Mover tag para depois
 
+	Ink	Tinta
+
+	Dark ink	Tinta escura
+
+	Light ink	Tinta clara
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Você está vendo a versão assinada de “{from}” (revisão {rev}). É um instantâneo: as alterações aqui não afetarão o original.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Você está vendo a revisão {rev} de “{from}”. É um instantâneo: as alterações aqui não afetarão o original.
@@ -2448,3 +2453,5 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Nenhuma assinatura foi encontrada. Ajuste a sensibilidade da tinta ou mantenha a imagem original.
+	Signature cleanup stopped unexpectedly.	A limpeza da assinatura foi interrompida inesperadamente.

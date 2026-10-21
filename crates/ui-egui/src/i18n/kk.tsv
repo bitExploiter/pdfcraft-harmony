@@ -2381,6 +2381,11 @@ animation effects	Off	Өшірулі
 	Move tag earlier	Тегті ертерек жылжыту
 	Move tag later	Тегті кейінірек жылжыту
 
+	Ink	Сия
+
+	Dark ink	Қою сия
+
+	Light ink	Ашық сия
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Сіз „{from}“ құжатының қол қойылған нұсқасын ({rev} нұсқа) қарап отырсыз. Бұл сақталған көшірме: мұндағы өзгерістер түпнұсқаға әсер етпейді.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Сіз „{from}“ құжатының {rev} нұсқасын қарап отырсыз. Бұл сақталған көшірме: мұндағы өзгерістер түпнұсқаға әсер етпейді.
@@ -2432,3 +2437,5 @@ animation effects	Off	Өшірулі
 	Make properties default	Қасиеттерді әдепкі ету
 	Pages selected	Таңдалған беттер
 	Page properties	Бет қасиеттері
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Қолтаңба табылмады. Сия сезімталдығын реттеңіз немесе бастапқы кескінді сақтаңыз.
+	Signature cleanup stopped unexpectedly.	Қолтаңбаны тазалау күтпеген жерден тоқтады.

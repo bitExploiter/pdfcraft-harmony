@@ -2457,6 +2457,11 @@ animation effects	Off	Vypnuto
 	Move tag earlier	Přesunout značku dříve
 	Move tag later	Přesunout značku později
 
+	Ink	Inkoust
+
+	Dark ink	Tmavý inkoust
+
+	Light ink	Světlý inkoust
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Prohlížíte si podepsanou verzi dokumentu „{from}“ (revize {rev}). Je to snímek: změny zde neovlivní originál.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Prohlížíte si revizi {rev} dokumentu „{from}“. Je to snímek: změny zde neovlivní originál.
@@ -2508,3 +2513,5 @@ animation effects	Off	Vypnuto
 	Make properties default	Nastavit vlastnosti jako výchozí
 	Pages selected	Vybrané stránky
 	Page properties	Vlastnosti stránky
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Nebyl nalezen žádný podpis. Upravte citlivost na inkoust nebo ponechte původní obrázek.
+	Signature cleanup stopped unexpectedly.	Čištění podpisu se neočekávaně zastavilo.

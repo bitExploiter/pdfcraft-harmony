@@ -208,6 +208,23 @@ unapplied with a warning.
 folders. The CLI also exposes it as `pdfcraft-cli batch`. See the
 [batch guide](../../docs/cli-batch.md) for examples, output protection, errors and limits.
 
+## Signature image background cleanup
+
+`fill_sign_add` accepts `remove_background: true` with an image `path`, optionally
+`ink: "auto" | "dark" | "light"` and `sensitivity: 0..100` (default 50). It composites
+source alpha before estimating the paper, removes scanner haze and dust, trims the
+extracted ink and places it as black ink on real transparency. Already isolated
+cutouts retain their color and dimensions. This is local pixel extraction, not
+generated handwriting; textured backgrounds overlapping ink may need manual
+preparation. The existing `scan` mode and this option are mutually exclusive.
+
+The Image tab enables cleanup by default and previews actual transparency on a
+checkerboard. Clearing Remove background restores the original import; adjustments
+always start from that source. Desktop processing runs on a worker, with Apply
+disabled until the latest result is ready. Existing automation callers keep their
+original behavior because `remove_background` defaults to false. No stroke-width
+change is applied. The placed annotation remains movable, undoable and saved with
+its alpha mask.
 ## Viewer navigation history
 
 A running PdfCraft instance launched with `--control FILE` exposes its per-tab history through

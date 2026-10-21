@@ -2347,6 +2347,11 @@ animation effects	Off	关
 	Move tag earlier	将标签前移
 	Move tag later	将标签后移
 
+	Ink	墨迹
+
+	Dark ink	深色墨迹
+
+	Light ink	浅色墨迹
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	您正在查看“{from}”的已签名版本（修订版本 {rev}）。这是快照：在此处所做的更改不会影响原始文档。
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	您正在查看“{from}”的修订版本 {rev}。这是快照：在此处所做的更改不会影响原始文档。
@@ -2398,3 +2403,5 @@ animation effects	Off	关
 	Make properties default	将属性设为默认
 	Pages selected	选定的页面
 	Page properties	页面属性
+	No signature was found. Adjust the ink sensitivity or keep the original image.	未找到签名。请调整墨迹灵敏度或保留原始图像。
+	Signature cleanup stopped unexpectedly.	签名清理意外停止。

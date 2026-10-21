@@ -2627,6 +2627,11 @@ key	Space	Tarpas
 	Move tag earlier	Perkelti žymą anksčiau
 	Move tag later	Perkelti žymą vėliau
 
+	Ink	Rašalas
+
+	Dark ink	Tamsus rašalas
+
+	Light ink	Šviesus rašalas
 # Historical snapshot notice bar (View signed version / View revision).
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	Jūs peržiūrite pasirašytą „{from}“ versiją ({rev} versija). Tai momentinė kopija: čia atlikti pakeitimai originalo nepaveiks.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	Jūs peržiūrite „{from}“ {rev} versiją. Tai momentinė kopija: čia atlikti pakeitimai originalo nepaveiks.
@@ -2685,3 +2690,5 @@ key	Space	Tarpas
 	The password must have at least 6 characters.	Slaptažodį turi sudaryti bent 6 simboliai.
 	This file changed on disk. Reload it to see the new version; your unsaved changes will be lost.	Šis failas diske pasikeitė. Įkelkite jį iš naujo, kad pamatytumėte naują versiją; neįrašyti pakeitimai bus prarasti.
 theme	Appearance	Išvaizda
+	No signature was found. Adjust the ink sensitivity or keep the original image.	Parašas nerastas. Pakeiskite rašalo jautrumą arba palikite pradinį vaizdą.
+	Signature cleanup stopped unexpectedly.	Parašo valymas netikėtai sustojo.
