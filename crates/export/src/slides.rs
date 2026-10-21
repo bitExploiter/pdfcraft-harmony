@@ -196,7 +196,8 @@ fn bounds(s: &Shape) -> Option<[f64; 4]> {
 }
 
 /// For each invisible block, the shapes that are its glyphs: filled, unstroked, inside the block
-/// (with a little room) and no taller than a line of it. Each shape belongs to one block at most.
+/// (with a little room), no taller than a line of it, and at least three of them spread over 40%
+/// of its width (one mark in the line is a decoration). Each shape belongs to one block at most.
 /// Returns, per shape, whether it is a glyph, and per block how to show it.
 fn glyph_outlines(p: &Page) -> (Vec<bool>, Vec<Ink>) {
     let shapes = p.shapes.len().min(MAX_SHAPES);
@@ -212,18 +213,26 @@ fn glyph_outlines(p: &Page) -> (Vec<bool>, Vec<Ink>) {
             let size = if b.size.is_finite() && b.size > 0.0 { b.size } else { 12.0 };
             let m = size * 0.3;
             let [x0, y0, x1, y1] = b.rect;
-            let mut colour = None;
+            let mut found: Vec<(usize, [f64; 4], [f64; 3])> = Vec::new();
             for (i, s) in p.shapes.iter().take(shapes).enumerate() {
                 let (Some(Some(bb)), Some(false), Some(fill)) = (boxes.get(i), claimed.get(i).copied(), s.fill) else { continue };
                 let inside = bb[0] >= x0 - m && bb[1] >= y0 - m && bb[2] <= x1 + m && bb[3] <= y1 + m;
                 if inside && s.stroke.is_none() && bb[3] - bb[1] <= size * 1.6 {
-                    if let Some(c) = claimed.get_mut(i) {
-                        *c = true;
-                    }
-                    colour.get_or_insert(fill);
+                    found.push((i, *bb, fill));
                 }
             }
-            colour.map_or(Ink::Hidden, Ink::Outlines)
+            // Glyphs, not a mark that happens to sit in the line: several shapes spread over a fair
+            // part of the text's width.
+            let (lo, hi) = found.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), (_, bb, _)| (lo.min(bb[0]), hi.max(bb[2])));
+            if found.len() < 3 || hi - lo < (x1 - x0) * 0.4 {
+                return Ink::Hidden;
+            }
+            for (i, _, _) in &found {
+                if let Some(c) = claimed.get_mut(*i) {
+                    *c = true;
+                }
+            }
+            found.first().map_or(Ink::Hidden, |(_, _, fill)| Ink::Outlines(*fill))
         })
         .collect();
     (claimed, inks)
@@ -550,6 +559,22 @@ mod tests {
         assert_eq!(slide.matches("<p:sp>").count(), 2, "the page background and the text box; the glyph outlines are gone: {slide}");
         assert!(slide.contains("<a:srgbClr val=\"FF0000\"/></a:solidFill></a:rPr><a:t>Hi</a:t>"), "the text takes the outlines' colour: {slide}");
         assert!(slide.contains("<a:srgbClr val=\"E6E6E6\"/>"), "large artwork behind the text stays");
+    }
+
+    #[test]
+    fn a_decoration_inside_scanned_text_stays() {
+        // One small filled square inside an OCR line is a bullet or a mark, not the line's glyphs.
+        let mut p = outlined_text();
+        p.shapes.truncate(1);
+        p.shapes.push(Shape {
+            paths: vec![vec![[102.0, 402.0], [106.0, 402.0], [106.0, 406.0], [102.0, 406.0]]],
+            closed: true,
+            fill: Some([0.0, 0.0, 1.0]),
+            ..Shape::default()
+        });
+        let slide = part(&pptx_positioned(&[p], "Deck"), "ppt/slides/slide1.xml");
+        assert!(slide.contains("<a:srgbClr val=\"0000FF\"/>"), "the square is drawn: {slide}");
+        assert!(slide.contains("<a:alpha val=\"0\"/>"), "the text stays invisible: {slide}");
     }
 
     #[test]
