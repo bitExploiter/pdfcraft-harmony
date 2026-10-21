@@ -749,6 +749,11 @@ impl crate::PdfCraftApp {
             self.last_copied_image = Some((w, h, rgba));
             Ok((w, h))
         });
+        if copied.is_ok()
+            && let Some(Ok((ext, bytes))) = self.session.get(id).map(|d| d.page_image_copy_file(page, index))
+        {
+            self.copied_image = Some((format!("image.{ext}"), std::sync::Arc::new(bytes)));
+        }
         match copied {
             Ok((w, h)) => {
                 self.notify_fmt("The image has been copied ({w} × {h} pixels)", &[("w", &w.to_string()), ("h", &h.to_string())]);
@@ -829,10 +834,22 @@ impl crate::PdfCraftApp {
 
     /// Place image `bytes` in the middle of the current page and select it.
     pub fn add_image(&mut self, name: String, bytes: Vec<u8>) {
-        let Some((i, id)) = self.active_ids() else { return };
+        let Some((i, _)) = self.active_ids() else { return };
         let page = self.views[i].current;
+        self.place_image(page, name, std::sync::Arc::new(bytes));
+    }
+
+    /// Paste Image: the last copied picture, from this document or another, placed on `page` of
+    /// the active document as an image of its own (as Add Image places a file) and selected.
+    pub(crate) fn paste_image(&mut self, page: usize) {
+        let Some((name, bytes)) = self.copied_image.clone() else { return };
+        self.place_image(page, name, bytes);
+    }
+
+    fn place_image(&mut self, page: usize, name: String, bytes: std::sync::Arc<Vec<u8>>) {
+        let Some((i, id)) = self.active_ids() else { return };
         let before = self.session.get(id).map_or(0, |d| d.added().iter().filter(|a| a.page == page).count());
-        if self.apply_edit(Edit::AddImage { page, rect: None, name, bytes: std::sync::Arc::new(bytes) }) {
+        if self.apply_edit(Edit::AddImage { page, rect: None, name, bytes }) {
             self.views[i].content.select_added = Some((page, before));
             self.left = crate::LeftPanel::Tool("edit");
             self.left_open = true;

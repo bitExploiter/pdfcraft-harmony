@@ -180,6 +180,26 @@ impl PdfCraftApp {
         }
     }
 
+    /// Edit text & images: ⌘C / Ctrl+C copies the selected image in its original format, and
+    /// ⌘V / Ctrl+V pastes the last copied picture onto the current page. Only PdfCraft's own copy
+    /// is pasted: the system clipboard may hold a picture from elsewhere, which this leaves alone.
+    pub(crate) fn image_edit_keys(&mut self, i: usize, ctx: &egui::Context) {
+        let Some(view) = self.views.get(i) else { return };
+        if self.quick_tool != crate::QuickTool::EditText || view.organize || self.modal_open() || ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        let (copy, paste) = ctx
+            .input(|inp| (inp.events.iter().any(|e| matches!(e, egui::Event::Copy)), inp.events.iter().any(|e| matches!(e, egui::Event::Paste(_)))));
+        let selected = view.image_selection.as_ref().map(|s| (s.page, s.index));
+        let page = view.current;
+        if copy && let Some((page, index)) = selected {
+            self.copy_page_image_file(page, index);
+        }
+        if paste && self.copied_image.is_some() {
+            self.paste_image(page);
+        }
+    }
+
     /// Copy Image in Original Format: image `index` on `page` as a file on the clipboard (JPEG
     /// as stored in the PDF, otherwise PNG).
     pub(crate) fn copy_page_image_file(&mut self, page: usize, index: usize) {
@@ -193,6 +213,7 @@ impl PdfCraftApp {
         let copied = file.and_then(|(ext, bytes)| {
             let name = format!("{stem} p{} img{}.{ext}", page.saturating_add(1), index.saturating_add(1));
             self.put_file_on_clipboard(&name, &bytes)?;
+            self.copied_image = Some((name.clone(), std::sync::Arc::new(bytes.clone())));
             self.last_copied_file = Some((name, bytes));
             Ok(ext)
         });

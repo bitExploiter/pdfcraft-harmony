@@ -724,6 +724,9 @@ pub struct PdfCraftApp {
     /// The last image copied in its original format (file name, bytes), also put on the
     /// system clipboard as a file when `system_clipboard` is on.
     pub last_copied_file: Option<(String, Vec<u8>)>,
+    /// The picture the last Copy Image (of either kind) took, as a file (name, bytes): Paste
+    /// Image places it, in this document or another, as an image of its own.
+    pub copied_image: Option<(String, std::sync::Arc<Vec<u8>>)>,
     pub system_clipboard: bool,
     /// Attach file: the file to attach instead of asking (tests, automation).
     pub attach_override: Option<(String, Vec<u8>)>,
@@ -1024,6 +1027,7 @@ impl PdfCraftApp {
             grid_drop: None,
             last_snapshot: None,
             last_copied_image: None,
+            copied_image: None,
             last_copied_file: None,
             system_clipboard: true,
             attach_override: None,
@@ -2854,6 +2858,7 @@ impl PdfCraftApp {
             canvas::shortcuts(&mut self.views[i], ctx, self.scroll_speed);
             self.copy_key(i, ctx);
             self.image_pick_keys(i, ctx);
+            self.image_edit_keys(i, ctx);
         }
     }
 }

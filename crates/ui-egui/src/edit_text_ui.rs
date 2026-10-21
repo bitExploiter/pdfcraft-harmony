@@ -618,6 +618,8 @@ pub(crate) enum ImageAction {
     Link(usize, usize),
     /// Open Recognize Text for the picture's page.
     Recognize(usize),
+    /// Paste Image onto a page (from the page menu).
+    Paste(usize),
 }
 
 fn user_box(xf: &PageXform, info: &DocInfo, page: usize, r: Rect) -> [f64; 4] {
@@ -833,6 +835,9 @@ pub(crate) fn image_input(
     });
     if resp.clicked() || resp.secondary_clicked() {
         view.image_selection = Some(ImageSelection { page, index: hit, drag: None, crop: None });
+        // Text selected before switching tools would be copied too by ⌘C, and the copied text
+        // replaces the picture on the system clipboard.
+        view.clear_selection();
     }
     if resp.secondary_clicked() {
         ui.ctx().data_mut(|d| d.insert_temp(menu_key, true));
