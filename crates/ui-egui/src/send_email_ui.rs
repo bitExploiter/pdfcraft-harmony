@@ -141,6 +141,11 @@ impl PdfCraftApp {
     /// the message comes up. Not attached: the dialog.
     pub(crate) fn poll_send_email(&mut self) {
         let Some(w) = &self.send_email.waiting else { return };
+        // Another dialog is open: leave the answer in the channel until it closes, so the
+        // dialog isn't replaced without going through its own close path.
+        if self.dialog.is_some() {
+            return;
+        }
         let answer = match w.rx.try_recv() {
             Ok(answer) => answer,
             Err(TryRecvError::Empty) => {
