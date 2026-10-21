@@ -553,10 +553,13 @@ fn write_control_file(path: &str, port: u16, token: &str) -> std::io::Result<()>
 ///   says which one it is ([`compositor_gpu::compositor_gpu`]), and frames from another GPU may
 ///   never reach the screen, even from the GPU behind the built-in panel when the compositor runs
 ///   on the discrete one.
-/// - On Windows, use Direct3D 12, falling back to OpenGL, and never load Vulkan drivers unless
+/// - On Windows, use Direct3D 12 only, and never load Vulkan or wgpu's OpenGL backend unless
 ///   `WGPU_BACKEND` asks for them. Creating a Vulkan instance loads every installed Vulkan driver
 ///   into the process, and a faulty one (an Intel driver in issue #37) crashed PdfCraft before
-///   its window appeared. D3D12 is the native, best-supported backend there.
+///   its window appeared. wgpu's OpenGL backend creates a hidden window on a thread that never
+///   answers messages, so a printer driver that asks every window for its title (Kyocera KX in
+///   issue #2922) waits forever and the print job never gets data. D3D12 is the native,
+///   best-supported backend there; without it `main` retries with OpenGL through glow.
 fn configure_gpu(native: &mut eframe::NativeOptions) {
     let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &mut native.wgpu_options.wgpu_setup else { return };
     // Nothing draws or dispatches indirectly, so wgpu's check of indirect arguments only costs a
@@ -602,7 +605,9 @@ fn configure_gpu(native: &mut eframe::NativeOptions) {
         }
     }
     if cfg!(target_os = "windows") && std::env::var_os("WGPU_BACKEND").is_none() {
-        setup.instance_descriptor.backends = eframe::wgpu::Backends::DX12 | eframe::wgpu::Backends::GL;
+        // ponytail: a GPU without D3D12 now draws through WARP (software) rather than wgpu's GL;
+        // `PDFCRAFT_RENDERER=gl` gives it hardware OpenGL if that's too slow.
+        setup.instance_descriptor.backends = eframe::wgpu::Backends::DX12;
     }
 }
 
@@ -895,6 +900,7 @@ mod tests {
             let backends = setup.instance_descriptor.backends;
             assert!(backends.contains(eframe::wgpu::Backends::DX12), "{backends:?}");
             assert!(!backends.contains(eframe::wgpu::Backends::VULKAN), "issue #37: {backends:?}");
+            assert!(!backends.contains(eframe::wgpu::Backends::GL), "issue #2922: {backends:?}");
         }
     }
 
