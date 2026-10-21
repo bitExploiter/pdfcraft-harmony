@@ -2353,5 +2353,12 @@ animation effects	Off	ఆఫ్
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	పాఠ్యం పాఠకుడి స్క్రీన్‌కు, ఫాంట్ పరిమాణానికి అనుగుణంగా అధ్యాయాలుగా సర్దుకుంటుంది, బుక్‌మార్క్‌లు విషయసూచికగా ఉంటాయి.
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	ప్రతి పేజీ కనిపించినట్లే, దాని పాఠ్యం శోధించదగినదిగా ఉంటుంది. లేఅవుట్ ముఖ్యమైన పత్రాల కోసం.
 	Exported {name}	{name} ఎగుమతి చేయబడింది
+	Font	ఫాంట్
+	Bulleted list	బుల్లెట్ జాబితా
+	Numbered list	సంఖ్యల జాబితా
+	Alignment	అమరిక
+	Superscript	సూపర్‌స్క్రిప్ట్
+	Subscript	సబ్‌స్క్రిప్ట్
+	Paragraph spacing	పేరా అంతరం
 	Less	తక్కువ
 	Other options	ఇతర ఎంపికలు

@@ -2695,5 +2695,11 @@ theme	Appearance	Išvaizda
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	Tekstas prisitaiko prie skaitytojo ekrano ir šrifto dydžio, suskirstytas į skyrius, o žymelės tampa turiniu.
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	Kiekvienas puslapis toks, koks atrodo, o jo tekste vis dar galima ieškoti. Dokumentams, kuriems svarbus išdėstymas.
 	Exported {name}	Eksportuota: {name}
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys

@@ -2458,5 +2458,12 @@ animation effects	Off	Desativados
 	The text reflows to the reader's screen and font size, in chapters, with the bookmarks as the contents.	O texto se ajusta à tela e ao tamanho da fonte do leitor, em capítulos, com os marcadores como sumário.
 	Each page as it looks, its text kept searchable. For documents whose layout matters.	Cada página como ela aparece, com o texto ainda pesquisável. Para documentos em que o layout importa.
 	Exported {name}	{name} exportado
+	Font	Fonte
+	Bulleted list	Lista com marcadores
+	Numbered list	Lista numerada
+	Alignment	Alinhamento
+	Superscript	Sobrescrito
+	Subscript	Subscrito
+	Paragraph spacing	Espaçamento entre parágrafos
 	Less	Menos
 	Other options	Outras opções
