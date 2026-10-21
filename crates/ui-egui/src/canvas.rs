@@ -3104,6 +3104,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     info,
                     ft,
                     app.fill_text_size,
+                    app.fill_mark_color,
                     view,
                     signature.as_ref(),
                     initials.as_ref(),
@@ -4789,6 +4790,11 @@ fn quick_bar(app: &mut PdfCraftApp, area: Rect, ui: &mut egui::Ui) {
                                 .speed(0.25)
                                 .suffix(" pt"),
                         );
+                    }
+                    if current_fill.and_then(crate::fill_sign::FillTool::mark).is_some()
+                        && let Some(color) = comments::colour_button(ui, app.fill_mark_color)
+                    {
+                        app.fill_mark_color = color;
                     }
                     if let QuickTool::Comment(tool) = app.quick_tool {
                         let (r, _) = ui.allocate_exact_size(vec2(32.0, 9.0), Sense::hover());

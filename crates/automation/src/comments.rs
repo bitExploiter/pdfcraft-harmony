@@ -485,6 +485,10 @@ impl Automation {
         if !(4.0..=300.0).contains(&size) {
             return Err(ToolError::InvalidArgs("font_size must be 4–300 pt".into()));
         }
+        let color = a.color("color")?;
+        if color.is_some() && !matches!(kind, "check" | "cross" | "dot" | "line") {
+            return Err(ToolError::InvalidArgs("color is only for type check, cross, dot or line".into()));
+        }
         if let Some(path) = a.opt_str("path")? {
             if !matches!(kind, "signature" | "initials") || a.opt_str("text")?.is_some() {
                 return Err(ToolError::InvalidArgs("path is only for an image signature or initials; pass either path or text".into()));
@@ -555,7 +559,8 @@ impl Automation {
                 (Shape::Mark { rect: [at[0] - w / 2.0, at[1] - h / 2.0, at[0] + w / 2.0, at[1] + h / 2.0], mark }, String::new())
             }
         };
-        let style = Style::default_for(&shape);
+        let default = Style::default_for(&shape);
+        let style = Style { color: color.unwrap_or(default.color), ..default };
         self.apply(a, Edit::AddAnnotation(NewAnnotation { page, shape, style, contents, author }))
     }
 

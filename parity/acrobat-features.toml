@@ -5280,8 +5280,8 @@ milestone = "M5"
 status = "shipped"
 commands = ["sign.fill.check", "sign.fill.cross", "sign.fill.dot", "sign.fill.line"]
 tools = ["fill_sign_add"]
-evidence = ["crates/ui-egui/tests/fill_sign.rs::text_marks_and_date", "crates/annot/src/tests.rs::fill_and_sign_items_are_drawn"]
-notes = "PdfCraft-drawn stamps"
+evidence = ["crates/ui-egui/tests/fill_sign.rs::text_marks_and_date", "crates/annot/src/tests.rs::fill_and_sign_items_are_drawn", "crates/ui-egui/tests/fill_sign.rs::checkmark_colour_is_picked_in_the_quick_bar_and_remembered", "crates/automation/tests/automation.rs::fill_and_sign_marks_take_a_colour"]
+notes = "PdfCraft-drawn stamps. A Colour button in the quick bar (with a mark tool active) sets the colour of new checks, crosses, dots and lines (default black), remembered across launches; fill_sign_add takes `color` for marks (#2313). Missing: Acrobat's colour also applies to Fill & Sign text and dates, and recolours a selected item; here text and dates stay black and the button does not recolour a placed mark"
 
 [[feature]]
 id = "form.fill-sign-date"

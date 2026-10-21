@@ -5,7 +5,7 @@
 
 use egui::{Color32, CornerRadius, Pos2, Sense, Stroke, pos2, vec2};
 use pdfcraft_engine::signature_scan::{DEFAULT_SENSITIVITY, PREVIEW_MAX_SIDE, SCAN_MAX_SIDE, ScanError};
-use pdfcraft_engine::{Edit, FillMark, NewAnnotation, PhotoRect, Shape, SignatureImage, SignaturePhoto, Style, Turn};
+use pdfcraft_engine::{Edit, FillMark, NewAnnotation, PhotoRect, Rgb, Shape, SignatureImage, SignaturePhoto, Style, Turn};
 use pdfcraft_render::{DocInfo, PageInfo};
 
 use crate::canvas::{DocView, PageXform};
@@ -386,7 +386,7 @@ impl FillTool {
         }
     }
 
-    fn mark(self) -> Option<FillMark> {
+    pub(crate) fn mark(self) -> Option<FillMark> {
         match self {
             FillTool::Check => Some(FillMark::Check),
             FillTool::Cross => Some(FillMark::Cross),
@@ -414,6 +414,27 @@ pub const MAX_TEXT_SIZE: f64 = 300.0;
 
 pub fn valid_text_size(size: f64) -> Option<f64> {
     (size.is_finite() && (MIN_TEXT_SIZE..=MAX_TEXT_SIZE).contains(&size)).then_some(size)
+}
+
+/// The colour new checkmarks, crosses, dots and lines start with.
+pub const MARK_COLOR: Rgb = [0.0, 0.0, 0.0];
+
+/// A mark colour read back from settings: three finite components in 0–1.
+pub fn valid_mark_color(color: &serde_json::Value) -> Option<Rgb> {
+    let parts = color.as_array().filter(|a| a.len() == 3)?;
+    let mut rgb = [0.0; 3];
+    for (out, part) in rgb.iter_mut().zip(parts) {
+        *out = part.as_f64().filter(|c| (0.0..=1.0).contains(c))?;
+    }
+    Some(rgb)
+}
+
+/// A check, cross, dot or line centred on `at`, drawn in `color`.
+pub fn mark_at(page: usize, at: [f64; 2], mark: FillMark, color: Rgb, author: &str) -> Edit {
+    let (w, h) = if mark == FillMark::Line { (36.0, 4.0) } else { (12.0, 12.0) };
+    let shape = Shape::Mark { rect: [at[0] - w / 2.0, at[1] - h / 2.0, at[0] + w / 2.0, at[1] + h / 2.0], mark };
+    let style = Style { color, ..Style::default_for(&shape) };
+    Edit::AddAnnotation(NewAnnotation { page, shape, style, contents: String::new(), author: author.to_string() })
 }
 
 fn to_user(xf: &PageXform, info: &DocInfo, page: usize, p: Pos2) -> [f64; 2] {
@@ -620,6 +641,7 @@ pub(crate) fn page_input(
     info: &DocInfo,
     tool: FillTool,
     text_size: f64,
+    mark_color: Rgb,
     view: &mut DocView,
     signature: Option<&SavedSig>,
     initials: Option<&SavedSig>,
@@ -674,12 +696,7 @@ pub(crate) fn page_input(
             Some(s) => place(page, p, at, s, true, author).map(|e| FillAction::Signature(Box::new(e))),
             None => Some(FillAction::CreateInitials),
         },
-        mark => {
-            let mark = mark.mark()?;
-            let (w, h) = if mark == FillMark::Line { (36.0, 4.0) } else { (12.0, 12.0) };
-            let rect = [at[0] - w / 2.0, at[1] - h / 2.0, at[0] + w / 2.0, at[1] + h / 2.0];
-            Some(FillAction::Edit(Box::new(new(page, Shape::Mark { rect, mark }, String::new(), author))))
-        }
+        mark => Some(FillAction::Edit(Box::new(mark_at(page, at, mark.mark()?, mark_color, author)))),
     }
 }
 

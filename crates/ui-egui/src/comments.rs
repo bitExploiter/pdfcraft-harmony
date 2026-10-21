@@ -1867,18 +1867,10 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
     if icons::button(ui, "pin", 32.0, prefs.pinned, if prefs.pinned { tl!("Keep tool selected: on") } else { tl!("Keep tool selected") }).clicked() {
         prefs.pinned = !prefs.pinned;
     }
-    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
-    ui.painter().circle_filled(r.center(), 9.0, color32(style.color));
-    ui.painter().circle_stroke(r.center(), 9.0, Stroke::new(1.0, Color32::from_black_alpha(50)));
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Colour")));
-    let resp = resp.on_hover_text(tl!("Colour"));
-    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
-        if let Some(c) = swatch_grid(ui, Some(style.color)) {
-            prefs.set_color(tool, c);
-            selected_color = Some(c);
-            ui.close();
-        }
-    });
+    if let Some(c) = colour_button(ui, style.color) {
+        prefs.set_color(tool, c);
+        selected_color = Some(c);
+    }
     if tool.has_fill() {
         let resp = fill_button(ui, style.fill);
         egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
@@ -1910,6 +1902,24 @@ pub(crate) fn quick_bar_controls(ui: &mut egui::Ui, tool: CommentTool, prefs: &m
         });
     }
     selected_color
+}
+
+/// The quick bar's colour button: a dot in `current` that opens the swatch grid. Returns the
+/// colour picked this frame.
+pub(crate) fn colour_button(ui: &mut egui::Ui, current: Rgb) -> Option<Rgb> {
+    let (r, resp) = ui.allocate_exact_size(vec2(32.0, 32.0), Sense::click());
+    ui.painter().circle_filled(r.center(), 9.0, color32(current));
+    ui.painter().circle_stroke(r.center(), 9.0, Stroke::new(1.0, Color32::from_black_alpha(50)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Colour")));
+    let resp = resp.on_hover_text(tl!("Colour"));
+    let mut picked = None;
+    egui::Popup::menu(&resp).align(egui::RectAlign::RIGHT_START).show(|ui| {
+        if let Some(c) = swatch_grid(ui, Some(current)) {
+            picked = Some(c);
+            ui.close();
+        }
+    });
+    picked
 }
 
 /// The quick bar's fill button: a filled square in the fill colour, or a crossed-out outline

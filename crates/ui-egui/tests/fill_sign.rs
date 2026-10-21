@@ -169,6 +169,45 @@ fn fill_text_size_controls_new_text_and_survives_settings_restore() {
 }
 
 #[test]
+fn checkmark_colour_is_picked_in_the_quick_bar_and_remembered() {
+    let mut h = harness();
+    h.state_mut().execute("sign.fill.check");
+    h.run_steps(2);
+    click(&mut h, 50.0, 350.0);
+    h.get_by_label("Colour").click();
+    h.run_steps(2);
+    h.get_by_label("Blue").click();
+    h.run_steps(3);
+    assert_eq!(h.state().fill_mark_color, [0.0, 0.47, 0.84]);
+    click(&mut h, 120.0, 350.0);
+    let colours = |h: &Harness<'static, PdfCraftApp>| {
+        let s = h.state();
+        let mut v: Vec<_> = s.session.get(s.views[0].id).unwrap().info.annotations.iter().map(|a| (a.rect[0] as i32, a.color)).collect();
+        v.sort_by_key(|(x, _)| *x);
+        v.into_iter().map(|(_, c)| c).collect::<Vec<_>>()
+    };
+    assert_eq!(colours(&h), vec![Some([0.0, 0.0, 0.0]), Some([0.0, 0.47, 0.84])], "the first stays black, the next is blue");
+    // Text and dates have no colour button; the mark colour stays for the next mark tool.
+    h.state_mut().execute("sign.fill.text");
+    h.run_steps(2);
+    assert!(h.query_by_label("Colour").is_none(), "Add text has no mark colour");
+    h.state_mut().execute("sign.fill.cross");
+    h.run_steps(2);
+    h.get_by_label("Colour");
+
+    let settings = h.state().persist();
+    let mut restored = PdfCraftApp::new();
+    restored.restore(&settings);
+    assert_eq!(restored.fill_mark_color, [0.0, 0.47, 0.84]);
+    for bad in
+        [r#"{"fill_mark_color":[2,0,0]}"#, r#"{"fill_mark_color":[0,0]}"#, r#"{"fill_mark_color":"blue"}"#, r#"{"fill_mark_color":[0,null,0]}"#]
+    {
+        restored.restore(bad);
+        assert_eq!(restored.fill_mark_color, [0.0, 0.47, 0.84], "invalid settings keep the colour: {bad}");
+    }
+}
+
+#[test]
 fn the_type_box_grows_as_text_is_typed() {
     let mut h = harness();
     h.state_mut().execute("sign.fill.text");

@@ -2876,6 +2876,26 @@ fn fill_and_sign_through_tools() {
 }
 
 #[test]
+fn fill_and_sign_marks_take_a_colour() {
+    let dir = workdir("fill_colour");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "fill_sign_add", json!({ "doc": doc, "page": 1, "type": "check", "at": [20, 80] }));
+    ok(&mut a, "fill_sign_add", json!({ "doc": doc, "page": 1, "type": "check", "at": [40, 80], "color": "#0078D6" }));
+    ok(&mut a, "fill_sign_add", json!({ "doc": doc, "page": 1, "type": "line", "at": [60, 80], "color": "red" }));
+    let list = ok(&mut a, "comment_list", json!({ "doc": doc }));
+    let colours: Vec<&str> = list["comments"].as_array().unwrap().iter().map(|c| c["color"].as_str().unwrap()).collect();
+    assert_eq!(colours, ["#000000", "#0078D6", "#E32222"], "{list}");
+    for bad in [
+        json!({ "doc": doc, "page": 1, "type": "check", "at": [20, 120], "color": "#12" }),
+        json!({ "doc": doc, "page": 1, "type": "text", "at": [20, 120], "text": "x", "color": "red" }),
+    ] {
+        assert!(matches!(a.call("fill_sign_add", &bad), Err(ToolError::InvalidArgs(_))), "{bad}");
+    }
+    assert_eq!(ok(&mut a, "comment_list", json!({ "doc": doc }))["count"], 3, "a refused call adds nothing");
+}
+
+#[test]
 fn fill_sign_text_font_size_is_saved_and_validated() {
     let dir = workdir("fill-sign-text-size");
     let mut a = auto(&dir);
