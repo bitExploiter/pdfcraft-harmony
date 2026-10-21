@@ -1047,6 +1047,64 @@ impl Automation {
                 o => return Err(bad(format!("binding is left or right, not {o:?}"))),
             };
         }
+        if let Some(s) = a.opt_str("print_scaling")? {
+            let mode = match s {
+                "default" | "app_default" => Some(pdfcraft_engine::PrintScaling::AppDefault),
+                "none" => Some(pdfcraft_engine::PrintScaling::None),
+                "clear" | "off" => None,
+                o => return Err(bad(format!("unknown print_scaling {o:?} (app_default, none, off)"))),
+            };
+            v.print_presets.get_or_insert_with(Default::default).page_scaling = mode;
+        }
+        if let Some(d) = a.opt_str("duplex")? {
+            let mode = match d {
+                "simplex" => Some(pdfcraft_engine::DuplexMode::Simplex),
+                "duplex_flip_short_edge" | "short_edge" | "short-edge" => Some(pdfcraft_engine::DuplexMode::DuplexFlipShortEdge),
+                "duplex_flip_long_edge" | "long_edge" | "long-edge" => Some(pdfcraft_engine::DuplexMode::DuplexFlipLongEdge),
+                "clear" | "none" | "off" => None,
+                o => return Err(bad(format!("unknown duplex {o:?} (simplex, duplex_flip_short_edge, duplex_flip_long_edge, off)"))),
+            };
+            v.print_presets.get_or_insert_with(Default::default).duplex = mode;
+        }
+        if let Some(tray) = a.opt_bool("pick_tray_by_pdf_size")? {
+            v.print_presets.get_or_insert_with(Default::default).pick_tray_by_pdf_size = Some(tray);
+        }
+        if let Some(copies) = a.opt_int("num_copies")? {
+            if copies < 1 {
+                return Err(bad("num_copies must be >= 1".into()));
+            }
+            v.print_presets.get_or_insert_with(Default::default).num_copies = Some(copies as u32);
+        }
+        if let Some(val) = a.get("print_page_range") {
+            match val {
+                Value::Array(arr) => {
+                    let mut ranges = Vec::new();
+                    for item in arr {
+                        let i = item.as_i64().ok_or_else(|| bad("print_page_range must contain integers".into()))?;
+                        if i < 1 {
+                            return Err(bad("print_page_range page numbers must be >= 1".into()));
+                        }
+                        ranges.push(i as u32);
+                    }
+                    if !ranges.len().is_multiple_of(2) {
+                        return Err(bad("print_page_range must contain an even number of page integers (pairs)".into()));
+                    }
+                    v.print_presets.get_or_insert_with(Default::default).print_page_range = Some(ranges);
+                }
+                Value::Null => {
+                    if let Some(presets) = &mut v.print_presets {
+                        presets.print_page_range = None;
+                    }
+                }
+                _ => return Err(bad("print_page_range must be an array of integer pairs [first, last, ...]".into())),
+            }
+        }
+        if let Some(url) = a.opt_str("base_url")? {
+            v.base_url = (!url.trim().is_empty() && url != "clear" && url != "none").then(|| url.trim().to_string());
+        }
+        if v.print_presets.as_ref().is_some_and(pdfcraft_engine::PrintPresets::is_empty) {
+            v.print_presets = None;
+        }
         let mut out = if v != before { self.apply(a, Edit::SetInitialView(Box::new(v.clone())))? } else { json!({}) };
         out["initial_view"] = json!({
             "navigation": format!("{:?}", v.navigation),
@@ -1062,6 +1120,23 @@ impl Automation {
             "hide_window_ui": v.hide_window_ui,
             "language": v.language,
             "binding": if v.right_to_left { "right" } else { "left" },
+            "base_url": v.base_url,
+            "print_presets": v.print_presets.as_ref().map(|p| json!({
+                "page_scaling": match p.page_scaling {
+                    Some(pdfcraft_engine::PrintScaling::AppDefault) => Some("app_default"),
+                    Some(pdfcraft_engine::PrintScaling::None) => Some("none"),
+                    None => None,
+                },
+                "duplex": match p.duplex {
+                    Some(pdfcraft_engine::DuplexMode::Simplex) => Some("simplex"),
+                    Some(pdfcraft_engine::DuplexMode::DuplexFlipShortEdge) => Some("duplex_flip_short_edge"),
+                    Some(pdfcraft_engine::DuplexMode::DuplexFlipLongEdge) => Some("duplex_flip_long_edge"),
+                    None => None,
+                },
+                "pick_tray_by_pdf_size": p.pick_tray_by_pdf_size,
+                "print_page_range": p.print_page_range,
+                "num_copies": p.num_copies,
+            })),
         });
         Ok(out)
     }

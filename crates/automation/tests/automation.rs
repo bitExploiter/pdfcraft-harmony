@@ -4940,6 +4940,47 @@ fn initial_view_through_tools() {
 }
 
 #[test]
+fn initial_view_print_presets_and_base_url_through_tools() {
+    let dir = workdir("initial-view-presets");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let r = ok(
+        &mut a,
+        "doc_initial_view",
+        json!({
+            "doc": doc,
+            "base_url": "https://example.com/manuals/",
+            "print_scaling": "none",
+            "duplex": "duplex_flip_long_edge",
+            "pick_tray_by_pdf_size": true,
+            "print_page_range": [1, 2],
+            "num_copies": 2,
+        }),
+    );
+    let v = &r["initial_view"];
+    assert_eq!(v["base_url"].as_str(), Some("https://example.com/manuals/"));
+    let presets = &v["print_presets"];
+    assert_eq!(presets["page_scaling"].as_str(), Some("none"));
+    assert_eq!(presets["duplex"].as_str(), Some("duplex_flip_long_edge"));
+    assert_eq!(presets["pick_tray_by_pdf_size"].as_bool(), Some(true));
+    assert_eq!(presets["print_page_range"], json!([1, 2]));
+    assert_eq!(presets["num_copies"].as_u64(), Some(2));
+
+    // Save and re-read
+    ok(&mut a, "doc_save", json!({ "doc": doc }));
+    let r2 = ok(&mut a, "doc_initial_view", json!({ "doc": doc }));
+    let v2 = &r2["initial_view"];
+    assert_eq!(v2["base_url"].as_str(), Some("https://example.com/manuals/"));
+    assert_eq!(v2["print_presets"]["num_copies"].as_u64(), Some(2));
+
+    // Undo restores previous initial view
+    assert_eq!(ok(&mut a, "edit_undo", json!({ "doc": doc }))["undone"], "Change initial view");
+    let r3 = ok(&mut a, "doc_initial_view", json!({ "doc": doc }));
+    assert!(r3["initial_view"]["base_url"].is_null());
+    assert!(r3["initial_view"]["print_presets"].is_null());
+}
+
+#[test]
 fn ocr_tools_make_a_scan_searchable() {
     let dir = workdir("ocr");
     let mut a = auto(&dir);

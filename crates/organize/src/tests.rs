@@ -2061,6 +2061,41 @@ fn initial_view_round_trips_and_keeps_scripts() {
     assert!(crate::set_initial_view(&mut doc, &crate::InitialView { page: 9, ..Default::default() }).is_err());
 }
 
+#[test]
+fn print_dialog_presets_and_base_url_round_trip() {
+    use crate::view::{DuplexMode, PrintPresets, PrintScaling};
+    let mut doc = open(fixture());
+    let mut v = crate::initial_view(&doc);
+    assert!(v.print_presets.is_none());
+    assert!(v.base_url.is_none());
+
+    v.print_presets = Some(PrintPresets {
+        page_scaling: Some(PrintScaling::None),
+        duplex: Some(DuplexMode::DuplexFlipLongEdge),
+        pick_tray_by_pdf_size: Some(true),
+        print_page_range: Some(vec![1, 3, 5, 8]),
+        num_copies: Some(3),
+    });
+    v.base_url = Some("https://example.com/docs/".into());
+
+    crate::set_initial_view(&mut doc, &v).unwrap();
+    let doc = save_and_reopen(&doc);
+    let read_back = crate::initial_view(&doc);
+    assert_eq!(read_back.print_presets, v.print_presets);
+    assert_eq!(read_back.base_url.as_deref(), Some("https://example.com/docs/"));
+
+    // Clearing them removes keys and round-trips as None
+    let mut cleared = read_back;
+    cleared.print_presets = None;
+    cleared.base_url = None;
+    let mut doc = doc;
+    crate::set_initial_view(&mut doc, &cleared).unwrap();
+    let doc = save_and_reopen(&doc);
+    let after_clear = crate::initial_view(&doc);
+    assert!(after_clear.print_presets.is_none());
+    assert!(after_clear.base_url.is_none());
+}
+
 // ── Split / Extract keep only the resources the part draws (#204) ──────────────────────────────
 
 /// A content stream with no text operators (an image draw).
