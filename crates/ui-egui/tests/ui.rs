@@ -269,7 +269,7 @@ fn read_mode_hides_the_quick_toolbar() {
     h.get_by_label("Hand (H)").click();
     h.run_steps(2);
     assert_eq!(h.state().quick_tool, QuickTool::Hand);
-    h.get_by_label("Read").click();
+    h.state_mut().run_command("view.read_mode");
     h.run_steps(3);
     assert!(h.query_by_label("Select (V)").is_none(), "no quick toolbar in Read mode");
     assert_eq!(h.state().quick_tool, QuickTool::Select);
