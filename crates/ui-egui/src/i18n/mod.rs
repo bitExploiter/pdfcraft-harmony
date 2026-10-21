@@ -147,7 +147,7 @@ fn plural_sl(n: u64) -> usize {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 23] = [
+pub static LANGUAGES: [LangInfo; 24] = [
     LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` locales resolve here (see `candidates`).
@@ -210,6 +210,7 @@ pub static LANGUAGES: [LangInfo; 23] = [
     // Vietnamese; every `vi-*` locale (`vi-VN`, `vi_VN.UTF-8`) resolves here. CLDR `vi` counts have
     // one form ("other"), so `@plural` entries list a single form.
     LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+    LangInfo { code: "ko", name: "한국어", source: include_str!("ko.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -3424,5 +3425,57 @@ mod tests {
         let interface: Vec<(&str, &str)> = Lang::all().map(|l| (l.code(), l.name())).collect();
         let dates: Vec<(&str, &str)> = pdfcraft_engine::dates::DATE_LANGUAGES.iter().map(|l| (l.code, l.name)).collect();
         assert_eq!(dates, interface);
+    }
+}
+
+
+#[cfg(test)]
+mod korean_tests {
+    use super::*;
+
+    #[test]
+    fn korean_selection_persists_and_keeps_user_values() {
+        let ko = Lang::from_code("ko").unwrap();
+        assert_eq!(ko.name(), "한국어");
+        assert!(!ko.rtl());
+        for tag in ["ko", "ko-KR", "ko_KR.UTF-8"] {
+            assert_eq!(lang_from_tag(tag), Some(ko));
+        }
+        assert_eq!(tr(ko, "File"), "파일");
+        assert_eq!(tr(Lang::EN, "File"), "File");
+        assert_eq!(tr(ko, "user report.pdf"), "user report.pdf");
+        for n in [0, 1, 2, 12, 101] {
+            assert_eq!(trn(ko, n, "{n} page", "{n} pages"), format!("{n}페이지"));
+        }
+        assert_eq!(tr_ctx(ko, "calendar date", "September"), "9월");
+        assert_eq!(tr_ctx(ko, "calendar weekday", "Su"), "일");
+        let mut app = crate::PdfCraftApp::default();
+        app.set_option("language", "ko").unwrap();
+        let mut restored = crate::PdfCraftApp::default();
+        restored.restore(&app.persist());
+        assert_eq!(restored.language, "ko");
+        assert!(restored.set_option("language", "unknown").is_err());
+        assert_eq!(restored.language, "ko");
+        assert_eq!(crate::theme::CjkPreference::for_language("ko"), crate::theme::CjkPreference::Korean);
+    }
+
+    #[test]
+    fn korean_catalog_covers_commands_and_tools() {
+        let ko = Lang::from_code("ko").unwrap();
+        for command in pdfcraft_engine::commands::COMMANDS {
+            assert!(has(ko, command.label), "missing command: {}", command.label);
+            if let Some(menu) = command.menu {
+                assert!(has(ko, menu), "missing menu: {menu}");
+            }
+        }
+        for group in pdfcraft_engine::catalog::TOOL_GROUPS {
+            assert!(has(ko, group.label), "missing group: {}", group.label);
+            for section in group.sections {
+                assert!(has(ko, section.title), "missing section: {}", section.title);
+                for item in section.items {
+                    assert!(has(ko, item.label), "missing item: {}", item.label);
+                }
+            }
+        }
     }
 }

@@ -43,6 +43,13 @@ pub fn ui_chinese_fonts() -> Vec<&'static CraftFont> {
     CRAFT_FONTS.iter().filter(|f| f.covers("Hans")).collect()
 }
 
+/// Korean UI faces, with Nanum Gothic Regular first. Empty without the build input.
+pub fn ui_korean_fonts() -> Vec<&'static CraftFont> {
+    let mut fonts: Vec<_> = CRAFT_FONTS.iter().filter(|f| f.covers("Kore")).collect();
+    fonts.sort_by_key(|f| (f.family != "Nanum Gothic", f.style != "Regular"));
+    fonts
+}
+
 /// The `Arab` craft-fonts faces for Arabic-script interface text (file names, document titles),
 /// in manifest order. Empty when built without craft-fonts or when it has no Arabic face.
 pub fn ui_arabic_fonts() -> Vec<&'static CraftFont> {

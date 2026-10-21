@@ -189,11 +189,12 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// The interface language's claim on the CJK fallback faces.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CjkPreference {
-    /// Japanese faces first (every non-Chinese language).
+    /// Japanese faces first (the historical default).
     #[default]
     Default,
     SimplifiedChinese,
     TraditionalChinese,
+    Korean,
 }
 
 impl CjkPreference {
@@ -202,6 +203,7 @@ impl CjkPreference {
         match code {
             "zh-hans" => Self::SimplifiedChinese,
             "zh-hant" => Self::TraditionalChinese,
+            "ko" => Self::Korean,
             _ => Self::Default,
         }
     }
@@ -244,6 +246,9 @@ pub const SYSTEM_TAMIL_FALLBACK: &str = "system-tamil-fallback";
 pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
     #[cfg_attr(target_arch = "wasm32", expect(unused_mut))]
     let mut fonts = font_definitions_for(cjk == CjkPreference::SimplifiedChinese);
+    if cjk == CjkPreference::Korean {
+        prefer_korean_fonts(&mut fonts);
+    }
     #[cfg(not(target_arch = "wasm32"))]
     {
         use crate::system_fonts::{Need, fallback};
@@ -261,6 +266,8 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             }
         }
         let need = match cjk {
+            CjkPreference::Korean if pdfcraft_fonts::ui_korean_fonts().is_empty() => Need::Kore,
+            CjkPreference::Korean => Need::Other,
             _ if !pdfcraft_fonts::ui_chinese_fonts().is_empty() => Need::Other,
             CjkPreference::SimplifiedChinese => Need::Hans,
             CjkPreference::TraditionalChinese => Need::Hant,
@@ -272,13 +279,29 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             for stack in fonts.families.values_mut() {
                 let at = match need {
                     Need::Other => None,
-                    Need::Hans | Need::Hant => stack.iter().position(|n| japanese.contains(n)),
+                    Need::Hans | Need::Hant | Need::Kore => stack.iter().position(|n| japanese.contains(n)),
                 };
                 stack.insert(at.unwrap_or(stack.len()), SYSTEM_FALLBACK.to_owned());
             }
         }
     }
     fonts
+}
+
+/// Keep Korean Han shapes and Hangul together before other CJK fallbacks.
+fn prefer_korean_fonts(fonts: &mut FontDefinitions) {
+    let korean = pdfcraft_fonts::ui_korean_fonts();
+    let names: Vec<_> = korean.iter().map(|face| face.name()).collect();
+    let cjk: Vec<_> = pdfcraft_fonts::ui_cjk_fonts(false).iter().map(|face| face.name()).collect();
+    for (family, stack) in &mut fonts.families {
+        let mut faces = korean.clone();
+        if *family == FontFamily::Name("semibold".into()) {
+            faces.sort_by_key(|face| (face.family != "Nanum Gothic", face.style != "Bold"));
+        }
+        stack.retain(|name| !names.contains(name));
+        let at = stack.iter().position(|name| cjk.contains(name)).unwrap_or(stack.len());
+        stack.splice(at..at, faces.iter().map(|face| face.name()));
+    }
 }
 
 /// The interface fonts: Inter (and JetBrains Mono for code) first, then egui's defaults, then
@@ -389,6 +412,7 @@ fn font_definitions_for_platform(prefer_hans: bool, platform: FontPolicyPlatform
         .chain(pdfcraft_fonts::ui_telugu_fonts())
         .chain(pdfcraft_fonts::ui_hebrew_fonts())
         .chain(pdfcraft_fonts::ui_thai_fonts())
+        .chain(pdfcraft_fonts::ui_korean_fonts())
     {
         let name = face.name();
         if !fonts.font_data.contains_key(&name) {

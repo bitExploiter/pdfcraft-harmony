@@ -24,6 +24,7 @@ build input. `build.rs` embeds them as `CRAFT_FONTS` when the build sets
 `CRAFT_FONTS_DIR=<checkout>` (and fails if it can't while `CRAFT_FONTS_REQUIRED=1`, as releases
 set). Without that variable `CRAFT_FONTS` is empty and everything below copes:
 
+- `ui_korean_fonts`: Korean UI faces, Nanum Gothic Regular first.
 - `ui_japanese_fonts`: the `Jpan` faces for the interface, BIZ UDPGothic first.
 - `ui_chinese_fonts`: the `Hans` faces for the interface, in manifest order (without one,
   Chinese characters the Japanese faces lack show the replacement glyph).
@@ -69,7 +70,7 @@ The descriptor does not change glyph programs or replace the Type 3 `FontBBox` m
 only Gothic Regular, so it cannot preserve bold. No new font assets or changes to that input are
 needed.
 
-wasm32 builds embed only BIZ UDPGothic Regular and any `Arab`, `Telu`, `Hebr` or `Thai` face, to keep the web build small: the web build
+wasm32 builds embed BIZ UDPGothic Regular, Nanum Gothic Regular and any `Arab`, `Telu`, `Hebr` or `Thai` face, to keep the web build small: the web build
 currently has no Chinese face, so Chinese there still shows the replacement glyph.
 Font files are never
 committed here (`AGENTS.md` §1.4; team members: [craftrules `standards/fonts.md`](https://github.com/storytold/craftrules/blob/main/standards/fonts.md), internal).

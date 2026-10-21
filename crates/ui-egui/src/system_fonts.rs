@@ -47,6 +47,8 @@ pub enum Need {
     Hans,
     /// Traditional Chinese interface text.
     Hant,
+    /// Korean interface text when the optional build input is absent.
+    Kore,
 }
 
 /// The installed fallback face for `need`, read once per need. `None` when it is turned off or no
@@ -55,10 +57,12 @@ pub fn fallback(need: Need) -> Option<Arc<FontData>> {
     static OTHER: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANS: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANT: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
+    static KORE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     let cache = match need {
         Need::Other => &OTHER,
         Need::Hans => &HANS,
         Need::Hant => &HANT,
+        Need::Kore => &KORE,
     };
     cache.get_or_init(|| load(need)).clone()
 }
@@ -71,6 +75,7 @@ fn load(need: Need) -> Option<Arc<FontData>> {
         Need::Other => (PROBE, MAX_BYTES),
         Need::Hans => (HANS_PROBE, MAX_HAN_BYTES),
         Need::Hant => (HANT_PROBE, MAX_HAN_BYTES),
+        Need::Kore => ('한', MAX_HAN_BYTES),
     };
     candidates(need).iter().find_map(|path| read(path, probe, max))
 }
@@ -231,7 +236,28 @@ fn tamil_candidates() -> Vec<PathBuf> {
 fn candidates(need: Need) -> Vec<PathBuf> {
     match need {
         Need::Other => other_candidates(),
+        Need::Kore => korean_candidates(),
         Need::Hans | Need::Hant => han_candidates(need == Need::Hant),
+    }
+}
+
+fn korean_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        ["malgun.ttf", "gulim.ttc"].iter().map(|file| windows_fonts().join(file)).collect()
+    } else if cfg!(target_os = "macos") {
+        [
+            "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+            "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        ]
+        .iter()
+        .map(PathBuf::from)
+        .collect()
+    } else {
+        unix_fonts(&[
+            "truetype/nanum/NanumGothic.ttf",
+            "nanum/NanumGothic.ttf",
+            "google-nanum-gothic-fonts/NanumGothic.ttf",
+        ])
     }
 }
 
@@ -391,7 +417,7 @@ mod tests {
 
     #[test]
     fn candidates_are_absolute_font_files() {
-        for need in [Need::Other, Need::Hans, Need::Hant] {
+        for need in [Need::Other, Need::Hans, Need::Hant, Need::Kore] {
             let list = candidates(need);
             assert!(!list.is_empty(), "{need:?}");
             assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{need:?}");
