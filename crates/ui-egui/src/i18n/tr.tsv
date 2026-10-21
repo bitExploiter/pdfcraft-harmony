@@ -2435,5 +2435,12 @@ animation effects	Off	Kapalı
 	Save as image	Resim olarak kaydet
 	Selected area (page {page}, {size})	Seçilen alan (sayfa {page}, {size})
 	The selected area is no longer on a page of this document.	Seçilen alan artık bu belgenin hiçbir sayfasında değil.
+	Font	Yazı tipi
+	Bulleted list	Madde işaretli liste
+	Numbered list	Numaralı liste
+	Alignment	Hizalama
+	Superscript	Üst simge
+	Subscript	Alt simge
+	Paragraph spacing	Paragraf aralığı
 	Less	Daha az
 	Other options	Diğer seçenekler

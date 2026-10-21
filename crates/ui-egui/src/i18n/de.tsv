@@ -2440,5 +2440,12 @@ animation effects	Off	Aus
 	Save as image	Als Bild speichern
 	Selected area (page {page}, {size})	Ausgewählter Bereich (Seite {page}, {size})
 	The selected area is no longer on a page of this document.	Der ausgewählte Bereich liegt auf keiner Seite dieses Dokuments mehr.
+	Font	Schrift
+	Bulleted list	Aufzählung
+	Numbered list	Nummerierte Liste
+	Alignment	Ausrichtung
+	Superscript	Hochgestellt
+	Subscript	Tiefgestellt
+	Paragraph spacing	Absatzabstand
 	Less	Weniger
 	Other options	Weitere Optionen

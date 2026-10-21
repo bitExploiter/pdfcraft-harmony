@@ -2690,5 +2690,11 @@ theme	Appearance	Išvaizda
 	Save as image	Įrašyti kaip paveikslėlį
 	Selected area (page {page}, {size})	Pasirinkta sritis ({page} puslapis, {size})
 	The selected area is no longer on a page of this document.	Pasirinktos srities nebėra šio dokumento puslapyje.
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys

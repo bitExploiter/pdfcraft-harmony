@@ -2651,5 +2651,12 @@ certificate	SHA-256 digest	Impronta SHA-256
 	Save as image	Salva come immagine
 	Selected area (page {page}, {size})	Area selezionata (pagina {page}, {size})
 	The selected area is no longer on a page of this document.	L'area selezionata non è più su una pagina di questo documento.
+	Font	Carattere
+	Bulleted list	Elenco puntato
+	Numbered list	Elenco numerato
+	Alignment	Allineamento
+	Superscript	Apice
+	Subscript	Pedice
+	Paragraph spacing	Spaziatura paragrafi
 	Less	Meno
 	Other options	Altre opzioni

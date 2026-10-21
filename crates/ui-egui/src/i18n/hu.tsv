@@ -2438,5 +2438,12 @@ animation effects	Off	Ki
 	Save as image	Mentés képként
 	Selected area (page {page}, {size})	Kijelölt terület ({page}. oldal, {size})
 	The selected area is no longer on a page of this document.	A kijelölt terület már nincs a dokumentum egyik oldalán sem.
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

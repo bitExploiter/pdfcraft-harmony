@@ -2389,5 +2389,12 @@ animation effects	Off	關
 	Save as image	另存為圖片
 	Selected area (page {page}, {size})	所選區域（第 {page} 頁，{size}）
 	The selected area is no longer on a page of this document.	所選區域已不在此文件的任何頁面上。
+	Font	字型
+	Bulleted list	項目符號清單
+	Numbered list	編號清單
+	Alignment	對齊
+	Superscript	上標
+	Subscript	下標
+	Paragraph spacing	段落間距
 	Less	收起
 	Other options	其他選項

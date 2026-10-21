@@ -2402,5 +2402,12 @@ animation effects	Off	Изключени
 	Save as image	Запиши като изображение
 	Selected area (page {page}, {size})	Избрана област (страница {page}, {size})
 	The selected area is no longer on a page of this document.	Избраната област вече не е на страница от този документ.
+	Font	Шрифт
+	Bulleted list	Списък с водещи символи
+	Numbered list	Номериран списък
+	Alignment	Подравняване
+	Superscript	Горен индекс
+	Subscript	Долен индекс
+	Paragraph spacing	Разстояние между абзаците
 	Less	По-малко
 	Other options	Други опции
