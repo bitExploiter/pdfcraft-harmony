@@ -1139,9 +1139,9 @@ impl Color {
     /// its opacity, for blending in a `DeviceCMYK` transparency group (ISO 32000-2 §11.3.4).
     ///
     /// `DeviceCMYK` gives its components. `DeviceGray` is black ink alone, `K = 1 − gray`
-    /// (§10.4.2.2). Four-component ICC colour is taken as the tints it names, unconverted.
-    /// `None` for every other space: such a colour has no tints without a colour conversion
-    /// this crate does not make, and the caller draws it as before.
+    /// (§10.4.2.2). `None` for every other space, ICCBased CMYK included: such a colour has no
+    /// tints without a colour conversion this crate does not make (an ICCBased colour keeps
+    /// its own profile), and the caller draws it as before.
     pub fn ink_tints(&self) -> Option<([f32; 4], f32)> {
         let c = |i: usize| {
             self.components
@@ -1152,9 +1152,6 @@ impl Color {
         };
         let tints = match self.color_space.0.as_ref() {
             ColorSpaceType::DeviceCmyk => [c(0), c(1), c(2), c(3)],
-            ColorSpaceType::ICCBased(icc) if icc.0.number_components == 4 => {
-                [c(0), c(1), c(2), c(3)]
-            }
             ColorSpaceType::DeviceGray => [0.0, 0.0, 0.0, 1.0 - c(0)],
             _ => return None,
         };
