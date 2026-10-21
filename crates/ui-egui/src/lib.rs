@@ -40,6 +40,7 @@ pub use combine_grid::ThumbState as CombineThumb;
 mod combine_ui;
 pub mod docking;
 pub use combine_ui::{Columns as CombineColumns, CombineView, Lock as CombineLock, SortKey};
+mod auto_ocr;
 mod camera_ui;
 mod commands;
 mod comment_props;
@@ -576,6 +577,9 @@ pub struct PdfCraftApp {
     quit_session: Option<last_session::LastSession>,
     /// Preferences: reload a document when its file changes on disk (#431).
     pub reload_changed_files: bool,
+    /// Preferences: recognise the text of scanned pages in the background, so it can be selected
+    /// and found without changing the file ([`auto_ocr`]).
+    pub auto_ocr: bool,
     /// Open documents' files, watched for changes on disk.
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) watch: file_watch::FileWatch,
@@ -940,6 +944,7 @@ impl PdfCraftApp {
             last_session: Default::default(),
             quit_session: None,
             reload_changed_files: true,
+            auto_ocr: true,
             #[cfg(not(target_arch = "wasm32"))]
             watch: Default::default(),
             #[cfg(not(target_arch = "wasm32"))]
@@ -2309,6 +2314,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["auto_ocr"] = serde_json::Value::Bool(self.auto_ocr);
         v.to_string()
     }
 
@@ -2346,6 +2352,9 @@ impl PdfCraftApp {
         }
         if let Some(on) = v["reload_changed_files"].as_bool() {
             self.reload_changed_files = on;
+        }
+        if let Some(on) = v["auto_ocr"].as_bool() {
+            self.auto_ocr = on;
         }
         self.pinned.restore(&v["pinned_folders"]);
         if let Ok(preference) = serde_json::from_value::<ThemePreference>(v["theme"].clone()) {
@@ -3110,6 +3119,7 @@ impl eframe::App for PdfCraftApp {
         }
         self.poll_export();
         self.poll_ocr();
+        self.poll_auto_ocr();
         self.poll_optimize();
         self.poll_action();
         self.process_file_requests();
