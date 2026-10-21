@@ -1,5 +1,8 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** patch (M1, #1143: repaired aliases survive preflight, snapshots and normalized saves; retained materialized revisions report generation disagreements; estimates unchanged)
+> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M1, #1143: explicit live xref/header generation repair policy and bounded diagnostics; estimates unchanged)
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M1: refresh object-generation reference identity against current upstream; estimates unchanged)
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -172,6 +175,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M1, PR #1143 review):** Repair-aware dictionary/preflight edits and snapshot restoration preserve both accepted generations of a damaged live slot. Such edits use the existing full-save fallback; classic and packed rewrites coalesce aliases so page-tree parent links retain one object identity. Explicit generation replacement remains single-generation. Materialized xref diagnostics inspect retained primary and hybrid rows before folding, retaining the 256-object cap plus summary and discarding abandoned-index notes. Synthetic red/green controls cover preflight, undo restoration, equal values, explicit narrowing, encryption packing and four save variants. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
@@ -211,6 +216,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 - **2026-10-13 (M6, data exchange fidelity):** XML and XFDF exports preserve tabs and line breaks in field names and comment metadata using character references. Saved-PDF regressions cover distinct names that XML would normalize to the same attribute value, restored field values and replacement of the original comment identities. Estimates unchanged.
 - **2026-10-15 (M12, XFA, #2574):** A `pageArea` with no `<occur>` repeats without limit instead of taking a subform's default of one use, so a later page area with `occur max="1"` is no longer drawn (with a copy of its fields) over every body page. Synthetic regression test; the page area's `occur min` (a once-only page of its own) is still not laid out, recorded in `form.xfa-dynamic`. Estimates unchanged.
 - **2026-10-13 (community, M3, #1569 review):** Pixel-only Wayland wheel, wheel-tilt and continuous input use standalone moved events, so Ctrl zoom does not remain latched after the modifier is released (#991); vendored winit patch (13), with a policy test. Estimates unchanged.
+- **2026-10-18 (M1, PR #1143 repair policy):** A live in-file reference resolves when its generation matches the xref row or a same-number header at that indexed offset. Neither-match and free slots remain null, including when old object bytes remain. Opening records bounded xref/header disagreements without parsing object bodies or expanding compact xref rows. Synthetic controls cover read order, clones, overlays, dictionary edits, full classic/packed saves and an independent reader of incremental output. **Correction to the 2026-10-15 note below:** its async-opening-test sentence was not evidenced by this COS change; no fresh async-opening or GUI validation is claimed. The full-reference stream-length recursion key is defensive hardening, not an independently isolated regression fix. Estimates unchanged.
+- **2026-10-15 (M1, PR #1143 refresh):** COS reference lookups and full saves distinguish complete object references, so stale generations cannot expose replacement content. Snapshot restoration also keeps edits to objects with nonzero generations before incremental saves. Synthetic regressions cover caches, overlays, snapshots, stream lengths and classic/packed saves. Current upstream async-opening test corrections are included. Estimates unchanged.
 - **2026-10-15 (M14, #2383 candidate):** Device-limit requests now clamp unsupported maxima and minimum alignments before enabling the adapter's full 2D texture extent. This addresses the reported V3D request of 16 shader variables on an adapter supporting 15. Synthetic regressions fail before the clamp and pass afterward, along with the existing HiDPI case and Windows GPU-required application tests. Raspberry Pi startup remains unverified; milestone and overall estimates are unchanged.
 - **2026-10-12 (M6):** XFDF field import and data-file extraction join all text nodes in a value, preserving text after XML comments and processing instructions. Synthetic regressions cover Unicode, CDATA, empty values and PDF save/reopen. Estimates unchanged.
 - **2026-10-12 (M7, picture right-click menu):** The Edit text & images menu of a picture gains Cut Image, Redact Image (a redaction mark over the picture, applied from Redact a PDF), Create Link… and Recognize Text… (for that page), in all 21 catalogs. The menu was drawn only while the pointer was over the picture, so its items outside the picture (most of a logo's menu, and Delete below a page) could not be clicked; an open menu now stays drawn. Still missing from Acrobat's menu: Arrange (bring to front, send backward), Remove crop, Draw freehand and Edit image using… (opening an external editor).
@@ -552,6 +559,7 @@ Newest first: the date, what moved, and the new overall estimate.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-18 | minor | M1, #1143: a live reference may match the xref generation or a same-number header at its indexed offset; neither-match and free slots remain null. Bounded repair diagnostics and synthetic cache, free-slot, edit and classic/packed save regressions; estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |
@@ -561,6 +569,7 @@ Newest first: the date, what moved, and the new overall estimate.
 | 2026-10-13 | minor | M6: XML/XFDF attribute whitespace survives form and comment export/import; estimates unchanged |
 | 2026-10-14 | minor | M1: raw-deflate fallback preserves decoding-limit errors in strict and tolerant decoding; synthetic filter and COS stream regressions. Estimates unchanged. |
 | 2026-10-13 | minor | M9: separate page validation overlays preserve signature artwork, and snapshot tabs reuse instead of multiplying; baked captions remain unchanged (#79 open); estimates unchanged |
+| 2026-10-15 | minor | M1: refresh object-generation reference identity, retaining current upstream progress and regression tests. Estimates unchanged. |
 | 2026-10-16 | minor | M10 #1201 partial: lossless image export applies component Decode pairs and Indexed mapping. Estimates unchanged. |
 | 2026-10-15 | minor | M6: CSV export and spreadsheet merging quote tabs, and import distinguishes quoted tabs from TSV delimiters without changing field identities. Estimates unchanged. |
 | 2026-10-13 | minor | M4: rotation queries and edits resolve indirect page-tree values; inherited, negative and large rotations verified through both saves. Estimates unchanged. |
