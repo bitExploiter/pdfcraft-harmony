@@ -39,6 +39,16 @@
 //! - `ui.open {path}`: accept a file open; native opens report `pending: true` until they
 //!   complete and are listed in `ui.state.pending_opens`.
 //! - `ui.screenshot {region?}`: PNG of the window (base64), optionally cropped to a rect.
+//! - `tool.inspect {query?, role?, focused?, limit?}`: the read-only MCP inspection boundary;
+//!   unlike the existing trusted UI driver, refuses private signing/password views and stale
+//!   private widget trees. MCP never exposes the UI driver's input methods.
+//! - `tool.call {name, arguments?, root?}`: run an automation tool (`pdfcraft-cli tools`) on the
+//!   window's own documents, between frames like a menu command, so the person sees the change;
+//!   `doc` ids are the ones `ui.state` reports. `root` confines the paths it reads or writes. The
+//!   result is `{content: [{type: "json", value} | {type: "png", data, width, height}]}`. Signing,
+//!   creating digital IDs, trusting certificates and closing tabs are refused: they are the
+//!   person's to do (`pdfcraft_automation::window`). `pdfcraft-cli mcp --connect FILE` relays
+//!   every MCP tool here.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -48,6 +58,10 @@ use egui::accesskit::{self, Action, NodeId};
 use serde_json::{Value, json};
 
 pub type Reply = Result<Value, String>;
+
+/// Runs automation tool `name` with `args` on the window's session (`tool.call`), with an
+/// optional root folder; the result in the control channel's form. The desktop app provides it.
+pub type ToolRunner = Box<dyn FnMut(&mut pdfcraft_engine::Session, &str, &Value, Option<&std::path::Path>) -> Reply>;
 
 /// Seconds to wait for frames (input to be handled, a screenshot to be taken) before reporting
 /// that the window is not being drawn. While a window is hidden, minimized or fully covered,
@@ -85,6 +99,7 @@ pub struct ControlRequest {
 pub struct ControlClient {
     tx: Sender<ControlRequest>,
     ctx: egui::Context,
+    agent_hub: crate::ask_agent::AgentHub,
 }
 
 impl ControlClient {
@@ -97,6 +112,11 @@ impl ControlClient {
         }
         self.ctx.request_repaint();
         rx
+    }
+
+    /// Ask Agent's queue, shared with the control channel's connection threads.
+    pub fn agent_hub(&self) -> crate::ask_agent::AgentHub {
+        self.agent_hub.clone()
     }
 }
 
@@ -166,6 +186,8 @@ pub struct Control {
     shared: Arc<Mutex<Shared>>,
     pending: Vec<Pending>,
     next_tag: u64,
+    /// Keep private snapshots inaccessible until fresh non-private UI passes replaced them.
+    private_until_pass: u64,
 }
 
 /// Install the control channel on `ctx`: returns the app half and a client.
@@ -174,24 +196,34 @@ pub fn attach(ctx: &egui::Context) -> (Control, ControlClient) {
     ctx.add_plugin(ControlPlugin { shared: shared.clone() });
     ctx.enable_accesskit();
     let (tx, rx) = channel();
-    (Control { rx, shared, pending: Vec::new(), next_tag: 1 }, ControlClient { tx, ctx: ctx.clone() })
+    (
+        Control { rx, shared, pending: Vec::new(), next_tag: 1, private_until_pass: 0 },
+        ControlClient { tx, ctx: ctx.clone(), agent_hub: crate::ask_agent::AgentHub::default() },
+    )
 }
 
 /// What a request needs from the app (implemented by `PdfCraftApp`).
 pub(crate) trait Host {
     fn state(&self) -> Value;
+    fn ask_agent(&mut self, p: &Value) -> Reply;
     fn command(&mut self, id: &str) -> Reply;
     fn dock(&mut self, reset: bool, params: &Value) -> Reply;
     fn commands(&self) -> Value;
     fn set(&mut self, key: &str, value: &str) -> Reply;
     fn open(&mut self, path: &str) -> Reply;
     fn quit(&mut self, ctx: &egui::Context) -> bool;
+    fn tool(&mut self, name: &str, args: &Value, root: Option<&str>) -> Reply;
+    fn agent_tool(&mut self, owner: u64, request: Option<u64>, name: &str, args: &Value, root: Option<&str>) -> Reply;
+    fn private_dialog(&self) -> bool;
 }
 
 impl Control {
     /// Handle new requests and finish waiting ones. Call at the start of every frame.
     pub(crate) fn tick(&mut self, ctx: &egui::Context, host: &mut impl Host) {
-        self.finish_pending(ctx);
+        if host.private_dialog() {
+            self.private_until_pass = self.passes().saturating_add(2);
+        }
+        self.finish_pending(ctx, host);
         while let Ok(req) = self.rx.try_recv() {
             match self.handle(ctx, host, &req.method, &req.params) {
                 Handled::Now(r) => {
@@ -214,7 +246,7 @@ impl Control {
         }
     }
 
-    fn finish_pending(&mut self, ctx: &egui::Context) {
+    fn finish_pending(&mut self, ctx: &egui::Context, host: &impl Host) {
         let shots: Vec<(u64, Arc<egui::ColorImage>)> = ctx.input(|i| {
             i.raw
                 .events
@@ -244,6 +276,11 @@ impl Control {
                     let _ = reply.send(Err(not_drawn("handling the input")));
                 }
                 p @ Pending::Frames { .. } => keep.push(p),
+                Pending::Screenshot { reply, .. } if host.private_dialog() || passes < self.private_until_pass => {
+                    let _ = reply.send(Err(
+                        "ui.screenshot: a private signing or password dialog is open; close it yourself before inspecting the window".into(),
+                    ));
+                }
                 Pending::Screenshot { tag, region, reply, since } => match shots.iter().find(|(t, _)| *t == tag) {
                     Some((_, image)) => {
                         let _ = reply.send(screenshot_png(image, region, ppp));
@@ -275,7 +312,13 @@ impl Control {
 
     fn handle(&mut self, ctx: &egui::Context, host: &mut impl Host, method: &str, p: &Value) -> Handled {
         let str_param = |k: &str| p.get(k).and_then(Value::as_str).ok_or_else(|| format!("{method}: missing string parameter {k}"));
+        if (host.private_dialog() || self.passes() < self.private_until_pass) && matches!(method, "tool.inspect" | "ui.screenshot") {
+            return Handled::Now(Err(format!(
+                "{method}: a private signing or password dialog is open; close it yourself before inspecting the window"
+            )));
+        }
         let r: Result<Handled, String> = (|| match method {
+            "ui.askAgent" => Ok(Handled::Now(host.ask_agent(p))),
             "ui.state" => {
                 let mut state = host.state();
                 let size = ctx.input(|i| i.viewport_rect().size());
@@ -295,7 +338,32 @@ impl Control {
                 Ok(Handled::Now(host.set(str_param("key")?, &value)))
             }
             "ui.open" => Ok(Handled::Now(host.open(str_param("path")?))),
-            "ui.inspect" => Ok(Handled::Now(Ok(self.inspect(p)))),
+            "tool.call" => {
+                only_params(p, method, &["name", "arguments", "root", "requestId", "__agentOwner", "__askConnection"])?;
+                let root = match p.get("root") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(r)) => Some(r.as_str()),
+                    Some(_) => return Err("tool.call: root must be a folder path".into()),
+                };
+                let name = str_param("name")?;
+                let args = p.get("arguments").unwrap_or(&Value::Null);
+                if p["__askConnection"] == true {
+                    Ok(Handled::Now(host.agent_tool(
+                        p["__agentOwner"].as_u64().ok_or("NOT_OWNER: missing socket context")?,
+                        p["requestId"].as_u64(),
+                        name,
+                        args,
+                        root,
+                    )))
+                } else {
+                    Ok(Handled::Now(host.tool(name, args, root)))
+                }
+            }
+            "ui.inspect" | "tool.inspect" => {
+                let mut value = self.inspect(p);
+                value["askAgent"] = host.state()["askAgent"].clone();
+                Ok(Handled::Now(Ok(value)))
+            }
             "ui.click" => self.click(p),
             "ui.focus" => self.focus(p),
             "ui.resize" => {
@@ -356,7 +424,7 @@ impl Control {
                 Ok(Handled::Screenshot(region))
             }
             other => Err(format!(
-                "unknown method {other:?} (ui.state, ui.inspect, ui.click, ui.focus, ui.resize, ui.quit, ui.move, ui.drag, ui.type, ui.key, ui.command, ui.commands, ui.set, ui.open, ui.screenshot)"
+                "unknown method {other:?} (ui.state, ui.inspect, ui.click, ui.focus, ui.resize, ui.quit, ui.move, ui.drag, ui.type, ui.key, ui.command, ui.commands, ui.set, ui.open, ui.screenshot, tool.call)"
             )),
         })();
         r.unwrap_or_else(|e| Handled::Now(Err(e)))
@@ -536,7 +604,9 @@ fn widget(id: NodeId, n: &accesskit::Node, depth: usize, focused: bool) -> Value
     if let Some(l) = n.label() {
         obj.insert("label".into(), json!(l));
     }
-    if let Some(v) = n.value() {
+    if n.role() != accesskit::Role::PasswordInput
+        && let Some(v) = n.value()
+    {
         obj.insert("value".into(), json!(v));
     }
     if let Some(d) = n.description() {
@@ -644,6 +714,33 @@ fn screenshot_png(image: &egui::ColorImage, region: Option<egui::Rect>, ppp: f32
 }
 
 impl Host for crate::PdfCraftApp {
+    fn agent_tool(&mut self, owner: u64, request: Option<u64>, name: &str, args: &Value, root: Option<&str>) -> Reply {
+        if agent_signing_call(name, args, 0) {
+            return Err("HUMAN_SIGNATURE_REQUIRED: signing is person-only".into());
+        }
+        let read = agent_read_only_tool(name);
+        if !read {
+            self.ask_agent.hub.may_edit(owner, request).map_err(|e| format!("{}: {}", e.code, e.message))?;
+        }
+        // The agent's comments carry its name, like its other edits.
+        let mut args = args.clone();
+        if let (Some(id), Some(o)) = (request, args.as_object_mut())
+            && name.starts_with("comment_")
+            && !o.contains_key("author")
+            && let Some(author) = self.ask_agent.author(id)
+        {
+            o.insert("author".into(), json!(author));
+        }
+        let r = self.run_tool(name, &args, root);
+        if let (Some(id), false, Ok(_)) = (request, read, &r) {
+            self.ask_agent.record_edit(id);
+        }
+        r
+    }
+
+    fn ask_agent(&mut self, p: &Value) -> Reply {
+        self.ask_agent_command(p)
+    }
     fn dock(&mut self, reset: bool, params: &Value) -> Reply {
         crate::docking::command(self, reset, params)
     }
@@ -669,6 +766,7 @@ impl Host for crate::PdfCraftApp {
         #[cfg(target_arch = "wasm32")]
         let pending_opens: Vec<Value> = Vec::new();
         json!({
+            "askAgent": self.ask_agent_inspect(),
             "docking": self.docking,
             "documents": docs,
             "pending_opens": pending_opens,
@@ -780,6 +878,103 @@ impl Host for crate::PdfCraftApp {
     #[cfg(target_arch = "wasm32")]
     fn open(&mut self, _path: &str) -> Reply {
         Err("ui.open needs a file system; on the web, drop the file on the page".into())
+    }
+
+    fn private_dialog(&self) -> bool {
+        self.password_prompt.is_some()
+            || matches!(
+                self.dialog,
+                Some(
+                    crate::Dialog::Sign
+                        | crate::Dialog::Signature
+                        | crate::Dialog::Protect
+                        | crate::Dialog::Preferences
+                        | crate::Dialog::CertificateViewer
+                )
+            )
+            || matches!(
+                self.quick_tool,
+                crate::QuickTool::Fill(crate::fill_sign::FillTool::Signature | crate::fill_sign::FillTool::Initials)
+                    | crate::QuickTool::SignArea { .. }
+            )
+            || ((self.signature.is_some() || self.initials.is_some())
+                && (self.mode == crate::Mode::Sign
+                    || (self.left_open && self.left == crate::LeftPanel::Tool("fill_sign"))
+                    || self.ctx.as_ref().is_some_and(egui::Popup::is_any_open)))
+    }
+
+    fn tool(&mut self, name: &str, args: &Value, root: Option<&str>) -> Reply {
+        if agent_signing_call(name, args, 0) {
+            return Err("HUMAN_SIGNATURE_REQUIRED: signing is refused; only the person may sign in the native UI".into());
+        }
+        if !agent_read_only_tool(name) {
+            self.ask_agent.hub.may_edit(0, None).map_err(|e| format!("{}: {}", e.code, e.message))?;
+        }
+        self.run_tool(name, args, root)
+    }
+}
+
+impl crate::PdfCraftApp {
+    pub(crate) fn run_tool(&mut self, name: &str, args: &Value, root: Option<&str>) -> Reply {
+        // An agent must not overwrite an editor's draft, save an older value, or leave stale
+        // field/object indexes after changing the document. The person commits typing first.
+        if self.dialog.is_some()
+            || self.password_prompt.is_some()
+            || self.bookmark_rename.is_some()
+            || self.views.iter().any(|v| {
+                v.comments.composer.is_some()
+                    || !v.comments.reply.is_empty()
+                    || v.comments.editing.is_some()
+                    || !v.comments.add_box.is_empty()
+                    || v.pending_edit.is_some()
+                    || v.content.draft.is_some()
+                    || v.forms.committed.is_some()
+                    || v.forms
+                        .focus
+                        .as_ref()
+                        .is_some_and(|f| self.session.get(v.id).is_some_and(|d| crate::forms_ui::draft_edit(f, &d.form).is_some()))
+                    || v.fill_text.as_ref().is_some_and(|t| !t.text.trim().is_empty())
+                    || v.line_editor.as_ref().is_some_and(|ed| ed.has_unsaved_text())
+            })
+        {
+            return Err(
+                "tool.call: finish typing and close the open dialog in the window before running a document tool; your draft has been kept".into()
+            );
+        }
+        let Some(runner) = self.tool_runner.as_mut() else {
+            return Err("tool.call: this build of PdfCraft can't run automation tools in the window".into());
+        };
+        let before: Vec<(pdfcraft_engine::DocId, u64)> = self.session.docs().iter().map(|d| (d.id, d.edit_generation())).collect();
+        let result = runner(&mut self.session, name, args, root.map(std::path::Path::new));
+        self.show_tool_changes(&before);
+        result
+    }
+}
+
+impl crate::PdfCraftApp {
+    /// Show what a tool run through `tool.call` changed: documents it edited are drawn again, the
+    /// ones it opened or made get a tab (behind the person's, which stays active), and tabs whose
+    /// document it closed go. `before` is each document's edit generation before the tool ran.
+    fn show_tool_changes(&mut self, before: &[(pdfcraft_engine::DocId, u64)]) {
+        let active = self.active_ids().map(|(_, id)| id);
+        for view in &mut self.views {
+            let Some(doc) = self.session.get(view.id) else { continue };
+            if before.iter().any(|(id, generation)| *id == view.id && *generation != doc.edit_generation()) {
+                view.document_replaced(&doc.info);
+            }
+        }
+        for doc in self.session.docs() {
+            if !before.iter().any(|(id, _)| *id == doc.id) && !self.views.iter().any(|v| v.id == doc.id) {
+                self.views.push(crate::DocView::new(doc.id, &doc.info, self.view_defaults));
+            }
+        }
+        let session = &self.session;
+        self.views.retain(|v| session.get(v.id).is_some() || !before.iter().any(|(id, _)| *id == v.id));
+        // The person's tab stays active; Home (no active tab) stays Home.
+        self.active = match active {
+            Some(id) => self.views.iter().position(|v| v.id == id).or_else(|| self.views.len().checked_sub(1)),
+            None => None,
+        };
     }
 }
 
@@ -939,12 +1134,16 @@ fn serve_with(client: ControlClient, limits: Limits) -> std::io::Result<Endpoint
             let client = client.clone();
             let expected = expected.clone();
             let lingering = lingering.clone();
+            static NEXT_OWNER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+            let owner = NEXT_OWNER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let _ = std::thread::Builder::new().name("pdfcraft-control-conn".into()).spawn(move || {
                 // Held until `auth` succeeds; given back however this thread ends.
                 let mut slot = Some(slot);
                 let Ok(read) = stream.try_clone() else { return };
                 let mut write = stream;
                 let mut authed = false;
+                let mut ask_connection = false;
+                let mut claimed_request = None;
                 let mut reader = BufReader::new(Reading { stream: read, until: Some(std::time::Instant::now() + limits.auth_deadline) });
                 let mut buf = Vec::new();
                 loop {
@@ -1000,11 +1199,21 @@ fn serve_with(client: ControlClient, limits: Limits) -> std::io::Result<Endpoint
                                     (rpc_error(id, -32001, "authenticate first: auth {token}"), true)
                                 }
                             } else {
-                                let rx = client.send(method, params);
-                                match rx.recv_timeout(std::time::Duration::from_secs(30)) {
-                                    Ok(Ok(v)) => (json!({ "jsonrpc": "2.0", "id": id, "result": v }), false),
-                                    Ok(Err(e)) => (rpc_error(id, -32000, &e), false),
-                                    Err(_) => (rpc_error(id, -32002, "the app did not answer within 30 s"), false),
+                                // Ask Agent's two methods are answered here; anything else goes to the window.
+                                let alive = || agent_peer_alive(&write).unwrap_or(false);
+                                if let Some(mut r) = client.agent_hub.handle(owner, method, &params, alive) {
+                                    if let Some(taken) = r["result"]["id"].as_u64().filter(|_| method == "agent.listen") {
+                                        (ask_connection, claimed_request) = (true, Some(taken));
+                                    }
+                                    client.ctx.request_repaint();
+                                    r["jsonrpc"] = json!("2.0");
+                                    r["id"] = id;
+                                    (r, false)
+                                } else {
+                                    match relay_for_connection(&client, owner, claimed_request, ask_connection, method, params) {
+                                        Ok(v) => (json!({ "jsonrpc": "2.0", "id": id, "result": v }), false),
+                                        Err(e) => (rpc_error(id, -32000, &e), false),
+                                    }
                                 }
                             }
                         }
@@ -1019,6 +1228,8 @@ fn serve_with(client: ControlClient, limits: Limits) -> std::io::Result<Endpoint
                         break;
                     }
                 }
+                client.agent_hub.disconnect(owner);
+                client.ctx.request_repaint();
             });
         }
     })?;
@@ -1065,7 +1276,12 @@ fn read_line_limited(reader: &mut impl std::io::BufRead, buf: &mut Vec<u8>, max:
 
 #[cfg(not(target_arch = "wasm32"))]
 fn rpc_error(id: Value, code: i64, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+    let error_code = message
+        .split_once(':')
+        .map(|(c, _)| c)
+        .filter(|c| c.chars().all(|ch| ch.is_ascii_uppercase() || ch == '_'))
+        .unwrap_or(if code == -32001 { "UNAUTHORIZED" } else { "INVALID_PARAMS" });
+    json!({ "jsonrpc": "2.0", "id": id, "ok":false, "errorCode":error_code, "error": { "code": code, "message": message, "data":{"errorCode":error_code} } })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1370,6 +1586,205 @@ mod transport_tests {
         writeln!(w, "y").unwrap();
         assert_eq!(reply(&mut r)["error"]["code"], -32700, "and the connection is still open");
     }
+}
+
+#[cfg(test)]
+mod window_draft_tests {
+    use super::*;
+    #[test]
+    fn stale_private_widget_trees_remain_private_until_new_frames() {
+        let ctx = egui::Context::default();
+        let (mut control, _client) = attach(&ctx);
+        let mut app = crate::PdfCraftApp::new();
+        app.dialog = Some(crate::Dialog::Signature);
+        control.tick(&ctx, &mut app);
+        app.dialog = None;
+        control.tick(&ctx, &mut app); // logic without painting must not release private data
+        assert!(matches!(control.handle(&ctx, &mut app, "tool.inspect", &json!({})), Handled::Now(Err(_))));
+        control.shared.lock().unwrap().passes = 2;
+        assert!(matches!(control.handle(&ctx, &mut app, "tool.inspect", &json!({})), Handled::Now(Ok(_))));
+    }
+
+    #[test]
+    fn control_tools_preserve_comment_drafts_and_edit_dialogs() {
+        let mut app = crate::PdfCraftApp::new();
+        let bytes = app.session.create_blank(200.0, 300.0, 1).unwrap();
+        app.open_bytes("synthetic.pdf", None, bytes.as_ref().clone()).unwrap();
+        app.tool_runner = Some(Box::new(|_, _, _, _| panic!("must not run over a draft")));
+        for kind in 0..4 {
+            let comments = &mut app.views[0].comments;
+            *comments = Default::default();
+            match kind {
+                0 => {
+                    comments.composer = Some(crate::comments::Composer {
+                        page: 0,
+                        at: [10.0, 10.0],
+                        kind: crate::comments::ComposerKind::Note,
+                        text: "Draft note".into(),
+                        focus: false,
+                    })
+                }
+                1 => comments.reply = "Draft reply".into(),
+                2 => comments.editing = Some((0, 0, "Draft edit".into())),
+                _ => comments.add_box = "Draft new comment".into(),
+            }
+            let before = format!("{:?}", app.views[0].comments);
+            let e = app.tool("page_insert_blank", &json!({"doc":1,"at":1}), None).unwrap_err();
+            assert!(e.contains("draft has been kept"), "{e}");
+            assert_eq!(format!("{:?}", app.views[0].comments), before);
+        }
+        app.views[0].comments = Default::default();
+        for dialog in [crate::Dialog::FieldProps, crate::Dialog::LinkProps] {
+            app.dialog = Some(dialog);
+            assert!(app.tool("page_insert_blank", &json!({"doc":1,"at":1}), None).unwrap_err().contains("draft has been kept"));
+            assert_eq!(app.dialog, Some(dialog));
+        }
+    }
+
+    #[test]
+    fn control_tool_call_keeps_uncommitted_typing() {
+        let mut app = crate::PdfCraftApp::new();
+        let bytes = app.session.create_blank(200.0, 300.0, 1).unwrap();
+        app.open_bytes("synthetic.pdf", None, bytes.as_ref().clone()).unwrap();
+        app.tool_runner = Some(Box::new(|_, _, _, _| panic!("must not run over a draft")));
+        app.views[0].content.draft = Some(crate::content_ui::TextDraft {
+            page: 0,
+            index: None,
+            rect: [10.0, 10.0, 100.0, 30.0],
+            text: "Uncommitted".into(),
+            style: crate::content_ui::default_style(),
+            focus: false,
+        });
+        let e = app.tool("doc_save", &json!({"doc":1}), None).unwrap_err();
+        assert!(e.contains("draft has been kept"), "{e}");
+        assert_eq!(app.views[0].content.draft.as_ref().unwrap().text, "Uncommitted");
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[allow(clippy::unwrap_used)]
+mod agent_transport_tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    fn exchange(w: &mut std::net::TcpStream, r: &mut BufReader<std::net::TcpStream>, msg: Value) -> Value {
+        writeln!(w, "{msg}").unwrap();
+        w.flush().unwrap();
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        serde_json::from_str(&line).unwrap()
+    }
+    #[test]
+    fn ask_agent_tcp_auth_owner_late_reply_and_longpoll() {
+        let ctx = egui::Context::default();
+        let (_control, client) = attach(&ctx);
+        let hub = client.agent_hub();
+        let endpoint = serve(client).unwrap();
+        let connect = || {
+            let w = std::net::TcpStream::connect(("127.0.0.1", endpoint.port)).unwrap();
+            w.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+            let r = BufReader::new(w.try_clone().unwrap());
+            (w, r)
+        };
+        let (mut bad, mut br) = connect();
+        assert_eq!(exchange(&mut bad, &mut br, json!({"id":1,"method":"auth","params":{"token":"wrong"}}))["ok"], false);
+        assert!(hub.agents().is_empty());
+        let (mut w, mut r) = connect();
+        assert_eq!(exchange(&mut w, &mut r, json!({"id":1,"method":"auth","params":{"token":endpoint.token}}))["result"]["ok"], true);
+        assert_eq!(
+            exchange(&mut w, &mut r, json!({"id":2,"method":"agent.listen","params":{"timeoutMs":0,"agent":"editor"}}))["result"],
+            json!({"none":true})
+        );
+        let id = hub.ask(crate::ask_agent::Request {
+            id: 0,
+            instruction: "Explain synthetic page".into(),
+            history: Vec::new(),
+            selection: json!({"pages":[1]}),
+            document: json!({"id":"pdf:1"}),
+            agent: None,
+        });
+        let claim = exchange(&mut w, &mut r, json!({"id":3,"method":"agent.listen","params":{"timeoutMs":0}}));
+        assert_eq!(claim["result"]["id"], id);
+        let (mut other, mut or) = connect();
+        exchange(&mut other, &mut or, json!({"id":1,"method":"auth","params":{"token":endpoint.token}}));
+        let denied = exchange(&mut other, &mut or, json!({"id":2,"method":"agent.reply","params":{"id":id,"text":"stolen"}}));
+        assert_eq!(denied["errorCode"], "NOT_OWNER");
+        assert!(denied["error"].is_string());
+        let reply = exchange(&mut w, &mut r, json!({"id":4,"method":"agent.reply","params":{"id":id,"text":"answer"}}));
+        assert_eq!(reply["result"], json!({"id": id, "done": true}));
+        let before = std::time::Instant::now();
+        assert_eq!(exchange(&mut w, &mut r, json!({"id":5,"method":"agent.listen","params":{"timeoutMs":120}}))["result"], json!({"none":true}));
+        assert!(before.elapsed() >= std::time::Duration::from_millis(100));
+    }
+}
+
+fn agent_signing_call(name: &str, args: &Value, depth: usize) -> bool {
+    if depth > 16 || name.starts_with("sign_") || (name.starts_with("sign.") && name != "sign.fill.text") {
+        return true;
+    }
+    if matches!(name, "fill_sign_add" | "sign.fill.text") && matches!(args["type"].as_str(), Some("signature" | "initials")) {
+        return true;
+    }
+    match name {
+        "command_run" => args["id"].as_str().is_some_and(|id| agent_signing_call(id, args.get("params").unwrap_or(&Value::Null), depth + 1)),
+        "command_batch" => args["steps"].as_array().is_some_and(|steps| steps.iter().any(|step| agent_signing_call("command_run", step, depth + 1))),
+        "tool_call" => args["name"].as_str().is_some_and(|n| agent_signing_call(n, args.get("arguments").unwrap_or(&Value::Null), depth + 1)),
+        _ => false,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn agent_peer_alive(stream: &std::net::TcpStream) -> Result<bool, String> {
+    stream.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let mut byte = [0];
+    let result = match stream.peek(&mut byte) {
+        Ok(0) => false,
+        Ok(_) => true,
+        Err(e) => e.kind() == std::io::ErrorKind::WouldBlock,
+    };
+    stream.set_nonblocking(false).map_err(|e| e.to_string())?;
+    Ok(result)
+}
+
+fn agent_read_only_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "doc_list"
+            | "doc_info"
+            | "doc_inspect"
+            | "render_preview"
+            | "command_list"
+            | "text_extract"
+            | "text_find"
+            | "page_render"
+            | "form_fields"
+            | "comment_list"
+            | "bookmark_list"
+            | "form_detect_fields"
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn relay_for_connection(client: &ControlClient, owner: u64, claim: Option<u64>, ask: bool, method: &str, mut params: Value) -> Reply {
+    if method == "tool.call" {
+        let p = params.as_object_mut().ok_or("INVALID_PARAMS: tool.call parameters must be an object")?;
+        if p.contains_key("__agentOwner") || p.contains_key("__askConnection") {
+            return Err("INVALID_PARAMS: reserved native context".into());
+        }
+        if let Some(id) = p.get("requestId")
+            && (id.as_u64() != claim || claim.is_none())
+        {
+            return Err("NOT_OWNER: native request tag does not match this socket's claim".into());
+        }
+        if let Some(id) = claim {
+            p.insert("requestId".into(), json!(id));
+        }
+        p.insert("__agentOwner".into(), json!(owner));
+        p.insert("__askConnection".into(), json!(ask));
+    }
+    client
+        .send(method, params)
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .unwrap_or_else(|_| Err("NO_UI: the app did not answer within 30 s; open the connected window".into()))
 }
 
 #[cfg(test)]

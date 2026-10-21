@@ -479,6 +479,14 @@ fn undrawn_notices(prev: &pdfcraft_cos::Document, next: &pdfcraft_cos::Document)
 }
 
 impl Document {
+    /// Native page object references in the current document order.
+    /// References identify pages across nonstructural edits; pair them with this
+    /// document's identity rather than treating a page ordinal as an identity.
+    /// Returns an empty list when the editable object graph is unavailable.
+    pub fn page_ids(&self) -> Vec<pdfcraft_cos::ObjRef> {
+        self.editor.as_ref().map(|editor| pdfcraft_model::pages(&editor.cos).into_iter().map(|page| page.obj).collect()).unwrap_or_default()
+    }
+
     /// How the document opens (Document Properties ▸ Initial View).
     /// Accessibility ▸ Check for accessibility: the full check (`None` if the document can't be
     /// read for editing).
@@ -3856,6 +3864,20 @@ impl Session {
         Self::sync_dirty(doc);
         doc.generation += 1;
         Ok(label)
+    }
+
+    /// Collapse the last `count` undo steps on document `id` into one undo step.
+    pub fn group_undo(&mut self, id: DocId, count: usize, label: Label) -> Result<(), EditError> {
+        let doc = self.doc_mut(id)?;
+        let editor = doc.editor.as_mut().ok_or(EditError::NothingToUndo)?;
+        if count == 0 || editor.undo.len() < count {
+            return Err(EditError::NothingToUndo);
+        }
+        let start = editor.undo.len() - count;
+        let (_, prev, keys, _) = editor.undo.remove(start);
+        editor.undo.truncate(start);
+        editor.undo.push((label, prev, keys, Scope::Full));
+        Ok(())
     }
 
     /// Unsaved when the working graph is not the last opened or saved file. Undo back to that
