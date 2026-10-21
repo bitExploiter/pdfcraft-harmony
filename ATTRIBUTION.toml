@@ -187,6 +187,17 @@ usage = "Japanese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
 sha256 = "77593b7497c67f4a79cc31fa43fdd6eae11601dd87c079a8e666b25cdd9117ba"
 
 [[asset]]
+path = "crates/ui-egui/src/i18n/ko.tsv"
+title = "Korean interface translation catalog"
+author = "PdfCraft contributors; Korean strings reused from CADCraft and FilmCraft contributors"
+source = "Original clean-room PdfCraft translations from English UI labels, plus 259 exact-key Korean strings reused from the MIT OR Apache-2.0 CADCraft and FilmCraft catalogs; no proprietary localisation resources copied"
+licence = "MIT OR Apache-2.0"
+licence_file = "LICENSE-MIT"
+kind = "translation"
+usage = "Korean UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
+sha256 = "a0e3d900d4493263271ebb224b8ce26c0c414a0dae15dcf6934d2ad3905858da"
+
+[[asset]]
 path = "crates/ui-egui/src/i18n/uk.tsv"
 title = "Ukrainian interface translation catalog"
 author = "PdfCraft contributors"

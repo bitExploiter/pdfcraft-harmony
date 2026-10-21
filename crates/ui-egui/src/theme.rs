@@ -194,6 +194,8 @@ pub enum CjkPreference {
     Default,
     SimplifiedChinese,
     TraditionalChinese,
+    /// Korean interface text; use a Hangul-capable installed face before other fallbacks.
+    Korean,
 }
 
 impl CjkPreference {
@@ -202,6 +204,7 @@ impl CjkPreference {
         match code {
             "zh-hans" => Self::SimplifiedChinese,
             "zh-hant" => Self::TraditionalChinese,
+            "ko" => Self::Korean,
             _ => Self::Default,
         }
     }
@@ -261,6 +264,7 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             }
         }
         let need = match cjk {
+            CjkPreference::Korean => Need::Korean,
             _ if !pdfcraft_fonts::ui_chinese_fonts().is_empty() => Need::Other,
             CjkPreference::SimplifiedChinese => Need::Hans,
             CjkPreference::TraditionalChinese => Need::Hant,
@@ -273,6 +277,7 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
                 let at = match need {
                     Need::Other => None,
                     Need::Hans | Need::Hant => stack.iter().position(|n| japanese.contains(n)),
+                    Need::Korean => None,
                 };
                 stack.insert(at.unwrap_or(stack.len()), SYSTEM_FALLBACK.to_owned());
             }

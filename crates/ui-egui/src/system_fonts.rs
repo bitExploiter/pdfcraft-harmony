@@ -36,6 +36,8 @@ const TAMIL_PROBE: char = '\u{0B95}';
 const HANS_PROBE: char = '\u{6B22}';
 /// 說 (U+8AAA): Traditional only, absent from the Japanese craft-fonts faces.
 const HANT_PROBE: char = '\u{8AAA}';
+/// Hangul syllable 한: the installed face must cover the Korean interface.
+const KOREAN_PROBE: char = '\u{D55C}';
 
 /// What the installed face is wanted for, from the interface language.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,6 +49,8 @@ pub enum Need {
     Hans,
     /// Traditional Chinese interface text.
     Hant,
+    /// Korean interface text.
+    Korean,
 }
 
 /// The installed fallback face for `need`, read once per need. `None` when it is turned off or no
@@ -55,10 +59,12 @@ pub fn fallback(need: Need) -> Option<Arc<FontData>> {
     static OTHER: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANS: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANT: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
+    static KOREAN: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     let cache = match need {
         Need::Other => &OTHER,
         Need::Hans => &HANS,
         Need::Hant => &HANT,
+        Need::Korean => &KOREAN,
     };
     cache.get_or_init(|| load(need)).clone()
 }
@@ -71,6 +77,7 @@ fn load(need: Need) -> Option<Arc<FontData>> {
         Need::Other => (PROBE, MAX_BYTES),
         Need::Hans => (HANS_PROBE, MAX_HAN_BYTES),
         Need::Hant => (HANT_PROBE, MAX_HAN_BYTES),
+        Need::Korean => (KOREAN_PROBE, MAX_BYTES),
     };
     candidates(need).iter().find_map(|path| read(path, probe, max))
 }
@@ -232,6 +239,28 @@ fn candidates(need: Need) -> Vec<PathBuf> {
     match need {
         Need::Other => other_candidates(),
         Need::Hans | Need::Hant => han_candidates(need == Need::Hant),
+        Need::Korean => korean_candidates(),
+    }
+}
+
+/// Well-known system faces with broad Hangul coverage. Nothing is bundled or downloaded.
+fn korean_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        ["malgun.ttf", "malgunbd.ttf", "gulim.ttc", "batang.ttc"].iter().map(|f| windows_fonts().join(f)).collect()
+    } else if cfg!(target_os = "macos") {
+        ["/System/Library/Fonts/AppleSDGothicNeo.ttc", "/Library/Fonts/NanumGothic.ttf", "/Library/Fonts/Arial Unicode.ttf"]
+            .iter()
+            .map(PathBuf::from)
+            .collect()
+    } else {
+        unix_fonts(&[
+            "truetype/nanum/NanumGothic.ttf",
+            "nanum/NanumGothic.ttf",
+            "opentype/noto/NotoSansCJKkr-Regular.otf",
+            "opentype/noto/NotoSansCJK-Regular.ttc",
+            "noto-cjk/NotoSansCJK-Regular.ttc",
+            "google-noto-cjk/NotoSansCJK-Regular.ttc",
+        ])
     }
 }
 
@@ -391,10 +420,10 @@ mod tests {
 
     #[test]
     fn candidates_are_absolute_font_files() {
-        for need in [Need::Other, Need::Hans, Need::Hant] {
+        for need in [Need::Other, Need::Hans, Need::Hant, Need::Korean] {
             let list = candidates(need);
             assert!(!list.is_empty(), "{need:?}");
-            assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{need:?}");
+            assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc" || e == "otf")), "{need:?}");
         }
     }
 
