@@ -73,17 +73,34 @@ impl RenderConfig {
         InterpreterSettings {
             ocg_overrides: self.layers.clone(),
             hide_comments: self.hide_comments,
-            font_resolver: Arc::new(move |query| japanese_fallback(query).or_else(|| standard(query))),
+            font_resolver: Arc::new(move |query| chinese_fallback(query).or_else(|| japanese_fallback(query)).or_else(|| standard(query))),
             ..InterpreterSettings::default()
         }
     }
 }
 
+/// A region-appropriate Chinese substitute for a non-embedded CID font. hayro maps the
+/// collection's CIDs through its Unicode CMaps before looking up glyphs in this face. Never
+/// substitute across collections: Hans and Hant have different regional glyph forms. The
+/// optional build input is filtered by the asset policy in pdfcraft-fonts/build.rs; without
+/// an allowed face (including in the size-limited web build), leave the default resolver alone.
+fn chinese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
+    let FontQuery::Fallback(f) = query else { return None };
+    let script = match f.character_collection.as_ref()?.family {
+        CidFamily::AdobeGB1 => "Hans",
+        CidFamily::AdobeCNS1 => "Hant",
+        _ => return None,
+    };
+    // The shared input currently supplies Regular only. This is readable substitution, not
+    // restoration of the missing font's serif design or weight.
+    let face = pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.covers(script) && f.style == "Regular")?;
+    Some((Arc::new(face.bytes), 0))
+}
+
 /// A Japanese face from craft-fonts for a CID font of the Adobe-Japan1 collection that the PDF
 /// doesn't embed (`HeiseiMin-W3`, `KozGoPro-Medium`, …). hayro's own substitutes for fonts that
 /// aren't embedded are the Latin standard 14, so such text drew nothing. `None` for every other
-/// font, and when PdfCraft was built without craft-fonts. Only Japanese: the pinned craft-fonts
-/// has no other CJK faces, and its later Chinese face is Noto CJK, which AGENTS.md §1.1 rules out.
+/// font, and when PdfCraft was built without craft-fonts.
 fn japanese_fallback(query: &FontQuery) -> Option<(FontData, u32)> {
     let FontQuery::Fallback(f) = query else { return None };
     if f.character_collection.as_ref()?.family != CidFamily::AdobeJapan1 {
@@ -6710,6 +6727,131 @@ trailer << /Root 1 0 R >>
             // 日本 at 40 pt covers a few hundred dark pixels; a blank or missing-glyph run doesn't.
             assert!(inked > 300, "{base_font}: 日本 is drawn ({inked} dark pixels)");
         }
+    }
+
+    /// The PDF uses a public predefined CMap, without a font program or ToUnicode. Compare
+    /// every pixel to the same face embedded with explicit glyph IDs: ink alone could pass
+    /// for .notdef boxes or unrelated glyphs whose IDs happen to equal the Adobe CIDs.
+    #[test]
+    fn non_embedded_chinese_cid_fonts_match_embedded_glyphs() {
+        use hayro::hayro_interpret::hayro_cmap::{CMap, CMapName};
+        use skrifa::MetadataProvider;
+        for (script, ordering, base, encoding, text, legacy) in [
+            ("Hans", "GB1", "STSong-Light", "UniGB-UCS2", "中文简体测试", "D6D0CEC4BCF2CCE5B2E2CAD4"),
+            ("Hant", "CNS1", "MSung-Light", "UniCNS-UCS2", "中文繁體測試", "A4A4A4E5C163C5E9B4FAB8D5"),
+        ] {
+            let Some(face) = pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.covers(script)) else {
+                eprintln!("no {script} craft-fonts face in this build");
+                continue;
+            };
+            let font = skrifa::FontRef::new(face.bytes).unwrap();
+            let glyphs: String = text.chars().map(|c| format!("{:04X}", font.charmap().map(c).unwrap().to_u32())).collect();
+            let unicode: String = text.encode_utf16().map(|c| format!("{c:04X}")).collect();
+            for vertical in [false, true] {
+                let direction = if vertical { "V" } else { "H" };
+                let identity = format!("Identity-{direction}");
+                let reference = render_chinese_fixture(chinese_cid_fixture(base, "Identity", &identity, &glyphs, Some(face.bytes), vertical, true));
+                assert!(reference.rgba.as_chunks::<4>().0.iter().filter(|p| p[0] < 128).count() > 300);
+                let legacy_encoding = if script == "Hans" { format!("GB-EUC-{direction}") } else { format!("ETen-B5-{direction}") };
+                let unicode_encoding = format!("{encoding}-{direction}");
+                let resolver = InterpreterSettings::default().cmap_resolver;
+                let cmap = CMap::parse(resolver(CMapName::from_bytes(unicode_encoding.as_bytes())).unwrap(), |name| resolver(name)).unwrap();
+                let cids: String = text.encode_utf16().map(|code| format!("{:04X}", cmap.lookup_cid_code(u32::from(code), 2).unwrap())).collect();
+                for (cmap, codes) in [(unicode_encoding, unicode.as_str()), (legacy_encoding, legacy), (identity.clone(), cids.as_str())] {
+                    for cid_type2 in [false, true] {
+                        let actual = render_chinese_fixture(chinese_cid_fixture(base, ordering, &cmap, codes, None, vertical, cid_type2));
+                        assert_eq!((actual.width, actual.height), (reference.width, reference.height));
+                        assert!(
+                            actual.rgba.as_ref() == reference.rgba.as_ref(),
+                            "{base} /{cmap} Type2={cid_type2}: actual Chinese glyphs, not boxes or CID-as-GID"
+                        );
+                    }
+                }
+                // A font already embedded in the PDF must win over the collection fallback.
+                let embedded = render_chinese_fixture(chinese_cid_fixture(base, ordering, &identity, &glyphs, Some(face.bytes), vertical, true));
+                assert!(embedded.rgba.as_ref() == reference.rgba.as_ref(), "embedded {script} face changed");
+            }
+        }
+    }
+
+    #[test]
+    fn chinese_substitute_respects_the_character_collection_and_optional_input() {
+        use hayro::hayro_interpret::font::FallbackFontQuery;
+        use hayro::hayro_interpret::hayro_cmap::CharacterCollection;
+        for (family, script) in [(CidFamily::AdobeGB1, "Hans"), (CidFamily::AdobeCNS1, "Hant")] {
+            let query = FontQuery::Fallback(FallbackFontQuery {
+                // The collection, not a font name guessed from another locale, chooses the face.
+                post_script_name: Some("HeiseiMin-W3".into()),
+                character_collection: Some(CharacterCollection { family, supplement: 0 }),
+                ..Default::default()
+            });
+            let expected = pdfcraft_fonts::CRAFT_FONTS.iter().find(|f| f.covers(script) && f.style == "Regular");
+            let actual = super::chinese_fallback(&query);
+            assert_eq!(actual.is_some(), expected.is_some());
+            if let (Some((data, index)), Some(face)) = (actual, expected) {
+                assert_eq!(index, 0);
+                assert!(data.as_ref().as_ref() == face.bytes);
+            }
+        }
+        for family in [CidFamily::AdobeJapan1, CidFamily::AdobeKorea1, CidFamily::AdobeIdentity] {
+            let query = FontQuery::Fallback(FallbackFontQuery {
+                character_collection: Some(CharacterCollection { family, supplement: 0 }),
+                ..Default::default()
+            });
+            assert!(super::chinese_fallback(&query).is_none());
+        }
+        assert!(super::chinese_fallback(&FontQuery::Fallback(FallbackFontQuery::default())).is_none());
+        assert!(super::chinese_fallback(&FontQuery::Standard(hayro::hayro_interpret::font::StandardFont::Helvetica)).is_none());
+    }
+
+    fn render_chinese_fixture(bytes: Vec<u8>) -> RenderedPage {
+        let mut renderer = PageRenderer::new(Arc::new(bytes), RenderConfig::default());
+        let page = renderer.render(RenderRequest { page: 0, kind: RequestKind::Pixels, scale: 1.0, ..Default::default() });
+        assert!(page.error.is_none(), "{:?}", page.error);
+        page
+    }
+
+    fn chinese_cid_fixture(
+        base: &str,
+        ordering: &str,
+        encoding: &str,
+        codes: &str,
+        embedded: Option<&[u8]>,
+        vertical: bool,
+        cid_type2: bool,
+    ) -> Vec<u8> {
+        use lopdf::{Document, Object, Stream, dictionary};
+        let mut doc = Document::with_version("1.7");
+        let pages = doc.new_object_id();
+        let content = if vertical { format!("BT /F1 30 Tf 40 190 Td <{codes}> Tj ET") } else { format!("BT /F1 30 Tf 10 25 Td <{codes}> Tj ET") };
+        let content = doc.add_object(Stream::new(dictionary! {}, content.into_bytes()));
+        let mut descriptor = dictionary! {
+            "Type" => "FontDescriptor", "FontName" => base, "Flags" => 6,
+            "FontBBox" => vec![0.into(), (-200).into(), 1000.into(), 1000.into()],
+            "ItalicAngle" => 0, "Ascent" => 1000, "Descent" => -200, "CapHeight" => 700, "StemV" => 80,
+        };
+        if let Some(bytes) = embedded {
+            let program = doc.add_object(Stream::new(dictionary! {"Length1" => bytes.len() as i64}, bytes.to_vec()));
+            descriptor.set("FontFile2", program);
+        }
+        let descriptor = doc.add_object(descriptor);
+        let descendant = doc.add_object(dictionary! {
+            "Type" => "Font", "Subtype" => if cid_type2 {"CIDFontType2"} else {"CIDFontType0"},
+            "BaseFont" => base, "CIDSystemInfo" => dictionary! {
+                "Registry" => Object::string_literal("Adobe"), "Ordering" => Object::string_literal(ordering), "Supplement" => 0,
+            }, "FontDescriptor" => descriptor, "DW" => 1000, "CIDToGIDMap" => "Identity",
+        });
+        let font = doc.add_object(dictionary! {"Type" => "Font", "Subtype" => "Type0", "BaseFont" => base, "Encoding" => encoding, "DescendantFonts" => vec![descendant.into()]});
+        let page = doc.add_object(dictionary! {
+            "Type" => "Page", "Parent" => pages, "MediaBox" => vec![0.into(), 0.into(), 210.into(), 210.into()],
+            "Contents" => content, "Resources" => dictionary! {"Font" => dictionary! {"F1" => font}},
+        });
+        doc.objects.insert(pages, dictionary! {"Type" => "Pages", "Kids" => vec![page.into()], "Count" => 1}.into());
+        let catalog = doc.add_object(dictionary! {"Type" => "Catalog", "Pages" => pages});
+        doc.trailer.set("Root", catalog);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).unwrap();
+        bytes
     }
 
     /// Half-width katakana are common in Japanese documents set in a non-embedded Mincho font

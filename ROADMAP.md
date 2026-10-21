@@ -172,6 +172,10 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
+- **2026-10-20 (M2, Chinese CID fallback refresh):** Integrated main ec0a965, including the upstream parser-cancel test guard fix (#3462). Chinese CID substitution remains scoped to IBM Plex SC/TC; craft-fonts #22 is still a prerequisite. Estimates unchanged.
+- **2026-10-18 (M2, Chinese CID fallback refresh):** Integrated main a8cd797 and its save/search/catalogue regressions without duplicating those fixes; the Chinese renderer remains unchanged. Font PR #22 remains a prerequisite; rendering scope and estimates unchanged.
+- **2026-10-12 (M2, non-embedded Chinese CID fonts):** Native builds with craft-fonts substitute OFL IBM Plex Sans SC for Adobe-GB1 and TC for Adobe-CNS1. Horizontal/vertical Unicode and GB/Big5 CMaps without ToUnicode match embedded-reference pixels; embedded fonts keep priority. Shared assets and licences live in craft-fonts. The web size budget, Korean fallback and original serif/weight fidelity remain open. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.

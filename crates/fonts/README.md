@@ -81,3 +81,8 @@ Document font inputs use `embedding`: bounded static TrueType/OpenType-CFF valid
 exact program preservation, Unicode/CID/GID mapping and full-face subset completion.
 `shaping` uses the same program with harfrust and UAX #9; source UI fallback fonts are
 never exported. See [existing-text editing](../../docs/editing-existing-text.md).
+
+Native builds also embed IBM Plex Sans SC/TC Regular from the pinned craft-fonts input for
+non-embedded Adobe-GB1/CNS1 document-font substitution. Each collection uses its own regional
+face; this does not recover the missing original typeface or weight. The web build still
+omits these complete Chinese faces to stay within its existing size budget.

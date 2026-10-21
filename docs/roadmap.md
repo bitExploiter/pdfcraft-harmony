@@ -211,6 +211,8 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 | 2026-10-13 | minor | M6: XML/XFDF attribute whitespace survives form and comment export/import; estimates unchanged |
 | 2026-10-14 | minor | M1: raw-deflate fallback preserves decoding-limit errors in strict and tolerant decoding; synthetic filter and COS stream regressions. Estimates unchanged. |
 | 2026-10-15 | minor | M9 #1895: generic appearance rewriting deferred; separate validation overlays preserve original artwork, exports and printing. Baked captions remain unchanged (#79 open). Estimates unchanged. |
+| 2026-10-18 | maintenance | Refreshed the Chinese CID fallback onto main a8cd797, including upstream save/search/catalogue fixes without duplicating them. Font PR #22 remains required; scope and estimates unchanged. |
+| 2026-10-12 | minor | M2/#234/#651: native non-embedded Chinese CID fonts use allowed OFL IBM Plex SC/TC; Unicode and legacy CMaps, both writing directions, match embedded-reference pixels. Requires the shared-font input; web, Korean and original style fidelity remain open. Estimates unchanged. |
 | 2026-10-16 | minor | M10 #1201 partial: lossless image export applies component Decode pairs and Indexed mapping. Estimates unchanged. |
 | 2026-10-15 | minor | M6: CSV export and spreadsheet merging quote tabs, and import distinguishes quoted tabs from TSV delimiters without changing field identities. Estimates unchanged. |
 | 2026-10-13 | minor | M4: rotation queries and edits resolve indirect page-tree values; inherited, negative and large rotations verified through both saves. Estimates unchanged. |
