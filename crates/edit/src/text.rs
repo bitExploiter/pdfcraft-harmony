@@ -164,6 +164,9 @@ pub struct DraftRow {
     pub baseline: f64,
     pub left: f64,
     pub right: f64,
+    /// Where each word is drawn: the draft text it shows (a byte range) and its left and right
+    /// edges in user space, left to right. Empty when a run's words can't be matched to its text.
+    pub words: Vec<(std::ops::Range<usize>, f64, f64)>,
 }
 
 /// The rewritten lines grouped into rows by baseline, top to bottom, and matched to `text` in
@@ -187,17 +190,32 @@ fn draft_rows(text: &str, lines: &[&TextLine]) -> Option<Vec<DraftRow>> {
     for (baseline, _, mut row) in rows {
         row.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
         let mut range: Option<std::ops::Range<usize>> = None;
-        for c in row.iter().flat_map(|l| l.text.chars()).filter(|c| !c.is_whitespace()) {
-            let (at, d) = chars.next()?;
-            if c != d {
-                return None;
+        let mut words = Vec::new();
+        let mut placed = true;
+        for line in &row {
+            // A line's ink has a box per word it draws, left to right.
+            let matched = line.text.split_whitespace().count() == line.ink.len();
+            placed &= matched;
+            for (word, ink) in line.text.split_whitespace().zip(line.ink.iter().map(Some).chain(std::iter::repeat(None))) {
+                let mut span: Option<std::ops::Range<usize>> = None;
+                for c in word.chars() {
+                    let (at, d) = chars.next()?;
+                    if c != d {
+                        return None;
+                    }
+                    let end = at + d.len_utf8();
+                    span = Some(span.map_or(at..end, |r| r.start..end));
+                }
+                let span = span?;
+                range = Some(range.map_or(span.clone(), |r| r.start..span.end));
+                if let (true, Some(ink)) = (matched, ink) {
+                    words.push((span, ink[0], ink[2]));
+                }
             }
-            let end = at + d.len_utf8();
-            range = Some(range.map_or(at..end, |r| r.start..end));
         }
         let text = range?;
         let (left, right) = row.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(l, r), line| (l.min(line.rect[0]), r.max(line.rect[2])));
-        out.push(DraftRow { text, baseline, left, right });
+        out.push(DraftRow { text, baseline, left, right, words: if placed { words } else { Vec::new() } });
     }
     chars.peek().is_none().then_some(out)
 }

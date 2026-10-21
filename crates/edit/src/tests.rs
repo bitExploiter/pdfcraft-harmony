@@ -5256,6 +5256,13 @@ fn draft_rows_are_the_rows_apply_writes() {
             assert!((row.baseline - saved[0].baseline()[1]).abs() < 0.01, "{draft:?}: baseline {} vs {}", row.baseline, saved[0].baseline()[1]);
             let left = saved.iter().map(|l| l.rect[0]).fold(f64::INFINITY, f64::min);
             assert!((row.left - left).abs() < 0.01, "{draft:?}: left {} vs {left}", row.left);
+            // Its words, as the page draws them.
+            let ink: Vec<[f64; 4]> = saved.iter().flat_map(|l| l.ink.iter().copied()).collect();
+            assert_eq!(row.words.len(), ink.len(), "{draft:?}: {:?}", row.words);
+            for ((range, x0, x1), ink) in row.words.iter().zip(&ink) {
+                assert!(!draft[range.clone()].contains(char::is_whitespace), "{:?}", &draft[range.clone()]);
+                assert!((x0 - ink[0]).abs() < 0.01 && (x1 - ink[2]).abs() < 0.01, "{:?}: {x0}..{x1} vs {ink:?}", &draft[range.clone()]);
+            }
         }
     }
     // Unchanged text has none; the source rows are the rows.

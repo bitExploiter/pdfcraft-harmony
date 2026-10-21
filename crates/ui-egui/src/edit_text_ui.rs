@@ -1296,7 +1296,7 @@ fn rows_as_written(
     galley: &egui::Galley,
     text: &str,
     rows: &[pdfcraft_engine::DraftRow],
-) -> Option<Vec<(egui::epaint::text::PlacedRow, Option<usize>)>> {
+) -> Option<Vec<(egui::epaint::text::PlacedRow, Option<usize>, usize)>> {
     let starts: Vec<usize> = rows.iter().map(|r| text.get(..r.text.start).map(|s| s.chars().count())).collect::<Option<_>>()?;
     let mut out = Vec::with_capacity(rows.len());
     let (mut at, mut next) = (0usize, 0usize);
@@ -1307,18 +1307,73 @@ fn rows_as_written(
             if !placed.row.glyphs.iter().all(|g| g.chr.is_whitespace()) {
                 return None;
             }
-            out.push((placed.clone(), None));
+            out.push((placed.clone(), None, at));
         } else {
             if starts.get(next).is_none_or(|s| *s < at) {
                 return None;
             }
             let cuts: Vec<usize> = starts.get(next + 1..next + mine)?.iter().map(|s| s - at).collect();
-            out.extend(split_row(placed, &cuts)?.into_iter().zip(next..).map(|(row, i)| (row, Some(i))));
+            let firsts = std::iter::once(at).chain(cuts.iter().map(|c| at + c));
+            out.extend(split_row(placed, &cuts)?.into_iter().zip(next..).zip(firsts).map(|((row, i), first)| (row, Some(i), first)));
         }
         next += mine;
         at = end + usize::from(placed.ends_with_newline);
     }
     (next == rows.len()).then_some(out)
+}
+
+/// Moves the words of `row` (whose first glyph is the text's char `first`) to where the engine's
+/// `engine` row draws them, relative to its left edge: each word's glyphs are spread from the
+/// word's left edge to its right one, and the blanks between words fill the gaps, so the caret
+/// and the selection follow. A row whose words don't map onto its glyphs is left as it is.
+fn place_words(row: &mut egui::epaint::text::Row, text: &str, first: usize, engine: &pdfcraft_engine::DraftRow, scale: f32) {
+    let char_at = |byte: usize| text.get(..byte).map(|s| s.chars().count());
+    let mut spans: Vec<(usize, usize, f32, f32)> = Vec::with_capacity(engine.words.len());
+    for (range, x0, x1) in &engine.words {
+        let (Some(a), Some(b)) = (char_at(range.start), char_at(range.end)) else { return };
+        let (Some(a), Some(b)) = (a.checked_sub(first), b.checked_sub(first)) else { return };
+        if a >= b || b > row.glyphs.len() || spans.last().is_some_and(|(_, last_b, ..)| a < *last_b) {
+            return;
+        }
+        spans.push((a, b, (x0 - engine.left) as f32 * scale, (x1 - engine.left) as f32 * scale));
+    }
+    for &(a, b, left, right) in &spans {
+        let (Some(start), Some(end)) = (row.glyphs.get(a), row.glyphs.get(b - 1)) else { return };
+        let (from, to) = (start.pos.x, end.pos.x + end.advance_width);
+        let k = if to - from > 0.01 { (right - left) / (to - from) } else { 1.0 };
+        for glyph in row.glyphs.get_mut(a..b).into_iter().flatten() {
+            let x = left + (glyph.pos.x - from) * k;
+            let dx = x - glyph.pos.x;
+            glyph.pos.x = x;
+            glyph.advance_width *= k;
+            if !glyph.uv_rect.is_nothing() {
+                for vertex in row.visuals.mesh.vertices.iter_mut().skip(glyph.first_vertex as usize).take(4) {
+                    vertex.pos.x += dx;
+                }
+            }
+        }
+    }
+    // Blanks run from the glyph before them to the glyph after them.
+    let mut end = 0.0_f32;
+    for i in 0..row.glyphs.len() {
+        let in_word = spans.iter().any(|&(a, b, ..)| (a..b).contains(&i));
+        if !in_word {
+            let next = (i + 1..row.glyphs.len()).find(|j| spans.iter().any(|&(a, b, ..)| (a..b).contains(j)));
+            let until = next.and_then(|j| row.glyphs.get(j)).map(|g| g.pos.x);
+            if let Some(glyph) = row.glyphs.get_mut(i) {
+                glyph.pos.x = end;
+                if let Some(until) = until {
+                    // Shared between the blanks up to the next word.
+                    let blanks = (i..next.unwrap_or(i + 1)).count().max(1) as f32;
+                    glyph.advance_width = ((until - end) / blanks).max(0.0);
+                }
+            }
+        }
+        if let Some(glyph) = row.glyphs.get(i) {
+            end = glyph.pos.x + glyph.advance_width;
+        }
+    }
+    row.size.x = end;
 }
 
 /// Align the editable galley's baselines to the source rows instead of egui's interface
@@ -1367,7 +1422,7 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
     };
     let g = Arc::make_mut(&mut galley);
     if let Some(written) = &written {
-        g.rows = written.iter().map(|(row, _)| row.clone()).collect();
+        g.rows = written.iter().map(|(row, ..)| row.clone()).collect();
     }
     // A blank row the engine doesn't write sits one of its rows' spacing below the row above it.
     let written_leading = rows.windows(2).map(|r| r[0].baseline - r[1].baseline).find(|v| *v > 0.0).unwrap_or(leading);
@@ -1381,7 +1436,7 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
             .copied()
             .unwrap_or((last_baseline - index.saturating_add(1).saturating_sub(sources.len()) as f64 * leading, last_rect));
         // The engine row this one shows: `Some(None)` for a blank row it doesn't write.
-        let draft = written.as_ref().map(|w| w.get(index).and_then(|(_, i)| *i).and_then(|i| rows.get(i)));
+        let draft = written.as_ref().map(|w| w.get(index).and_then(|(_, i, _)| *i).and_then(|i| rows.get(i)));
         match draft {
             Some(Some(row)) => baseline = row.baseline,
             Some(None) => baseline = above.map_or(rows.first().map_or(baseline, |r| r.baseline), |b| b - written_leading),
@@ -1402,6 +1457,12 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
             None if centered => (width - row.size.x) / 2.0,
             None => (source_rect[0] - block.rect[0]) as f32 * scale,
         };
+        // Each word where the engine draws it, as wide as it draws it.
+        if let (Some(Some(engine)), Some((_, _, first))) =
+            (written.as_ref().map(|w| w.get(index).and_then(|(_, i, _)| *i).and_then(|i| rows.get(i))), written.as_ref().and_then(|w| w.get(index)))
+        {
+            place_words(row, text, *first, engine, scale);
+        }
         for glyph in &mut row.glyphs {
             let dy = ascent - glyph.pos.y;
             glyph.pos.y = ascent;
