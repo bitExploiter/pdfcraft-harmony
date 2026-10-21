@@ -2309,6 +2309,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["copy_selected_into_highlight"] = serde_json::Value::Bool(self.comment_prefs.copy_selected_into_highlight);
         v.to_string()
     }
 
@@ -2412,6 +2413,9 @@ impl PdfCraftApp {
         }
         if let Some(hide) = v["hide_empty_highlight_hover"].as_bool() {
             self.comment_prefs.hide_empty_highlight_hover = hide;
+        }
+        if let Some(copy) = v["copy_selected_into_highlight"].as_bool() {
+            self.comment_prefs.copy_selected_into_highlight = copy;
         }
         // Per-tool comment styles (#340): each field goes through its clamping setter, so a
         // malformed or hostile entry is clamped or ignored rather than trusted.
@@ -2727,6 +2731,13 @@ impl PdfCraftApp {
                     "true" => true,
                     "false" => false,
                     _ => return Err("hide-empty-highlight-hover must be true or false".into()),
+                };
+            }
+            ("copy-selected-into-highlight", _) => {
+                self.comment_prefs.copy_selected_into_highlight = match value {
+                    "true" => true,
+                    "false" => false,
+                    _ => return Err("copy-selected-into-highlight must be true or false".into()),
                 };
             }
             ("ui-scale", _) => self.ui_scale = ui_scale::parse(value)?,

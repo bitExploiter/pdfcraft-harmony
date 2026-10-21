@@ -257,6 +257,8 @@ pub struct CommentPrefs {
     pub group_tool: [CommentTool; 3],
     /// Hide hover previews on highlight annotations when they contain no comment text beyond the author.
     pub hide_empty_highlight_hover: bool,
+    /// Copy selected text into new highlight annotations' comment text (#2605).
+    pub copy_selected_into_highlight: bool,
 }
 
 impl Default for CommentPrefs {
@@ -267,6 +269,7 @@ impl Default for CommentPrefs {
             pinned: false,
             group_tool: [CommentTool::Note, CommentTool::Highlight, CommentTool::Ink],
             hide_empty_highlight_hover: false,
+            copy_selected_into_highlight: false,
         }
     }
 }
@@ -1186,8 +1189,13 @@ pub(crate) fn page_after_text(resp: &egui::Response, cx: &PageCx<'_>, view: &mut
     if let Some(kind) = tool.markup()
         && let Some((page, quads)) = view.selection_quads(cx.info).filter(|(p, _)| *p == cx.page)
     {
+        let contents = if cx.prefs.copy_selected_into_highlight && matches!(kind, Markup::Highlight) {
+            view.selected_text().map_or_else(String::new, |s| s.trim().to_string())
+        } else {
+            String::new()
+        };
         view.clear_selection();
-        view.pending_edit = Some(new_comment(cx, tool, Shape::TextMarkup { kind, quads }, String::new()));
+        view.pending_edit = Some(new_comment(cx, tool, Shape::TextMarkup { kind, quads }, contents));
         let _ = page;
     }
 }

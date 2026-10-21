@@ -1458,6 +1458,40 @@ fn preference_hides_author_only_highlight_hover_previews() {
 }
 
 #[test]
+fn copy_selected_into_highlight_preference_seeds_highlight_comment() {
+    let mut h = harness(|app| {
+        app.set_option("copy-selected-into-highlight", "true").unwrap();
+    });
+    let mut restored = PdfCraftApp::new();
+    restored.restore(&h.state().persist());
+    assert!(restored.comment_prefs.copy_selected_into_highlight);
+
+    h.state_mut().views[0].select_text(0, 4, 9);
+    assert!(h.state_mut().execute("comment.highlight"));
+    h.run_steps(2);
+    let c = comments(&h);
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].subtype.as_str(), "Highlight");
+    assert_eq!(c[0].contents.as_deref(), Some("quick"));
+    assert_eq!(h.state().views[0].comments.editing, Some((0, 0, "quick".to_string())));
+}
+
+#[test]
+fn copy_selected_into_highlight_disabled_by_default() {
+    let mut h = harness(|_| {});
+    assert!(!h.state().comment_prefs.copy_selected_into_highlight);
+
+    h.state_mut().views[0].select_text(0, 4, 9);
+    assert!(h.state_mut().execute("comment.highlight"));
+    h.run_steps(2);
+    let c = comments(&h);
+    assert_eq!(c.len(), 1);
+    assert_eq!(c[0].subtype.as_str(), "Highlight");
+    assert_eq!(c[0].contents, None);
+    assert_eq!(h.state().views[0].comments.editing, Some((0, 0, String::new())));
+}
+
+#[test]
 fn the_squiggly_tool_marks_selected_text() {
     let mut h = harness(|_| {});
     h.state_mut().views[0].select_text(0, 4, 8);

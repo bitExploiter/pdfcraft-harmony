@@ -156,10 +156,9 @@ impl PdfCraftApp {
                         // A new highlight opens its note for typing straight away, as in Acrobat,
                         // unless a note typed into another card is still unsaved.
                         if let (pdfcraft_engine::Shape::TextMarkup { kind: pdfcraft_engine::Markup::Highlight, .. }, Some(n)) = (&a.shape, newest)
-                            && a.contents.is_empty()
                             && view.comments.editing.as_ref().is_none_or(|(_, _, text)| text.is_empty())
                         {
-                            view.comments.editing = Some((a.page, n, String::new()));
+                            view.comments.editing = Some((a.page, n, a.contents.clone()));
                         }
                     }
                     Edit::DeleteAnnotation { .. } => view.comments.selected = None,

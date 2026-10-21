@@ -304,11 +304,16 @@ impl PdfCraftApp {
                 {
                     let info = &doc.info;
                     if let Some((page, quads)) = self.views[i].selection_quads(info) {
+                        let contents = if self.comment_prefs.copy_selected_into_highlight && matches!(kind, pdfcraft_engine::Markup::Highlight) {
+                            self.views[i].selected_text().map_or_else(String::new, |s| s.trim().to_string())
+                        } else {
+                            String::new()
+                        };
                         self.views[i].clear_selection();
                         let style = self.comment_prefs.style(tool);
                         let author = self.comment_prefs.author.clone();
                         let shape = pdfcraft_engine::Shape::TextMarkup { kind, quads };
-                        self.apply_edit(Edit::AddAnnotation(pdfcraft_engine::NewAnnotation { page, shape, style, contents: String::new(), author }));
+                        self.apply_edit(Edit::AddAnnotation(pdfcraft_engine::NewAnnotation { page, shape, style, contents, author }));
                     }
                 }
             }

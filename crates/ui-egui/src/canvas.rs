@@ -4168,11 +4168,16 @@ fn selection_actions(
         SelectionAction::Markup(tool) => {
             // Every markup button carries a markup tool; anything else adds nothing.
             let Some(kind) = tool.markup() else { return false };
+            let contents = if prefs.copy_selected_into_highlight && matches!(kind, pdfcraft_engine::Markup::Highlight) {
+                selected.trim().to_string()
+            } else {
+                String::new()
+            };
             view.pending_edit = Some(Edit::AddAnnotation(pdfcraft_engine::NewAnnotation {
                 page,
                 shape: pdfcraft_engine::Shape::TextMarkup { kind, quads },
                 style: prefs.style(tool),
-                contents: String::new(),
+                contents,
                 author: prefs.author.clone(),
             }));
         }
