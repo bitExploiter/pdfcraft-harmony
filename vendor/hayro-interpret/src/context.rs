@@ -162,6 +162,12 @@ pub struct Context<'a> {
     pub(crate) xref: &'a XRef,
     pub(crate) ocg_state: OcgState,
     nesting_depth: u32,
+    // PdfCraft patch (44): whether the content being interpreted is a page's (its own, or a form
+    // or annotation appearance drawn from it) rather than a soft mask's, pattern's or Type 3
+    // glyph's, and the structural parent tree key of its content stream (ISO 32000-2 §14.7.5.4),
+    // which its MCIDs index.
+    structured: bool,
+    structure_key: Option<i32>,
 }
 
 impl<'a> Context<'a> {
@@ -216,6 +222,8 @@ impl<'a> Context<'a> {
             interpreter_cache: cache.clone(),
             ocg_state,
             nesting_depth,
+            structured: false,
+            structure_key: None,
         }
     }
 
@@ -393,6 +401,35 @@ impl<'a> Context<'a> {
 
     pub(crate) fn nesting_depth(&self) -> u32 {
         self.nesting_depth
+    }
+
+    /// PdfCraft patch (44): the `/StructParents` key the current content stream's MCIDs index in
+    /// the structural parent tree: the page's for its own content, a form XObject's own while it
+    /// is drawn from a page's content, and none for anything else (a stream without a key, or
+    /// a soft mask's, pattern's or Type 3 glyph's content).
+    pub(crate) fn structure_key(&self) -> Option<i32> {
+        self.structure_key
+    }
+
+    /// PdfCraft patch (44): enters a page's content, whose stream has the key `key`; returns
+    /// what to hand `leave_structure` when it is done.
+    pub(crate) fn enter_page_structure(&mut self, key: Option<i32>) -> (bool, Option<i32>) {
+        let outer = (self.structured, self.structure_key);
+        (self.structured, self.structure_key) = (true, key);
+        outer
+    }
+
+    /// PdfCraft patch (44): enters a form XObject whose stream has the key `key`, which counts
+    /// only in a page's content; returns what to hand `leave_structure` when it is done.
+    pub(crate) fn enter_form_structure(&mut self, key: Option<i32>) -> (bool, Option<i32>) {
+        let outer = (self.structured, self.structure_key);
+        self.structure_key = if self.structured { key } else { None };
+        outer
+    }
+
+    /// PdfCraft patch (44): goes back to the content entered from.
+    pub(crate) fn leave_structure(&mut self, outer: (bool, Option<i32>)) {
+        (self.structured, self.structure_key) = outer;
     }
 
     pub(crate) fn begin_nested_interpretation(&mut self) -> bool {

@@ -187,12 +187,19 @@ pub(crate) fn draw_form_xobject<'a, 'b>(
         fill: FillRule::NonZero,
     });
 
+    // PdfCraft patch (44): the form's MCIDs index the parent tree under its own /StructParents
+    // (§14.7.5.4) when it is drawn from a page's content, directly or through other forms. One
+    // drawn from a soft mask, pattern or Type 3 glyph stays outside the structure.
+    let outer = context.enter_form_structure(x_object.dict.get::<i32>(STRUCT_PARENTS));
+
     interpret(
         iter,
         &Resources::from_parent(x_object.resources.clone(), resources.clone()),
         context,
         device,
     );
+
+    context.leave_structure(outer);
 
     device.pop_clip_path();
 
