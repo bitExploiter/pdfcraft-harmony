@@ -582,11 +582,38 @@ impl PdfCraftApp {
         true
     }
 
-    /// Whether tab `index` has work that isn't saved: edits, or form typing not committed yet.
+    /// Before the bytes are written, turn the pages by the view's rotation and the view back
+    /// upright (#2674), as one undoable Rotate Pages edit: the page looks the same, and the
+    /// file opens the way it was shown. Returns false when the pages couldn't be turned
+    /// (nothing is written, and the user has been told why).
+    fn bake_view_rotation_for_save(&mut self, id: pdfcraft_engine::DocId) -> bool {
+        let Some(i) = self.views.iter().position(|v| v.id == id) else { return true };
+        let Some((turn, pages)) =
+            self.session.get(id).and_then(|d| Some((self.views.get(i)?.unsaved_turn(d)?, d.info.pages.len()))).filter(|&(_, pages)| pages > 0)
+        else {
+            return true;
+        };
+        if let Err(e) = self.session.apply(id, Edit::RotatePages { pages: (0..pages).collect(), degrees: turn }) {
+            self.notify_error(e);
+            return false;
+        }
+        if let Some(doc) = self.session.get(id)
+            && let Some(view) = self.views.get_mut(i)
+        {
+            view.rotation = 0;
+            view.goto = Some((view.current, 0.0));
+            view.document_changed(&doc.info);
+        }
+        true
+    }
+
+    /// Whether tab `index` has work that isn't saved: edits, form typing not committed yet, or
+    /// a turned view (which saving writes into the pages, #2674).
     pub(crate) fn has_unsaved_work(&self, index: usize) -> bool {
         let Some(v) = self.views.get(index) else { return false };
         let Some(doc) = self.session.get(v.id) else { return false };
         doc.dirty
+            || v.unsaved_turn(doc).is_some()
             || v.pending_edit.is_some()
             || v.content.blocked().is_some()
             || v.forms.focus.as_ref().is_some_and(|f| crate::forms_ui::draft_edit(f, &doc.form).is_some())
@@ -643,7 +670,7 @@ impl PdfCraftApp {
         #[cfg(target_arch = "wasm32")]
         {
             let _ = path;
-            if !self.flatten_fill_sign_for_save(id) {
+            if !self.flatten_fill_sign_for_save(id) || !self.bake_view_rotation_for_save(id) {
                 return false;
             }
             let bytes = match self.session.save_bytes(id) {
@@ -730,7 +757,7 @@ impl PdfCraftApp {
     fn save_doc_to(&mut self, id: pdfcraft_engine::DocId, dest: &str, target: SaveTarget) -> bool {
         // Save As answers on a later frame: commit what was typed meanwhile, too (#166), even
         // if another tab is active by then.
-        if !self.commit_typing_in(id) || !self.flatten_fill_sign_for_save(id) {
+        if !self.commit_typing_in(id) || !self.flatten_fill_sign_for_save(id) || !self.bake_view_rotation_for_save(id) {
             return false;
         }
         let Some((name, full)) = self.session.get(id).map(|d| {

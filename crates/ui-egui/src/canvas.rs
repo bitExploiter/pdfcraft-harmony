@@ -374,7 +374,8 @@ pub struct DocView {
     pub layout: PageLayout,
     /// Whether the base layout scrolls continuously (independent of `layout`, as in Acrobat).
     pub continuous: bool,
-    /// View rotation in degrees clockwise (0, 90, 180, 270); display only, never saved.
+    /// View rotation in degrees clockwise (0, 90, 180, 270). Saving writes it into the pages'
+    /// `/Rotate` and turns the view back upright ([`DocView::unsaved_turn`], #2674).
     pub rotation: u16,
     pub current: usize,
     pub organize: bool,
@@ -1363,6 +1364,14 @@ impl DocView {
         self.rotation = (self.rotation + if clockwise { 90 } else { 270 }) % 360;
         self.goto = Some((self.current, 0.0));
         self.reset_coarse_state();
+    }
+
+    /// The view's turn that saving `doc` writes into its pages' `/Rotate` (#2674): someone who
+    /// turns the view and saves expects the file to open turned. `None` while the view is
+    /// upright, or when `doc` may not have its pages rotated (then the turn stays display only).
+    pub fn unsaved_turn(&self, doc: &pdfcraft_engine::Document) -> Option<i64> {
+        let turn = self.rotation % 360;
+        (turn != 0 && doc.allows_assembly()).then_some(i64::from(turn))
     }
 
     /// Switch the zoom mode, keeping the current page in view.

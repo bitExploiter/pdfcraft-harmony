@@ -594,6 +594,48 @@ fn closing_a_dirty_tab_can_save_first() {
     let _ = std::fs::remove_file(out);
 }
 
+/// Issue #2674: View ▸ Rotate View (⇧⌘+, the toolbar's rotate button) counts as a change, and
+/// saving writes it into every page's `/Rotate`, turning the view back upright as one undoable
+/// edit, so the file opens the way it was shown.
+#[test]
+fn a_turned_view_is_unsaved_work_and_saving_writes_it_into_the_pages() {
+    let saved_rotations = |out: &std::path::Path| {
+        let info = pdfcraft_render::inspect(std::sync::Arc::new(std::fs::read(out).unwrap()), None).unwrap();
+        info.pages.iter().map(|p| p.rotation).collect::<Vec<_>>()
+    };
+    // Closing asks to save, and saving keeps the turn.
+    let out = temp_path("turned-view-closed.pdf");
+    let mut h = harness(2, |_| {});
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    h.key_press_modifiers(Modifiers::COMMAND | Modifiers::SHIFT, Key::Plus);
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].rotation, 90);
+    h.state_mut().request_close_tab(0);
+    h.run_steps(2);
+    h.get_by_label_contains("Save changes to “doc.pdf”");
+    h.get_by_label("Save").click();
+    h.run_steps(3);
+    assert!(h.state().views.is_empty());
+    assert_eq!(saved_rotations(&out), [90, 90]);
+    let _ = std::fs::remove_file(&out);
+
+    // Save turns the pages, not the view: the page looks the same, and undo turns it back.
+    let out = temp_path("turned-view-saved.pdf");
+    let mut h = harness(2, |_| {});
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    h.state_mut().views[0].rotate_view(false);
+    h.run_steps(2);
+    assert!(h.state_mut().save_active(pdfcraft_ui_egui::SaveTarget::InPlace));
+    h.run_steps(2);
+    assert_eq!(saved_rotations(&out), [270, 270]);
+    let app = h.state();
+    let doc = app.session.get(app.views[0].id).unwrap();
+    assert_eq!((app.views[0].rotation, doc.dirty), (0, false));
+    assert_eq!(doc.info.pages.iter().map(|p| p.rotation).collect::<Vec<_>>(), [270, 270]);
+    assert!(doc.can_undo().is_some(), "the turn is an undoable Rotate Pages edit");
+    let _ = std::fs::remove_file(&out);
+}
+
 #[test]
 fn the_save_prompt_answers_to_the_keyboard() {
     // Issue #8: Enter saves; ⌘D / Ctrl+D, Alt+D and Alt+N don't save; Escape cancels. While the
