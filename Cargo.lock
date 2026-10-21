@@ -4125,6 +4125,7 @@ dependencies = [
  "pdfcraft-measure",
  "pdfcraft-model",
  "pdfcraft-ocr",
+ "pdfcraft-office",
  "pdfcraft-optimize",
  "pdfcraft-organize",
  "pdfcraft-preflight",
@@ -4218,6 +4219,20 @@ dependencies = [
  "ocrs",
  "pdfcraft-fonts",
  "rten",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "pdfcraft-office"
+version = "0.10.1"
+dependencies = [
+ "flate2",
+ "pdfcraft-cos",
+ "pdfcraft-create",
+ "pdfcraft-edit",
+ "pdfcraft-export",
+ "pdfcraft-render",
+ "pdfcraft-testkit",
  "thiserror 2.0.21",
 ]
 
