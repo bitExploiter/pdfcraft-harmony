@@ -2355,3 +2355,5 @@ animation effects	Off	Выкл
 	One sheet per page	По листу на страницу
 	Each page on its own sheet, named Page 1, Page 2…	Каждая страница на своём листе с именем Page 1, Page 2…
 	Tables become cells; numbers, amounts, percentages and dates become values Excel can compute with, shown as on the page.	Таблицы становятся ячейками; числа, суммы, проценты и даты становятся значениями, с которыми Excel может считать, и выглядят как на странице.
+	Less	Меньше
+	Other options	Другие параметры

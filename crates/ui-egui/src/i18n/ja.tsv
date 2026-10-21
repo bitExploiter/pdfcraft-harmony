@@ -2442,3 +2442,5 @@ animation effects	Off	オフ
 	One sheet per page	ページごとに 1 枚のシート
 	Each page on its own sheet, named Page 1, Page 2…	各ページを別のシートに。シート名: Page 1、Page 2…
 	Tables become cells; numbers, amounts, percentages and dates become values Excel can compute with, shown as on the page.	表はセルになり、数値・金額・パーセント・日付は Excel で計算できる値になります (表示はページと同じ)。
+	Less	折りたたむ
+	Other options	その他のオプション
