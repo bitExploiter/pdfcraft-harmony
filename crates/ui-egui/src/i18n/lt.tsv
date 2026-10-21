@@ -2687,5 +2687,11 @@ key	Space	Tarpas
 theme	Appearance	Išvaizda
 	Split right	Skaidyti į dešinę
 	Split down	Skaidyti žemyn
+	Bulleted list	Sąrašas su ženkleliais
+	Numbered list	Numeruotas sąrašas
+	Alignment	Lygiuotė
+	Superscript	Viršutinis indeksas
+	Subscript	Apatinis indeksas
+	Paragraph spacing	Tarpas tarp pastraipų
 	Less	Mažiau
 	Other options	Kitos parinktys
