@@ -4,7 +4,7 @@
 
 use egui::{Align, Color32, Layout};
 use pdfcraft_engine::DocId;
-use pdfcraft_engine::compare::{Comparison, Kind};
+use pdfcraft_engine::compare::{Comparison, Kind, PageKind};
 
 use crate::theme::{self, Tokens};
 use crate::{PdfCraftApp, RightPanel, widgets};
@@ -32,6 +32,7 @@ pub const VISUAL: Color32 = Color32::from_rgb(0xF0, 0x8C, 0x1A);
 /// What the panel asks for.
 pub enum PanelAction {
     Select(usize),
+    SelectPage(usize),
     Mark,
     Report,
     Clear,
@@ -129,6 +130,35 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, state: &Option<CompareState>,
         }
     });
     ui.separator();
+    for (pi, pc) in c.page_changes.iter().enumerate() {
+        let (kind, text) = match pc.kind {
+            PageKind::Moved => (Kind::Replaced, format!("Page {} → Page {}", pc.old_page + 1, pc.new_page + 1)),
+            PageKind::Inserted => (Kind::Inserted, format!("+ Page {}", pc.new_page + 1)),
+            PageKind::Deleted => (Kind::Deleted, format!("− Page {}", pc.old_page + 1)),
+        };
+        let r = ui.push_id(("page-change", pi), |ui| {
+            ui.horizontal(|ui| {
+                let (bar, _) = ui.allocate_exact_size(egui::vec2(4.0, 34.0), egui::Sense::hover());
+                ui.painter().rect_filled(bar, egui::CornerRadius::same(2), colour(kind));
+                ui.vertical(|ui| {
+                    ui.label(
+                        egui::RichText::new(crate::i18n::fmt(
+                            tl!("{kind} · page {p}"),
+                            &[("kind", tl!(kind.label())), ("p", &(pc.new_page + 1).to_string())],
+                        ))
+                        .small()
+                        .color(t.text_muted),
+                    );
+                    ui.selectable_label(false, text)
+                })
+                .inner
+            })
+            .inner
+        });
+        if r.inner.clicked() {
+            action = Some(PanelAction::SelectPage(pi));
+        }
+    }
     for (i, ch) in c.changes.iter().enumerate().take(2000) {
         let text = match ch.kind {
             Kind::Replaced => format!("\"{}\" → \"{}\"", ch.old.text, ch.new.text),
@@ -215,7 +245,7 @@ impl PdfCraftApp {
                     }
                     self.views[oi].compare_marks = marks;
                 }
-                let n = result.changes.len();
+                let n = result.changes.len() + result.page_changes.len();
                 // Side by side when the old version is open in a tab and the window has the room.
                 let side_by_side = self.views.iter().any(|v| v.id == old) && self.ctx.as_ref().is_none_or(|c| c.content_rect().width() >= 1000.0);
                 self.compare = Some(crate::compare_ui::CompareState {
@@ -259,6 +289,13 @@ impl PdfCraftApp {
                     let v = &mut self.views[oi];
                     v.go_to_page(old_target.0);
                     v.flash = Some((old_target.0, old_target.1.map(|x| x as f32), 0.0));
+                }
+            }
+            PanelAction::SelectPage(i) => {
+                let Some(pc) = s.result.page_changes.get(i).copied() else { return };
+                self.views[index].go_to_page(pc.new_page);
+                if let Some(oi) = self.views.iter().position(|v| v.id == old) {
+                    self.views[oi].go_to_page(pc.old_page);
                 }
             }
             PanelAction::SideBySide(on) => {

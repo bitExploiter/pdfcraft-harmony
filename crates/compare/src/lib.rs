@@ -666,9 +666,13 @@ pub fn compare_with_pages(old: &[Word], old_pages: usize, new: &[Word], new_page
     }
 
     // Pure pagination reflow of identical text produces no word changes; do not report reflowed
-    // page breaks as inserted or deleted pages.
+    // page breaks as inserted or deleted pages, while keeping blank or image-only page changes.
     if changes.is_empty() && (!old.is_empty() || !new.is_empty()) {
-        page_changes.retain(|c| c.kind == PageKind::Moved);
+        page_changes.retain(|c| match c.kind {
+            PageKind::Moved => true,
+            PageKind::Inserted => new_by_page.get(c.new_page).is_some_and(Vec::is_empty),
+            PageKind::Deleted => old_by_page.get(c.old_page).is_some_and(Vec::is_empty),
+        });
     }
 
     Comparison { changes, page_pairs, page_changes, old_words: old.len(), new_words: new.len() }
@@ -877,6 +881,15 @@ mod tests {
         let mut reflowed = words("alpha beta gamma delta epsilon", 0);
         reflowed.extend(words("zeta eta theta iota kappa lambda mu", 1));
         assert!(compare(&old, &reflowed).identical());
+
+        // Inserting a blank or image-only page preserves the page insertion even with identical text.
+        let mut old_two = words("alpha beta gamma delta epsilon", 0);
+        old_two.extend(words("zeta eta theta iota kappa lambda", 1));
+        let mut new_three = words("alpha beta gamma delta epsilon", 0);
+        new_three.extend(words("zeta eta theta iota kappa lambda", 2));
+        let cb = compare_with_pages(&old_two, 2, &new_three, 3);
+        assert!(!cb.identical());
+        assert_eq!(cb.page_changes, [PageChange { kind: PageKind::Inserted, old_page: 0, new_page: 1 }]);
     }
 }
 
