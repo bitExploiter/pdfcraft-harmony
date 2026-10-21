@@ -2435,5 +2435,12 @@ animation effects	Off	Ki
 	Page properties	Oldaltulajdonságok
 # Combine files from Finder (macOS).
 	From Finder: select files, then right-click ▸ Quick Actions ▸ Combine files in PdfCraft. Not listed? Turn it on once under Quick Actions ▸ Customize.	A Finderben: jelölje ki a fájlokat, majd jobb klikk ▸ Gyorsműveletek ▸ “Combine files in PdfCraft”. Nem látszik? Egyszer kapcsolja be: Gyorsműveletek ▸ Testreszabás.
+	Font	Betűtípus
+	Bulleted list	Felsorolás
+	Numbered list	Számozott lista
+	Alignment	Igazítás
+	Superscript	Felső index
+	Subscript	Alsó index
+	Paragraph spacing	Bekezdéstávolság
 	Less	Kevesebb
 	Other options	Egyéb beállítások

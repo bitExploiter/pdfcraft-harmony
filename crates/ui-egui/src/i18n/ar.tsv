@@ -2713,5 +2713,11 @@ certificate	Version	الإصدار
 	Page properties	خصائص الصفحة
 # Combine files from Finder (macOS).
 	From Finder: select files, then right-click ▸ Quick Actions ▸ Combine files in PdfCraft. Not listed? Turn it on once under Quick Actions ▸ Customize.	من Finder: حدّد الملفات، ثم انقر بزر الماوس الأيمن > الإجراءات السريعة > “Combine files in PdfCraft”. غير موجود؟ فعّله مرة واحدة من الإجراءات السريعة > تخصيص.
+	Bulleted list	قائمة نقطية
+	Numbered list	قائمة مرقمة
+	Alignment	المحاذاة
+	Superscript	نص مرتفع
+	Subscript	نص منخفض
+	Paragraph spacing	تباعد الفقرات
 	Less	أقل
 	Other options	خيارات أخرى

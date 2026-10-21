@@ -2458,5 +2458,12 @@ animation effects	Off	Вимкнено
 	Page properties	Властивості сторінки
 # Combine files from Finder (macOS).
 	From Finder: select files, then right-click ▸ Quick Actions ▸ Combine files in PdfCraft. Not listed? Turn it on once under Quick Actions ▸ Customize.	У Finder: виберіть файли, потім правий клік ▸ Швидкі дії ▸ “Combine files in PdfCraft”. Немає в списку? Увімкніть один раз у Швидкі дії ▸ Налаштувати.
+	Font	Шрифт
+	Bulleted list	Маркований список
+	Numbered list	Нумерований список
+	Alignment	Вирівнювання
+	Superscript	Надрядковий
+	Subscript	Підрядковий
+	Paragraph spacing	Інтервал між абзацами
 	Less	Менше
 	Other options	Інші параметри
