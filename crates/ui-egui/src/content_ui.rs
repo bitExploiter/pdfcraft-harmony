@@ -523,6 +523,10 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
     let (mut commit, mut cancel, mut done) = (false, false, false);
     let mut undrawable = None;
     let memo = &view.content.undrawable;
+    // The palette of Greek letters and signs below the editor: open or closed, and the symbol just chosen.
+    let symbols_id = egui::Id::new(("added-text-symbols", view.id.0));
+    let mut symbols_open = ctx.data(|d| d.get_temp::<bool>(symbols_id)).unwrap_or(false);
+    let mut picked: Option<String> = None;
     egui::Area::new(egui::Id::new(("added-text", view.id.0))).order(egui::Order::Foreground).fixed_pos(r.min).constrain(false).show(ctx, |ui| {
         let Some(t) = view.content.draft.as_mut() else { return };
         ui.set_width(r.width() + 64.0);
@@ -532,6 +536,8 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
         // The box is white in every theme, so the caret must not follow the theme (pale in dark mode) (#655).
         ui.visuals_mut().text_cursor.stroke.color = crate::edit_text_ui::caret_color_on(Color32::WHITE);
         let [cr, cg, cb] = t.style.color.map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+        // Pressing a button or the palette takes the focus from the text: that is not a click away.
+        let (mut lost_focus, mut edit_id, mut buttons) = (false, egui::Id::NULL, Rect::NOTHING);
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             let resp = ui.add(
@@ -548,7 +554,9 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
                 resp.request_focus();
                 t.focus = false;
             }
-            let buttons = egui::Frame::NONE
+            edit_id = resp.id;
+            lost_focus = resp.lost_focus();
+            buttons = egui::Frame::NONE
                 .fill(tokens.card)
                 .stroke(Stroke::new(1.0, tokens.border))
                 .corner_radius(CornerRadius::same(6))
@@ -556,23 +564,67 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
                     ui.horizontal(|ui| {
+                        // The keyboard may have no key for a Greek letter: pick one from the palette.
+                        let omega = egui::Button::new(egui::RichText::new("Ω").size(15.0))
+                            .min_size(egui::vec2(24.0, 24.0))
+                            .frame(false)
+                            .selected(symbols_open);
+                        if ui.add(omega).on_hover_text(tl!("Insert a Greek letter or symbol")).clicked() {
+                            symbols_open = !symbols_open;
+                        }
                         done = crate::icons::button(ui, "check", 24.0, false, tl!("Done adding text")).clicked();
                         cancel = crate::icons::button(ui, "x", 24.0, false, tl!("Discard this text (Esc)")).clicked();
                     });
                 })
                 .response
                 .rect;
-            // Pressing a button takes the focus from the text: that is not a click away.
-            let on_buttons = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| buttons.contains(p));
-            cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
-            commit = done || resp.lost_focus() && !on_buttons && !view.objects.hold_editor;
         });
+        let mut palette = Rect::NOTHING;
+        if symbols_open {
+            palette = egui::Frame::NONE
+                .fill(tokens.card)
+                .stroke(Stroke::new(1.0, tokens.border))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(4)
+                .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);
+                    for row in SYMBOL_ROWS {
+                        ui.horizontal(|ui| {
+                            for symbol in row.split(' ') {
+                                let turned = TURNED_ARROWS.iter().find(|(s, _)| *s == symbol);
+                                let label = if turned.is_some() { "" } else { symbol };
+                                let key = egui::Button::new(egui::RichText::new(label).size(16.0)).min_size(egui::vec2(26.0, 26.0));
+                                let code = symbol.chars().next().map_or(0, u32::from);
+                                let response = ui.add(key).on_hover_text(format!("U+{code:04X}"));
+                                if let Some((_, angle)) = turned {
+                                    paint_turned_arrow(ui, &response, *angle);
+                                }
+                                if response.clicked() {
+                                    picked = Some(symbol.to_string());
+                                }
+                            }
+                        });
+                    }
+                })
+                .response
+                .rect;
+        }
+        if let Some(symbol) = &picked {
+            insert_at_caret(ui.ctx(), edit_id, &mut t.text, symbol);
+            ui.ctx().request_repaint();
+            ui.ctx().memory_mut(|m| m.request_focus(edit_id));
+        }
+        let on_ui = ui.input(|i| i.pointer.interact_pos()).is_some_and(|p| buttons.contains(p) || palette.contains(p));
+        cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
+        commit = done || lost_focus && !on_ui && !view.objects.hold_editor;
         // Page text is drawn with the standard fonts; anything else would be saved as `?` (#125).
         undrawable = self::undrawable(t, memo);
         if let Some(c) = undrawable {
             ui.label(egui::RichText::new(undrawable_message(c)).small().color(UNDRAWABLE));
         }
     });
+    // The palette belongs to one editing session.
+    ctx.data_mut(|d| d.insert_temp(symbols_id, symbols_open && !cancel && !commit));
     if cancel {
         view.content.draft = None;
         return (None, false);
@@ -583,6 +635,52 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
     }
     let edit = view.content.draft.take().and_then(|d| finish(&mut view.content, d, added));
     (edit, done)
+}
+
+/// Greek letters and mathematical signs the palette offers, a row each, separated by spaces. The
+/// engine draws all of them: the Greek and math signs from the Symbol font, `°` `±` `×` `÷` from the
+/// item's own font.
+const SYMBOL_ROWS: [&str; 6] = [
+    "α β γ δ ε ζ η θ ι κ λ μ",
+    "ν ξ ο π ρ σ τ υ φ χ ψ ω",
+    "ϑ ϕ ς ϖ Γ Δ Θ Λ Ξ Π Σ Φ",
+    "Ψ Ω ° ± × ÷ ≤ ≥ ≠ ≈ ∞ √",
+    "∑ ∏ ∫ ∂ ′ ″ ∅ ⊕ ⊗ − ↔ ⇔",
+    // Arrows in all four directions: single, then double.
+    "← ↑ → ↓ ⇐ ⇑ ⇒ ⇓",
+];
+
+/// Palette symbols the interface font has no glyph for, drawn as the double arrow `⇒` turned by
+/// this angle (radians, clockwise) instead; the engine draws the real character in the PDF.
+const TURNED_ARROWS: [(&str, f32); 2] = [("⇑", -std::f32::consts::FRAC_PI_2), ("⇓", std::f32::consts::FRAC_PI_2)];
+
+/// Paint `⇒` turned by `angle` about the middle of `response`'s button.
+fn paint_turned_arrow(ui: &egui::Ui, response: &egui::Response, angle: f32) {
+    let color = ui.style().interact(response).text_color();
+    let galley = ui.painter().layout_no_wrap("⇒".to_string(), egui::FontId::proportional(16.0), color);
+    let half = galley.size() / 2.0;
+    let (sin, cos) = angle.sin_cos();
+    // A turned text shape pivots on its top-left corner: place that so its middle lands on the button's.
+    let turned_half = egui::vec2(half.x * cos - half.y * sin, half.x * sin + half.y * cos);
+    let corner = response.rect.center() - turned_half;
+    ui.painter().add(egui::epaint::TextShape::new(corner, galley, color).with_angle(angle));
+}
+
+/// Insert `symbol` where the caret is in the text edit `id`, in place of a selection, and leave the
+/// caret after it; at the end of the text when the edit has no caret yet.
+fn insert_at_caret(ctx: &egui::Context, id: egui::Id, text: &mut String, symbol: &str) {
+    let mut state = egui::TextEdit::load_state(ctx, id).unwrap_or_default();
+    let len = text.chars().count();
+    let (from, to) = state.cursor.char_range().map_or((len, len), |r| {
+        let (a, b) = (usize::from(r.primary.index).min(len), usize::from(r.secondary.index).min(len));
+        (a.min(b), a.max(b))
+    });
+    let byte = |chars: usize| text.char_indices().nth(chars).map_or(text.len(), |(i, _)| i);
+    let (start, end) = (byte(from), byte(to));
+    text.replace_range(start..end, symbol);
+    let caret = egui::text::CCursor::new(from.saturating_add(symbol.chars().count()));
+    state.cursor.set_char_range(Some(egui::text::CCursorRange::one(caret)));
+    state.store(ctx, id);
 }
 
 /// A finished draft as an edit: new text is added (and selected once it exists), retyped text
@@ -910,6 +1008,55 @@ mod tests {
     use egui_kittest::kittest::Queryable;
 
     use super::*;
+
+    #[test]
+    fn every_palette_symbol_is_drawn_by_the_engine() {
+        for symbol in SYMBOL_ROWS.iter().flat_map(|row| row.split(' ')) {
+            assert_eq!(symbol.chars().count(), 1, "{symbol:?} is one character");
+            let text = AddedText { text: symbol.to_string(), ..AddedText::default() };
+            assert_eq!(pdfcraft_engine::first_undrawable(&text), None, "{symbol} is in the palette but can't be drawn");
+        }
+    }
+
+    /// A palette button the interface font can't draw would show an empty box instead of the symbol.
+    #[test]
+    fn every_palette_symbol_has_a_glyph_in_the_interface_font() {
+        use egui::epaint::text::{Fonts, TextOptions};
+        let mut fonts = Fonts::new(TextOptions::default(), crate::theme::font_definitions());
+        let id = egui::FontId::proportional(16.0);
+        // The turned arrows are drawn from `⇒`, so that is the glyph they need.
+        let shown = |symbol: &str| TURNED_ARROWS.iter().find(|(s, _)| *s == symbol).map_or(symbol.to_string(), |_| "⇒".to_string());
+        let missing: Vec<&str> = SYMBOL_ROWS.iter().flat_map(|row| row.split(' ')).filter(|symbol| !fonts.has_glyphs(&id, &shown(symbol))).collect();
+        assert!(missing.is_empty(), "palette symbols the interface font can't show: {missing:?}");
+    }
+
+    #[test]
+    fn a_symbol_goes_in_at_the_caret_in_place_of_a_selection() {
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("edit");
+        let set = |range: Option<(usize, usize)>| {
+            let mut state = egui::TextEdit::load_state(&ctx, id).unwrap_or_default();
+            state.cursor.set_char_range(range.map(|(a, b)| egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b))));
+            state.store(&ctx, id);
+        };
+        let caret = || egui::TextEdit::load_state(&ctx, id).and_then(|s| s.cursor.char_range()).map(|r| usize::from(r.primary.index));
+        // Between "an" and "gle", with a multi-byte letter before it.
+        let mut text = "é angle".to_string();
+        set(Some((4, 4)));
+        insert_at_caret(&ctx, id, &mut text, "φ");
+        assert_eq!((text.as_str(), caret()), ("é anφgle", Some(5)));
+        // A selection is replaced, whichever way it was dragged.
+        set(Some((5, 2)));
+        insert_at_caret(&ctx, id, &mut text, "α");
+        assert_eq!((text.as_str(), caret()), ("é αgle", Some(3)));
+        // No caret yet, or one past the end: the end of the text.
+        set(None);
+        insert_at_caret(&ctx, id, &mut text, "π");
+        assert_eq!(text, "é αgleπ");
+        set(Some((99, 99)));
+        insert_at_caret(&ctx, id, &mut text, "°");
+        assert_eq!(text, "é αgleπ°");
+    }
 
     /// The image a flip button leaves behind, as the panel returns it.
     fn flipped(tooltip: &str) -> pdfcraft_engine::AddedImage {

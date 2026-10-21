@@ -666,6 +666,40 @@ fn added_text_and_images_are_page_content_that_stays_editable() {
 }
 
 #[test]
+fn added_text_draws_greek_letters_and_math_signs_from_the_symbol_font() {
+    let mut doc = fixture();
+    let text = AddedText { rect: [72.0, 600.0, 400.0, 700.0], text: "angle φ = 30° ≤ π".into(), size: 14.0, ..AddedText::default() };
+    // Symbol is a standard font, so nothing is refused for lack of a face.
+    assert_eq!(first_undrawable(&text), None);
+    add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap();
+    let doc = reopen(&doc);
+    let Content::Text(t) = &list_added(&doc)[0].content else { panic!() };
+    assert_eq!(t.text, "angle φ = 30° ≤ π", "the typed text is kept for editing");
+    let s = streams(&doc, 0).join("\n");
+    // phi (U+03C6) is code 0x6A (j) and lessequal 0xA3 in Symbol's own encoding, set between runs of the
+    // item's font; the degree sign stays in Helvetica.
+    assert!(s.contains("(angle ) Tj /PCFSymbol 14 Tf (j) Tj /PCFHelvetica 14 Tf ( = 30"), "{s}");
+    assert!(s.ends_with("/PCFSymbol 14 Tf (p) Tj \nET\nQ\n") || s.contains("/PCFSymbol 14 Tf (p) Tj"), "{s}");
+    assert_eq!(s.matches("/PCFSymbol 14 Tf").count(), 3, "φ, ≤ and π: one switch to Symbol each\n{s}");
+    // The page has the font, with a map that gives the Greek letters back when text is copied.
+    let page = &pdfcraft_model::pages(&doc)[0];
+    let resources = doc.resolve(page.dict.get(b"Resources").unwrap());
+    let fonts = doc.resolve(resources.as_dict().unwrap().get(b"Font").unwrap());
+    let font = doc.resolve(fonts.as_dict().unwrap().get(b"PCFSymbol").unwrap());
+    let font = font.as_dict().unwrap();
+    assert_eq!(font.name(b"BaseFont"), Some(&b"Symbol"[..]));
+    assert!(font.get(b"Encoding").is_none(), "Symbol's built-in encoding is the one that applies");
+    let Object::Stream(map) = &*doc.resolve(font.get(b"ToUnicode").unwrap()) else { panic!() };
+    assert!(String::from_utf8_lossy(&map.decoded().unwrap()).contains("<6A> <03C6>"));
+    // The width counts Symbol's metrics: phi1 (the looped U+03C6) is 603 units, not a `?` of Helvetica.
+    assert!((crate::added::text_width(&AddedText { text: "φ".into(), ..text.clone() }) - 14.0 * 0.603).abs() < 1e-9);
+    // What no standard font draws is still refused, whatever else is in the text.
+    let cyrillic = AddedText { text: "φ Кут".into(), ..text };
+    assert_eq!(first_undrawable(&cyrillic), Some('К'));
+    assert!(add_content(&mut fixture(), 0, &Content::Text(cyrillic)).is_err());
+}
+
+#[test]
 fn added_arabic_text_is_shaped_in_display_order_and_stays_searchable() {
     let mut doc = fixture();
     let text =

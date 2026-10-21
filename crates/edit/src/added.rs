@@ -256,7 +256,7 @@ fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
         // sum of its words' and shaping stays linear in the paragraph's length. The space is the
         // paragraph's; a space between Latin words is drawn in the item's font, a few hundredths
         // of an em apart.
-        let measure = |s: &str| if rtl_script || thai { shaped_width(t, s, rtl) } else { t.family.width(s, t.size, t.bold, t.italic) };
+        let measure = |s: &str| if rtl_script || thai { shaped_width(t, s, rtl) } else { plain_width(t, s) };
         let space = measure(" ");
         let (mut line, mut line_w) = (String::new(), 0.0);
         for word in para.split(' ') {
@@ -310,6 +310,42 @@ fn is_thai(c: char) -> bool {
     matches!(u32::from(c), 0x0E00..=0x0E7F)
 }
 
+/// Whether the Symbol font draws `c`: a Greek letter or mathematical sign WinAnsiEncoding lacks.
+fn is_symbol(c: char) -> bool {
+    !pdfcraft_fonts::win_ansi_encodable(c) && pdfcraft_fonts::symbol_encodable(c)
+}
+
+/// `s` as runs of the item's own font (`false`) and of the Symbol font (`true`), in order.
+fn symbol_runs(s: &str) -> Vec<(bool, String)> {
+    let mut runs: Vec<(bool, String)> = Vec::new();
+    for c in s.chars() {
+        let symbol = is_symbol(c);
+        match runs.last_mut() {
+            Some((kind, run)) if *kind == symbol => run.push(c),
+            _ => runs.push((symbol, c.to_string())),
+        }
+    }
+    runs
+}
+
+/// The width of `s` in the item's font, with Greek letters and mathematical signs measured in the
+/// Symbol font they are drawn in.
+fn plain_width(t: &AddedText, s: &str) -> f64 {
+    if !s.chars().any(is_symbol) {
+        return t.family.width(s, t.size, t.bold, t.italic);
+    }
+    symbol_runs(s)
+        .into_iter()
+        .map(|(symbol, run)| if symbol { pdfcraft_fonts::symbol_width(&run, t.size) } else { t.family.width(&run, t.size, t.bold, t.italic) })
+        .sum()
+}
+
+/// Whether the plain (standard-font) path of [`draw`] draws `t`: no Thai, Arabic or Hebrew, which
+/// are drawn from the craft-fonts faces, and which write anything else in the item's font alone.
+fn symbols_allowed(t: &AddedText) -> bool {
+    !t.text.chars().any(|c| is_thai(c) || is_arabic(c) || is_hebrew(c))
+}
+
 /// Arabic letters, marks, digits and punctuation: an item with any of them is shaped with the
 /// craft-fonts Arabic face.
 fn is_arabic(c: char) -> bool {
@@ -327,12 +363,18 @@ fn is_hebrew(c: char) -> bool {
 /// draw (or that has no face to draw it). Page-content tools refuse such text; the Add-text editor
 /// keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
+    first_undrawable_in(t, symbols_allowed(t))
+}
+
+/// [`first_undrawable`]; `symbols`: Greek letters and mathematical signs are drawn from the Symbol
+/// font (only the plain path does that, not the shaped one).
+fn first_undrawable_in(t: &AddedText, symbols: bool) -> Option<char> {
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
             return Some(c);
         }
         let rest = AddedText { text: t.text.chars().filter(|c| !is_thai(*c)).collect(), ..t.clone() };
-        return first_undrawable(&rest);
+        return first_undrawable_in(&rest, false);
     }
     // Arabic or Hebrew that nothing can draw: there's no face, or the face lacks it.
     if let Some(c) =
@@ -343,7 +385,7 @@ pub fn first_undrawable(t: &AddedText) -> Option<char> {
     if !shaped_by_a_face(t) {
         // Drawn line by line in the item's standard font (`\n` splits lines). Without the face
         // that is also how `draw` redraws an existing item, so it's checked that way.
-        return t.text.split('\n').find_map(pdfcraft_fonts::first_non_win_ansi);
+        return t.text.split('\n').find_map(|line| line.chars().find(|c| !pdfcraft_fonts::win_ansi_encodable(*c) && !(symbols && is_symbol(*c))));
     }
     // What `shaped_layout` leaves to the standard font, exactly as `draw_shaped` splits it.
     wrapped(t).into_iter().find_map(|(line, rtl)| {
@@ -451,7 +493,7 @@ fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f6
     let width = pieces
         .iter()
         .map(|p| match p {
-            Piece::Latin(s) => t.family.width(s, t.size, t.bold, t.italic),
+            Piece::Latin(s) => plain_width(t, s),
             Piece::Shaped(clusters) => clusters.iter().map(|c| c.advance).sum::<f64>() * t.size,
         })
         .sum();
@@ -461,7 +503,7 @@ fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f6
 /// The width of `s` in a shaped-text item; the item's font's estimate if it can't be shaped (drawing
 /// then reports why).
 fn shaped_width(t: &AddedText, s: &str, rtl: bool) -> f64 {
-    shaped_layout(t, s, rtl).map(|(_, w)| w).unwrap_or_else(|_| t.family.width(s, t.size, t.bold, t.italic))
+    shaped_layout(t, s, rtl).map(|(_, w)| w).unwrap_or_else(|_| plain_width(t, s))
 }
 
 fn arabic_error(e: GlyphError, text: &str) -> EditError {
@@ -776,12 +818,20 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
                 out.extend_from_slice(b"Q\n");
                 return Ok((out, res));
             }
+            // Greek letters and mathematical signs come from the Symbol font, which every viewer has.
+            let symbols = symbols_allowed(t) && t.text.chars().any(is_symbol);
+            let symbol_name = font_name("Symbol");
+            if symbols {
+                fonts.set(symbol_name.clone().into_bytes(), Object::Ref(symbol_font(doc)));
+            }
             res.set(b"Font".to_vec(), Object::Dict(fonts));
             let r = text_rect(t);
             let [cr, cg, cb] = t.color.map(|v| v.clamp(0.0, 1.0));
             out.extend(format!("BT /{name} {} Tf {} {} {} rg\n", n(t.size), n(cr), n(cg), n(cb)).bytes());
+            // The font the text state holds: BT starts in the item's own.
+            let mut in_symbol = false;
             for (i, line) in lines(t).iter().enumerate() {
-                let w = t.family.width(line, t.size, t.bold, t.italic);
+                let w = plain_width(t, line);
                 let x = match t.align {
                     Align::Left | Align::Justify => r[0],
                     Align::Center => r[0] + ((r[2] - r[0]) - w) / 2.0,
@@ -795,8 +845,22 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
                 let tw =
                     if t.align == Align::Justify && i + 1 < all.len() && spaces > 0 { ((r[2] - r[0]) - w).max(0.0) / spaces as f64 } else { 0.0 };
                 out.extend(format!("1 0 0 1 {} {} Tm {} Tw ", n(x), n(y), n(tw)).bytes());
-                out.extend(literal(&win_ansi(line)));
-                out.extend_from_slice(b" Tj\n");
+                if !symbols {
+                    out.extend(literal(&win_ansi(line)));
+                    out.extend_from_slice(b" Tj\n");
+                    continue;
+                }
+                // The runs follow one another along the line: showing text moves the pen.
+                for (symbol, run) in symbol_runs(line) {
+                    if symbol != in_symbol {
+                        let face = if symbol { &symbol_name } else { &name };
+                        out.extend(format!("/{face} {} Tf ", n(t.size)).bytes());
+                        in_symbol = symbol;
+                    }
+                    out.extend(literal(&if symbol { pdfcraft_fonts::symbol_bytes(&run) } else { win_ansi(&run) }));
+                    out.extend_from_slice(b" Tj ");
+                }
+                out.push(b'\n');
             }
             out.extend_from_slice(b"ET\n");
         }
@@ -831,6 +895,27 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
     }
     out.extend_from_slice(b"Q\n");
     Ok((out, res))
+}
+
+/// The Symbol font as a page resource: the standard font, in its own built-in encoding (no
+/// `/Encoding`, so a code means what Annex D.5 says), with a `ToUnicode` map so copying and
+/// searching the text finds Greek letters rather than the Latin letters the codes look like.
+fn symbol_font(doc: &mut Document) -> ObjRef {
+    let mut cmap = String::from(
+        "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n/CMapType 2 def\n1 begincodespacerange\n<00> <FF>\nendcodespacerange\n",
+    );
+    // A CMap block holds at most 100 entries.
+    for block in pdfcraft_fonts::symbol_to_unicode().chunks(100) {
+        cmap.push_str(&format!("{} beginbfchar\n{}endbfchar\n", block.len(), block.concat()));
+    }
+    cmap.push_str("endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n");
+    let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap.as_bytes())));
+    let mut font = Dict::new();
+    font.set(b"Type".to_vec(), Object::name("Font"));
+    font.set(b"Subtype".to_vec(), Object::name("Type1"));
+    font.set(b"BaseFont".to_vec(), Object::name("Symbol"));
+    font.set(b"ToUnicode".to_vec(), Object::Ref(cmap));
+    doc.add(Object::Dict(font))
 }
 
 fn params(c: &Content) -> Dict {
