@@ -72,6 +72,22 @@ impl OcgState {
     }
 
     pub(crate) fn begin_ocmd(&mut self, ocmd: &Dict<'_>) {
+        let visible = self.is_visible() && self.ocmd_is_active(ocmd);
+        self.visibility_stack.push(visible);
+    }
+
+    /// PdfCraft patch: whether an `/OC` entry outside marked content — an annotation's own `/OC` —
+    /// is visible under the document's layer configuration, without touching the visibility
+    /// stack. An annotation whose group or membership dictionary is OFF is not drawn.
+    pub(crate) fn oc_is_visible(&self, props: &Dict<'_>, ref_id: ObjectIdentifier) -> bool {
+        match props.get::<Name<'_>>(TYPE).as_deref() {
+            Some(OCMD) => self.is_visible() && self.ocmd_is_active(props),
+            _ => self.is_visible() && !self.inactive_ocgs.contains(&ref_id),
+        }
+    }
+
+    /// Whether an `/OCMD` membership dictionary's groups answer On for this configuration.
+    fn ocmd_is_active(&self, ocmd: &Dict<'_>) -> bool {
         let policy = ocmd
             .get::<Name<'_>>(P)
             .and_then(|n| OcmdPolicy::from_name(n.as_ref()))
@@ -89,19 +105,15 @@ impl OcgState {
             ocg_ids.push(ref_.into());
         }
 
-        let is_active = if ocg_ids.is_empty() {
-            true
-        } else {
-            match policy {
-                OcmdPolicy::AllOn => ocg_ids.iter().all(|id| !self.inactive_ocgs.contains(id)),
-                OcmdPolicy::AnyOn => ocg_ids.iter().any(|id| !self.inactive_ocgs.contains(id)),
-                OcmdPolicy::AnyOff => ocg_ids.iter().any(|id| self.inactive_ocgs.contains(id)),
-                OcmdPolicy::AllOff => ocg_ids.iter().all(|id| self.inactive_ocgs.contains(id)),
-            }
-        };
-
-        let visible = self.is_visible() && is_active;
-        self.visibility_stack.push(visible);
+        if ocg_ids.is_empty() {
+            return true;
+        }
+        match policy {
+            OcmdPolicy::AllOn => ocg_ids.iter().all(|id| !self.inactive_ocgs.contains(id)),
+            OcmdPolicy::AnyOn => ocg_ids.iter().any(|id| !self.inactive_ocgs.contains(id)),
+            OcmdPolicy::AnyOff => ocg_ids.iter().any(|id| self.inactive_ocgs.contains(id)),
+            OcmdPolicy::AllOff => ocg_ids.iter().all(|id| self.inactive_ocgs.contains(id)),
+        }
     }
 
     pub(crate) fn begin_ocg(&mut self, props: &Dict<'_>, ref_id: ObjectIdentifier) {

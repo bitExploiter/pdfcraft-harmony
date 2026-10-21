@@ -2865,6 +2865,44 @@ trailer << /Root 1 0 R >>
         assert_eq!(px(75, 25), vec![255, 255, 255, 255], "NoView annotation must not be drawn");
     }
 
+    /// An annotation's own `/OC` ties the whole annotation to an optional content group, which the
+    /// `/F` flags never reflect: with the group in `/OCProperties /D /OFF` the annotation is not
+    /// drawn, though its appearance stream's `/OC` path alone would show it. (Regression test for
+    /// the vendored hayro patch.)
+    #[test]
+    fn annotation_oc_hides_the_annotation() {
+        let pdf = |off: bool| {
+            let ocprops = if off {
+                "<< /OCGs [6 0 R] /D << /OFF [6 0 R] >> >>"
+            } else {
+                "<< /OCGs [6 0 R] /D << >> >>"
+            };
+            format!(
+                "%PDF-1.7
+1 0 obj << /Type /Catalog /Pages 2 0 R /OCProperties {ocprops} >> endobj
+2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj
+3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Annots [4 0 R] >> endobj
+4 0 obj << /Type /Annot /Subtype /Square /Rect [10 10 40 40] /OC 6 0 R /AP << /N 5 0 R >> >> endobj
+5 0 obj << /Type /XObject /Subtype /Form /BBox [0 0 30 30] /Length 24 >> stream
+1 0 0 rg 0 0 30 30 re f
+endstream endobj
+6 0 obj << /Type /OCG /Name (Layer) >> endobj
+trailer << /Root 1 0 R >>
+%%EOF"
+            )
+            .into_bytes()
+        };
+        let render = |off: bool| {
+            let mut r = PageRenderer::new(Arc::new(pdf(off)), RenderConfig::default());
+            let p = r.render(RenderRequest { page: 0, kind: RequestKind::Pixels, tile: None, scale: 1.0, tag: 0, ..Default::default() });
+            assert!(p.error.is_none(), "{:?}", p.error);
+            let px = |x: u32, y: u32| p.rgba[((y * p.width + x) * 4) as usize..][..4].to_vec();
+            px(25, 75)
+        };
+        assert_eq!(render(true), vec![255, 255, 255, 255], "a group in /OFF hides the annotation");
+        assert_eq!(render(false), vec![255, 0, 0, 255], "the same group left on shows it");
+    }
+
     /// Quartz writes `/AP /N` as an indirect dictionary of states, and the next object in
     /// the file is often some other stream. That dictionary must not be read as that stream,
     /// or the checkbox (whose real appearance is `/AS`) is skipped.
