@@ -66,7 +66,9 @@ pdfcraft-cli edit   <in.pdf> --out out.pdf [--rotate 1,3:90] [--delete 2,4] [--m
 pdfcraft-cli combine <a.pdf> <b.pdf> … --out combined.pdf
 pdfcraft-cli extract <in.pdf> --pages 1,3,5-8 --out out.pdf    (pages and ranges, in the order given)
 pdfcraft-cli split   <in.pdf> (--every N | --before 3,7) [--out-dir DIR]
-pdfcraft-cli check  <files or dirs…> [--timeout 20] [--dpi 36] [--json out.json]
+pdfcraft-cli check  <files or dirs…> [--timeout 20] [--page-timeout S] [--max-pages 500] [--dpi 36] [--json out.json]
+                      (--timeout bounds a file; --page-timeout bounds each page instead, so a long volume that renders
+                      steadily passes and a stalled page still fails; --max-pages 0 renders every page, not the first 500)
 pdfcraft-cli audit  <file.pdf> [--password PW]            find faux redactions (fails when found)
 pdfcraft-cli batch <files or dirs...> --steps convert,ocr,optimize --out-dir DIR
                       [--recursive] [--root DIR] [--stop-on-error]
@@ -256,9 +258,16 @@ const RENDER_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--out", takes_value: true },
     OptionSpec { name: "--password", takes_value: true },
 ];
-const CHECK_ONE_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--dpi", takes_value: true }, OptionSpec { name: "--edit", takes_value: false }];
+const CHECK_ONE_OPTIONS: &[OptionSpec] = &[
+    OptionSpec { name: "--dpi", takes_value: true },
+    OptionSpec { name: "--edit", takes_value: false },
+    OptionSpec { name: "--max-pages", takes_value: true },
+    OptionSpec { name: "--progress", takes_value: false },
+];
 const CHECK_OPTIONS: &[OptionSpec] = &[
     OptionSpec { name: "--timeout", takes_value: true },
+    OptionSpec { name: "--page-timeout", takes_value: true },
+    OptionSpec { name: "--max-pages", takes_value: true },
     OptionSpec { name: "--dpi", takes_value: true },
     OptionSpec { name: "--json", takes_value: true },
 ];
@@ -648,14 +657,17 @@ fn check_one(args: &[String]) -> Result<(), CliError> {
     validate_options("check-one", args, CHECK_ONE_OPTIONS)?;
     let path = *positional(args).first().ok_or("check-one: missing file")?;
     let dpi: f32 = flag(args, "--dpi").unwrap_or("36").parse().map_err(|_| "bad --dpi")?;
+    let max_pages = parse_max_pages(flag(args, "--max-pages"))?;
+    let progress = args.iter().any(|a| a == "--progress");
     let start = Instant::now();
     let bytes = read(path)?;
-    let (status, pages, failed, detail, warnings) = match inspect(bytes.clone(), None) {
-        Err(e) => (format!("open-error:{}", short(&e.to_string())), 0, 0, e.to_string(), 0),
+    let (status, pages, checked, failed, detail, warnings) = match inspect(bytes.clone(), None) {
+        Err(e) => (format!("open-error:{}", short(&e.to_string())), 0, 0, 0, e.to_string(), 0),
         Ok(info) => {
             let mut r = PageRenderer::new(bytes, RenderConfig::default());
             let mut failed = Vec::new();
-            for i in 0..info.pages.len().min(500) {
+            let checked = info.pages.len().min(max_pages);
+            for i in 0..checked {
                 let p = r.render(RenderRequest { page: i, kind: RequestKind::Pixels, tile: None, scale: dpi / 72.0, tag: 0, preview: false });
                 if let Some(e) = r.render(RenderRequest { page: i, kind: RequestKind::Text, tile: None, scale: 1.0, tag: 0, preview: false }).error {
                     failed.push(format!("p{} text: {e}", i + 1));
@@ -663,9 +675,13 @@ fn check_one(args: &[String]) -> Result<(), CliError> {
                 if let Some(e) = p.error {
                     failed.push(format!("p{}: {e}", i + 1));
                 }
+                if progress {
+                    // One line per page, so the parent can judge the file by a page budget.
+                    stdout_line(format_args!("{{\"page\":{}}}", i + 1))?;
+                }
             }
             let status = if failed.is_empty() { "ok".to_string() } else { "page-errors".to_string() };
-            (status, info.pages.len(), failed.len(), failed.join(" | "), info.warnings.len())
+            (status, info.pages.len(), checked, failed.len(), failed.join(" | "), info.warnings.len())
         }
     };
     // `--edit` (fuzzing): also run our own object layer end to end, with no panic safety net,
@@ -673,7 +689,7 @@ fn check_one(args: &[String]) -> Result<(), CliError> {
     if args.iter().any(|a| a == "--edit") {
         edit_round_trip(&std::fs::read(path).map_err(|e| e.to_string())?);
     }
-    let line = serde_json::json!({ "file": path, "status": status, "pages": pages, "failed_pages": failed, "warnings": warnings,
+    let line = serde_json::json!({ "file": path, "status": status, "pages": pages, "checked": checked, "failed_pages": failed, "warnings": warnings,
         "ms": start.elapsed().as_millis() as u64, "detail": detail.chars().take(400).collect::<String>() });
     stdout_line(format_args!("{line}"))?;
     Ok(())
@@ -743,13 +759,15 @@ fn check(args: &[String]) -> Result<(), CliError> {
     if files.is_empty() {
         return Err("check: no PDF files found".into());
     }
-    let timeout = Duration::from_secs(flag(args, "--timeout").unwrap_or("20").parse().map_err(|_| "bad --timeout")?);
+    let budget = CheckBudget::parse(flag(args, "--timeout"), flag(args, "--page-timeout"))?;
+    let max_pages = flag(args, "--max-pages").unwrap_or("500").to_string();
+    parse_max_pages(Some(&max_pages))?;
     let dpi = flag(args, "--dpi").unwrap_or("36").to_string();
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut results = Vec::new();
     let mut counts: std::collections::BTreeMap<String, usize> = Default::default();
     for (n, f) in files.iter().enumerate() {
-        let r = run_child(&exe, f, &dpi, timeout);
+        let r = run_child(&exe, f, &dpi, &max_pages, budget);
         let status = r["status"].as_str().unwrap_or("?").to_string();
         *counts.entry(status.split(':').next().unwrap_or("?").to_string()).or_default() += 1;
         if status != "ok" {
@@ -770,33 +788,127 @@ fn check(args: &[String]) -> Result<(), CliError> {
     Ok(())
 }
 
-fn run_child(exe: &Path, file: &Path, dpi: &str, timeout: Duration) -> serde_json::Value {
+/// How long `check` lets one file run: a bound on the whole file (`--timeout`, the default 20 s),
+/// a bound on each page (`--page-timeout`: the file is killed only when no page completes within
+/// it, so a thousand-page volume that renders steadily passes while a stalled page still fails),
+/// or both. Given a page bound alone, the file bound is off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct CheckBudget {
+    file: Option<Duration>,
+    page: Option<Duration>,
+}
+
+impl CheckBudget {
+    fn parse(timeout: Option<&str>, page_timeout: Option<&str>) -> Result<Self, CliError> {
+        let secs = |flag: &str, value: &str| -> Result<Duration, CliError> {
+            match value.parse::<f64>() {
+                Ok(s) if s.is_finite() && s > 0.0 => Ok(Duration::from_secs_f64(s)),
+                _ => Err(format!("bad {flag}").into()),
+            }
+        };
+        let page = page_timeout.map(|v| secs("--page-timeout", v)).transpose()?;
+        let file = match (timeout, page) {
+            (Some(v), _) => Some(secs("--timeout", v)?),
+            (None, Some(_)) => None,
+            (None, None) => Some(Duration::from_secs(20)),
+        };
+        Ok(Self { file, page })
+    }
+
+    /// Why the file is over budget, if it is: `elapsed` since the child started, `idle` since
+    /// its last completed page (or its start).
+    fn exceeded(self, elapsed: Duration, idle: Duration) -> Option<String> {
+        if let Some(file) = self.file
+            && elapsed > file
+        {
+            return Some(format!("exceeded {}s", file.as_secs_f64()));
+        }
+        if let Some(page) = self.page
+            && idle > page
+        {
+            return Some(format!("no page completed within {}s", page.as_secs_f64()));
+        }
+        None
+    }
+}
+
+/// `--max-pages`: how many pages `check-one` renders; 0 means every page.
+fn parse_max_pages(value: Option<&str>) -> Result<usize, CliError> {
+    match value.unwrap_or("500").parse::<usize>() {
+        Ok(0) => Ok(usize::MAX),
+        Ok(n) => Ok(n),
+        Err(_) => Err("bad --max-pages".into()),
+    }
+}
+
+/// A line the child wrote: a page completed, or its result.
+fn progress_page(line: &str) -> Option<u64> {
+    let v: serde_json::Value = serde_json::from_str(line.trim()).ok()?;
+    let page = v.as_object().filter(|o| o.len() == 1)?.get("page")?;
+    page.as_u64()
+}
+
+fn run_child(exe: &Path, file: &Path, dpi: &str, max_pages: &str, budget: CheckBudget) -> serde_json::Value {
     let file_s = file.to_string_lossy().to_string();
-    let child = Command::new(exe).args(["check-one", &file_s, "--dpi", dpi]).stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
+    let mut command = Command::new(exe);
+    // The child always reports its pages, so a timeout row says how many completed whichever
+    // budget ended it.
+    command.args(["check-one", &file_s, "--dpi", dpi, "--max-pages", max_pages, "--progress"]);
+    let child = command.stdout(Stdio::piped()).stderr(Stdio::null()).spawn();
     let mut child = match child {
         Ok(c) => c,
         Err(e) => return serde_json::json!({ "file": file_s, "status": "harness-error", "detail": e.to_string() }),
     };
+    // The child's stdout is read on its own thread, so a page line can reset the page budget
+    // while the parent only polls; the last line that is not a page line is the result.
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    let reader = child.stdout.take().map(|stdout| {
+        std::thread::spawn(move || {
+            use std::io::BufRead;
+            for line in std::io::BufReader::new(stdout).lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        })
+    });
     let start = Instant::now();
+    let mut last_progress = start;
+    let mut pages_done = 0u64;
+    let mut result: Option<String> = None;
+    let take = |line: String, last_progress: &mut Instant, pages_done: &mut u64, result: &mut Option<String>| {
+        if let Some(page) = progress_page(&line) {
+            *last_progress = Instant::now();
+            *pages_done = page;
+        } else {
+            *result = Some(line);
+        }
+    };
     loop {
+        while let Ok(line) = rx.try_recv() {
+            take(line, &mut last_progress, &mut pages_done, &mut result);
+        }
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut out = String::new();
-                if let Some(mut so) = child.stdout.take() {
-                    use std::io::Read;
-                    let _ = so.read_to_string(&mut out);
+                if let Some(reader) = reader {
+                    let _ = reader.join();
                 }
-                return match serde_json::from_str::<serde_json::Value>(out.trim()) {
-                    Ok(v) => v,
-                    Err(_) => serde_json::json!({ "file": file_s, "status": "crash", "detail": format!("child exited with {status}") }),
+                for line in rx.try_iter() {
+                    take(line, &mut last_progress, &mut pages_done, &mut result);
+                }
+                return match result.as_deref().map(str::trim).and_then(|out| serde_json::from_str::<serde_json::Value>(out).ok()) {
+                    Some(v) => v,
+                    None => serde_json::json!({ "file": file_s, "status": "crash", "detail": format!("child exited with {status}") }),
                 };
             }
-            Ok(None) if start.elapsed() > timeout => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return serde_json::json!({ "file": file_s, "status": "timeout", "detail": format!("exceeded {}s", timeout.as_secs()) });
+            Ok(None) => {
+                if let Some(reason) = budget.exceeded(start.elapsed(), last_progress.elapsed()) {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return serde_json::json!({ "file": file_s, "status": "timeout", "checked": pages_done, "detail": reason });
+                }
+                std::thread::sleep(Duration::from_millis(20));
             }
-            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
             Err(e) => return serde_json::json!({ "file": file_s, "status": "harness-error", "detail": e.to_string() }),
         }
     }
@@ -1089,7 +1201,50 @@ fn current_uid() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::control_file_problem;
+    use super::{CheckBudget, control_file_problem, parse_max_pages, progress_page};
+    use std::time::Duration;
+
+    #[test]
+    fn a_check_budget_bounds_the_file_or_each_page() {
+        let s = Duration::from_secs;
+        // The default: 20 s on the file, nothing on a page.
+        let default = CheckBudget::parse(None, None).unwrap();
+        assert_eq!(default, CheckBudget { file: Some(s(20)), page: None });
+        assert_eq!(default.exceeded(s(19), s(19)), None);
+        assert!(default.exceeded(s(21), s(1)).unwrap().starts_with("exceeded 20"));
+        // A page budget alone lifts the file bound: a long steady file never times out.
+        let page = CheckBudget::parse(None, Some("5")).unwrap();
+        assert_eq!(page, CheckBudget { file: None, page: Some(s(5)) });
+        assert_eq!(page.exceeded(s(3600), s(4)), None);
+        assert!(page.exceeded(s(6), s(6)).unwrap().starts_with("no page completed within 5"));
+        // Both given: both apply.
+        let both = CheckBudget::parse(Some("30"), Some("2.5")).unwrap();
+        assert_eq!(both, CheckBudget { file: Some(s(30)), page: Some(Duration::from_millis(2500)) });
+        assert!(both.exceeded(s(31), s(1)).unwrap().starts_with("exceeded 30"));
+        assert!(both.exceeded(s(10), s(3)).unwrap().starts_with("no page completed within 2.5"));
+        for bad in ["0", "-1", "nan", "soon", ""] {
+            assert!(CheckBudget::parse(None, Some(bad)).is_err(), "{bad:?}");
+            assert!(CheckBudget::parse(Some(bad), None).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn max_pages_defaults_to_500_and_0_means_every_page() {
+        assert_eq!(parse_max_pages(None).unwrap(), 500);
+        assert_eq!(parse_max_pages(Some("12")).unwrap(), 12);
+        assert_eq!(parse_max_pages(Some("0")).unwrap(), usize::MAX);
+        assert!(parse_max_pages(Some("-3")).is_err());
+        assert!(parse_max_pages(Some("all")).is_err());
+    }
+
+    #[test]
+    fn a_progress_line_is_a_page_number_and_nothing_else() {
+        assert_eq!(progress_page(r#"{"page":7}"#), Some(7));
+        assert_eq!(progress_page(r#"  {"page": 1}  "#), Some(1));
+        assert_eq!(progress_page(r#"{"file":"a.pdf","status":"ok","pages":1}"#), None);
+        assert_eq!(progress_page(r#"{"page":1,"status":"ok"}"#), None);
+        assert_eq!(progress_page("not json"), None);
+    }
 
     #[test]
     fn a_control_file_must_be_yours_and_private() {

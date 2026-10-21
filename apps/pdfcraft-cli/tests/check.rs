@@ -36,11 +36,17 @@ impl Workdir {
     }
 
     fn check(&self, inputs: &[&Path]) -> Vec<serde_json::Value> {
+        self.check_with(inputs, &["--timeout", "2"])
+    }
+
+    fn check_with(&self, inputs: &[&Path], budget: &[&str]) -> Vec<serde_json::Value> {
         let report = self.0.join("report.json");
         let mut child = Command::new(BIN)
             .arg("check")
             .args(inputs)
-            .args(["--dpi", "36", "--timeout", "2", "--json"])
+            .args(["--dpi", "36"])
+            .args(budget)
+            .arg("--json")
             .arg(&report)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -65,6 +71,46 @@ impl Drop for Workdir {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn check_one_reports_each_page_only_when_asked() {
+    let dir = Workdir::new("progress");
+    let file = dir.0.join("input/a.pdf");
+    let run = |extra: &[&str]| {
+        let output = Command::new(BIN).arg("check-one").arg(&file).args(["--dpi", "36"]).args(extra).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap().lines().map(str::to_owned).collect::<Vec<_>>()
+    };
+    let plain = run(&[]);
+    assert_eq!(plain.len(), 1, "without --progress the result is the only line: {plain:?}");
+    let lines = run(&["--progress"]);
+    assert_eq!(lines.len(), 2, "one page line, then the result: {lines:?}");
+    assert_eq!(lines[0].trim(), r#"{"page":1}"#);
+    let result: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
+    assert_eq!(result["status"], "ok");
+    assert_eq!(result["pages"], 1);
+    assert_eq!(result["checked"], 1, "{result}");
+}
+
+#[test]
+fn check_judges_a_file_by_a_page_budget_and_renders_every_page_when_asked() {
+    let dir = Workdir::new("budget");
+    let input = dir.0.join("input");
+    // A page budget alone: the file bound is off, a steady file passes, the report says how many pages ran.
+    let results = dir.check_with(&[&input], &["--page-timeout", "2", "--max-pages", "0"]);
+    assert_two_valid_pdfs(&results);
+    for result in &results {
+        assert_eq!(result["checked"], 1, "{result}");
+    }
+    // The cap is honoured and reported: a 1-page file under --max-pages 1 reads the same.
+    let capped = dir.check_with(&[&input], &["--timeout", "2", "--max-pages", "1"]);
+    assert_two_valid_pdfs(&capped);
+    assert_eq!(capped[0]["checked"], 1, "{}", capped[0]);
+    // A bad budget is refused before any file runs.
+    let output = Command::new(BIN).arg("check").arg(&input).args(["--page-timeout", "0"]).output().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("bad --page-timeout"));
 }
 
 fn assert_two_valid_pdfs(results: &[serde_json::Value]) {
