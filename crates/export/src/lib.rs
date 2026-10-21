@@ -736,6 +736,55 @@ fn section(page: &Page) -> String {
     )
 }
 
+/// The paragraphs right after `list[at]` that sit on its line, beside it: a label and its value,
+/// or the parts of a line set apart by tabs (a CV's contact line). Every piece but the last is a
+/// single line, so two columns of paragraphs stay apart.
+fn same_row<'a>(list: &[Item<'a>], at: usize) -> Vec<&'a Block> {
+    let Some(Item::Para(first, _)) = list.get(at) else { return Vec::new() };
+    let mut row: Vec<&Block> = Vec::new();
+    let mut prev: &Block = first;
+    for it in list.iter().skip(at + 1).take(7) {
+        let Item::Para(b, _) = it else { break };
+        let tol = prev.size.max(b.size).max(1.0) * 0.3;
+        let beside = (b.rect[3] - first.rect[3]).abs() <= tol && b.rect[0] >= prev.rect[2] - 1.0;
+        let flat = [prev, b].iter().all(|p| p.rotation.abs() < 1.0 && p.rect.iter().all(|v| v.is_finite()));
+        if !beside || !flat || prev.lines > 1 {
+            break;
+        }
+        row.push(b);
+        prev = b;
+    }
+    row
+}
+
+/// One Word paragraph for `pieces` on one line: tab stops where each piece starts, and, when the
+/// last piece runs on over more lines, a hanging indent that brings them back under it.
+fn row_paragraph(pieces: &[&Block], column: Option<[f64; 4]>, above: Option<f64>, run: &dyn Fn(&Block) -> String) -> String {
+    let left = column.map_or(0.0, |c| c[0]);
+    let tw = |pt: f64| (pt.max(0.0) * 20.0).round() as i64;
+    let Some(first) = pieces.first() else { return String::new() };
+    let start = first.rect[0] - left;
+    let mut ppr = String::new();
+    let stops: Vec<String> = pieces.iter().skip(1).map(|p| format!("<w:tab w:val=\"left\" w:pos=\"{}\"/>", tw(p.rect[0] - left))).collect();
+    ppr.push_str(&format!("<w:tabs>{}</w:tabs>", stops.concat()));
+    if let Some(prev_bottom) = above {
+        let gap = prev_bottom - first.rect[3] - first.size * 0.3;
+        if gap.is_finite() && gap > 2.0 {
+            ppr.push_str(&format!("<w:spacing w:before=\"{}\"/>", tw(gap.min(144.0))));
+        }
+    }
+    match pieces.last() {
+        Some(last) if pieces.len() == 2 && last.lines >= 2 => {
+            let at = tw(last.rect[0] - left);
+            ppr.push_str(&format!("<w:ind w:left=\"{at}\" w:hanging=\"{}\"/>", at - tw(start)));
+        }
+        _ if start > first.size * 0.6 => ppr.push_str(&format!("<w:ind w:left=\"{}\"/>", tw(start))),
+        _ => {}
+    }
+    let runs: Vec<String> = pieces.iter().map(|p| run(p)).collect();
+    format!("<w:p><w:pPr>{ppr}</w:pPr>{}</w:p>", runs.join("<w:r><w:tab/></w:r>"))
+}
+
 /// How a paragraph sat in its page's text column: alignment, left indent, the space above it
 /// (from `above`, the bottom of the paragraph before it on the page) and its line spacing, as
 /// `<w:pPr>` children.
@@ -815,8 +864,21 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
         } else {
             let col = column(page);
             let mut above: Option<f64> = None;
-            for it in items(std::slice::from_ref(page)) {
-                match &it {
+            let list = items(std::slice::from_ref(page));
+            let mut skip = 0usize;
+            for (at, it) in list.iter().enumerate() {
+                if skip > 0 {
+                    skip -= 1;
+                    continue;
+                }
+                match it {
+                    Item::Para(b, _) if col.is_some() && !same_row(&list, at).is_empty() => {
+                        let row = same_row(&list, at);
+                        skip = row.len();
+                        let pieces: Vec<&Block> = std::iter::once(*b).chain(row).collect();
+                        body.push_str(&row_paragraph(&pieces, col, above, &run));
+                        above = pieces.iter().map(|p| p.rect[1]).reduce(f64::min);
+                    }
                     Item::Para(b, lvl) => {
                         let style = match lvl {
                             1 => "<w:pStyle w:val=\"Heading1\"/>",
@@ -1203,6 +1265,41 @@ mod tests {
         let start = xml[..at].rfind("<w:p>").unwrap_or(0);
         let end = xml[at..].find("</w:p>").map_or(xml.len(), |e| at + e);
         &xml[start..end]
+    }
+
+    fn piece(t: &str, rect: [f64; 4], lines: usize) -> Block {
+        Block { lines, ..block(t, rect[0], rect[1], rect[2], rect[3]) }
+    }
+
+    #[test]
+    fn pieces_of_one_line_share_a_paragraph() {
+        // A CV's contact line and a label beside its two-line value.
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("Ankara", [72.0, 700.0, 120.0, 712.0], 1),
+            piece("|", [130.0, 700.0, 133.0, 712.0], 1),
+            piece("me@example.org", [143.0, 700.0, 240.0, 712.0], 1),
+            piece("Skills:", [72.0, 660.0, 115.0, 672.0], 1),
+            piece("Penetration testing, network security, web security and a second line", [150.0, 646.0, 540.0, 672.0], 2),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let contact = para_with(&xml, "Ankara");
+        assert!(contact.contains("me@example.org") && contact.matches("<w:tab/>").count() == 2, "{xml}");
+        let skills = para_with(&xml, "Skills:");
+        assert!(skills.contains("Penetration testing") && skills.contains("<w:tab/>"), "{xml}");
+        // The value's second line comes back under its first: a hanging indent at the value.
+        assert!(skills.contains("w:hanging=\"1560\"") && skills.contains("w:left=\"1560\""), "{skills}");
+    }
+
+    #[test]
+    fn two_columns_side_by_side_stay_apart() {
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("Left column paragraph over two lines of text", [72.0, 640.0, 290.0, 672.0], 2),
+            piece("Right column paragraph over two lines of text", [322.0, 640.0, 540.0, 672.0], 2),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        assert!(!para_with(&xml, "Left column").contains("Right column"), "{xml}");
     }
 
     #[test]
