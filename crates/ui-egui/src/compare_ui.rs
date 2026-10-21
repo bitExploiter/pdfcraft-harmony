@@ -194,10 +194,11 @@ impl PdfCraftApp {
                         .flat_map(|ch| ch.old.rects.iter().map(move |r| (ch.old.page, r.map(|v| v as f32), colour(ch.kind))))
                         .collect();
                     for (p, r) in &visual {
+                        let Some(old_p) = result.old_page(*p) else { continue };
                         let r = r.map(|v| v as f32);
-                        let covered = marks.iter().any(|(mp, m, _)| *mp == *p && m[0] <= r[2] && r[0] <= m[2] && m[1] <= r[3] && r[1] <= m[3]);
+                        let covered = marks.iter().any(|(mp, m, _)| *mp == old_p && m[0] <= r[2] && r[0] <= m[2] && m[1] <= r[3] && r[1] <= m[3]);
                         if !covered {
-                            marks.push((*p, r, VISUAL));
+                            marks.push((old_p, r, VISUAL));
                         }
                     }
                     self.views[oi].compare_marks = marks;
@@ -318,10 +319,12 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
     let leader = app.compare.as_ref().map_or(1, |c| c.leader);
     let (lead, follow) = if leader == 0 { (old, new) } else { (new, old) };
     // The follower takes the leader's zoom and layout before either is drawn.
-    let (zoom, fit, layout, continuous, rotation) = {
+    let (zoom, fit, layout, continuous, rotation, lead_cur) = {
         let v = &app.views[lead];
-        (v.zoom, v.fit, v.layout, v.continuous, v.rotation)
+        (v.zoom, v.fit, v.layout, v.continuous, v.rotation, v.current)
     };
+    let follow_cur =
+        app.compare.as_ref().map_or(lead_cur, |c| if leader == 0 { c.result.sync_new_page(lead_cur) } else { c.result.sync_old_page(lead_cur) });
     {
         let v = &mut app.views[follow];
         if v.zoom != zoom || v.fit != fit || v.layout != layout || v.continuous != continuous || v.rotation != rotation {
@@ -330,6 +333,10 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
             v.layout = layout;
             v.continuous = continuous;
             v.rotation = rotation;
+        }
+        if !continuous && v.current != follow_cur {
+            v.current = follow_cur;
+            v.page_input = (follow_cur + 1).to_string();
         }
     }
     let names = [old, new].map(|i| app.session.get(app.views[i].id).map(|d| d.name.clone()).unwrap_or_default());
@@ -350,14 +357,39 @@ pub(crate) fn compare_area(app: &mut PdfCraftApp, old: usize, new: usize, ui: &m
         child.set_clip_rect(body);
         crate::canvas::document_area(app, index, &mut child);
     }
-    // After both drew: the leader's scroll, when it moved, is the follower's next offset.
+    // After both drew: the leader's scroll, when it moved, is the follower's next offset,
+    // shifted by the difference between the corresponding pages' vertical positions.
     let offsets = [app.views[old].last_scroll, app.views[new].last_scroll];
+    let lead_page = app.views[lead].current;
+    let follow_page =
+        app.compare.as_ref().map_or(lead_page, |c| if leader == 0 { c.result.sync_new_page(lead_page) } else { c.result.sync_old_page(lead_page) });
+    let dy = page_top_y(app, follow, follow_page) - page_top_y(app, lead, lead_page);
     if let Some(c) = app.compare.as_mut() {
         let lead_k = if leader == 0 { 0 } else { 1 };
-        if (offsets[lead_k] - c.prev_scroll[lead_k]).length() > 0.5 && (offsets[1 - lead_k] - offsets[lead_k]).length() > 0.5 {
-            app.views[follow].sync_scroll = Some(offsets[lead_k]);
+        let target = egui::vec2(offsets[lead_k].x, (offsets[lead_k].y + dy).max(0.0));
+        if (offsets[lead_k] - c.prev_scroll[lead_k]).length() > 0.5 && (offsets[1 - lead_k] - target).length() > 0.5 {
+            app.views[follow].sync_scroll = Some(target);
+            app.views[follow].current = follow_page;
+            app.views[follow].page_input = (follow_page + 1).to_string();
             ui.ctx().request_repaint();
         }
         c.prev_scroll = offsets;
     }
+}
+
+fn page_top_y(app: &PdfCraftApp, view_index: usize, page: usize) -> f32 {
+    let Some(v) = app.views.get(view_index) else { return 0.0 };
+    let Some(doc) = app.session.get(v.id) else { return 0.0 };
+    let s = v.zoom * crate::canvas::PT;
+    let gap = 14.0;
+    doc.info
+        .pages
+        .iter()
+        .take(page)
+        .map(|p| {
+            let rot = (p.rotation.rem_euclid(360) as u16 + v.rotation) % 360;
+            let h = if rot % 180 == 0 { p.height } else { p.width };
+            h * s + gap
+        })
+        .sum()
 }
