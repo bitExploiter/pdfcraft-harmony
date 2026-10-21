@@ -210,6 +210,41 @@ pub fn first_undrawable(s: &str) -> Option<char> {
     s.chars().find(|c| !matches!(c, '\n' | '\r') && !win_ansi_encodable(*c))
 }
 
+/// Whether the bundled fallback font (`INTER_REGULAR`) has a glyph for `c`.
+pub fn fallback_has_char(c: char) -> bool {
+    use skrifa::MetadataProvider;
+    skrifa::FontRef::new(INTER_REGULAR).ok().and_then(|f| f.charmap().map(c)).is_some()
+}
+
+/// The advance of `s` in the bundled Inter font at `size` points. Characters not present in Inter
+/// fall back to Helvetica's advance.
+pub fn inter_width(s: &str, size: f64) -> f64 {
+    use skrifa::{
+        FontRef, MetadataProvider,
+        instance::{LocationRef, Size},
+    };
+    let Ok(f) = FontRef::new(INTER_REGULAR) else { return helvetica_width(s, size) };
+    let charmap = f.charmap();
+    let loc = LocationRef::default();
+    let advances = f.glyph_metrics(Size::unscaled(), loc);
+    let upem = f.metrics(Size::unscaled(), loc).units_per_em.max(1) as f64;
+    let scale = size / upem;
+    let mut total = 0.0;
+    for c in s.chars() {
+        if let Some(gid) = charmap.map(c) {
+            total += advances.advance_width(gid).unwrap_or(0.0) as f64 * scale;
+        } else {
+            total += helvetica_width(c.encode_utf8(&mut [0; 4]), size);
+        }
+    }
+    total
+}
+
+/// The first character of `s` that neither the standard fonts nor the fallback font can draw.
+pub fn first_undrawable_with_fallback(s: &str) -> Option<char> {
+    s.chars().find(|c| !matches!(c, '\n' | '\r') && !win_ansi_encodable(*c) && !fallback_has_char(*c))
+}
+
 /// The error for text the standard fonts can't draw ([`first_undrawable`]): which character, in
 /// what (`"the comment"`, `"the reason"`), and what can be written instead. One wording for every
 /// path that writes text in the standard fonts, so agents and users can act on it the same way.

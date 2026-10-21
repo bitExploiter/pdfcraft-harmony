@@ -23,8 +23,8 @@ pub mod detect;
 mod scripting;
 pub use actions::{FieldAction, Trigger, field_actions, set_field_actions};
 pub use author::{
-    BorderStyle, CheckStyle, FieldFont, FieldProps, Look, LookPatch, NewField, add_field, check_style, delete_field, duplicate_field, look,
-    redraw_field, set_button_icon, set_props,
+    BorderStyle, CheckStyle, FALLBACK_FONT_NAME, FieldFont, FieldProps, Look, LookPatch, NewField, add_field, check_style, delete_field,
+    duplicate_field, ensure_fallback_font, look, redraw_field, set_button_icon, set_props,
 };
 pub use scripting::{
     FieldChange, FieldEvent, NoScripts, ScriptResult, Scripts, apply_script_changes, document_scripts, document_scripts_named, set_document_script,
@@ -1182,6 +1182,12 @@ fn redraw(doc: &mut Document, f: &Field, values: &[String], scripts: &mut dyn Sc
         [one] if matches!(f.kind, FieldKind::Text | FieldKind::Combo) => scripting::formatted(doc, f, one, scripts),
         _ => None,
     };
+    let test_values = shown.as_ref().map(std::slice::from_ref).unwrap_or(values);
+    let can_fallback = |s: &str| pdfcraft_fonts::first_undrawable(s).is_some() && pdfcraft_fonts::first_undrawable_with_fallback(s).is_none();
+    let needs_fallback = test_values.iter().any(|v| can_fallback(v)) || f.options.iter().any(|(_, d)| can_fallback(d));
+    if needs_fallback {
+        let _ = author::ensure_fallback_font(doc);
+    }
     let mut undrawn = false;
     for w in &f.widgets {
         let (stream, missing) = match &shown {

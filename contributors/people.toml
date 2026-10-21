@@ -153,3 +153,9 @@ sync_github_name = true
 real_name = "Eric Kaden"
 display_name = "Eric Kaden"
 sync_github_name = false
+
+[people.MarekSNowakowski]
+real_name = "Marek Nowakowski"
+display_name = "Marek Nowakowski"
+sync_github_name = false
+

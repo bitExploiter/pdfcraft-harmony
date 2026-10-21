@@ -139,8 +139,8 @@ pub use links::{
 pub use pdfcraft_annot::appearance as annot_text;
 pub use pdfcraft_annot::links::{Highlight as LinkHighlight, LinkAction, LinkItem, LinkStyle};
 pub use pdfcraft_annot::{
-    AppearanceCache, AttachIcon, FillMark, LineEnding, Markup, NOTE_SIZE, NewAnnotation, NoteIcon, OverlayFont, OverlayLook, Props as CommentProps,
-    ReviewState, Rgb, Shape, StampGroup, StampKind, Style, rect_quad,
+    AnnotFont, AppearanceCache, AttachIcon, FillMark, LineEnding, Markup, NOTE_SIZE, NewAnnotation, NoteIcon, OverlayFont, OverlayLook,
+    Props as CommentProps, ReviewState, Rgb, Shape, StampGroup, StampKind, Style, rect_quad,
 };
 pub use pdfcraft_forms::detect;
 pub use pdfcraft_optimize as optimize;
@@ -245,6 +245,7 @@ fn uses_scripts(edit: &Edit) -> bool {
     }
 }
 
+/// The inspection scope an edit dirties.
 fn scope_of(edit: &Edit) -> Scope {
     match edit {
         Edit::SetInfo { .. } => Scope::Metadata,
@@ -266,6 +267,7 @@ fn scope_of(edit: &Edit) -> Scope {
         | Edit::StyleAnnotation { .. }
         | Edit::FillAnnotation { .. }
         | Edit::FontSizeAnnotation { .. }
+        | Edit::SetAnnotationFont { .. }
         | Edit::SetAnnotationInfo { .. } => Scope::Comments,
         Edit::AddLink { .. } | Edit::SetLink { .. } | Edit::DeleteLink { .. } | Edit::RemoveLinks { .. } | Edit::AddLinks { .. } => Scope::Links,
         Edit::SetFieldValue { .. } | Edit::ResetForm { .. } | Edit::SetFieldImage { .. } | Edit::ApplyScriptChanges { .. } => Scope::Form,
@@ -1462,6 +1464,12 @@ pub enum Edit {
         index: usize,
         size: f64,
     },
+    /// Change the font of a text box, typewriter text or callout.
+    SetAnnotationFont {
+        page: usize,
+        index: usize,
+        font: AnnotFont,
+    },
     /// Comment properties ▸ General / note icon.
     SetAnnotationInfo {
         page: usize,
@@ -2000,9 +2008,11 @@ impl Edit {
             Edit::LockAnnotation { .. } => Label::of("Unlock comment"),
             Edit::MoveAnnotation { .. } => Label::of("Move comment"),
             Edit::ResizeAnnotation { .. } => Label::of("Resize comment"),
-            Edit::StyleAnnotation { .. } | Edit::FillAnnotation { .. } | Edit::FontSizeAnnotation { .. } | Edit::SetAnnotationInfo { .. } => {
-                Label::of("Change comment properties")
-            }
+            Edit::StyleAnnotation { .. }
+            | Edit::FillAnnotation { .. }
+            | Edit::FontSizeAnnotation { .. }
+            | Edit::SetAnnotationFont { .. }
+            | Edit::SetAnnotationInfo { .. } => Label::of("Change comment properties"),
             Edit::SetFieldValue { name, .. } => Label::with("Fill in {name}", name.as_str()),
             Edit::SetFieldImage { name, .. } => Label::with("Set the image of {name}", name.as_str()),
             Edit::ResetForm { .. } => Label::of("Clear form"),
@@ -2158,6 +2168,7 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::StyleAnnotation { .. }
         | Edit::FillAnnotation { .. }
         | Edit::FontSizeAnnotation { .. }
+        | Edit::SetAnnotationFont { .. }
         | Edit::SetAnnotationInfo { .. }
         | Edit::SetMeasurementScale { .. } => {
             if p.annotate() {
@@ -2425,6 +2436,7 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         }
         Edit::FillAnnotation { page, index, fill } => pdfcraft_annot::set_fill(doc, *page, *index, *fill, &cx.meta())?,
         Edit::FontSizeAnnotation { page, index, size } => pdfcraft_annot::set_font_size(doc, *page, *index, *size, &cx.meta())?,
+        Edit::SetAnnotationFont { page, index, font } => pdfcraft_annot::set_font(doc, *page, *index, *font, &cx.meta())?,
         Edit::SetAnnotationInfo { page, index, author, subject, icon } => {
             pdfcraft_annot::set_info(doc, *page, *index, author.as_deref(), subject.as_deref(), *icon, &cx.meta())?;
         }

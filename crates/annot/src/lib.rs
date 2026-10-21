@@ -494,6 +494,81 @@ impl Shape {
     }
 }
 
+/// The standard fonts of text boxes, typewriter text and callouts.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AnnotFont {
+    #[default]
+    Helvetica,
+    Times,
+    Courier,
+    Inter,
+}
+
+impl AnnotFont {
+    pub const ALL: [AnnotFont; 4] = [AnnotFont::Helvetica, AnnotFont::Times, AnnotFont::Courier, AnnotFont::Inter];
+
+    /// The human-readable name of the font.
+    pub fn name(self) -> &'static str {
+        match self {
+            AnnotFont::Helvetica => "Helvetica",
+            AnnotFont::Times => "Times Roman",
+            AnnotFont::Courier => "Courier",
+            AnnotFont::Inter => "Inter",
+        }
+    }
+
+    /// The `/DA` font resource name (Acrobat's form font names).
+    pub fn resource(self) -> &'static str {
+        match self {
+            AnnotFont::Helvetica => "Helv",
+            AnnotFont::Times => "TiRo",
+            AnnotFont::Courier => "Cour",
+            AnnotFont::Inter => "PCFallback",
+        }
+    }
+
+    /// The PDF BaseFont name.
+    pub fn base_font(self) -> &'static str {
+        match self {
+            AnnotFont::Helvetica => "Helvetica",
+            AnnotFont::Times => "Times-Roman",
+            AnnotFont::Courier => "Courier",
+            AnnotFont::Inter => "Inter-Regular",
+        }
+    }
+
+    /// Resolve an [`AnnotFont`] from a `/DA` font resource name or base font.
+    pub fn from_resource(n: &str) -> AnnotFont {
+        match n {
+            "TiRo" | "Times-Roman" | "TimesRoman" | "Times" => AnnotFont::Times,
+            "Cour" | "Courier" => AnnotFont::Courier,
+            "PCFallback" | "Inter" | "Inter-Regular" => AnnotFont::Inter,
+            _ => AnnotFont::Helvetica,
+        }
+    }
+
+    /// Resolve an [`AnnotFont`] from a case-insensitive user or tool font name.
+    pub fn from_name(n: &str) -> Option<AnnotFont> {
+        match n.trim().to_ascii_lowercase().as_str() {
+            "helvetica" | "helv" => Some(AnnotFont::Helvetica),
+            "times" | "times roman" | "times-roman" | "timesroman" | "tiro" => Some(AnnotFont::Times),
+            "courier" | "cour" => Some(AnnotFont::Courier),
+            "inter" | "pcfallback" => Some(AnnotFont::Inter),
+            _ => None,
+        }
+    }
+
+    /// Calculate text width in points for string `s` in this font at size `size`.
+    pub fn text_width(self, s: &str, size: f64) -> f64 {
+        match self {
+            AnnotFont::Helvetica => pdfcraft_fonts::helvetica_width(s, size),
+            AnnotFont::Times => pdfcraft_fonts::Std14::TimesRoman.text_width(s, size),
+            AnnotFont::Courier => pdfcraft_fonts::Std14::Courier.text_width(s, size),
+            AnnotFont::Inter => pdfcraft_fonts::inter_width(s, size),
+        }
+    }
+}
+
 /// The standard fonts of redaction overlay text.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum OverlayFont {
@@ -506,6 +581,7 @@ pub enum OverlayFont {
 impl OverlayFont {
     pub const ALL: [OverlayFont; 3] = [OverlayFont::Helvetica, OverlayFont::Times, OverlayFont::Courier];
 
+    /// The human-readable name of the font.
     pub fn name(self) -> &'static str {
         match self {
             OverlayFont::Helvetica => "Helvetica",
@@ -523,9 +599,19 @@ impl OverlayFont {
         }
     }
 
+    /// The PDF BaseFont name.
+    pub fn base_font(self) -> &'static str {
+        match self {
+            OverlayFont::Helvetica => "Helvetica",
+            OverlayFont::Times => "Times-Roman",
+            OverlayFont::Courier => "Courier",
+        }
+    }
+
+    /// Resolve an [`OverlayFont`] from a `/DA` font resource name or base font.
     pub fn from_resource(n: &str) -> OverlayFont {
         match n {
-            "TiRo" | "Times-Roman" | "TimesRoman" => OverlayFont::Times,
+            "TiRo" | "Times-Roman" | "TimesRoman" | "Times" => OverlayFont::Times,
             "Cour" | "Courier" => OverlayFont::Courier,
             _ => OverlayFont::Helvetica,
         }
@@ -1199,7 +1285,17 @@ pub fn add_annotation(doc: &mut Document, new: &NewAnnotation, meta: &Meta) -> R
             }
             let size = if font_size.is_finite() && *font_size > 0.0 { font_size.clamp(1.0, 400.0) } else { 12.0 };
             let [r, g, b] = style.color.map(|x| x.clamp(0.0, 1.0));
-            d.set(b"DA".to_vec(), PdfString::literal(format!("{} {} {} rg /Helv {} Tf", n(r), n(g), n(b), n(size)).into_bytes()));
+            let font = if new
+                .contents
+                .chars()
+                .any(|c| !pdfcraft_fonts::win_ansi_encodable(c) && !matches!(c, '\n' | '\r') && pdfcraft_fonts::fallback_has_char(c))
+                && pdfcraft_fonts::embedding::ensure_fallback_font(doc).is_ok()
+            {
+                AnnotFont::Inter
+            } else {
+                AnnotFont::Helvetica
+            };
+            d.set(b"DA".to_vec(), PdfString::literal(format!("{} {} {} rg /{} {} Tf", n(r), n(g), n(b), font.resource(), n(size)).into_bytes()));
             d.set(b"Q".to_vec(), Object::Int(0));
             if let Some(f) = style.fill {
                 d.set(b"C".to_vec(), rgb(f));
@@ -1321,6 +1417,9 @@ fn redraw_or_restore(doc: &mut Document, r: ObjRef, before: Dict) -> Result<(), 
 fn draw_appearance(doc: &mut Document, r: ObjRef) -> Result<(), AnnotError> {
     let d = annot_dict(doc, r);
     let subtype = String::from_utf8_lossy(d.name(b"Subtype").unwrap_or_default()).into_owned();
+    if d.name(b"Subtype") == Some(b"FreeText") && appearance::parse_da(&d).2 == AnnotFont::Inter {
+        pdfcraft_fonts::embedding::ensure_fallback_font(doc).map_err(AnnotError::Invalid)?;
+    }
     let Some(stream) = build_appearance(doc, &d) else { return Err(AnnotError::Unsupported(subtype)) };
     apply_appearance(doc, r, &d, stream)
 }
@@ -1328,7 +1427,7 @@ fn draw_appearance(doc: &mut Document, r: ObjRef) -> Result<(), AnnotError> {
 /// Draw the appearance for an annotation dictionary: the expensive half of [`set_appearance`].
 /// Pure from the dictionary and the objects it points at, so [`AppearanceCache`] can reuse it.
 fn build_appearance(doc: &Document, d: &Dict) -> Option<Stream> {
-    let mut stream = appearance::build(d)?;
+    let mut stream = appearance::build_with_doc(Some(doc), d)?;
     // Picture-stamp restyling must retain the placement's page-axis correction.
     if d.get(b"PCPicture").is_some() {
         let matrix = d.get(b"AP").and_then(|ap| {
@@ -1470,7 +1569,7 @@ pub(crate) fn n(v: f64) -> String {
 /// plain `/Contents`, `/DA` and `/Q`, so viewers that edit rich text show the same thing.
 fn rich_text(d: &mut Dict) {
     let text = d.get(b"Contents").and_then(|c| c.as_string()).map(PdfString::to_text).unwrap_or_default();
-    let (col, size) = appearance::parse_da(d);
+    let (col, size, font) = appearance::parse_da(d);
     let hex = format!(
         "#{:02X}{:02X}{:02X}",
         (col[0].clamp(0.0, 1.0) * 255.0).round() as u8,
@@ -1484,14 +1583,20 @@ fn rich_text(d: &mut Dict) {
     };
     let esc = |s: &str| s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;");
     let body: String = text.split('\n').map(|line| format!("<p dir=\"ltr\">{}</p>", esc(line.trim_end_matches('\r')))).collect();
+    let font_family = match font {
+        AnnotFont::Helvetica => "Helvetica",
+        AnnotFont::Times => "Times New Roman",
+        AnnotFont::Courier => "Courier",
+        AnnotFont::Inter => "Inter",
+    };
     let style = format!(
-        "font-size:{}pt;text-align:{align};color:{hex};font-weight:normal;font-style:normal;font-family:Helvetica;font-stretch:normal",
+        "font-size:{}pt;text-align:{align};color:{hex};font-weight:normal;font-style:normal;font-family:{font_family};font-stretch:normal",
         n(size)
     );
     let rc = format!(
         "<?xml version=\"1.0\"?><body xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\" xfa:spec=\"2.0.2\" style=\"{style}\">{body}</body>"
     );
-    d.set(b"DS".to_vec(), PdfString::text(&format!("font: Helvetica {}pt; text-align:{align}; color:{hex}", n(size))));
+    d.set(b"DS".to_vec(), PdfString::text(&format!("font: {font_family} {}pt; text-align:{align}; color:{hex}", n(size))));
     d.set(b"RC".to_vec(), PdfString::text(&rc));
 }
 
@@ -1546,6 +1651,25 @@ pub fn delete_annotation(doc: &mut Document, page: usize, index: usize) -> Resul
 pub fn set_contents(doc: &mut Document, page: usize, index: usize, text: &str, meta: &Meta) -> Result<(), AnnotError> {
     let (_, r) = annot_ref(doc, page, index)?;
     let free_text = annot_dict(doc, r).name(b"Subtype") == Some(b"FreeText");
+    let needs_fallback =
+        text.chars().any(|c| !pdfcraft_fonts::win_ansi_encodable(c) && !matches!(c, '\n' | '\r') && pdfcraft_fonts::fallback_has_char(c));
+    if free_text {
+        let (col, size, font) = appearance::parse_da(&annot_dict(doc, r));
+        if font == AnnotFont::Helvetica && needs_fallback {
+            if pdfcraft_fonts::embedding::ensure_fallback_font(doc).is_ok() {
+                doc.update_dict(r, |d| {
+                    d.set(
+                        b"DA".to_vec(),
+                        PdfString::literal(
+                            format!("{} {} {} rg /{} {} Tf", n(col[0]), n(col[1]), n(col[2]), AnnotFont::Inter.resource(), n(size)).into_bytes(),
+                        ),
+                    );
+                })?;
+            }
+        } else if font == AnnotFont::Inter {
+            pdfcraft_fonts::embedding::ensure_fallback_font(doc).map_err(AnnotError::Invalid)?;
+        }
+    }
     doc.update_dict(r, |d| {
         d.set(b"Contents".to_vec(), PdfString::text(text));
         // The rich-text version follows the new plain text (text boxes), or would contradict it.
@@ -1575,7 +1699,7 @@ pub fn set_contents(doc: &mut Document, page: usize, index: usize, text: &str, m
 fn fitted_box(doc: &Document, r: ObjRef, text: &str) -> Option<[f64; 4]> {
     let d = annot_dict(doc, r);
     let nums = |key: &[u8]| -> Option<Vec<f64>> { d.get(key)?.as_array()?.iter().map(|o| o.as_f64()).collect() };
-    let (_, size) = appearance::parse_da(&d);
+    let (_, size, font) = appearance::parse_da(&d);
     let pad = 2.0 + border_width_of(&d);
     let rect = nums(b"Rect").filter(|v| v.len() == 4 && v.iter().all(|x| x.is_finite()))?;
     let rect = [rect[0], rect[1], rect[2], rect[3]];
@@ -1587,15 +1711,52 @@ fn fitted_box(doc: &Document, r: ObjRef, text: &str) -> Option<[f64; 4]> {
         rect
     };
     let (x0, top) = (tb[0].min(tb[2]), tb[1].max(tb[3]));
+    let fallback_metrics = if font == AnnotFont::Inter {
+        let r = pdfcraft_fonts::embedding::fallback_font_ref(doc).or_else(|| {
+            doc.scan_objects().find_map(|(r, obj)| {
+                if let Object::Dict(fd) = obj.as_ref()
+                    && fd.get(b"PCFallback") == Some(&Object::Bool(true))
+                {
+                    return Some(r);
+                }
+                None
+            })
+        });
+        r.and_then(|r| {
+            let fd = doc.get(r);
+            Some(pdfcraft_fonts::pdf::Metrics::from_dict(doc, fd.as_dict()?))
+        })
+    } else {
+        None
+    };
+    let measure = |s: &str, sz: f64| {
+        if let Some(metrics) = &fallback_metrics {
+            let q_code = metrics.encode("?").unwrap_or_default();
+            let space_code = metrics.encode(" ").unwrap_or_default();
+            let mut codes = Vec::with_capacity(s.len() * 2);
+            let mut buf = [0u8; 4];
+            for ch in s.chars() {
+                if ch == '\t' {
+                    codes.extend_from_slice(&space_code);
+                } else if let Some(code) = metrics.encode(ch.encode_utf8(&mut buf)) {
+                    codes.extend_from_slice(&code);
+                } else {
+                    codes.extend_from_slice(&q_code);
+                }
+            }
+            return metrics.codes(&codes).into_iter().map(|(c, _)| metrics.width(c)).sum::<f64>() * sz;
+        }
+        font.text_width(s, sz)
+    };
     let w = tb[2] - tb[0];
     let w = if w.is_finite() && w >= 1.0 {
         w
     } else {
         // No usable old width: fall back to the creation-time width (at most 300 pt).
-        let longest = text.lines().map(|l| appearance::text_width(l, size)).fold(0.0, f64::max);
+        let longest = text.lines().map(|l| measure(l, size)).fold(0.0, f64::max);
         (longest + 2.0 * pad + 4.0).clamp(40.0, 300.0)
     };
-    let lines = appearance::wrap(text, size, (w - 2.0 * pad).max(1.0)).len().max(1) as f64;
+    let lines = pdfcraft_fonts::wrap_with(text, size, (w - 2.0 * pad).max(1.0), measure).len().max(1) as f64;
     Some([x0, top - lines * size * 1.2 - 2.0 * pad - 2.0, x0 + w, top])
 }
 
@@ -1909,9 +2070,9 @@ pub fn set_style(
     doc.update_dict(r, |d| {
         if let Some(c) = color {
             if free_text {
-                let (_, size) = appearance::parse_da(d);
+                let (_, size, font) = appearance::parse_da(d);
                 let [r, g, b] = c.map(|x| x.clamp(0.0, 1.0));
-                d.set(b"DA".to_vec(), PdfString::literal(format!("{} {} {} rg /Helv {} Tf", n(r), n(g), n(b), n(size)).into_bytes()));
+                d.set(b"DA".to_vec(), PdfString::literal(format!("{} {} {} rg /{} {} Tf", n(r), n(g), n(b), font.resource(), n(size)).into_bytes()));
                 rich_text(d);
             } else {
                 d.set(b"C".to_vec(), rgb(c));
@@ -1962,8 +2123,11 @@ pub fn set_font_size(doc: &mut Document, page: usize, index: usize, size: f64, m
     refuse_foreign_text(doc, &d)?;
     let before = d;
     doc.update_dict(r, |d| {
-        let (col, _) = appearance::parse_da(d);
-        d.set(b"DA".to_vec(), PdfString::literal(format!("{} {} {} rg /Helv {} Tf", n(col[0]), n(col[1]), n(col[2]), n(size)).into_bytes()));
+        let (col, _, font) = appearance::parse_da(d);
+        d.set(
+            b"DA".to_vec(),
+            PdfString::literal(format!("{} {} {} rg /{} {} Tf", n(col[0]), n(col[1]), n(col[2]), font.resource(), n(size)).into_bytes()),
+        );
         rich_text(d);
         touch(d, meta);
     })?;
@@ -1975,8 +2139,50 @@ pub fn set_font_size(doc: &mut Document, page: usize, index: usize, size: f64, m
                 cur.get(b"Rect").and_then(|o| o.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
             // Keep the top and sides; only the bottom edge moves, and only downwards.
             match four(&nums).map(normalize) {
-                Some(old) if !cur.contains(b"CL") => apply_text_box(doc, r, [fit[0], fit[1].min(old[1]), fit[2], fit[3]], meta, false),
-                _ => apply_text_box(doc, r, fit, meta, false),
+                Some(old) if !cur.contains(b"CL") => apply_text_box(doc, r, [fit[0], fit[1].min(old[1]), fit[2], fit[3]], meta, true),
+                _ => apply_text_box(doc, r, fit, meta, true),
+            }
+        }
+        None => redraw_or_restore(doc, r, before.clone()),
+    };
+    if result.is_err() {
+        doc.set(r, Object::Dict(before));
+    }
+    result
+}
+
+/// Change the font of a text box, typewriter text or callout (`/DA` keeps its colour and size;
+/// the rich-text strings follow) and redraw it. The box refits to hold the wrapped text.
+pub fn set_font(doc: &mut Document, page: usize, index: usize, font: AnnotFont, meta: &Meta) -> Result<(), AnnotError> {
+    let (_, r) = annot_ref(doc, page, index)?;
+    unlocked(doc, r)?;
+    let d = annot_dict(doc, r);
+    if d.name(b"Subtype") != Some(b"FreeText") {
+        return Err(AnnotError::Invalid("only text boxes, typewriter text and callouts have a font".into()));
+    }
+    refuse_foreign_text(doc, &d)?;
+    let before = d;
+    if font == AnnotFont::Inter {
+        pdfcraft_fonts::embedding::ensure_fallback_font(doc).map_err(AnnotError::Invalid)?;
+    }
+    doc.update_dict(r, |d| {
+        let (col, size, _) = appearance::parse_da(d);
+        d.set(
+            b"DA".to_vec(),
+            PdfString::literal(format!("{} {} {} rg /{} {} Tf", n(col[0]), n(col[1]), n(col[2]), font.resource(), n(size)).into_bytes()),
+        );
+        rich_text(d);
+        touch(d, meta);
+    })?;
+    let text = text_value(doc, &annot_dict(doc, r), b"Contents").unwrap_or_default();
+    let result = match fitted_box(doc, r, &text) {
+        Some(fit) => {
+            let cur = annot_dict(doc, r);
+            let nums: Vec<f64> =
+                cur.get(b"Rect").and_then(|o| o.as_array()).map(|a| a.iter().filter_map(|x| x.as_f64()).collect()).unwrap_or_default();
+            match four(&nums).map(normalize) {
+                Some(old) if !cur.contains(b"CL") => apply_text_box(doc, r, [fit[0], fit[1].min(old[1]), fit[2], fit[3]], meta, true),
+                _ => apply_text_box(doc, r, fit, meta, true),
             }
         }
         None => redraw_or_restore(doc, r, before.clone()),
@@ -2223,6 +2429,8 @@ pub struct Props {
     pub fill: Option<Rgb>,
     /// Text boxes, typewriter text and callouts: the `/DA` font size in points.
     pub font_size: Option<f64>,
+    /// Text boxes, typewriter text and callouts: the font family.
+    pub font: Option<AnnotFont>,
 }
 
 /// The current properties of the comment at `(page, index)`.
@@ -2254,6 +2462,7 @@ pub fn props(doc: &Document, page: usize, index: usize) -> Option<Props> {
         fillable: fillable(&subtype),
         fill: fill_of(d),
         font_size: (subtype == "FreeText").then(|| appearance::parse_da(d).1),
+        font: (subtype == "FreeText").then(|| appearance::parse_da(d).2),
         subtype,
         endings: line_endings_of(d),
     })

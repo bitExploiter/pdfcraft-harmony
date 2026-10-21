@@ -156,6 +156,16 @@ pub(crate) fn ensure_form(doc: &mut Document) -> Result<ObjRef, FormError> {
     Ok(r)
 }
 
+pub use pdfcraft_fonts::embedding::FALLBACK_FONT_NAME;
+
+/// Ensure the form's `/DR` contains a Unicode fallback font (`PCFallback`, Inter Regular)
+/// that can draw Central European, Polish, Cyrillic and other Unicode characters.
+pub fn ensure_fallback_font(doc: &mut Document) -> Result<String, FormError> {
+    ensure_form(doc)?;
+    pdfcraft_fonts::embedding::ensure_fallback_font(doc).map_err(FormError::Invalid)?;
+    Ok(FALLBACK_FONT_NAME.to_string())
+}
+
 /// The Appearance tab: borders, colours and text.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
@@ -684,8 +694,14 @@ pub fn redraw_field(doc: &mut Document, name: &str) -> Result<(), FormError> {
     redraw_widgets(doc, name, None)
 }
 
+/// Regenerate widget appearances for field `name`, optionally limited to a single widget index.
 fn redraw_widgets(doc: &mut Document, name: &str, only: Option<usize>) -> Result<(), FormError> {
     let f = fields(doc).into_iter().find(|f| f.name == name).ok_or_else(|| FormError::NoSuchField(name.into()))?;
+    let can_fallback = |s: &str| pdfcraft_fonts::first_undrawable(s).is_some() && pdfcraft_fonts::first_undrawable_with_fallback(s).is_none();
+    let needs_fallback = f.value.iter().any(|v| can_fallback(v)) || f.options.iter().any(|(_, d)| can_fallback(d));
+    if needs_fallback {
+        let _ = ensure_fallback_font(doc);
+    }
     let mut undrawn = false;
     for (index, w) in f.widgets.iter().enumerate() {
         if only.is_some_and(|only| only != index) {
