@@ -285,6 +285,9 @@ fn contents_len(input: &[u8], form: Form, depth: usize) -> Result<usize, SignErr
     }
 }
 
+/// `NaiveDate::num_days_from_ce` of 1970-01-01, so the count can be rebased onto the Unix epoch.
+const UNIX_EPOCH_DAYS_FROM_CE: i64 = 719_163;
+
 /// A UTC time.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Time {
@@ -327,28 +330,22 @@ impl Time {
 
     /// Seconds since 1970-01-01 (proleptic Gregorian).
     pub fn unix(&self) -> i64 {
-        let (y, m) = if self.month <= 2 { (self.year as i64 - 1, self.month as i64 + 9) } else { (self.year as i64, self.month as i64 - 3) };
-        let era = y.div_euclid(400);
-        let yoe = y - era * 400;
-        let doy = (153 * m + 2) / 5 + self.day as i64 - 1;
-        let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-        let days = era * 146_097 + doe - 719_468;
+        use chrono::Datelike;
+        // The calendar date goes through chrono; the time of day is a plain second count, as
+        // before. A date chrono cannot represent (an out-of-range field) reads as the epoch day,
+        // which no well-formed UTCTime/GeneralizedTime produces.
+        let days = i32::try_from(self.year)
+            .ok()
+            .and_then(|y| chrono::NaiveDate::from_ymd_opt(y, self.month, self.day))
+            .map_or(0, |d| i64::from(d.num_days_from_ce()) - UNIX_EPOCH_DAYS_FROM_CE);
         days * 86_400 + self.hour as i64 * 3600 + self.minute as i64 * 60 + self.second as i64
     }
 
     pub fn from_unix(t: i64) -> Time {
-        let days = t.div_euclid(86_400);
-        let secs = t.rem_euclid(86_400);
-        let z = days + 719_468;
-        let era = z.div_euclid(146_097);
-        let doe = z - era * 146_097;
-        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
-        let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
-        let year = (yoe + era * 400 + if month <= 2 { 1 } else { 0 }) as u32;
-        Time { year, month, day, hour: (secs / 3600) as u32, minute: (secs % 3600 / 60) as u32, second: (secs % 60) as u32 }
+        let dt = chrono::DateTime::from_timestamp(t, 0).unwrap_or_default();
+        use chrono::{Datelike, Timelike};
+        let date = dt.date_naive();
+        Time { year: date.year() as u32, month: date.month(), day: date.day(), hour: dt.hour(), minute: dt.minute(), second: dt.second() }
     }
 
     pub fn add_seconds(&self, s: i64) -> Time {

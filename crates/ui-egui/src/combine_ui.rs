@@ -1863,20 +1863,8 @@ pub(crate) fn ago(time: SystemTime) -> String {
 
 /// `time` as "2026-10-08 14:05 UTC".
 fn utc_stamp(time: SystemTime) -> String {
-    let secs = time.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
-    let days = i64::try_from(secs / 86_400).unwrap_or(0);
-    let rem = secs % 86_400;
-    // Civil date from days since 1970-01-01 (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02} UTC", rem / 3600, rem % 3600 / 60)
+    let t = time.max(SystemTime::UNIX_EPOCH);
+    format!("{} UTC", chrono::DateTime::<chrono::Utc>::from(t).format("%Y-%m-%d %H:%M"))
 }
 
 impl PdfCraftApp {
@@ -2595,6 +2583,18 @@ impl PdfCraftApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn utc_stamp_is_utc_minutes_and_clamps_pre_epoch() {
+        use std::time::Duration;
+        let at = |s: u64| utc_stamp(SystemTime::UNIX_EPOCH + Duration::from_secs(s));
+        assert_eq!(at(0), "1970-01-01 00:00 UTC");
+        assert_eq!(at(1_791_446_357), "2026-10-08 07:59 UTC");
+        // The 400-year leap rule.
+        assert_eq!(at(951_782_400), "2000-02-29 00:00 UTC");
+        // A clock before 1970 reads as the epoch, as the old `unwrap_or(0)` did.
+        assert_eq!(utc_stamp(SystemTime::UNIX_EPOCH - Duration::from_secs(5)), "1970-01-01 00:00 UTC");
+    }
 
     /// A one-page PDF that opens with "pw".
     fn locked() -> Vec<u8> {

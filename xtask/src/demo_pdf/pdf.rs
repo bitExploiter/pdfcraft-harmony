@@ -75,20 +75,8 @@ impl Stamp {
     }
 
     pub fn from_unix(secs: i64) -> Self {
-        let days = secs.div_euclid(86_400);
-        let rem = secs.rem_euclid(86_400);
-        let (h, mi, s) = (rem / 3600, rem % 3600 / 60, rem % 60);
-        // Civil-from-days (Howard Hinnant's algorithm).
-        let z = days + 719_468;
-        let era = z.div_euclid(146_097);
-        let doe = z - era * 146_097;
-        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = doy - (153 * mp + 2) / 5 + 1;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        let y = yoe + era * 400 + i64::from(m <= 2);
-        Stamp { unix: secs, pdf: format!("D:{y:04}{m:02}{d:02}{h:02}{mi:02}{s:02}Z"), iso: format!("{y:04}-{m:02}-{d:02}T{h:02}:{mi:02}:{s:02}Z") }
+        let t = chrono::DateTime::from_timestamp(secs, 0).unwrap_or_default();
+        Stamp { unix: secs, pdf: t.format("D:%Y%m%d%H%M%SZ").to_string(), iso: t.format("%Y-%m-%dT%H:%M:%SZ").to_string() }
     }
 
     /// The same moment shifted by `minutes` (used to order threaded replies).

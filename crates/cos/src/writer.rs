@@ -578,20 +578,8 @@ fn ensure_id(trailer: &mut Dict, opts: &SaveOptions, content: &[u8]) {
 
 /// A PDF date string for "now" given seconds since the Unix epoch (UTC).
 pub fn pdf_date(unix_secs: i64) -> String {
-    let days = unix_secs.div_euclid(86_400);
-    let secs = unix_secs.rem_euclid(86_400);
-    // Civil-from-days (Howard Hinnant's algorithm).
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = if m <= 2 { y + 1 } else { y };
-    format!("D:{y:04}{m:02}{d:02}{:02}{:02}{:02}Z", secs / 3600, secs / 60 % 60, secs % 60)
+    let t = chrono::DateTime::from_timestamp(unix_secs, 0).unwrap_or_default();
+    t.format("D:%Y%m%d%H%M%SZ").to_string()
 }
 
 #[cfg(test)]
@@ -654,6 +642,19 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn pdf_dates_are_utc_and_byte_identical() {
+        // `D:YYYYMMDDHHmmSSZ` (ISO 32000-2 §7.9.4), the same strings the hand-rolled code wrote.
+        assert_eq!(pdf_date(0), "D:19700101000000Z");
+        assert_eq!(pdf_date(1_790_000_000), "D:20260921141320Z");
+        // Leap days, including the 400-year rule, and the last second of a year.
+        assert_eq!(pdf_date(1_709_164_800), "D:20240229000000Z");
+        assert_eq!(pdf_date(951_782_400), "D:20000229000000Z");
+        assert_eq!(pdf_date(1_767_225_599), "D:20251231235959Z");
+        // Before the epoch (seconds into a day are counted forward from midnight UTC).
+        assert_eq!(pdf_date(-1), "D:19691231235959Z");
     }
 
     #[test]
