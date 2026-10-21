@@ -3704,8 +3704,8 @@ milestone = "M5"
 status = "shipped"
 commands = ["comment.ink"]
 tools = ["comment_add"]
-evidence = ["crates/ui-egui/tests/it/comments.rs::shapes_and_ink_are_drawn_by_dragging", "crates/annot/src/tests.rs::ink_strokes_are_smooth_curves_through_their_points", "crates/annot/src/tests.rs::drawings_resize_by_scaling_their_strokes"]
-notes = "one ink annotation per stroke; strokes are drawn as smooth curves through their points, as in Acrobat; resize with the 8 handles (the strokes scale into the new box)"
+evidence = ["crates/ui-egui/tests/it/comments.rs::shapes_and_ink_are_drawn_by_dragging", "crates/annot/src/tests.rs::ink_strokes_are_smooth_curves_through_their_points", "crates/annot/src/tests.rs::drawings_resize_by_scaling_their_strokes", "crates/ui-egui/tests/it/comments.rs::a_pen_stroke_records_its_pressure_at_every_point", "crates/annot/src/tests.rs::pressed_ink_is_saved_and_drawn_at_the_pens_widths", "crates/annot/src/tests.rs::erasing_a_pen_stroke_keeps_its_pressures_in_step"]
+notes = "one ink annotation per stroke; strokes are drawn as smooth curves through their points, as in Acrobat; resize with the 8 handles (the strokes scale into the new box). A pen that reports pressure (Wayland tablets; Windows pens through winit, not checked on hardware) draws thinner where it presses lightly, from a tenth of the chosen width (linear), live and in the saved appearance; the pressures stay in PdfCraft's own /PCPressure key through move, resize and erase. Other viewers show the saved appearance; XFDF export and a restyle in another editor drop the pressure. No pressure on macOS or X11, and no smoothing or tilt"
 
 [[feature]]
 id = "comment.eraser"

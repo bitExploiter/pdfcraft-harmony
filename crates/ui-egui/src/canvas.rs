@@ -6300,7 +6300,7 @@ trailer << /Root 1 0 R >>
         let info = thumbnail_info(1);
         let mut v = DocView::new(DocId(1), &info, ViewDefaults::default());
         let req = RenderRequest { scale: 1.0, tag: 1000, ..Default::default() };
-        v.comments.settle(0.0, 0, crate::comments::CommentTool::Ink, &[[10.0, 10.0], [40.0, 30.0]]);
+        v.comments.settle(0.0, 0, crate::comments::CommentTool::Ink, &[[10.0, 10.0], [40.0, 30.0]], &[]);
         v.last_queue = vec![req];
         assert!(v.receive_result(&ctx, solid_result(req, 10, 10)) > 0, "the raster is taken");
         assert_eq!(v.comments.settling_len(), 1, "a raster from before the commit doesn't have the stroke");
@@ -6309,7 +6309,7 @@ trailer << /Root 1 0 R >>
         assert!(v.receive_result(&ctx, solid_result(req, 10, 10)) > 0);
         assert_eq!(v.comments.settling_len(), 0, "a raster after the commit draws it");
         // An edit that fails leaves nothing to wait for.
-        v.comments.settle(0.0, 0, crate::comments::CommentTool::Ink, &[[10.0, 10.0], [40.0, 30.0]]);
+        v.comments.settle(0.0, 0, crate::comments::CommentTool::Ink, &[[10.0, 10.0], [40.0, 30.0]], &[]);
         v.comments.drawings_refused();
         assert_eq!(v.comments.settling_len(), 0, "a refused drawing isn't left painted");
     }

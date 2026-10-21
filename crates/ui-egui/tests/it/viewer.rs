@@ -229,7 +229,7 @@ fn marking_while_searching_does_not_jitter_or_reset_search_state() {
     assert!(h.state().views[0].goto.is_none());
 
     // User draws or marks an annotation on page 0
-    let shape = pdfcraft_engine::Shape::Ink { strokes: vec![vec![[10.0, 10.0], [20.0, 20.0]]] };
+    let shape = pdfcraft_engine::Shape::Ink { strokes: vec![vec![[10.0, 10.0], [20.0, 20.0]]], pressure: Vec::new() };
     let stroke = pdfcraft_engine::Edit::AddAnnotation(pdfcraft_engine::NewAnnotation {
         page: 0,
         style: pdfcraft_engine::Style::default_for(&shape),
@@ -265,7 +265,7 @@ fn marking_while_searching_does_not_jitter_or_reset_search_state() {
     h.run_steps(2);
     h.state_mut().views[0].goto = None;
     for p in 1..=4 {
-        let shape = pdfcraft_engine::Shape::Ink { strokes: vec![vec![[15.0 * p as f64, 20.0], [30.0 * p as f64, 40.0]]] };
+        let shape = pdfcraft_engine::Shape::Ink { strokes: vec![vec![[15.0 * p as f64, 20.0], [30.0 * p as f64, 40.0]]], pressure: Vec::new() };
         let stroke = pdfcraft_engine::Edit::AddAnnotation(pdfcraft_engine::NewAnnotation {
             page: p,
             style: pdfcraft_engine::Style::default_for(&shape),

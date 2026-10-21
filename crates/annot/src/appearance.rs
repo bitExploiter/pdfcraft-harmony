@@ -115,6 +115,45 @@ pub fn smooth_segments(pts: &[(f64, f64)]) -> Vec<[(f64, f64); 3]> {
         .collect()
 }
 
+/// One stroke's pen pressures from `/PCPressure`: `None` unless it holds a number for each of
+/// its `points`, so pressures left stale by another editor are ignored.
+pub(crate) fn stroke_pressure(o: &Object, points: usize) -> Option<Vec<f64>> {
+    let f: Vec<f64> = o.as_array()?.iter().map(|v| v.as_f64().filter(|x| x.is_finite())).collect::<Option<_>>()?;
+    (f.len() == points && points > 0).then_some(f)
+}
+
+/// A stroke whose width follows the pen: each curve segment (as [`smooth_segments`] draws the
+/// stroke) is stroked on its own at the width of its ends' mean pressure, and the round caps
+/// join them. Wrapped in `q`/`Q` so the next stroke keeps the drawing's width.
+fn pressed_stroke(pts: &[(f64, f64)], force: &[f64], width: f64) -> String {
+    let at = |i: usize| crate::pressure_width(width, force.get(i).copied().unwrap_or(1.0));
+    let mut c = String::from("q\n");
+    match pts {
+        [] => return String::new(),
+        [p] => c.push_str(&format!("{} w {} {} m {} {} l S\n", n(at(0)), n(p.0), n(p.1), n(p.0 + 0.01), n(p.1))),
+        [a, b] => c.push_str(&format!("{} w {} {} m {} {} l S\n", n((at(0) + at(1)) / 2.0), n(a.0), n(a.1), n(b.0), n(b.1))),
+        _ => {
+            for (i, (start, [p, q, e])) in pts.iter().zip(smooth_segments(pts)).enumerate() {
+                let w = (at(i) + at(i + 1)) / 2.0;
+                c.push_str(&format!(
+                    "{} w {} {} m {} {} {} {} {} {} c S\n",
+                    n(w),
+                    n(start.0),
+                    n(start.1),
+                    n(p.0),
+                    n(p.1),
+                    n(q.0),
+                    n(q.1),
+                    n(e.0),
+                    n(e.1)
+                ));
+            }
+        }
+    }
+    c.push_str("Q\n");
+    c
+}
+
 /// `c` operators for [`smooth_segments`] (the path already starts at the first point).
 fn smooth_curve(pts: &[(f64, f64)]) -> String {
     smooth_segments(pts).iter().map(|[a, b, e]| format!("{} {} {} {} {} {} c\n", n(a.0), n(a.1), n(b.0), n(b.1), n(e.0), n(e.1))).collect()
@@ -530,10 +569,15 @@ pub fn build(d: &Dict) -> Option<Stream> {
         b"Ink" => {
             let col = stroke?;
             let list = d.get(b"InkList")?.as_array()?;
+            let pressure = d.get(crate::PRESSURE_KEY).and_then(Object::as_array);
             c.push_str(&format!("{}{} w 1 J 1 j\n", rg_stroke(col), n(w)));
-            for s in list {
+            for (i, s) in list.iter().enumerate() {
                 let pts: Vec<f64> = s.as_array()?.iter().map(|o| o.as_f64()).collect::<Option<_>>()?;
                 let pts: Vec<(f64, f64)> = pts.as_chunks::<2>().0.iter().map(|p| (p[0], p[1])).collect();
+                if let Some(force) = pressure.and_then(|p| stroke_pressure(p.get(i)?, pts.len())) {
+                    c.push_str(&pressed_stroke(&pts, &force, w));
+                    continue;
+                }
                 let Some(first) = pts.first() else { continue };
                 c.push_str(&format!("{} {} m\n", n(first.0), n(first.1)));
                 match pts.as_slice() {

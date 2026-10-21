@@ -364,9 +364,12 @@ pub enum Shape {
         start: LineEnding,
         end: LineEnding,
     },
-    /// Freehand strokes (Draw tool).
+    /// Freehand strokes (Draw tool). `pressure` is the pen pressure (0 to 1) at each point of
+    /// each stroke, shaped like `strokes`, or empty when the input had none (a mouse): pressed
+    /// strokes are drawn thinner where the pen pressed lightly (see [`pressure_width`]).
     Ink {
         strokes: Vec<Vec<[f64; 2]>>,
+        pressure: Vec<Vec<f64>>,
     },
     /// A text box (FreeText) showing the comment's contents.
     TextBox {
@@ -878,6 +881,29 @@ fn num_array(v: &[f64]) -> Object {
     Object::Array(v.iter().map(|x| Object::Real(*x)).collect())
 }
 
+/// PdfCraft's own key on a drawing (`Ink`) holding its pen pressures: an array parallel to
+/// `/InkList` whose entries hold one pressure (0 to 1) per point of that stroke. Other viewers
+/// ignore it and show the appearance; PdfCraft ignores it once a stroke's points no longer match.
+pub const PRESSURE_KEY: &[u8] = b"PCPressure";
+
+/// The share of a drawing's width drawn where the pen pressed lightest, so a stroke never
+/// vanishes.
+const MIN_PRESSURE_WIDTH: f64 = 0.1;
+
+/// The width of ink drawn at pen `pressure` (0 to 1) with line `width`: linear, from a tenth of
+/// it at no pressure to the full width at full pressure. Linear keeps the range everyday
+/// pressures span (about 0.1 to 0.8) wide enough to see; a square root squeezed it into well
+/// under 2×. A pressure that isn't a number counts as full.
+pub fn pressure_width(width: f64, pressure: f64) -> f64 {
+    let p = if pressure.is_finite() { pressure.clamp(0.0, 1.0) } else { 1.0 };
+    width * (MIN_PRESSURE_WIDTH + (1.0 - MIN_PRESSURE_WIDTH) * p)
+}
+
+/// A stroke's pen pressures as stored: clamped to 0..1 and rounded to thousandths.
+fn pressure_array(f: &[f64]) -> Object {
+    Object::Array(f.iter().map(|x| Object::Real((x.clamp(0.0, 1.0) * 1000.0).round() / 1000.0)).collect())
+}
+
 fn rgb(c: Rgb) -> Object {
     num_array(&c.map(|x| x.clamp(0.0, 1.0)))
 }
@@ -955,9 +981,17 @@ fn rect_for(shape: &Shape, style: &Style) -> Result<[f64; 4], AnnotError> {
             let pad = half + if ending_draws(*start) || ending_draws(*end) { appearance::arrow_size(style.width) } else { 0.0 };
             grow(bounds([*from, *to].into_iter()).unwrap_or_default(), pad + 1.0)
         }
-        Shape::Ink { strokes } | Shape::Signature { strokes } => {
+        Shape::Ink { strokes, .. } | Shape::Signature { strokes } => {
             if strokes.iter().all(|s| s.is_empty()) || !strokes.iter().flatten().all(|p| finite(p)) {
                 return Err(bad("drawing (no points)"));
+            }
+            if let Shape::Ink { pressure, .. } = shape
+                && !pressure.is_empty()
+                && (pressure.len() != strokes.len()
+                    || pressure.iter().zip(strokes).any(|(f, s)| f.len() != s.len())
+                    || !pressure.iter().flatten().all(|f| f.is_finite()))
+            {
+                return Err(bad("drawing (it needs one pen pressure per point)"));
             }
             // Strokes of three or more points are drawn as curves, which stay within their
             // points and control points.
@@ -1181,10 +1215,17 @@ pub fn add_annotation(doc: &mut Document, new: &NewAnnotation, meta: &Meta) -> R
                 }
             }
         }
-        Shape::Ink { strokes } | Shape::Signature { strokes } => {
+        Shape::Ink { strokes, .. } | Shape::Signature { strokes } => {
             d.set(b"C".to_vec(), rgb(style.color));
             let list = strokes.iter().filter(|s| !s.is_empty()).map(|s| num_array(&s.concat())).collect();
             d.set(b"InkList".to_vec(), Object::Array(list));
+            // Validated by `rect_for`: as many pressures as points, so empty strokes drop in step.
+            if let Shape::Ink { pressure, .. } = &new.shape
+                && !pressure.is_empty()
+            {
+                let list = strokes.iter().zip(pressure).filter(|(s, _)| !s.is_empty()).map(|(_, f)| pressure_array(f)).collect();
+                d.set(PRESSURE_KEY.to_vec(), Object::Array(list));
+            }
             border(&mut d);
         }
         Shape::Polygon { vertices, cloud } => {
@@ -2476,6 +2517,16 @@ pub fn add_text_replacement(
     Ok(s)
 }
 
+/// A drawing's pen pressures (see [`PRESSURE_KEY`]), one list per stroke of `strokes`; `None`
+/// when it has none, or when any stroke's pressures don't match its points.
+fn ink_pressure(doc: &Document, d: &Dict, strokes: &[Vec<[f64; 2]>]) -> Option<Vec<Vec<f64>>> {
+    let list = doc.resolve(d.get(PRESSURE_KEY)?).as_array()?.clone();
+    if list.len() != strokes.len() {
+        return None;
+    }
+    list.iter().zip(strokes).map(|(f, s)| appearance::stroke_pressure(&doc.resolve(f), s.len())).collect()
+}
+
 /// The Eraser (Draw tools): remove the parts of drawing `(page, index)` within `radius` points
 /// of `path`, splitting strokes where they are cut. A drawing with nothing left is deleted.
 /// Returns whether anything was erased.
@@ -2513,23 +2564,27 @@ pub fn erase_ink(doc: &mut Document, page: usize, index: usize, path: &[[f64; 2]
             (p[0] - (a[0] + t * dx)).hypot(p[1] - (a[1] + t * dy)) <= radius
         })
     };
-    let mut kept: Vec<Vec<[f64; 2]>> = Vec::new();
+    // Pen pressures follow the points they belong to, so what's left keeps its widths.
+    let pressure = ink_pressure(doc, &d, &strokes);
+    let mut kept: Vec<Vec<([f64; 2], f64)>> = Vec::new();
     let mut erased = false;
-    for s in &strokes {
+    for (si, s) in strokes.iter().enumerate() {
+        let force = |i: usize| pressure.as_ref().and_then(|f| f.get(si)?.get(i).copied()).unwrap_or(1.0);
         // Densify so long segments are cut where the eraser crosses them.
-        let mut pts: Vec<[f64; 2]> = Vec::new();
-        for w in s.windows(2) {
+        let mut pts: Vec<([f64; 2], f64)> = Vec::new();
+        for (i, w) in s.windows(2).enumerate() {
             let n = ((w[1][0] - w[0][0]).hypot(w[1][1] - w[0][1]) / (radius / 2.0)).ceil().clamp(1.0, 2000.0) as usize;
+            let (f0, f1) = (force(i), force(i + 1));
             for k in 0..n {
                 let t = k as f64 / n as f64;
-                pts.push([w[0][0] + (w[1][0] - w[0][0]) * t, w[0][1] + (w[1][1] - w[0][1]) * t]);
+                pts.push(([w[0][0] + (w[1][0] - w[0][0]) * t, w[0][1] + (w[1][1] - w[0][1]) * t], f0 + (f1 - f0) * t));
             }
         }
         if let Some(last) = s.last() {
-            pts.push(*last);
+            pts.push((*last, force(s.len().saturating_sub(1))));
         }
-        let mut run: Vec<[f64; 2]> = Vec::new();
-        for p in pts {
+        let mut run: Vec<([f64; 2], f64)> = Vec::new();
+        for (p, f) in pts {
             if near(p) {
                 erased = true;
                 if run.len() >= 2 {
@@ -2537,7 +2592,7 @@ pub fn erase_ink(doc: &mut Document, page: usize, index: usize, path: &[[f64; 2]
                 }
                 run.clear();
             } else {
-                run.push(p);
+                run.push((p, f));
             }
         }
         if run.len() >= 2 {
@@ -2552,9 +2607,16 @@ pub fn erase_ink(doc: &mut Document, page: usize, index: usize, path: &[[f64; 2]
         return Ok(true);
     }
     let width = d.get(b"BS").and_then(|b| b.as_dict()).and_then(|b| b.get(b"W")).and_then(|w| w.as_f64()).unwrap_or(1.0);
-    let rect = grow(bounds(kept.iter().flatten().copied()).unwrap_or_default(), width / 2.0 + 1.0);
+    let rect = grow(bounds(kept.iter().flatten().map(|(p, _)| *p)).unwrap_or_default(), width / 2.0 + 1.0);
     doc.update_dict(r, |d| {
-        d.set(b"InkList".to_vec(), Object::Array(kept.iter().map(|s| num_array(&s.concat())).collect()));
+        let list = kept.iter().map(|s| num_array(&s.iter().flat_map(|(p, _)| *p).collect::<Vec<_>>())).collect();
+        d.set(b"InkList".to_vec(), Object::Array(list));
+        if pressure.is_some() {
+            let list = kept.iter().map(|s| pressure_array(&s.iter().map(|(_, f)| *f).collect::<Vec<_>>())).collect();
+            d.set(PRESSURE_KEY.to_vec(), Object::Array(list));
+        } else {
+            d.remove(PRESSURE_KEY);
+        }
         d.set(b"Rect".to_vec(), num_array(&rect));
         touch(d, meta);
     })?;

@@ -106,7 +106,7 @@ fn filled() -> Document {
         &meta("h1"),
     )
     .unwrap();
-    let ink = Shape::Ink { strokes: vec![vec![[10.0, 10.0], [20.0, 30.0], [40.0, 20.0]]] };
+    let ink = Shape::Ink { strokes: vec![vec![[10.0, 10.0], [20.0, 30.0], [40.0, 20.0]]], pressure: Vec::new() };
     add_annotation(
         &mut doc,
         &NewAnnotation { page: 1, style: Style::default_for(&ink), shape: ink, contents: "scribble".into(), author: "Bob".into() },

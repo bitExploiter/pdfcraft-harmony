@@ -331,7 +331,18 @@ impl Automation {
                                 .collect::<Result<Vec<_>>>()
                         })
                         .collect::<Result<Vec<_>>>()?;
-                    Shape::Ink { strokes }
+                    let pressure = match a.get("pressure") {
+                        None | Some(Value::Null) => Vec::new(),
+                        Some(p) => {
+                            let pressure: Vec<Vec<f64>> = serde_json::from_value(p.clone())
+                                .map_err(|_| ToolError::InvalidArgs("pressure must be an array of arrays of numbers".into()))?;
+                            if pressure.len() != strokes.len() || pressure.iter().zip(&strokes).any(|(f, s)| f.len() != s.len()) {
+                                return Err(ToolError::InvalidArgs("pressure needs one number per point of each stroke".into()));
+                            }
+                            pressure
+                        }
+                    };
+                    Shape::Ink { strokes, pressure }
                 }
                 "polygon" | "cloud" | "polyline" => {
                     let wrong = || ToolError::InvalidArgs(format!("{kind} needs `points`: an array of [x, y] points"));

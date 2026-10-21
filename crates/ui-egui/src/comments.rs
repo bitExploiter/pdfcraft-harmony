@@ -209,7 +209,7 @@ impl CommentTool {
             Self::Highlight | Self::Underline | Self::StrikeOut | Self::Squiggly => {
                 Shape::TextMarkup { kind: self.markup().unwrap_or(Markup::Highlight), quads: Vec::new() }
             }
-            Self::Ink => Shape::Ink { strokes: Vec::new() },
+            Self::Ink => Shape::Ink { strokes: Vec::new(), pressure: Vec::new() },
             Self::Line => Shape::Line { from: [0.0; 2], to: [0.0; 2], start: LineEnding::None, end: LineEnding::None },
             Self::Arrow => Shape::Line { from: [0.0; 2], to: [0.0; 2], start: LineEnding::None, end: LineEnding::OpenArrow },
             Self::Rectangle => Shape::Rectangle { rect: [0.0; 4] },
@@ -220,7 +220,7 @@ impl CommentTool {
             Self::Callout => Shape::Callout { rect: [0.0; 4], knee: [0.0; 2], point: [0.0; 2], font_size: 10.0, ending: LineEnding::OpenArrow },
             Self::Caret => Shape::Caret { rect: [0.0; 4] },
             Self::ReplaceText => Shape::TextMarkup { kind: Markup::StrikeOut, quads: Vec::new() },
-            Self::Eraser => Shape::Ink { strokes: Vec::new() },
+            Self::Eraser => Shape::Ink { strokes: Vec::new(), pressure: Vec::new() },
             Self::Attach => Shape::Attachment { at: [0.0; 2], icon: pdfcraft_engine::AttachIcon::PushPin, file: String::new(), data: Vec::new() },
         }
     }
@@ -380,8 +380,10 @@ fn login_name() -> String {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Gesture {
     /// Drawing with a tool: points in user space (ink: the stroke; polygons: the vertices
-    /// clicked so far; others: start and end).
-    Draw { page: usize, tool: CommentTool, points: Vec<[f64; 2]> },
+    /// clicked so far; others: start and end). `pressure` is the pen pressure (0 to 1) of each
+    /// ink point, as long as `points`, or empty when the input reports none (a mouse) and for
+    /// every other tool. The saved drawing keeps it ([`Shape::Ink`]).
+    Draw { page: usize, tool: CommentTool, points: Vec<[f64; 2]>, pressure: Vec<f32> },
     /// Moving a comment, from the press position on screen.
     Move { page: usize, index: usize, from: Pos2 },
     /// Resizing a comment by one of its handles: (dx, dy) ∈ {-1, 0, 1}² says which sides move.
@@ -431,6 +433,8 @@ pub(crate) struct Settling {
     pub page: usize,
     pub tool: CommentTool,
     pub points: Vec<[f64; 2]>,
+    /// The pen pressure at each point of a pressed ink stroke, or empty (see [`Gesture::Draw`]).
+    pub pressure: Vec<f32>,
     /// Frame time (seconds) at release; a raster that never arrives must not leave a ghost.
     pub since: f64,
     /// Its annotation is in the document, so a raster of the page from now on draws it. Until
@@ -445,7 +449,7 @@ const SETTLE_MAX: usize = 16;
 
 impl CommentView {
     /// Remember a released drag drawing so it stays on screen until its page is re-rendered.
-    pub(crate) fn settle(&mut self, now: f64, page: usize, tool: CommentTool, points: &[[f64; 2]]) {
+    pub(crate) fn settle(&mut self, now: f64, page: usize, tool: CommentTool, points: &[[f64; 2]], pressure: &[f32]) {
         if !matches!(tool, CommentTool::Ink | CommentTool::Line | CommentTool::Arrow | CommentTool::Rectangle | CommentTool::Oval) {
             return;
         }
@@ -453,7 +457,7 @@ impl CommentView {
         if self.settling.len() >= SETTLE_MAX {
             self.settling.remove(0);
         }
-        self.settling.push(Settling { page, tool, points: points.to_vec(), since: now, committed: false });
+        self.settling.push(Settling { page, tool, points: points.to_vec(), pressure: pressure.to_vec(), since: now, committed: false });
     }
 
     /// How many released drawings are still painted from their points (waiting for a raster).
@@ -486,6 +490,9 @@ pub struct CommentView {
     /// The selected comment: (page, index in `/Annots`).
     pub selected: Option<(usize, usize)>,
     pub gesture: Option<Gesture>,
+    /// The pressure of the pen touching the screen or tablet, from egui's touch events; `None`
+    /// for a mouse and once the pen lifts.
+    pub(crate) pen_force: Option<f32>,
     /// Drawings just released: shown from their points until the page raster that includes the
     /// committed annotation arrives, so the stroke never vanishes in between (#1858).
     pub(crate) settling: Vec<Settling>,
@@ -810,6 +817,9 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
     let page_rect = cx.xf.rect;
     let pressed_here = origin.is_some_and(|o| page_rect.contains(o));
     let over_page = pointer.is_some_and(|p| page_rect.contains(p));
+    // Follow the pen whatever the tool, so a pressure seen while another tool was active
+    // never outlives the touch. Every page reads the same events, so repeating it is harmless.
+    view.comments.pen_force = ui.input(|i| pen_force(&i.events, view.comments.pen_force));
     let fill_grab = fill_grabs(ui, cx, view);
     let draw_grab = draw_grabs(ui, cx, view);
     let caret_text = if cx.tool == QuickTool::Comment(CommentTool::Caret) { view.page_text(cx.page) } else { None };
@@ -843,10 +853,13 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 && pressed_here
                 && let Some(o) = origin
             {
-                cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)] });
+                // A stroke has pressure when its pen reports it from the start.
+                let touching = ui.input(|i| i.any_touches());
+                let pressure = cv.pen_force.filter(|_| tool == CommentTool::Ink && touching).into_iter().collect();
+                cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)], pressure });
                 cv.selected = None;
             }
-            if let Some(Gesture::Draw { page, tool, points }) = cv.gesture.as_mut()
+            if let Some(Gesture::Draw { page, tool, points, pressure }) = cv.gesture.as_mut()
                 && *page == cx.page
                 && let Some(p) = pointer
             {
@@ -856,6 +869,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     let last = points.last().map(|l| cx.to_screen(*l)).unwrap_or(p);
                     if last.distance(p) >= 1.5 {
                         points.push(u);
+                        push_pressure(pressure, cv.pen_force);
                     }
                 } else {
                     points.truncate(1);
@@ -863,15 +877,16 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 }
             }
             if resp.drag_stopped()
-                && let Some(Gesture::Draw { page, tool, points }) = cv.gesture.clone()
+                && let Some(Gesture::Draw { page, tool, points, pressure }) = cv.gesture.clone()
                 && page == cx.page
             {
                 cv.gesture = None;
                 if tool == CommentTool::Eraser {
                     view.pending_edit = erase(cx, &points);
                 } else if let Some(shape) = drawn_shape(tool, &points) {
+                    let shape = with_pressure(shape, &pressure);
                     let now = ui.input(|i| i.time);
-                    cv.settle(now, page, tool, &points);
+                    cv.settle(now, page, tool, &points, &pressure);
                     view.pending_edit = Some(new_comment(cx, tool, shape, String::new()));
                 }
             }
@@ -886,7 +901,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             {
                 cv.selected = None;
                 let now = ui.input(|i| i.time);
-                cv.settle(now, cx.page, tool, &[cx.to_user(p)]);
+                cv.settle(now, cx.page, tool, &[cx.to_user(p)], &[]);
                 view.pending_edit = Some(new_comment(cx, tool, shape, String::new()));
             }
             true
@@ -916,7 +931,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             {
                 let u = cx.to_user(p);
                 match cv.gesture.as_mut() {
-                    Some(Gesture::Draw { page, tool: t, points }) if *page == cx.page && *t == tool => {
+                    Some(Gesture::Draw { page, tool: t, points, .. }) if *page == cx.page && *t == tool => {
                         // Clicking the first point again closes a polygon.
                         let closes = points.len() >= 3 && tool != CommentTool::PolyLine && cx.to_screen(points[0]).distance(p) <= 6.0;
                         let repeat = points.last().is_some_and(|l| cx.to_screen(*l).distance(p) < 2.0);
@@ -933,13 +948,13 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                         }
                     }
                     _ => {
-                        cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![u] });
+                        cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![u], pressure: Vec::new() });
                         cv.selected = None;
                     }
                 }
             }
             if finish
-                && let Some(Gesture::Draw { page, tool: t, points }) = cv.gesture.clone()
+                && let Some(Gesture::Draw { page, tool: t, points, .. }) = cv.gesture.clone()
                 && page == cx.page
                 && t == tool
             {
@@ -962,7 +977,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                 && pressed_here
                 && let Some(o) = origin
             {
-                cv.gesture = Some(Gesture::Draw { page: cx.page, tool: CommentTool::Callout, points: vec![cx.to_user(o)] });
+                cv.gesture = Some(Gesture::Draw { page: cx.page, tool: CommentTool::Callout, points: vec![cx.to_user(o)], pressure: Vec::new() });
                 cv.selected = None;
             }
             if let Some(Gesture::Draw { page, points, .. }) = cv.gesture.as_mut()
@@ -1034,7 +1049,7 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
                     && pressed_here
                     && let Some(o) = origin
                 {
-                    cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)] });
+                    cv.gesture = Some(Gesture::Draw { page: cx.page, tool, points: vec![cx.to_user(o)], pressure: Vec::new() });
                     cv.selected = None;
                 }
                 if let Some(Gesture::Draw { page, points, .. }) = cv.gesture.as_mut()
@@ -1422,12 +1437,72 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
 fn paint_gesture(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
     let now = painter.ctx().input(|i| i.time);
     for s in view.comments.settling.iter().filter(|s| s.page == cx.page && now - s.since < SETTLE_SECS) {
-        paint_draw(painter, cx, &s.tool, &s.points);
+        paint_stroke(painter, cx, &s.tool, &s.points, &s.pressure);
     }
-    if let Some(Gesture::Draw { page, tool, points }) = &view.comments.gesture
+    if let Some(Gesture::Draw { page, tool, points, pressure }) = &view.comments.gesture
         && *page == cx.page
     {
+        paint_stroke(painter, cx, tool, points, pressure);
+    }
+}
+
+/// A drawing in progress or just released: an ink stroke with a pressure for every point is
+/// drawn at the pen's widths, anything else by [`paint_draw`].
+fn paint_stroke(painter: &egui::Painter, cx: &PageCx<'_>, tool: &CommentTool, points: &[[f64; 2]], pressure: &[f32]) {
+    if *tool == CommentTool::Ink && pressure.len() == points.len() && !pressure.is_empty() {
+        paint_pressure_ink(painter, cx, points, pressure);
+    } else {
         paint_draw(painter, cx, tool, points);
+    }
+}
+
+/// A live pen stroke whose width follows the pen pressure: each segment at the width of its
+/// ends' mean pressure, with a round dab at every point so segments join without gaps.
+fn paint_pressure_ink(painter: &egui::Painter, cx: &PageCx<'_>, points: &[[f64; 2]], pressure: &[f32]) {
+    let style = cx.prefs.style(CommentTool::Ink);
+    let zoom = cx.xf.rect.width() / cx.xf.pw.max(1.0);
+    let color = color32(style.color);
+    let width = |p: f32| (pdfcraft_engine::pressure_width(style.width, f64::from(p)) as f32 * zoom).max(0.5);
+    let samples: Vec<(Pos2, f32)> = points.iter().zip(pressure).map(|(p, f)| (cx.to_screen(*p), width(*f))).collect();
+    for pair in samples.windows(2) {
+        if let [(a, wa), (b, wb)] = pair {
+            painter.line_segment([*a, *b], Stroke::new((wa + wb) / 2.0, color));
+        }
+    }
+    for (at, w) in &samples {
+        painter.circle_filled(*at, w / 2.0, color);
+    }
+}
+
+/// A drawn ink stroke with the pen pressure of each of its points, when it has them all.
+fn with_pressure(shape: Shape, pressure: &[f32]) -> Shape {
+    match shape {
+        Shape::Ink { strokes, .. } if !pressure.is_empty() && matches!(strokes.as_slice(), [s] if s.len() == pressure.len()) => {
+            Shape::Ink { strokes, pressure: vec![pressure.iter().map(|f| f64::from(*f)).collect()] }
+        }
+        other => other,
+    }
+}
+
+/// The pen pressure after this frame's touch events: that of the last touch still down, `None`
+/// once it lifts or for a touch without pressure, `current` when the frame has no touch events.
+fn pen_force(events: &[egui::Event], current: Option<f32>) -> Option<f32> {
+    events.iter().fold(current, |force, event| match event {
+        egui::Event::Touch { phase: egui::TouchPhase::Start | egui::TouchPhase::Move, force, .. } => {
+            force.filter(|f| f.is_finite()).map(|f| f.clamp(0.0, 1.0))
+        }
+        egui::Event::Touch { phase: egui::TouchPhase::End | egui::TouchPhase::Cancel, .. } => None,
+        _ => force,
+    })
+}
+
+/// Records the pressure of a point just added to a stroke. A stroke without pressure stays
+/// without; a point with none (the release, after the pen lifted) repeats the last pressure.
+fn push_pressure(pressure: &mut Vec<f32>, force: Option<f32>) {
+    if let Some(f) = force.or_else(|| pressure.last().copied())
+        && !pressure.is_empty()
+    {
+        pressure.push(f);
     }
 }
 
@@ -1495,7 +1570,7 @@ fn drawn_shape(tool: CommentTool, points: &[[f64; 2]]) -> Option<Shape> {
     let rect = [first[0].min(last[0]), first[1].min(last[1]), first[0].max(last[0]), first[1].max(last[1])];
     let big = rect[2] - rect[0] >= 2.0 && rect[3] - rect[1] >= 2.0;
     match tool {
-        CommentTool::Ink if !points.is_empty() => Some(Shape::Ink { strokes: vec![points.to_vec()] }),
+        CommentTool::Ink if !points.is_empty() => Some(Shape::Ink { strokes: vec![points.to_vec()], pressure: Vec::new() }),
         CommentTool::Line | CommentTool::Arrow if far => Some(Shape::Line {
             from: first,
             to: last,
@@ -2390,7 +2465,7 @@ mod tests {
     fn drawn_shapes_ignore_slips() {
         assert_eq!(drawn_shape(CommentTool::Rectangle, &[[0.0, 0.0], [1.0, 1.0]]), None);
         assert_eq!(drawn_shape(CommentTool::Rectangle, &[[10.0, 0.0], [0.0, 10.0]]), Some(Shape::Rectangle { rect: [0.0, 0.0, 10.0, 10.0] }));
-        assert_eq!(drawn_shape(CommentTool::Ink, &[[0.0, 0.0]]), Some(Shape::Ink { strokes: vec![vec![[0.0, 0.0]]] }));
+        assert_eq!(drawn_shape(CommentTool::Ink, &[[0.0, 0.0]]), Some(Shape::Ink { strokes: vec![vec![[0.0, 0.0]]], pressure: Vec::new() }));
         assert!(matches!(
             drawn_shape(CommentTool::Arrow, &[[0.0, 0.0], [5.0, 0.0]]),
             Some(Shape::Line { start: LineEnding::None, end: LineEnding::OpenArrow, .. })
@@ -2405,5 +2480,48 @@ mod tests {
         let long = text_box_rect([0.0, 500.0], &"word ".repeat(80), 12.0, 0);
         assert_eq!(long[2], 300.0);
         assert!(long[3] - long[1] > 50.0);
+    }
+
+    #[test]
+    fn a_drawn_stroke_keeps_its_pressure_only_when_every_point_has_one() {
+        let ink = || drawn_shape(CommentTool::Ink, &[[0.0, 0.0], [5.0, 5.0]]).unwrap();
+        assert_eq!(with_pressure(ink(), &[0.25, 0.5]), Shape::Ink { strokes: vec![vec![[0.0, 0.0], [5.0, 5.0]]], pressure: vec![vec![0.25, 0.5]] });
+        assert_eq!(with_pressure(ink(), &[0.25]), ink());
+        assert_eq!(with_pressure(ink(), &[]), ink());
+        let line = drawn_shape(CommentTool::Line, &[[0.0, 0.0], [5.0, 5.0]]).unwrap();
+        assert_eq!(with_pressure(line.clone(), &[0.25, 0.5]), line);
+    }
+
+    fn touch(phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
+        egui::Event::Touch { device_id: egui::TouchDeviceId(1), id: egui::TouchId(1), phase, pos: pos2(1.0, 1.0), force }
+    }
+
+    #[test]
+    fn pen_force_follows_the_touch_until_it_lifts() {
+        use egui::TouchPhase::{Cancel, End, Move, Start};
+        assert_eq!(pen_force(&[], None), None);
+        assert_eq!(pen_force(&[touch(Start, Some(0.2))], None), Some(0.2));
+        assert_eq!(pen_force(&[touch(Move, Some(0.3)), touch(Move, Some(0.6))], Some(0.2)), Some(0.6));
+        // A frame without touch events keeps the pressure; lifting clears it.
+        assert_eq!(pen_force(&[egui::Event::PointerMoved(pos2(2.0, 2.0))], Some(0.6)), Some(0.6));
+        assert_eq!(pen_force(&[touch(End, Some(0.0))], Some(0.6)), None);
+        assert_eq!(pen_force(&[touch(Cancel, None)], Some(0.6)), None);
+        // A touch without pressure (a finger on most screens), or a nonsense one, has none.
+        assert_eq!(pen_force(&[touch(Move, None)], Some(0.6)), None);
+        assert_eq!(pen_force(&[touch(Move, Some(f32::NAN))], None), None);
+        assert_eq!(pen_force(&[touch(Move, Some(3.0))], None), Some(1.0));
+    }
+
+    #[test]
+    fn a_stroke_keeps_one_pressure_per_point_or_none() {
+        let mut pressure = vec![0.2];
+        push_pressure(&mut pressure, Some(0.4));
+        // The release comes after the pen lifted: it repeats the last pressure.
+        push_pressure(&mut pressure, None);
+        assert_eq!(pressure, [0.2, 0.4, 0.4]);
+        // A stroke begun without pressure (a mouse) never gains any.
+        let mut none = Vec::new();
+        push_pressure(&mut none, Some(0.5));
+        assert!(none.is_empty());
     }
 }

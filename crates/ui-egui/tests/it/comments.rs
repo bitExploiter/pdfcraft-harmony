@@ -1388,6 +1388,80 @@ fn polygons_clouds_connected_lines_callouts_and_inserted_text() {
     assert_eq!(h.state().quick_tool, QuickTool::Select);
 }
 
+/// The points and pen pressures of the drawing in progress.
+fn drawn_pressure(h: &Harness<'static, PdfCraftApp>) -> Option<(usize, Vec<f32>)> {
+    match &h.state().views[0].comments.gesture {
+        Some(pdfcraft_ui_egui::comments::Gesture::Draw { points, pressure, .. }) => Some((points.len(), pressure.clone())),
+        _ => None,
+    }
+}
+
+/// One frame of a pen as egui-winit reports it: a touch carrying the pressure, mirrored as the
+/// primary pointer (pressed on `Start`, released and gone on `End`).
+fn pen_frame(h: &mut Harness<'static, PdfCraftApp>, phase: egui::TouchPhase, pos: Pos2, force: f32) {
+    use egui::Event;
+    let touch = Event::Touch { device_id: egui::TouchDeviceId(7), id: egui::TouchId(1 << 32), phase, pos, force: Some(force) };
+    let button = |pressed| Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+    let events = match phase {
+        egui::TouchPhase::Start => vec![touch, Event::PointerMoved(pos), button(true)],
+        egui::TouchPhase::Move => vec![touch, Event::PointerMoved(pos)],
+        egui::TouchPhase::End | egui::TouchPhase::Cancel => vec![touch, button(false), Event::PointerGone],
+    };
+    h.input_mut().events.extend(events);
+    h.run_steps(1);
+}
+
+#[test]
+fn a_pen_stroke_records_its_pressure_at_every_point() {
+    let mut h = harness(|app| app.set_option("quick", "ink").unwrap());
+    let (a, b) = (at(&h, 40.0, 60.0), at(&h, 200.0, 140.0));
+    h.hover_at(a);
+    h.run_steps(1);
+    pen_frame(&mut h, egui::TouchPhase::Start, a, 0.1);
+    for k in 1..=8 {
+        pen_frame(&mut h, egui::TouchPhase::Move, a + (b - a) * (k as f32 / 8.0), 0.1 * k as f32);
+    }
+    let (points, pressure) = drawn_pressure(&h).expect("drawing");
+    assert!(points >= 5, "the stroke has points: {points}");
+    assert_eq!(pressure.len(), points, "one pressure per point");
+    assert!(pressure.windows(2).all(|w| w[0] <= w[1]), "pressing harder raises the pressure: {pressure:?}");
+    assert!(*pressure.last().unwrap() > 0.7, "{pressure:?}");
+    pen_frame(&mut h, egui::TouchPhase::End, b, 0.0);
+    h.run_steps(3);
+    assert!(drawn_pressure(&h).is_none(), "the stroke ended");
+    assert_eq!(comments(&h).iter().filter(|c| c.subtype == "Ink").count(), 1, "the stroke is saved as ink");
+    // The saved drawing keeps a pressure for every point (read back from the document's bytes).
+    let bytes = h.state().session.get(h.state().views[0].id).unwrap().bytes.as_ref().clone();
+    let doc = pdfcraft_cos::Document::open(std::sync::Arc::new(bytes)).unwrap();
+    let ink = doc
+        .object_numbers()
+        .into_iter()
+        .filter_map(|n| doc.try_get(n).ok())
+        .filter_map(|o| o.as_dict().cloned())
+        .find(|d| d.name(b"Subtype") == Some(b"Ink"))
+        .expect("an ink annotation");
+    let count = |key: &[u8]| -> Vec<usize> {
+        ink.get(key).and_then(|o| o.as_array()).expect("an array").iter().map(|s| s.as_array().map_or(0, Vec::len)).collect()
+    };
+    let saved = count(b"PCPressure");
+    assert_eq!(saved, count(b"InkList").iter().map(|n| n / 2).collect::<Vec<_>>(), "one pressure per point");
+
+    // A mouse stroke has no pressure: its preview keeps the chosen width.
+    let (c, d) = (at(&h, 40.0, 30.0), at(&h, 200.0, 30.0));
+    h.hover_at(c);
+    h.run_steps(1);
+    h.drag_at(c);
+    h.run_steps(1);
+    for k in 1..=4 {
+        h.hover_at(c + (d - c) * (k as f32 / 4.0));
+        h.run_steps(1);
+    }
+    let (points, pressure) = drawn_pressure(&h).expect("drawing");
+    assert!(points >= 2 && pressure.is_empty(), "{points} points, pressure {pressure:?}");
+    h.drop_at(d);
+    h.run_steps(3);
+}
+
 fn drawn_points(h: &Harness<'static, PdfCraftApp>) -> usize {
     match &h.state().views[0].comments.gesture {
         Some(pdfcraft_ui_egui::comments::Gesture::Draw { points, .. }) => points.len(),
