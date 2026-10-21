@@ -1009,11 +1009,19 @@ fn set_default_layer_state(cos: &mut pdfcraft_cos::Document, layers: &[Layer]) {
     cos.set(root_ref, Object::Dict(root));
 }
 
+/// The configuration of the pool that draws the viewer: the document's own, plus installed CJK
+/// fonts for fonts a PDF does not embed (`RenderConfig::system_fonts`). Exports, printing, OCR and
+/// the automation tools render with the document's configuration itself, so nothing drawn with an
+/// installed font is saved or printed (AGENTS.md §1.2, §1.4).
+fn display_config(config: &RenderConfig) -> RenderConfig {
+    RenderConfig { system_fonts: true, ..config.clone() }
+}
+
 /// Render `doc` with the layer visibility in its `info.layers`.
 fn use_layer_choices(doc: &mut Document) {
     let overrides: Vec<(i32, i32, bool)> = doc.info.layers.iter().map(|l| (l.id.0 as i32, l.id.1 as i32, l.visible)).collect();
     doc.config.layers = Arc::new(overrides);
-    doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+    doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
 }
 
 /// Apply a set-layer-visibility action to `layers`, one change at a time, so a toggle flips the
@@ -3580,7 +3588,7 @@ impl Session {
         let sig_cache = Arc::new(pdfcraft_sign::DigestCache::default());
         let signatures = editor.as_ref().map(|e| signatures_of(&e.cos, &bytes, trust, &sig_cache)).unwrap_or_default();
         let display = display_bytes(editor.as_mut(), &bytes);
-        let renderer = RenderPool::new(display.clone(), render_threads(), config.clone());
+        let renderer = RenderPool::new(display.clone(), render_threads(), display_config(&config));
         let (form, adopted) = editor
             .as_ref()
             .map(|e| {
@@ -3962,7 +3970,7 @@ impl Session {
         let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache) };
         doc.display = display_bytes(Some(editor), &bytes);
         doc.signatures = Arc::new(signatures);
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         doc.bytes = bytes;
         Ok(())
     }
@@ -4007,7 +4015,7 @@ impl Session {
         let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache) };
         doc.display = display_bytes(Some(editor), &bytes);
         doc.signatures = Arc::new(signatures);
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         doc.bytes = bytes;
         doc.fonts_stale = true;
         Ok(())
@@ -4032,7 +4040,7 @@ impl Session {
     /// After a refresh failed: draw the display bytes it left (the original, once released),
     /// so the page still shows a document.
     fn show_released(doc: &mut Document) {
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
     }
 
     /// Rebuild working bytes, inspection and renderer from the current edit state.
@@ -4082,7 +4090,7 @@ impl Session {
         let signatures = signatures_of(&editor.cos, &bytes, &doc.trust, &doc.sig_cache);
         doc.display = display_bytes(Some(editor), &bytes);
         doc.signatures = Arc::new(signatures);
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         doc.bytes = bytes;
         Ok(())
     }
@@ -4795,7 +4803,7 @@ impl Session {
             return false;
         }
         doc.config.hide_comments = hide;
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         doc.generation += 1;
         true
     }
@@ -4808,7 +4816,7 @@ impl Session {
             return false;
         }
         doc.config.reading_colors = colors;
-        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+        doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         doc.generation += 1;
         true
     }
@@ -4844,7 +4852,7 @@ impl Session {
             let signatures = if doc.signatures.is_empty() { Vec::new() } else { signatures_of(&editor.cos, &doc.bytes, &doc.trust, &doc.sig_cache) };
             doc.display = display_bytes(Some(editor), &doc.bytes);
             doc.signatures = Arc::new(signatures);
-            doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), doc.config.clone());
+            doc.renderer = RenderPool::new(doc.display.clone(), render_threads(), display_config(&doc.config));
         }
     }
 
