@@ -166,3 +166,9 @@ fn hostile_bytes_never_panic() {
         }
     }
 }
+
+#[test]
+fn page_count_without_converting() {
+    assert_eq!(page_count(&sample(), None), Ok(2));
+    assert_eq!(page_count(b"hello", None), Err(Error::NotPdf));
+}

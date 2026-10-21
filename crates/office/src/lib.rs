@@ -239,14 +239,28 @@ pub fn convert(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted
     })
 }
 
-fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted, Error> {
-    let data = Arc::new(bytes.to_vec());
-    let password = opts.password.as_deref();
-    let cos = pdfcraft_cos::Document::open_with_password(data, password).map_err(|e| match e {
+/// How many pages the PDF in `bytes` has, without converting it (to check a page range first).
+pub fn page_count(bytes: &[u8], password: Option<&str>) -> Result<usize, Error> {
+    if bytes.len() > MAX_INPUT_BYTES {
+        return Err(Error::TooLarge);
+    }
+    if !is_pdf(bytes) {
+        return Err(Error::NotPdf);
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| open(bytes, password).map(|cos| pdfcraft_model::pages(&cos).len())))
+        .unwrap_or_else(|_| Err(Error::Damaged("the page tree could not be read".into())))
+}
+
+fn open(bytes: &[u8], password: Option<&str>) -> Result<pdfcraft_cos::Document, Error> {
+    pdfcraft_cos::Document::open_with_password(Arc::new(bytes.to_vec()), password).map_err(|e| match e {
         pdfcraft_cos::CosError::NeedsPassword => Error::NeedsPassword,
         pdfcraft_cos::CosError::WrongPassword => Error::WrongPassword,
         other => Error::Damaged(other.to_string()),
-    })?;
+    })
+}
+
+fn convert_unguarded(bytes: &[u8], target: Target, opts: &Options) -> Result<Converted, Error> {
+    let cos = open(bytes, opts.password.as_deref())?;
     let boxes = page_boxes(&cos);
     let page_count = boxes.len();
     if let Some(only) = &opts.pages
