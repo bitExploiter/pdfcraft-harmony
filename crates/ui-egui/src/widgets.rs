@@ -25,12 +25,12 @@ fn dialog_frame(ctx: &egui::Context) -> egui::Frame {
 
 /// A modal with the card fill, a 10-point corner and room around its contents.
 pub fn modal(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug) -> egui::Modal {
-    egui::Modal::new(egui::Id::new(id)).frame(dialog_frame(ctx))
+    egui::Modal::new(crate::window_id(ctx, id)).frame(dialog_frame(ctx))
 }
 
 /// Show [`modal`], outline its controls, and remember the card rect for layout checks.
 pub fn show_modal<R>(ctx: &egui::Context, id: &str, content: impl FnOnce(&mut egui::Ui) -> R) -> egui::ModalResponse<R> {
-    let stored = egui::Id::new(id);
+    let stored = crate::window_id(ctx, id);
     modal(ctx, id).show(ctx, |ui| {
         begin_dialog(ui);
         let inner = content(ui);
@@ -388,9 +388,10 @@ pub fn toast(app: &mut PdfCraftApp, ctx: &egui::Context) {
     let t = Tokens::get(ctx);
     let screen = ctx.content_rect();
     // Above the progress notice while a job runs.
-    let card = if app.progress_notice.is_some() { ctx.data(|d| d.get_temp::<f32>(egui::Id::new(PROGRESS_HEIGHT))).unwrap_or(0.0) } else { 0.0 };
+    let progress_height_id = crate::window_id(ctx, PROGRESS_HEIGHT);
+    let card = if app.progress_notice.is_some() { ctx.data(|d| d.get_temp::<f32>(progress_height_id)).unwrap_or(0.0) } else { 0.0 };
     let lift = if card > 0.0 { 28.0 + card + 10.0 } else { 28.0 };
-    egui::Area::new(egui::Id::new("toast"))
+    egui::Area::new(crate::window_id(ctx, "toast"))
         .order(egui::Order::Tooltip)
         .pivot(Align2::CENTER_BOTTOM)
         .fixed_pos(screen.center_bottom() - vec2(0.0, lift))
@@ -443,10 +444,10 @@ pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
     };
     let fraction = if p.fraction.is_finite() { p.fraction.clamp(0.0, 1.0) } else { 0.0 };
     let animated = crate::motion::animated(ctx);
-    let shown = ctx.animate_value_with_time(egui::Id::new("progress-notice-bar"), fraction, if animated { 0.3 } else { 0.0 });
+    let shown = ctx.animate_value_with_time(crate::window_id(ctx, "progress-notice-bar"), fraction, if animated { 0.3 } else { 0.0 });
     let now = ctx.input(|i| i.time);
     let mut cancel = false;
-    let area = egui::Area::new(egui::Id::new("progress-notice"))
+    let area = egui::Area::new(crate::window_id(ctx, "progress-notice"))
         .order(egui::Order::Tooltip)
         .pivot(Align2::CENTER_BOTTOM)
         .fixed_pos(screen.center_bottom() - vec2(0.0, 28.0))
@@ -494,7 +495,8 @@ pub fn progress_notice(app: &PdfCraftApp, ctx: &egui::Context) -> bool {
                 }
             });
         });
-    ctx.data_mut(|d| d.insert_temp(egui::Id::new(PROGRESS_HEIGHT), area.response.rect.height()));
+    let height_id = crate::window_id(ctx, PROGRESS_HEIGHT);
+    ctx.data_mut(|d| d.insert_temp(height_id, area.response.rect.height()));
     ctx.request_repaint_after(std::time::Duration::from_millis(33));
     cancel
 }

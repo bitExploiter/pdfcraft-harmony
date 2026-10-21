@@ -921,7 +921,7 @@ fn skip_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
         left_out.push((f.name.as_str(), f.problem.as_deref().unwrap_or_default()));
     }
     let mut choice: Option<bool> = None;
-    let modal = egui::Modal::new(egui::Id::new("combine-skip")).show(ctx, |ui| {
+    let modal = egui::Modal::new(crate::window_id(ctx, "combine-skip")).show(ctx, |ui| {
         ui.set_width(460.0);
         ui.horizontal(|ui| {
             ui.add(icons::image("triangle-alert", 22.0, ERROR));
@@ -978,7 +978,7 @@ fn unlock_prompt(app: &mut PdfCraftApp, ctx: &egui::Context) {
     };
     let batch = files.len() > 1;
     let (mut submit, mut cancel) = (false, false);
-    let area = egui::Area::new(egui::Id::new("combine-unlock")).order(egui::Order::Foreground).fixed_pos(prompt.at).show(ctx, |ui| {
+    let area = egui::Area::new(crate::window_id(ctx, "combine-unlock")).order(egui::Order::Foreground).fixed_pos(prompt.at).show(ctx, |ui| {
         egui::Frame::popup(ui.style()).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
             ui.set_width(340.0);
             ui.horizontal(|ui| {

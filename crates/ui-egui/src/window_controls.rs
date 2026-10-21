@@ -203,7 +203,7 @@ pub fn resize_edges(ctx: &egui::Context) {
     }
     let screen = ctx.content_rect();
     let t = Tokens::get(ctx);
-    egui::Area::new(egui::Id::new("window_resize_edges"))
+    egui::Area::new(crate::window_id(ctx, "window_resize_edges"))
         .order(egui::Order::Foreground)
         .fixed_pos(screen.min)
         .pivot(Align2::LEFT_TOP)

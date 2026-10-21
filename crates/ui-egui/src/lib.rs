@@ -152,6 +152,17 @@ pub mod window_state;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod open_worker_tests;
 
+#[cfg(test)]
+mod window_isolation_tests;
+
+/// Persistent widget data is shared by egui viewports even though input and focus are not.
+/// Keep existing root-window IDs for saved UI state, and namespace every additional window.
+pub(crate) fn window_id(ctx: &egui::Context, salt: impl std::hash::Hash + std::fmt::Debug) -> egui::Id {
+    let id = egui::Id::new(salt);
+    let viewport = ctx.viewport_id();
+    if viewport == egui::ViewportId::ROOT { id } else { id.with(viewport) }
+}
+
 use pdfcraft_engine::{DocId, Session};
 
 pub use canvas::{DocView, RasterMemory};

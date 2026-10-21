@@ -224,7 +224,7 @@ impl PdfCraftApp {
             "view.focus_page_input" => {
                 if let (Some(ctx), Some(view)) = (self.ctx.clone(), active.and_then(|i| self.views.get_mut(i))) {
                     // The page box in the toolbar (chrome.rs); select its label so typing replaces it.
-                    let id = view.page_input_id();
+                    let id = view.page_input_id(&ctx);
                     if !ctx.memory(|m| m.has_focus(id))
                         && let Some(doc) = self.session.get(view.id)
                     {

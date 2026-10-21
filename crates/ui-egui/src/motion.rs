@@ -120,7 +120,8 @@ impl Motion {
         let motion = ctx.input(|i| self.wheel.read(&i.events, i.viewport_rect().height(), &options));
         ctx.input_mut(|i| i.smooth_scroll_delta = motion.scroll);
         let pass = ctx.cumulative_pass_nr();
-        ctx.data_mut(|d| d.insert_temp(zoom_id(), (pass, motion.zoom)));
+        let id = zoom_id(ctx);
+        ctx.data_mut(|d| d.insert_temp(id, (pass, motion.zoom)));
     }
 
     /// egui's animations, and its scrolling to a place, take no time unless the window is to
@@ -148,14 +149,15 @@ pub(crate) fn animated(ctx: &egui::Context) -> bool {
     ctx.global_style().animation_time > 0.0
 }
 
-fn zoom_id() -> egui::Id {
-    egui::Id::new("pdfcraft-motion-wheel-zoom")
+fn zoom_id(ctx: &egui::Context) -> egui::Id {
+    crate::window_id(ctx, "pdfcraft-motion-wheel-zoom")
 }
 
 /// This pass's zoom factor from a pinch or ⌘/Ctrl with the wheel (1.0 for none): egui's
 /// `zoom_delta`, without the easing while animation effects are off.
 pub(crate) fn zoom_delta(ctx: &egui::Context) -> f32 {
-    let read: Option<(u64, f32)> = ctx.data(|d| d.get_temp(zoom_id()));
+    let id = zoom_id(ctx);
+    let read: Option<(u64, f32)> = ctx.data(|d| d.get_temp(id));
     let pass = ctx.cumulative_pass_nr();
     ctx.input(|i| match read {
         // Only what [`Motion::begin_pass`] read in this very pass: a factor left from an earlier
