@@ -236,3 +236,24 @@ fn list_items_are_paragraphs() {
     ]);
     assert_eq!(p.len(), 5, "{p:?}");
 }
+
+#[test]
+fn a_table_row_does_not_run_into_the_paragraph_above() {
+    // A paragraph line, then a header row of three cells on one baseline.
+    let content = "BT /F1 11 Tf 72 700 Td (The table below lists the prices for the season.) Tj ET \
+        BT /F1 11 Tf 72 686 Td (Item) Tj ET BT /F1 11 Tf 200 686 Td (Size) Tj ET BT /F1 11 Tf 300 686 Td (Price) Tj ET";
+    let blocks = crate::reading_blocks_checked(&text_page(content), 0).unwrap().blocks;
+    let texts: Vec<&str> = blocks.iter().map(|b| b.text.as_str()).collect();
+    assert!(texts.contains(&"The table below lists the prices for the season."), "{texts:?}");
+}
+
+#[test]
+fn two_columns_of_text_keep_their_paragraphs() {
+    // Lines of two columns share baselines (drawn a column at a time): neither column's rows are
+    // table cells.
+    let content = "BT /F1 11 Tf 72 700 Td (Left column first line) Tj ET BT /F1 11 Tf 72 686 Td (left column second line) Tj ET \
+        BT /F1 11 Tf 320 700 Td (Right column first line) Tj ET BT /F1 11 Tf 320 686 Td (right column second line) Tj ET";
+    let blocks = crate::reading_blocks_checked(&text_page(content), 0).unwrap().blocks;
+    let texts: Vec<&str> = blocks.iter().map(|b| b.text.as_str()).collect();
+    assert!(texts.contains(&"Left column first line left column second line"), "{texts:?}");
+}

@@ -17,7 +17,7 @@
 "justified.docx" = 1.000
 "justified.docx/paragraphs" = 1.000
 "landscape.docx" = 1.000
-"landscape.docx/paragraphs" = 0.888
+"landscape.docx/paragraphs" = 1.000
 "letter.docx" = 1.000
 "letter.docx/paragraphs" = 1.000
 "lists.docx" = 1.000
@@ -29,6 +29,6 @@
 "styled.docx" = 1.000
 "styled.docx/paragraphs" = 1.000
 "table.docx" = 1.000
-"table.docx/paragraphs" = 0.888
+"table.docx/paragraphs" = 1.000
 "turkish.docx" = 1.000
 "turkish.docx/paragraphs" = 1.000

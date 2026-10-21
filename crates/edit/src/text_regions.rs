@@ -122,7 +122,8 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         }
     }
     if !mixed {
-        groups = groups.into_iter().flat_map(|g| split_paragraphs(g, lines)).collect();
+        let baselines = Baselines::new(lines);
+        groups = groups.into_iter().flat_map(|g| split_paragraphs(g, lines, &baselines)).collect();
     }
     let mut blocks: Vec<TextBlock> = Vec::new();
     for group in groups {
@@ -196,9 +197,10 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
 }
 
 /// A run of rows [`group_layout`] joined, split where a new paragraph starts: at a row opening
-/// with a bullet or a list number, and where the space above a row is clearly more than the
-/// group's line pitch (space between paragraphs). Two rows alone give no pitch to compare with.
-fn split_paragraphs(group: Vec<Vec<usize>>, lines: &[TextLine]) -> Vec<Vec<Vec<usize>>> {
+/// with a bullet or a list number, where the space above a row is clearly more than the group's
+/// line pitch (space between paragraphs; two rows alone give no pitch to compare with), and at a
+/// row that starts a table row (other text further along its baseline) under one that doesn't.
+fn split_paragraphs(group: Vec<Vec<usize>>, lines: &[TextLine], baselines: &Baselines) -> Vec<Vec<Vec<usize>>> {
     let first_line = |row: &Vec<usize>| row.first().and_then(|i| lines.get(*i));
     // Baseline distance from each row to the one before it (none for the first).
     let gaps: Vec<Option<f64>> = group
@@ -211,17 +213,55 @@ fn split_paragraphs(group: Vec<Vec<usize>>, lines: &[TextLine]) -> Vec<Vec<Vec<u
         })
         .collect();
     let pitch = if group.len() >= 3 { gaps.iter().flatten().copied().reduce(f64::min) } else { None };
+    let cells: Vec<bool> = group.iter().map(|row| baselines.in_table_row(row, lines)).collect();
     let mut out: Vec<Vec<Vec<usize>>> = Vec::new();
     for (k, row) in group.into_iter().enumerate() {
         let size = first_line(&row).map_or(0.0, |l| l.size);
         let spaced = matches!((pitch, gaps.get(k).copied().flatten()), (Some(p), Some(g)) if g > p + (size * 0.25).max(2.0));
         let listed = first_line(&row).is_some_and(|l| starts_list_item(&l.text));
+        let table = cells.get(k).copied().unwrap_or(false) && !k.checked_sub(1).and_then(|p| cells.get(p)).copied().unwrap_or(true);
         match out.last_mut() {
-            Some(block) if !spaced && !listed => block.push(row),
+            Some(block) if !spaced && !listed && !table => block.push(row),
             _ => out.push(vec![row]),
         }
     }
     out
+}
+
+/// The lines by baseline, to find what else sits on a row's baseline without scanning the page.
+struct Baselines {
+    /// `(baseline, line index)`, by baseline.
+    by_y: Vec<(f64, usize)>,
+}
+
+impl Baselines {
+    /// Lines looked at per row: a baseline crowded beyond this (hostile files) is no table row.
+    const MAX_SCAN: usize = 256;
+
+    fn new(lines: &[TextLine]) -> Self {
+        let mut by_y: Vec<(f64, usize)> = lines.iter().enumerate().map(|(i, l)| (l.frame_origin().1, i)).filter(|(y, _)| y.is_finite()).collect();
+        by_y.sort_by(|a, b| a.0.total_cmp(&b.0));
+        Baselines { by_y }
+    }
+
+    /// Is there other text on `row`'s baseline, more than an em past its end: the next cell of a
+    /// table row, or the next column of the page?
+    fn in_table_row(&self, row: &[usize], lines: &[TextLine]) -> bool {
+        let (Some(first), Some(frame)) = (row.first().and_then(|i| lines.get(*i)), frame_row_rect(row, lines)) else { return false };
+        let y = first.frame_origin().1;
+        let tol = first.size.max(1.0);
+        if !y.is_finite() {
+            return false;
+        }
+        let from = self.by_y.partition_point(|(ly, _)| *ly < y - tol * 0.2);
+        self.by_y
+            .get(from..)
+            .unwrap_or_default()
+            .iter()
+            .take_while(|(ly, _)| *ly <= y + tol * 0.2)
+            .take(Self::MAX_SCAN)
+            .any(|(_, i)| !row.contains(i) && lines.get(*i).is_some_and(|l| same_plane(first, l) && l.frame_rect()[0] > frame[2] + tol))
+    }
 }
 
 /// Does a line open a list item: a bullet, or a number or letter and `.` or `)` before a space?
