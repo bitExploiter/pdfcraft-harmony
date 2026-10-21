@@ -646,6 +646,96 @@ fn paper_matching_accepts_rounded_metric_sizes_but_not_custom_or_invalid_sizes()
 }
 
 #[test]
+fn japanese_papers_keep_their_measured_sizes_and_names() {
+    let at = |name: &str| find_paper(name).unwrap_or_else(|| panic!("no paper named {name:?}"));
+    let near = |name: &str, w: f64, h: f64| {
+        let (pw, ph) = PAPERS[at(name)].1;
+        assert!((pw - w).abs() < 0.02 && (ph - h).abs() < 0.02, "{name}: {pw} x {ph}, not {w} x {h}");
+    };
+    // JIS B (JIS X 6310) is not ISO B: the two are separate papers of different sizes.
+    near("B4 (JIS)", 728.50, 1031.81);
+    near("B5 (JIS)", 515.91, 728.50);
+    near("B6 (JIS)", 362.83, 515.91);
+    near("B4", 708.66, 1000.63);
+    near("B5", 498.90, 708.66);
+    // はがき, 往復はがき, 封筒 長形3号/長形4号, 角形2号/角形3号 and 四六判.
+    near("Japanese Postcard", 283.46, 419.53);
+    near("Japanese Double Postcard", 419.53, 566.93);
+    near("Japanese Envelope #3", 340.16, 666.14);
+    near("Japanese Envelope #4", 255.12, 637.80);
+    near("Kaku #2", 680.31, 941.10);
+    near("Kaku #3", 612.28, 785.20);
+    near("Yonroku-ban", 360.0, 532.91);
+    assert_ne!(at("B4"), at("B4 (JIS)"), "a B size without (JIS) is the ISO sheet");
+    assert_ne!(at("B5"), at("B5 (JIS)"));
+
+    // Case, spaces and punctuation do not matter, whether the label or its short name is given.
+    for (name, want) in [
+        ("b5 (jis)", "B5 (JIS)"),
+        ("B5(JIS)", "B5 (JIS)"),
+        ("b5jis", "B5 (JIS)"),
+        ("JapanesePostcard", "Japanese Postcard"),
+        ("japanese postcard", "Japanese Postcard"),
+        ("kaku#2", "Kaku #2"),
+        ("arch d", "ARCH D (24 x 36 in)"),
+        ("ARCHD", "ARCH D (24 x 36 in)"),
+        ("letter", "US Letter"),
+        ("4 x 6 in label", "4 x 6 in label (101.6 x 152.4 mm)"),
+    ] {
+        assert_eq!(PAPERS[at(name)].0, want, "{name}");
+    }
+    assert_eq!(find_paper("ARCH Z"), None);
+    assert_eq!(find_paper(""), None);
+    assert_eq!(find_paper("   "), None);
+    // Every paper is found by its own label, and the CUPS media name of the label still exists.
+    for (i, (name, _)) in PAPERS.iter().enumerate() {
+        assert_eq!(find_paper(name), Some(i), "{name}");
+    }
+    assert_eq!(cups_media(LABEL_PAPER), Some("w288h432"));
+    for (name, media) in [
+        ("A6", "A6"),
+        ("B4 (JIS)", "B4"),
+        ("B5 (JIS)", "B5"),
+        ("B6 (JIS)", "B6"),
+        ("B4", "w709h1001"),
+        ("B5", "w499h709"),
+        ("Japanese Postcard", "w283h420"),
+        ("Japanese Double Postcard", "w420h567"),
+        ("Japanese Envelope #3", "w340h666"),
+        ("Japanese Envelope #4", "w255h638"),
+        ("Kaku #2", "w680h941"),
+        ("Kaku #3", "w612h785"),
+        ("Yonroku-ban", "w360h533"),
+    ] {
+        assert_eq!(cups_media(at(name)), Some(media), "{name}");
+    }
+}
+
+#[test]
+fn printed_sheets_use_the_japanese_paper_as_their_media_box() {
+    let doc = fixture(1);
+    // The sheet the job is laid out on is the printed page's /MediaBox, so a Japanese sheet prints
+    // at its own size rather than being scaled onto the queue's paper.
+    for (name, w, h) in [
+        ("Japanese Postcard", 283.46, 419.53),
+        ("B5 (JIS)", 515.91, 728.50),
+        ("B6 (JIS)", 362.83, 515.91),
+        ("Yonroku-ban", 360.0, 532.91),
+        ("B5", 498.90, 708.66),
+        ("A4", 595.28, 841.89),
+    ] {
+        let paper = PAPERS[find_paper(name).unwrap()].1;
+        let s = Settings { pages: vec![0], paper, layout: Layout::Size(SizeMode::Fit), orientation: Orientation::Portrait, ..Settings::default() };
+        let out = impose(&doc, &s).unwrap();
+        let printed = Document::open(Arc::new(out)).unwrap();
+        let pages = pdfcraft_model::pages(&printed);
+        assert_eq!(pages.len(), 1, "{name}");
+        let (pw, ph) = pages[0].display_size(&printed);
+        assert!((pw - w).abs() < 0.02 && (ph - h).abs() < 0.02, "{name}: {pw} x {ph}, not {w} x {h}");
+    }
+}
+
+#[test]
 fn label_is_cut_turned_upright_and_fitted_without_distortion() {
     let label = LABEL_PAPER;
     assert_eq!(PAPERS[label].0, "4 x 6 in label (101.6 x 152.4 mm)");

@@ -2,7 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
-> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
+> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-21 · **Change:** minor (M10: the Print dialog and doc_print offer the Japanese papers — JIS B4 257 × 364 mm, B5 182 × 257 mm and B6 128 × 182 mm beside the ISO B4/B5, はがき, 往復はがき, 封筒 長形3号/長形4号, 角形2号/角形3号 and 四六判, each printing as a PDF page of its own size; a paper is named by its label and its short name, any case and spacing); previously minor: M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M6: CSV tab-containing headers; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M3, #3149: discard render demand after page geometry changes and check the GPU texture limit before upload; estimates unchanged)
@@ -171,6 +171,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-21 (M10, Print):** The Print dialog and doc_print offer the Japanese paper sizes — JIS B4 257 × 364 mm, JIS B5 182 × 257 mm and JIS B6 128 × 182 mm next to the ISO B4/B5, はがき 100 × 148 mm, 往復はがき 148 × 200 mm, 封筒 長形3号 120 × 235 mm and 長形4号 90 × 225 mm, 角形2号 240 × 332 mm and 角形3号 216 × 277 mm, and 四六判 127 × 188 mm. Each prints as a PDF page of its own size (the job's /MediaBox) and the spooler is asked for that sheet (JIS B4/B5/B6 by their PPD names, the others as custom point sizes); a paper is named by its label, its short name, any case and spacing. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
@@ -552,6 +554,7 @@ Newest first: the date, what moved, and the new overall estimate.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | minor | M10: Japanese paper sizes in the Print dialog and doc_print — JIS B4/B5/B6 next to ISO B4/B5, はがき, 往復はがき, 封筒 長形3号/長形4号, 角形2号/角形3号 and 四六判; each prints as its own /MediaBox and is named by label or short name, any case and spacing. Estimates unchanged. |
 | 2026-10-18 | minor | M5, PR #1971: nested source `/Page` and `/Pages` dictionaries export as null without traversing page content or the page tree. Synthetic saved/reopened three-page regression retains unrelated metadata and aliases. FDF import semantics, copied-graph limits and estimates unchanged. |
 | 2026-10-15 | minor | M5: budget retained FDF entries before cloning; discovery keeps lazy array owners and annotation positions, with alias/cache-eviction stress fixtures. Limits cover the copied graph; source parsing/page discovery retain existing COS/parser limits, with no total source-memory bound. FDF import semantics and estimates unchanged. |
 | 2026-10-15 | minor | M7: the Edit text caret is as tall as the row it is on in a region with several sizes; estimates unchanged. |
