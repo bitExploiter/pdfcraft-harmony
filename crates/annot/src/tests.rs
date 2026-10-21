@@ -1193,13 +1193,33 @@ fn drawings_resize_by_scaling_their_strokes() {
 /// drawn). A comment another program drew with a font that has those characters keeps that
 /// appearance: a restyle is refused rather than replace it with `?`, while new text is taken.
 #[test]
+fn japanese_comment_text_is_drawn_with_the_japanese_face() {
+    if pdfcraft_fonts::document_japanese_font().is_none() {
+        eprintln!("skipping: built without craft-fonts (set CRAFT_FONTS_DIR)");
+        return;
+    }
+    let mut doc = fixture();
+    let mut boxed = new(0, Shape::TextBox { rect: [100.0, 600.0, 300.0, 650.0], font_size: 12.0 });
+    boxed.contents = "記入テスト Ada".into();
+    let t = add_annotation(&mut doc, &boxed, &meta("t")).unwrap();
+    let ap = ap_content(&doc, &list(&doc, 0)[t]);
+    // The kana and kanji are outlines; the Latin stays Helvetica text; nothing is `?`.
+    assert!(!ap.contains('?'), "{ap}");
+    assert!(ap.contains("( Ada) Tj"), "{ap}");
+    assert_eq!(ap.matches("f Q").count(), 5, "{ap}");
+    assert_eq!(pdfcraft_fonts::undrawn_mark(&list(&doc, 0)[t]), None);
+    assert_eq!(text(&list(&doc, 0)[t], b"Contents"), "記入テスト Ada");
+}
+
+#[test]
 fn comment_text_the_standard_fonts_cannot_draw_is_kept_and_marked() {
     let mut doc = fixture();
     let mark = |doc: &Document, i: usize| pdfcraft_fonts::undrawn_mark(&list(doc, 0)[i]);
     let mut boxed = new(0, Shape::TextBox { rect: [100.0, 600.0, 300.0, 650.0], font_size: 12.0 });
-    boxed.contents = "签名 Ada".into();
+    // Simplified-only characters: the Japanese face (when built in) has neither.
+    boxed.contents = "签欢 Ada".into();
     let t = add_annotation(&mut doc, &boxed, &meta("t")).unwrap();
-    assert_eq!(text(&list(&doc, 0)[t], b"Contents"), "签名 Ada");
+    assert_eq!(text(&list(&doc, 0)[t], b"Contents"), "签欢 Ada");
     assert!(ap_content(&doc, &list(&doc, 0)[t]).contains("(?? Ada)"), "{}", ap_content(&doc, &list(&doc, 0)[t]));
     assert_eq!(mark(&doc, t), Some('签'));
     let typed = Shape::Typewriter { rect: [100.0, 700.0, 200.0, 716.0], font_size: 11.0 };

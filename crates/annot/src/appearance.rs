@@ -9,10 +9,22 @@
 //! The note icons are PdfCraft's own drawings (AGENTS.md §1). Text boxes use the standard
 //! Helvetica font with WinAnsi encoding; line breaking uses [`text_width`], an approximation of
 //! Helvetica's proportions by character class (no font program or metrics file is bundled).
+//! Japanese in a text box is drawn as outlines of the craft-fonts Gothic face when the build has it.
 
 use pdfcraft_cos::{Dict, Object, PdfString, Stream};
-use pdfcraft_fonts::{first_undrawable, literal, win_ansi};
-pub use pdfcraft_fonts::{helvetica_width as text_width, wrap};
+use pdfcraft_fonts::helvetica_width;
+use pdfcraft_fonts::{first_undrawable, first_undrawable_with_japanese, literal, win_ansi};
+
+/// The advance of `s` at `size` points in a text box: Helvetica, and the craft-fonts Japanese face
+/// for the Japanese it draws (see [`build`]). Callers size text boxes and Fill & Sign text with it.
+pub fn text_width(s: &str, size: f64) -> f64 {
+    pdfcraft_fonts::helvetica_japanese_width(s, size)
+}
+
+/// Greedy line breaking within `width` points as a text box breaks its text ([`text_width`]).
+pub fn wrap(text: &str, size: f64, width: f64) -> Vec<String> {
+    pdfcraft_fonts::wrap_with(text, size, width, text_width)
+}
 
 use crate::{NOTE_SIZE, Rgb, n};
 
@@ -283,7 +295,7 @@ fn text_turn(d: &Dict) -> i64 {
 pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
     let text = |key: &[u8]| d.get(key).and_then(Object::as_string).map(PdfString::to_text);
     let (what, text) = match d.name(b"Subtype")? {
-        b"FreeText" => ("the comment's text", text(b"Contents")?),
+        b"FreeText" => return first_undrawable_with_japanese(&text(b"Contents")?).map(|c| ("the comment's text", c)),
         b"Line" | b"PolyLine" | b"Polygon" => ("the measurement label", text(b"PCMeasureValue")?),
         b"Stamp" if matches!(d.get(b"PCStamp"), Some(Object::Bool(true))) => ("the stamp's \"By\" line", text(b"PCByLine")?),
         // Drawn in Helvetica when the redaction is applied: refused when it is marked.
@@ -735,16 +747,17 @@ pub fn build(d: &Dict) -> Option<Stream> {
             let pad = 2.0 + bw;
             let width = (rect[2] - rect[0] - 2.0 * pad).max(1.0);
             let q = d.int(b"Q").unwrap_or(0);
-            c.push_str(&format!(
-                "{} {} {} {} re W n\nBT\n/Helv {} Tf\n{}",
-                n(rect[0]),
-                n(rect[1]),
-                n(rect[2] - rect[0]),
-                n(rect[3] - rect[1]),
-                n(size),
-                rg(text_color)
-            ));
+            // Japanese is drawn as outlines between text runs, which can't sit inside one text
+            // object; text without it keeps the single text object it always had.
+            let japanese = pdfcraft_fonts::needs_japanese(&text);
+            c.push_str(&format!("{} {} {} {} re W n\n", n(rect[0]), n(rect[1]), n(rect[2] - rect[0]), n(rect[3] - rect[1])));
+            if japanese {
+                c.push_str(&rg(text_color));
+            } else {
+                c.push_str(&format!("BT\n/Helv {} Tf\n{}", n(size), rg(text_color)));
+            }
             let mut out = c.into_bytes();
+            let mut glyphs = std::collections::HashMap::new();
             let mut y = rect[3] - pad - size * 0.9;
             for line in wrap(&text, size, width) {
                 if y < rect[1] - size {
@@ -756,12 +769,18 @@ pub fn build(d: &Dict) -> Option<Stream> {
                     2 => rect[2] - pad - lw,
                     _ => rect[0] + pad,
                 };
-                out.extend(format!("1 0 0 1 {} {} Tm ", n(x), n(y)).bytes());
-                out.extend(literal(&win_ansi(&line)));
-                out.extend_from_slice(b" Tj\n");
+                if japanese {
+                    out.extend(pdfcraft_fonts::helvetica_japanese_line(&line, "Helv", size, x, y, &mut glyphs));
+                } else {
+                    out.extend(format!("1 0 0 1 {} {} Tm ", n(x), n(y)).bytes());
+                    out.extend(literal(&win_ansi(&line)));
+                    out.extend_from_slice(b" Tj\n");
+                }
                 y -= size * 1.2;
             }
-            out.extend_from_slice(b"ET\n");
+            if !japanese {
+                out.extend_from_slice(b"ET\n");
+            }
             let mut font = Dict::new();
             font.set(b"Type".to_vec(), Object::name("Font"));
             font.set(b"Subtype".to_vec(), Object::name("Type1"));
@@ -785,7 +804,7 @@ pub fn build(d: &Dict) -> Option<Stream> {
         let value = value.to_text();
         if value.chars().count() <= 256 && matches!(subtype.as_slice(), b"Line" | b"PolyLine" | b"Polygon") {
             let size = 10.0;
-            let x = (rect[0] + rect[2] - text_width(&value, size)) * 0.5;
+            let x = (rect[0] + rect[2] - helvetica_width(&value, size)) * 0.5;
             let y = rect[3] - 12.0;
             let col = stroke.unwrap_or([0.0, 0.47, 0.84]);
             out.extend(format!("{}BT /Helv {} Tf {} {} Td ", rg(col), n(size), n(x), n(y)).bytes());
@@ -886,11 +905,11 @@ fn stamp(kind: crate::StampKind, rect: [f64; 4], col: Rgb, by: Option<&str>, opa
     let (title_h, by_h) = if by.is_some() { (h * 0.5, h * 0.22) } else { (h * 0.52, 0.0) };
     let text_area = if kind.group() == crate::StampGroup::SignHere { (x0 + h * 0.45, x1 - lw * 2.0) } else { (x0 + lw * 2.0, x1 - lw * 2.0) };
     let mut size = title_h;
-    let tw = text_width(label, size) * 1.12;
+    let tw = helvetica_width(label, size) * 1.12;
     if tw > text_area.1 - text_area.0 - 4.0 {
         size *= (text_area.1 - text_area.0 - 4.0) / tw;
     }
-    let tw = text_width(label, size) * 1.12;
+    let tw = helvetica_width(label, size) * 1.12;
     let text_col = if kind.group() == crate::StampGroup::SignHere { [1.0, 1.0, 1.0] } else { col };
     let ty = if by.is_some() { y0 + h * 0.48 } else { y0 + (h - size * 0.72) / 2.0 };
     let mut out = c.into_bytes();
@@ -902,11 +921,11 @@ fn stamp(kind: crate::StampKind, rect: [f64; 4], col: Rgb, by: Option<&str>, opa
     out.extend_from_slice(b" Tj\n");
     if let Some(b) = by {
         let mut s = by_h;
-        let bw = text_width(b, s);
+        let bw = helvetica_width(b, s);
         if bw > text_area.1 - text_area.0 - 4.0 {
             s *= (text_area.1 - text_area.0 - 4.0) / bw;
         }
-        let bw = text_width(b, s);
+        let bw = helvetica_width(b, s);
         out.extend(
             format!("/Helv {} Tf\n1 0 0 1 {} {} Tm ", n(s), n(text_area.0 + (text_area.1 - text_area.0 - bw) / 2.0), n(y0 + h * 0.18)).bytes(),
         );

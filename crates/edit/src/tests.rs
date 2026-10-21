@@ -2753,9 +2753,10 @@ fn header_and_watermark_drawability_matches_what_applying_refuses() {
 fn page_text_the_standard_fonts_cant_draw_is_refused() {
     let mut doc = fixture();
     let before: Vec<Vec<String>> = (0..3).map(|p| streams(&reopen(&doc), p)).collect();
-    let text = AddedText { rect: [72.0, 600.0, 300.0, 700.0], text: "日本語のテキスト".into(), ..AddedText::default() };
+    // Simplified Chinese: Japanese is drawn with the craft-fonts face when built in, 欢 by nothing.
+    let text = AddedText { rect: [72.0, 600.0, 300.0, 700.0], text: "欢迎".into(), ..AddedText::default() };
     let err = add_content(&mut doc, 0, &Content::Text(text)).unwrap_err().to_string();
-    assert!(err.contains("\"日\" (U+65E5)"), "{err}");
+    assert!(err.contains("\"欢\" (U+6B22)"), "{err}");
     let hf = HeaderFooter {
         text: ["Ελληνικά".into(), String::new(), String::new(), String::new(), String::new(), String::new()],
         ..HeaderFooter::default()
@@ -2770,8 +2771,8 @@ fn page_text_the_standard_fonts_cant_draw_is_refused() {
     add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap();
     // Retyping existing text is refused the same way, and the whole document is left as it was.
     let saved = write_incremental(&doc, &SaveOptions::default()).unwrap();
-    let retyped = AddedText { text: "Café 中".into(), ..text.clone() };
-    assert!(update_content(&mut doc, 0, 0, &Content::Text(retyped)).unwrap_err().to_string().contains("U+4E2D"));
+    let retyped = AddedText { text: "Café 欢".into(), ..text.clone() };
+    assert!(update_content(&mut doc, 0, 0, &Content::Text(retyped)).unwrap_err().to_string().contains("U+6B22"));
     assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), saved, "a refused update changes nothing");
     // A carriage return is checked where it would be drawn: added text splits on LF only, so
     // CRLF would leave a `?`; headers and watermarks split CRLF into lines, but not a lone CR.
@@ -2788,13 +2789,13 @@ fn page_text_the_standard_fonts_cant_draw_is_refused() {
     let arabic = |text: &str| AddedText { rect: [72.0, 600.0, 300.0, 700.0], text: text.into(), ..AddedText::default() };
     // U+061C is in the Arabic block but is a direction mark that's dropped, not shaped: it never
     // makes text drawable, nor (with the face) undrawable.
-    assert!(add_content(&mut doc, 0, &Content::Text(arabic("\u{061C}中"))).is_err());
+    assert!(add_content(&mut doc, 0, &Content::Text(arabic("\u{061C}欢"))).is_err());
     if pdfcraft_fonts::arabic_has('م') {
         add_content(&mut doc, 0, &Content::Text(arabic("مرحبا Hello"))).unwrap();
         add_content(&mut doc, 0, &Content::Text(arabic("\u{061C}Hello"))).unwrap();
-        for text in ["مرحبا 中", "\u{061C}中"] {
+        for text in ["مرحبا 欢", "\u{061C}欢"] {
             let err = add_content(&mut doc, 0, &Content::Text(arabic(text))).unwrap_err().to_string();
-            assert!(err.contains("U+4E2D"), "{text:?}: {err}");
+            assert!(err.contains("U+6B22"), "{text:?}: {err}");
         }
     } else {
         // #403's own refusal says what's missing; the Add-text editor still keeps the draft.
@@ -2805,8 +2806,8 @@ fn page_text_the_standard_fonts_cant_draw_is_refused() {
         // the standard font would write as `?`.
         let n = list_added(&doc).iter().filter(|a| a.page == 0).count();
         add_content(&mut doc, 0, &Content::Text(arabic("x"))).unwrap();
-        let err = update_content(&mut doc, 0, n, &Content::Text(arabic("ب中"))).unwrap_err().to_string();
-        assert!(err.contains("U+4E2D"), "{err}");
+        let err = update_content(&mut doc, 0, n, &Content::Text(arabic("ب欢"))).unwrap_err().to_string();
+        assert!(err.contains("U+6B22"), "{err}");
         update_content(&mut doc, 0, n, &Content::Text(arabic("ب"))).unwrap();
     }
 }
@@ -3123,13 +3124,46 @@ fn added_thai_text_wraps_clusters_and_survives_reopen() {
     assert_eq!(super::added::lines(&narrow), ["กิ่", "กิ่", "กิ่"]);
     update_content(&mut doc, 0, 0, &Content::Text(AddedText { text: "แก้ไข น้ำ".into(), ..t.clone() })).unwrap();
     assert!(!own(&doc, 0).is_empty());
-    let bad = Content::Text(AddedText { text: "ไทย 日".into(), ..t });
+    // 欢 is Simplified Chinese only: neither the standard fonts nor the Japanese face draw it.
+    let bad = Content::Text(AddedText { text: "ไทย 欢".into(), ..t });
     let before = list_added(&doc);
     assert!(update_content(&mut doc, 0, 0, &bad).is_err());
     assert_eq!(list_added(&doc), before);
     delete_content(&mut doc, 0, 0).unwrap();
     assert!(list_added(&doc).is_empty());
     assert!(arabic_font_names(&doc, 0).is_empty());
+}
+
+#[test]
+fn added_japanese_text_is_drawn_with_the_japanese_face_and_wraps_between_characters() {
+    let mut doc = fixture();
+    let t = AddedText {
+        rect: [20.0, 100.0, 250.0, 300.0], text: "日本語のテスト Hello、カタカナ。".into(), size: 16.0, ..AddedText::default()
+    };
+    if pdfcraft_fonts::document_japanese_font().is_none() {
+        assert_eq!(first_undrawable(&t), Some('日'));
+        assert!(add_content(&mut doc, 0, &Content::Text(t)).is_err());
+        return;
+    }
+    assert_eq!(first_undrawable(&t), None);
+    add_content(&mut doc, 0, &Content::Text(t.clone())).unwrap();
+    let reopened = reopen(&doc);
+    assert_eq!(list_added(&reopened)[0].content, Content::Text(AddedText { rect: super::added::text_rect(&t), ..t.clone() }));
+    // Copy and search see the typed text (each glyph's ToUnicode entry), not `?`.
+    let texts: Vec<String> = text::reading_blocks(&reopened, 0).unwrap().into_iter().map(|b| b.text).collect();
+    let all = texts.concat();
+    assert!(all.contains("日本語のテスト") && all.contains("カタカナ") && !all.contains('?'), "{texts:?}");
+    // A row ends between characters, never before a closing mark.
+    let narrow = AddedText { rect: [0.0, 0.0, 34.0, 200.0], text: "あいう、えお".into(), ..t.clone() };
+    assert_eq!(super::added::lines(&narrow), ["あい", "う、", "えお"]);
+    // Times takes the Mincho face, bold Helvetica the bold Gothic: both draw.
+    for (family, bold) in [(Family::Times, false), (Family::Helvetica, true)] {
+        update_content(&mut doc, 0, 0, &Content::Text(AddedText { family, bold, ..t.clone() })).unwrap();
+    }
+    let bad = Content::Text(AddedText { text: "日本 欢".into(), ..t });
+    let before = list_added(&doc);
+    assert!(update_content(&mut doc, 0, 0, &bad).is_err());
+    assert_eq!(list_added(&doc), before);
 }
 
 #[test]

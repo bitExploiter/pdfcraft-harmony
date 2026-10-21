@@ -1,4 +1,4 @@
-//! Arabic, Hebrew and Thai text shaping with the matching craft-fonts face and bounded glyph outlines.
+//! Arabic, Hebrew, Thai and Japanese text shaping with the matching craft-fonts face and bounded glyph outlines.
 
 use std::sync::OnceLock;
 
@@ -28,6 +28,11 @@ pub enum ShapedScript {
     Arabic,
     Hebrew,
     Thai,
+    /// The craft-fonts Japanese document face for the style: Gothic for sans, Mincho for serif.
+    Japanese {
+        serif: bool,
+        bold: bool,
+    },
 }
 
 impl ShapedScript {
@@ -36,6 +41,7 @@ impl ShapedScript {
             Self::Arabic => crate::document_arabic_font(),
             Self::Hebrew => crate::document_hebrew_font(false),
             Self::Thai => crate::document_thai_font(),
+            Self::Japanese { serif, bold } => crate::document_japanese_font_for_style(serif, bold),
         }
     }
 }
@@ -44,10 +50,16 @@ fn face(script: ShapedScript) -> Option<&'static (FontRef<'static>, ShaperData)>
     static FACE: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
     static HEBREW: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
     static THAI: OnceLock<Option<(FontRef<'static>, ShaperData)>> = OnceLock::new();
+    // Sans regular, sans bold, serif regular, serif bold.
+    static JAPANESE: [OnceLock<Option<(FontRef<'static>, ShaperData)>>; 4] = [const { OnceLock::new() }; 4];
     let cache = match script {
         ShapedScript::Arabic => &FACE,
         ShapedScript::Hebrew => &HEBREW,
         ShapedScript::Thai => &THAI,
+        ShapedScript::Japanese { serif: false, bold: false } => &JAPANESE[0],
+        ShapedScript::Japanese { serif: false, bold: true } => &JAPANESE[1],
+        ShapedScript::Japanese { serif: true, bold: false } => &JAPANESE[2],
+        ShapedScript::Japanese { serif: true, bold: true } => &JAPANESE[3],
     };
     cache
         .get_or_init(|| {
@@ -91,6 +103,18 @@ pub fn shape_thai(text: &str) -> Result<Vec<ShapedCluster>, GlyphError> {
     shape_script(text, false, ShapedScript::Thai)
 }
 
+/// Whether the Japanese document face for the style has a glyph for `c` (false without it).
+pub fn japanese_has(c: char, serif: bool, bold: bool) -> bool {
+    face(ShapedScript::Japanese { serif, bold }).is_some_and(|(font, _)| font.charmap().map(c).is_some())
+}
+
+/// Shape a run of Japanese (kana, kanji, full-width forms and the symbols the standard fonts lack)
+/// with the Japanese document face for the style, one cluster per character (a variation selector
+/// stays with its base).
+pub fn shape_japanese(text: &str, serif: bool, bold: bool) -> Result<Vec<ShapedCluster>, GlyphError> {
+    shape_script(text, false, ShapedScript::Japanese { serif, bold })
+}
+
 fn shape_script(text: &str, rtl: bool, kind: ShapedScript) -> Result<Vec<ShapedCluster>, GlyphError> {
     let (font, data) = face(kind).ok_or(GlyphError::NoFont)?;
     let shaper = data.shaper(font).build();
@@ -102,11 +126,12 @@ fn shape_script(text: &str, rtl: bool, kind: ShapedScript) -> Result<Vec<ShapedC
         ShapedScript::Arabic => script::ARABIC,
         ShapedScript::Hebrew => script::HEBREW,
         ShapedScript::Thai => script::THAI,
+        ShapedScript::Japanese { .. } => script::HAN,
     });
     // Preserve the historical Arabic per-character mapping; Hebrew and Thai marks stay with their base.
     buffer.set_cluster_level(match kind {
         ShapedScript::Arabic => BufferClusterLevel::Characters,
-        ShapedScript::Hebrew | ShapedScript::Thai => BufferClusterLevel::MonotoneGraphemes,
+        ShapedScript::Hebrew | ShapedScript::Thai | ShapedScript::Japanese { .. } => BufferClusterLevel::MonotoneGraphemes,
     });
     let shaped = shaper.shape(buffer, ShapeOptions::new());
     // Clusters are byte offsets into `text`; a cluster shows the characters up to the next one.

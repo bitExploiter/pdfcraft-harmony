@@ -55,6 +55,14 @@ set). Without that variable `CRAFT_FONTS` is empty and everything below copes:
 - `document_japanese_fonts_for_style`: every `Jpan` face in that order of preference, so the
   editor can use the first one that has all of the replacement's glyphs (the faces differ in
   coverage, e.g. of Cyrillic).
+- `shape_japanese` / `japanese_has`: Japanese Add Text content (kana, kanji, full-width forms and
+  any other character WinAnsi lacks that the face has) with the `Jpan` face for the item's style
+  (BIZ UDPGothic Regular/Bold for Helvetica and Courier, Mincho for Times), one cluster per
+  character, drawn by the same Type 3 writer as Arabic, Hebrew and Thai.
+- `japanese` (`needs_japanese`, `helvetica_japanese_width`, `helvetica_japanese_line`,
+  `first_undrawable_with_japanese`): text-box comments and Fill & Sign text keep Helvetica text for
+  what WinAnsi has and draw the rest as filled BIZ UDPGothic outlines in the appearance stream
+  (built without a document, so no font objects); the typed text stays in `/Contents`.
 - `ui_thai_fonts` / `document_thai_font` / `shape_thai`: the `Thai` faces for the interface
   and shaped Thai Add Text content. Harfrust positions stacked vowel/tone marks and decomposes
   Sara Am; cluster ToUnicode entries preserve the original text. The shared Type 3 writer
