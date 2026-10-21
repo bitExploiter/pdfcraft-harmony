@@ -51,3 +51,5 @@ black-point normalization is unchanged. `lab_bradford_tests` checks independent
 D50/equal-energy neutral and chromatic oracles, D65 identity, and direct/Indexed
 consistency (including an asymmetric chromatic Range), and zero/overflowing
 cone-response fallback.
+
+PdfCraft's `hayro-interpret` patch reports clipping-only (`7 Tr`) glyphs as `GlyphDrawMode::Clip` after shaping the clip, keeping them available to text extraction and filtered extraction while remaining distinct from `Invisible`; the `hayro` renderer consumes that mode without painting the glyph itself while preserving its clip. Covered by `clipping_only_text_is_extracted`, `clipping_only_text_survives_image_filter`, and `clipping_only_text_paints_nothing_but_still_clips`.

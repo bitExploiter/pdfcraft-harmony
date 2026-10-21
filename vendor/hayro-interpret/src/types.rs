@@ -286,6 +286,12 @@ pub enum GlyphDrawMode {
     Stroke(StrokeProps),
     /// Invisible text (for text extraction but not visual rendering).
     Invisible,
+    /// Clipping-only text (for text extraction; paints nothing itself, but shapes the
+    /// clip for later painting, e.g. gradient-filled titles). Distinct from `Invisible`
+    /// so text devices can keep clip-originated glyphs while excluding invisible
+    /// (e.g. OCR) layers.
+    /// PdfCraft patch (#3109).
+    Clip,
 }
 
 /// Stroke properties.

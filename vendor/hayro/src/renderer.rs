@@ -1738,8 +1738,10 @@ impl<'a> Device<'a> for Renderer {
             GlyphDrawMode::Stroke(s) => {
                 Self::stroke_glyph(self, glyph, transform, glyph_transform, paint, s);
             }
-            GlyphDrawMode::Invisible => {
-                // Don't render invisible text for visual output
+            GlyphDrawMode::Invisible | GlyphDrawMode::Clip => {
+                // Don't render invisible or clipping-only text for visual output.
+                // (PdfCraft patch (#3109): Clip added so 7 Tr text is reported to text
+                // devices without painting anything.)
             }
         }
     }
