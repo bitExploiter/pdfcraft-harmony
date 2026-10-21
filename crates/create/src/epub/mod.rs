@@ -177,25 +177,47 @@ fn loose_blocks(text: &str, path: &str) -> Vec<dom::Block> {
 
 fn decode_entities(s: &str) -> String {
     let xml = package::xml_text(s.as_bytes());
-    // Character references back to characters.
-    let mut out = String::new();
+    // One pass, left to right: a reference is decoded once, so `&amp;lt;` stays `&lt;`.
+    let mut out = String::with_capacity(xml.len());
     let mut rest = xml.as_str();
-    while let Some(i) = rest.find("&#") {
+    while let Some(i) = rest.find('&') {
         out.push_str(&rest[..i]);
-        let tail = &rest[i + 2..];
-        match tail.find(';').and_then(|e| tail[..e].parse::<u32>().ok().and_then(char::from_u32).map(|c| (c, e))) {
+        let tail = &rest[i + 1..];
+        // A reference is short; look no further than its first dozen bytes for the `;`.
+        let decoded = tail.bytes().take(12).position(|b| b == b';').and_then(|e| entity(&tail[..e]).map(|c| (c, e)));
+        match decoded {
             Some((c, e)) => {
                 out.push(c);
                 rest = &tail[e + 1..];
             }
             None => {
-                out.push_str("&#");
+                out.push('&');
                 rest = tail;
             }
         }
     }
     out.push_str(rest);
-    out.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'")
+    out
+}
+
+/// The character a reference stands for (the text between `&` and `;`): decimal or hex, or one of
+/// XML's five names.
+fn entity(name: &str) -> Option<char> {
+    if let Some(num) = name.strip_prefix('#') {
+        let code = match num.strip_prefix(['x', 'X']) {
+            Some(hex) => u32::from_str_radix(hex, 16).ok()?,
+            None => num.parse::<u32>().ok()?,
+        };
+        return char::from_u32(code);
+    }
+    match name {
+        "amp" => Some('&'),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        _ => None,
+    }
 }
 
 /// Convert an EPUB to PDF; reflowed text is set on `paper` (points). `fallback_title` names the
@@ -243,9 +265,17 @@ pub fn from_epub(bytes: &[u8], paper: (f64, f64), fallback_title: &str) -> Resul
         };
         let sheets = dom::sheets(&xml, &item.path, &mut read_sheet);
         for face in sheets.iter().flat_map(|s| &s.faces) {
+            // The first source that embeds wins; the rest are fallbacks the book never needs. A
+            // note is made only when none of them embeds.
+            let mut embedded = false;
+            let mut failed: Vec<&str> = Vec::new();
             for src in &face.sources {
                 let key = format!("{src}|{}|{}|{}", face.family, face.bold, face.italic);
-                if loaded_fonts.contains_key(&key) {
+                if let Some(&done) = loaded_fonts.get(&key) {
+                    if done {
+                        embedded = true;
+                        break;
+                    }
                     continue;
                 }
                 let mut ok = false;
@@ -255,10 +285,17 @@ pub fn from_epub(bytes: &[u8], paper: (f64, f64), fallback_title: &str) -> Resul
                     }
                     ok = fonts.add_book(src, font, &face.family, face.bold, face.italic);
                 }
-                if !ok {
+                loaded_fonts.insert(key, ok);
+                if ok {
+                    embedded = true;
+                    break;
+                }
+                failed.push(src);
+            }
+            if !embedded {
+                for src in failed {
                     notes.push(format!("{src}: the book's font {} can't be embedded; a standard face stands in for it", face.family));
                 }
-                loaded_fonts.insert(key, ok);
             }
         }
         let cascade = dom::Cascade::new(sheets);
@@ -689,3 +726,11 @@ fn xmp(title: &str, creators: &[String], language: Option<&str>) -> String {
 mod tests;
 #[cfg(test)]
 mod tests_limits;
+#[cfg(test)]
+mod tests_font_sources_first_wins;
+#[cfg(test)]
+mod tests_image_percent_size;
+#[cfg(test)]
+mod tests_line_height_percent;
+#[cfg(test)]
+mod tests_loose_entities;

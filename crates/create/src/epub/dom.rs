@@ -359,7 +359,7 @@ fn apply(s: &mut Style, parent: &Style, prop: &str, value: &str) {
                 "normal" => 1.25,
                 _ => match v.parse::<f64>() {
                     Ok(n) => n,
-                    Err(_) => length(&v, font, font * 100.0).map_or(1.25, |pt| pt / font.max(0.1)),
+                    Err(_) => length(&v, font, font).map_or(1.25, |pt| pt / font.max(0.1)),
                 },
             }
             .clamp(0.5, 5.0);
@@ -440,7 +440,9 @@ fn apply(s: &mut Style, parent: &Style, prop: &str, value: &str) {
         "position" => s.absolute = (v == "absolute" || v == "fixed").then_some([None; 4]),
         "left" | "top" | "width" | "height" => {
             let i = ["left", "top", "width", "height"].iter().position(|p| *p == prop).unwrap_or(0);
-            let x = length(&v, font, 0.0).filter(|_| v != "auto");
+            // A percentage of the containing block is unknown here: for a size, leave it to the natural
+            // size (fitted to the page later) rather than a zero-sized box.
+            let x = length(&v, font, 0.0).filter(|_| v != "auto" && !(i >= 2 && v.ends_with('%')));
             if i >= 2 {
                 s.size[i - 2] = x;
             }
