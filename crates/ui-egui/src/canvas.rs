@@ -1327,7 +1327,7 @@ impl DocView {
             DestView::Top => return,
             DestView::Xyz { left, top, zoom } => {
                 if let Some(z) = zoom {
-                    self.zoom = z.clamp(0.08, 64.0);
+                    self.zoom = z.clamp(0.01, 64.0);
                     self.fit = Fit::None;
                     self.zoom_anchor = None;
                 }
@@ -1356,7 +1356,7 @@ impl DocView {
                 let (dw, dh) = self.display_size(p);
                 let (w, h) = ((ax - bx).abs() * dw, (ay - by).abs() * dh);
                 if w >= 1.0 && h >= 1.0 && self.viewport_w >= 1.0 && self.viewport_h >= 1.0 {
-                    self.zoom = (self.viewport_w / (w * PT)).min(self.viewport_h / (h * PT)).clamp(0.08, 64.0);
+                    self.zoom = (self.viewport_w / (w * PT)).min(self.viewport_h / (h * PT)).clamp(0.01, 64.0);
                     self.fit = Fit::None;
                     self.zoom_anchor = None;
                 }
@@ -1571,7 +1571,7 @@ impl DocView {
         let Some((page, pr)) = self.screen_rects.iter().find(|(_, pr)| pr.contains(r.center())).copied() else { return };
         let k = (self.viewport_screen.width() / r.width().max(1.0)).min(self.viewport_screen.height() / r.height().max(1.0));
         let f = (r.center() - pr.min) / pr.size();
-        self.zoom = (self.zoom * k).clamp(0.08, 64.0);
+        self.zoom = (self.zoom * k).clamp(0.01, 64.0);
         self.fit = Fit::None;
         self.zoom_anchor = Some((page, f.x.clamp(0.0, 1.0), f.y.clamp(0.0, 1.0), self.viewport_screen.center() - self.viewport_screen.min));
     }
@@ -1584,7 +1584,7 @@ impl DocView {
         let Some((_, pr)) = self.screen_rects.iter().find(|(p, _)| *p == page).copied() else { return false };
         let w = (content[2] - content[0]).max(0.01) * pr.width();
         let k = (self.viewport_screen.width() - 2.0 * PAD).max(50.0) / w.max(1.0);
-        self.zoom = (self.zoom * k).clamp(0.08, 64.0);
+        self.zoom = (self.zoom * k).clamp(0.01, 64.0);
         self.fit = Fit::None;
         self.zoom_anchor = Some((page, content[0].clamp(0.0, 1.0), content[1].clamp(0.0, 1.0), vec2(PAD, MARGIN)));
         true
@@ -1620,7 +1620,7 @@ impl DocView {
         if !zoom.is_finite() || !screen_pos.is_finite() {
             return;
         }
-        let zoom = zoom.clamp(0.08, 64.0);
+        let zoom = zoom.clamp(0.01, 64.0);
         if zoom == self.zoom && self.fit == Fit::None {
             return;
         }
@@ -1649,11 +1649,18 @@ impl DocView {
         (percent.is_finite() && percent > 0.0).then_some(percent / 100.0)
     }
 
-    /// Standard zoom steps (as in Acrobat's zoom menu).
+    /// The 21 observed wheel stops from 1% through 6400%. The ninth upward step from 1% lands at
+    /// 100%; fit-derived and typed zooms remain valid between these stops.
+    const WHEEL_ZOOM_STEPS: [f32; 21] =
+        [0.01, 0.0625, 0.125, 0.25, 0.333_333_34, 0.5, 0.55, 0.666_666_7, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 64.0];
+
     pub fn zoom_step(&mut self, up: bool) {
-        const STEPS: [f32; 17] = [0.1, 0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 32.0];
         let z = self.zoom;
-        let next = if up { STEPS.iter().copied().find(|s| *s > z * 1.01) } else { STEPS.iter().rev().copied().find(|s| *s < z * 0.99) };
+        let next = if up {
+            Self::WHEEL_ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001)
+        } else {
+            Self::WHEEL_ZOOM_STEPS.iter().rev().copied().find(|s| *s < z * 0.999)
+        };
         if let Some(n) = next {
             self.set_zoom(n);
         }
@@ -2064,7 +2071,7 @@ impl DocView {
             Fit::Height => self.zoom = (self.viewport_h - 2.0 * MARGIN) / (h * PT),
             Fit::None => {}
         }
-        self.zoom = self.zoom.clamp(0.08, 64.0);
+        self.zoom = self.zoom.clamp(0.01, 64.0);
     }
 
     /// Width of the scroll content. Single-page view sizes it to the page it shows, so a
@@ -2486,14 +2493,14 @@ pub fn document_area_with_rulers(app: &mut PdfCraftApp, index: usize, ui: &mut e
 
     let outer = ui.available_rect_before_wrap();
     let layout = RulerLayout::new(outer, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH);
-    ui.scope_builder(egui::UiBuilder::new().id_salt("document-canvas").max_rect(layout.canvas), |ui| {
-        document_canvas(app, index, ui);
-    });
+    // Preserve the document canvas's original UI and scroll-area contract. The rulers are overlay
+    // chrome, so wrapping the canvas in a second scoped UI must not change its viewport, cursor or
+    // scroll-end calculations.
+    document_canvas(app, index, ui);
 
     let units = app.units;
     let geometry = app.views.get(index).map(DocView::canvas_geometry).cloned().unwrap_or_default();
     paint_document_rulers(ui, layout, &geometry, units);
-    ui.advance_cursor_after_rect(outer);
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2548,18 +2555,19 @@ fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGe
     // Each axis switches independently at 72%. The horizontal decision uses the actual rendered
     // page or spread bounds, including the facing-page gap, rather than reconstructing them from
     // PDF point widths. The vertical decision keeps using the rendered page height.
-    let horizontal_page_relative = if horizontal_start < 0.0 {
-        // In two-page view, 72% means the displayed zoom. Do not require the spread to consume
-        // 72% of a wide application window, which delays the switch well past 120% zoom.
-        ruler_axis_is_page_relative(scale, 1.0)
-    } else {
-        ruler_axis_is_page_relative(rendered_width, f64::from(layout.horizontal.width()))
-    };
+    // Acrobat uses viewport coordinates while a sheet is small, then anchors the horizontal
+    // ruler to the page or facing-page spine once the rendered sheet occupies 72% of its track.
+    // `rendered_width` is the complete displayed row, including the gap between facing pages.
+    let horizontal_page_relative = ruler_axis_is_page_relative(rendered_width, f64::from(layout.horizontal.width()));
     let vertical_page_relative = ruler_axis_is_page_relative(vertical_length * scale, f64::from(layout.vertical.height()));
-    // Once the horizontal threshold is reached, a facing-page ruler starts at the left page edge,
-    // never at the spread spine. Below it, the horizontal axis remains viewport-relative.
+    // A facing-page ruler uses the spread spine as zero: negative values cover the left page and
+    // positive values cover the right page. Horizontal scrolling moves that origin with the spread.
     (horizontal_origin, horizontal_length) =
         horizontal_ruler_axis(layout, horizontal_origin, horizontal_start, horizontal_length, scale, horizontal_page_relative);
+    // Page rectangles are snapped before they are recorded. Snap the derived ruler origin with the
+    // same physical-pixel rule so the zero tick lands on exactly the same pixel as the page edge or
+    // spread spine at fractional display scales.
+    horizontal_origin = snap_ruler_coordinate(horizontal_origin, ui.ctx().pixels_per_point());
     if !vertical_page_relative {
         vertical_origin = f64::from(layout.vertical.top());
         vertical_length = f64::from(layout.vertical.height()) / scale.max(f64::EPSILON);
@@ -2594,13 +2602,24 @@ fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGe
 /// Select the horizontal ruler range. Facing pages deliberately use the viewport's left edge:
 /// their signed page range is useful for describing the spread, but the spine is not a ruler
 /// origin because it would move zero to the middle of the window.
-fn horizontal_ruler_axis(layout: RulerLayout, page_origin: f64, page_start: f64, page_length: f64, scale: f64, page_relative: bool) -> (f64, f64) {
-    if !page_relative {
-        (f64::from(layout.horizontal.left()), f64::from(layout.horizontal.width()) / scale.max(f64::EPSILON))
-    } else if page_start < 0.0 {
+fn horizontal_ruler_axis(_layout: RulerLayout, page_origin: f64, page_start: f64, page_length: f64, scale: f64, page_relative: bool) -> (f64, f64) {
+    if page_start < 0.0 && !page_relative {
+        // Below the two-page threshold, zero is left-aligned to the complete spread, not to the
+        // ruler viewport. `page_origin` is the spine and `page_start` is the signed left-page width.
         (page_origin + page_start * scale, page_length)
     } else {
+        // A single page always starts at its own left edge. Above the two-page threshold, zero is
+        // the facing-page spine so the left and right pages use negative and positive coordinates.
         (page_origin, page_length)
+    }
+}
+
+fn snap_ruler_coordinate(value: f64, pixels_per_point: f32) -> f64 {
+    let pixels_per_point = f64::from(pixels_per_point);
+    if value.is_finite() && pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        (value * pixels_per_point).round() / pixels_per_point
+    } else {
+        value
     }
 }
 
@@ -2771,10 +2790,22 @@ fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let navigation_rect = if view.viewport_screen.is_positive() { avail.intersect(view.viewport_screen) } else { avail };
     let navigation_enabled = app.dialog.is_none() && app.close_request.is_none() && !app.palette_open && ui.is_enabled() && ui.input(|i| i.focused);
     if zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0 && navigation_enabled && ui.rect_contains_pointer(navigation_rect) {
-        let z = view.zoom * zoom_delta;
-        match ui.input(|i| i.pointer.hover_pos()) {
-            Some(p) => view.zoom_at(z, p),
-            None => view.set_zoom(z),
+        // A discrete mouse-wheel notch advances one observed zoom stop. Pinch and continuous
+        // gestures keep their smooth scaling. Line and page wheel events use the reference ladder.
+        let discrete = ui.input(|input| {
+            input
+                .events
+                .iter()
+                .any(|event| matches!(event, egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page, .. }))
+        });
+        if discrete {
+            view.zoom_step(zoom_delta > 1.0);
+        } else {
+            let z = view.zoom * zoom_delta;
+            match ui.input(|i| i.pointer.hover_pos()) {
+                Some(p) => view.zoom_at(z, p),
+                None => view.set_zoom(z),
+            }
         }
     }
     view.viewport_screen = avail;
@@ -3193,20 +3224,21 @@ fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         for &i in &visible_pages {
             badge_hover = None;
             let r = snap_to_pixels(rects[i].translate(origin.to_vec2()), ppp);
+            let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
+            // Keep geometry for every page in the displayed row, even when the shorter partner in
+            // an unequal-height spread has scrolled above the paint prefetch band. Page commands,
+            // tests and ruler row selection still need the complete displayed spread.
+            view.screen_rects.push((i, r));
+            view.screen_xforms.push((i, xf));
+            page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             if !r.intersects(visible.expand(400.0)) {
                 continue;
             }
             if pressed && pressed_page.is_none() && pointer.is_some_and(|p| r.contains(p)) {
                 pressed_page = Some(i);
             }
-            let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
-            // Rulers need the complete current row. Keep adjacent page geometry from the same
-            // expanded paint range even when one page has just moved outside the viewport.
-            page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             if r.intersects(visible) {
                 visible_now.push(i);
-                view.screen_rects.push((i, r));
-                view.screen_xforms.push((i, xf));
             }
             let overlap = r.intersect(visible).height();
             if i == view.current {
@@ -5622,6 +5654,33 @@ fn grayscale(mut img: egui::ColorImage) -> egui::ColorImage {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn wheel_zoom_has_twenty_one_stops_and_reaches_one_hundred_in_nine_steps() {
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS.len(), 21);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[0], 0.01);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[9], 1.0);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[20], 64.0);
+
+        let next = |zoom: f32, up: bool| {
+            if up {
+                DocView::WHEEL_ZOOM_STEPS.iter().copied().find(|step| *step > zoom * 1.001)
+            } else {
+                DocView::WHEEL_ZOOM_STEPS.iter().rev().copied().find(|step| *step < zoom * 0.999)
+            }
+        };
+
+        let mut zoom = 0.01;
+        for _ in 0..9 {
+            zoom = next(zoom, true).unwrap();
+        }
+        assert_eq!(zoom, 1.0);
+
+        for _ in 0..11 {
+            zoom = next(zoom, true).unwrap();
+        }
+        assert_eq!(zoom, 64.0);
+    }
+
+    #[test]
     fn zoom_anchor_scroll_stays_within_the_content() {
         let (content, viewport) = (vec2(1000.0, 2000.0), vec2(800.0, 600.0));
         // Past the end: clamped to the maximum (200, 1400), not left for egui to snap back.
@@ -6931,6 +6990,14 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
+    fn horizontal_zero_uses_the_same_physical_pixel_as_the_page_edge() {
+        assert_eq!(snap_ruler_coordinate(100.24, 2.0), 100.0);
+        assert_eq!(snap_ruler_coordinate(100.26, 2.0), 100.5);
+        assert_eq!(snap_ruler_coordinate(100.4, 1.25), 100.8);
+        assert_eq!(snap_ruler_coordinate(42.0, 0.0), 42.0);
+    }
+
+    #[test]
     fn each_ruler_axis_switches_at_72_percent_of_its_own_length() {
         assert!(!ruler_axis_is_page_relative(719.9, 1_000.0));
         assert!(ruler_axis_is_page_relative(720.0, 1_000.0));
@@ -6940,10 +7007,28 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
-    fn two_page_horizontal_switch_uses_the_72_percent_zoom_threshold() {
-        assert!(!ruler_axis_is_page_relative(0.719, 1.0));
-        assert!(ruler_axis_is_page_relative(0.72, 1.0));
-        assert!(ruler_axis_is_page_relative(1.20, 1.0));
+    fn two_page_horizontal_ruler_switches_at_72_percent_of_the_track() {
+        let layout = RulerLayout::new(Rect::from_min_size(Pos2::ZERO, vec2(1_026.0, 900.0)), 24.0, 26.0);
+        let ruler_width = f64::from(layout.horizontal.width());
+        let spine = 500.0;
+        let spread_length = 1_224.0;
+        let scale = 1.0;
+
+        let below = ruler_axis_is_page_relative(ruler_width * 0.72 - 0.1, ruler_width);
+        assert!(!below);
+        assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, spread_length, scale, below).0, spine - 612.0 * scale);
+
+        let at = ruler_axis_is_page_relative(ruler_width * 0.72, ruler_width);
+        assert!(at);
+        assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, spread_length, scale, at), (spine, spread_length));
+    }
+
+    #[test]
+    fn two_page_horizontal_ruler_keeps_the_spine_while_scrolling() {
+        let layout = RulerLayout::new(Rect::from_min_size(Pos2::ZERO, vec2(1_200.0, 900.0)), 24.0, 26.0);
+        for spine in [-800.0, -100.0, 600.0, 1_300.0, 2_000.0] {
+            assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, 1_224.0, 2.0, true), (spine, 1_224.0));
+        }
     }
 
     #[test]
@@ -6957,14 +7042,11 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
-    fn facing_pages_align_horizontal_zero_to_the_left_page_edge() {
+    fn facing_pages_align_horizontal_zero_to_the_spread_spine() {
         let layout = RulerLayout::new(Rect::from_min_size(pos2(10.0, 20.0), vec2(1_200.0, 900.0)), 24.0, 26.0);
-        let scale = 1.0;
         let spine = 607.0_f64;
-        let (origin, length) = horizontal_ruler_axis(layout, spine, -600.0, 1_200.0, scale, true);
-        assert_eq!(origin, 7.0);
-        assert_ne!(origin, f64::from(layout.horizontal.left()));
-        assert_ne!(origin, spine);
+        let (origin, length) = horizontal_ruler_axis(layout, spine, -600.0, 1_200.0, 1.0, true);
+        assert_eq!(origin, spine);
         assert_eq!(length, 1_200.0);
     }
 

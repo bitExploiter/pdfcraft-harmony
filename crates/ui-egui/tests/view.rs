@@ -852,7 +852,7 @@ fn view_menu_page_display_uses_the_same_commands() {
     h.run_steps(4);
     h.get_by_label("Menu").click();
     h.run_steps(2);
-    h.get_by_label("View ╬ô├àΓòí").hover();
+    h.get_by_label("View ⏵").hover();
     h.run_steps(3);
     h.get_by_label("Single page").click();
     h.run_steps(4);
@@ -1662,15 +1662,15 @@ fn long_view_menu_fits_a_short_window() {
     h.run_steps(8);
     h.get_by_label("Menu").click();
     h.run_steps(2);
-    h.get_by_label("View ╬ô├àΓòí").hover();
+    h.get_by_label("View ⏵").hover();
     h.run_steps(4);
-    let before = h.get_by_label("Side panels ╬ô├àΓòí").rect().bottom();
+    let before = h.get_by_label("Side panels ⏵").rect().bottom();
     h.get_by_label("Fit to height ").hover();
     h.event(wheel(MouseWheelUnit::Point, -1000.0, TouchPhase::Move));
     h.run_steps(6);
-    let after = h.get_by_label("Side panels ╬ô├àΓòí").rect().bottom();
+    let after = h.get_by_label("Side panels ⏵").rect().bottom();
     assert!(after < before && after <= 400.0, "menu did not scroll into view: {before} -> {after}");
-    h.get_by_label("Side panels ╬ô├àΓòí").hover();
+    h.get_by_label("Side panels ⏵").hover();
     h.run_steps(4);
     h.get_all_by_label("Bookmarks").last().unwrap().click();
     h.run_steps(4);

@@ -6,9 +6,7 @@
 
 use crate::units::Unit;
 
-const MIN_MINOR_SPACING: f64 = 4.0;
-const MIN_MEDIUM_SPACING: f64 = 16.0;
-const MIN_MAJOR_SPACING: f64 = 48.0;
+const MIN_MINOR_SPACING: f64 = 6.0;
 const MIN_LABEL_SPACING: f64 = 48.0;
 const MAX_TICKS: usize = 16_384;
 
@@ -68,6 +66,7 @@ pub enum RulerOrientation {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TickKind {
     Minor,
+    Quarter,
     Medium,
     Major,
 }
@@ -131,7 +130,7 @@ impl RulerGeometry {
     }
 }
 
-/// Choose the smallest supported minor interval that remains legible at this scale.
+/// Choose a readable labelled interval and divide it into eight standard-ruler subdivisions.
 pub fn choose_tick_spec(unit: Unit, screen_points_per_unit: f64) -> Option<TickSpec> {
     if !screen_points_per_unit.is_finite() || screen_points_per_unit <= 0.0 {
         return None;
@@ -139,47 +138,63 @@ pub fn choose_tick_spec(unit: Unit, screen_points_per_unit: f64) -> Option<TickS
     if unit == Unit::Inches {
         return inch_tick_spec(screen_points_per_unit);
     }
-    let intervals = intervals(unit);
-    let minor_index = intervals.iter().position(|interval| interval * screen_points_per_unit >= MIN_MINOR_SPACING).unwrap_or(intervals.len() - 1);
-    let minor = intervals[minor_index];
-    let minor_spacing = minor * screen_points_per_unit;
-    if minor_spacing < MIN_MINOR_SPACING {
-        return None;
-    }
-    Some(TickSpec {
-        minor_interval_units: minor,
-        medium_every: cadence(intervals, minor_index, minor, screen_points_per_unit, MIN_MEDIUM_SPACING),
-        major_every: cadence(intervals, minor_index, minor, screen_points_per_unit, MIN_MAJOR_SPACING),
-        label_every: cadence(intervals, minor_index, minor, screen_points_per_unit, MIN_LABEL_SPACING.max(minor_spacing)),
-    })
+
+    // Choose a natural whole-number label interval with enough room for text and eight visible
+    // subdivisions. Subdivision marks remain visible even though metric and point labels suppress
+    // non-whole values.
+    let minimum_label_interval = (MIN_LABEL_SPACING / screen_points_per_unit).max(8.0 * MIN_MINOR_SPACING / screen_points_per_unit).max(1.0);
+    let label_interval = intervals(unit).iter().copied().find(|interval| *interval >= minimum_label_interval)?;
+    Some(eight_subdivision_spec(label_interval))
 }
 
-/// Inch rulers use familiar binary fractions. The fractions shown by the short and medium ticks
-/// thin out as the page is zoomed away, while labelled whole-inch marks remain widely spaced.
+/// Inch rulers follow the observed binary label ladder with eight subdivisions per label interval.
 fn inch_tick_spec(screen_points_per_inch: f64) -> Option<TickSpec> {
-    let (minor_interval_units, medium_every, major_every, label_every) = if screen_points_per_inch >= 128.0 {
-        (1.0 / 16.0, 4, 16, 16)
-    } else if screen_points_per_inch >= 64.0 {
-        (1.0 / 8.0, 4, 8, 8)
-    } else if screen_points_per_inch >= 32.0 {
-        (1.0 / 4.0, 2, 4, 4)
-    } else if screen_points_per_inch >= 16.0 {
-        (1.0 / 2.0, 2, 4, 4)
-    } else if screen_points_per_inch >= 8.0 {
-        (1.0, 2, 4, 8)
+    if !screen_points_per_inch.is_finite() || screen_points_per_inch <= 0.0 {
+        return None;
+    }
+
+    // The label ladder follows the observed zoom policy. Every labelled interval always contains
+    // eight equal subdivisions. Text stops at 1/32 inch; the 1/64, 1/128 and 1/256 marks remain
+    // visible at high zoom without labels.
+    let label_interval = if screen_points_per_inch < 4.5 {
+        32.0
+    } else if screen_points_per_inch < 9.0 {
+        16.0
+    } else if screen_points_per_inch < 18.0 {
+        8.0
+    } else if screen_points_per_inch < 36.0 {
+        4.0
+    } else if screen_points_per_inch < 72.0 {
+        2.0
+    } else if screen_points_per_inch < 216.0 {
+        1.0
+    } else if screen_points_per_inch < 432.0 {
+        1.0 / 4.0
+    } else if screen_points_per_inch < 864.0 {
+        1.0 / 8.0
+    } else if screen_points_per_inch < 1_728.0 {
+        1.0 / 16.0
     } else {
-        let intervals = intervals(Unit::Inches);
-        let minor_index = intervals.iter().position(|interval| interval * screen_points_per_inch >= MIN_MINOR_SPACING)?;
-        let minor = intervals[minor_index];
-        return Some(TickSpec {
-            minor_interval_units: minor,
-            medium_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_MEDIUM_SPACING),
-            major_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_MAJOR_SPACING),
-            label_every: cadence(intervals, minor_index, minor, screen_points_per_inch, MIN_LABEL_SPACING),
-        });
+        1.0 / 32.0
     };
-    let minimum_label_every = (MIN_LABEL_SPACING / (minor_interval_units * screen_points_per_inch)).ceil().max(1.0) as u32;
-    Some(TickSpec { minor_interval_units, medium_every, major_every, label_every: label_every.max(minimum_label_every) })
+    Some(eight_subdivision_spec(label_interval))
+}
+
+fn eight_subdivision_spec(label_interval_units: f64) -> TickSpec {
+    TickSpec { minor_interval_units: label_interval_units / 8.0, medium_every: 4, major_every: 8, label_every: 8 }
+}
+
+fn tick_kind(index: i64, spec: TickSpec) -> TickKind {
+    let within_label = index.rem_euclid(i64::from(spec.label_every));
+    if within_label == 0 {
+        TickKind::Major
+    } else if within_label == i64::from(spec.medium_every) {
+        TickKind::Medium
+    } else if within_label == i64::from(spec.medium_every / 2) || within_label == i64::from(spec.medium_every + spec.medium_every / 2) {
+        TickKind::Quarter
+    } else {
+        TickKind::Minor
+    }
 }
 
 /// Convert PDF points from the displayed page origin to a logical screen position.
@@ -240,14 +255,8 @@ pub fn visible_ticks(geometry: RulerGeometry) -> Vec<RulerTick> {
         if !screen_position.is_finite() {
             break;
         }
-        let kind = if divisible(index, spec.major_every) {
-            TickKind::Major
-        } else if divisible(index, spec.medium_every) {
-            TickKind::Medium
-        } else {
-            TickKind::Minor
-        };
-        let label = divisible(index, spec.label_every).then(|| format_label(geometry.unit, value));
+        let kind = tick_kind(index, spec);
+        let label = label_tick(geometry.unit, value, index, spec, screen_points_per_unit);
         ticks.push(RulerTick { screen_position, value, kind, label });
     }
     ticks
@@ -261,37 +270,57 @@ fn intervals(unit: Unit) -> &'static [f64] {
     }
 }
 
-fn cadence(intervals: &[f64], minor_index: usize, minor: f64, screen_points_per_unit: f64, minimum_spacing: f64) -> u32 {
-    let selected = intervals[minor_index..]
-        .iter()
-        .copied()
-        .find(|interval| interval * screen_points_per_unit >= minimum_spacing)
-        .unwrap_or(*intervals.last().unwrap_or(&minor));
-    let ratio = (selected / minor).round();
-    if !ratio.is_finite() || ratio < 1.0 {
-        1
-    } else if ratio > u32::MAX as f64 {
-        u32::MAX
-    } else {
-        ratio as u32
-    }
-}
-
 fn divisible(index: i64, every: u32) -> bool {
     every != 0 && index.rem_euclid(i64::from(every)) == 0
 }
 
-fn format_label(unit: Unit, value: f64) -> String {
-    let value = if unit == Unit::Inches { value.abs() } else { value };
-    let decimals = unit.decimals();
-    let rounded = value.round();
-    if rounded == 0.0 {
-        "0".to_owned()
-    } else if (value - rounded).abs() <= f64::EPSILON * value.abs().max(1.0) {
-        format!("{rounded:.0}")
-    } else {
-        format!("{value:.decimals$}")
+fn label_tick(unit: Unit, value: f64, index: i64, spec: TickSpec, _screen_points_per_unit: f64) -> Option<String> {
+    if !divisible(index, spec.label_every) {
+        return None;
     }
+    if unit != Unit::Inches && !is_whole_number(value) {
+        return None;
+    }
+    Some(format_label(unit, value))
+}
+
+fn format_label(unit: Unit, value: f64) -> String {
+    if unit == Unit::Inches {
+        return format_inch_label(value);
+    }
+
+    let rounded = value.round();
+    if rounded == 0.0 { "0".to_owned() } else { format!("{rounded:.0}") }
+}
+
+fn is_whole_number(value: f64) -> bool {
+    value.is_finite() && (value - value.round()).abs() <= f64::EPSILON * value.abs().max(1.0) * 8.0
+}
+
+/// Acrobat labels each whole inch with its magnitude and labels subdivisions with only their
+/// reduced binary fraction. The pattern therefore repeats `1/4, 1/2, 3/4, 1, 1/4 ...` rather than
+/// using decimals or mixed numbers. Signed spread coordinates use the same positive magnitudes on
+/// both sides of zero.
+fn format_inch_label(value: f64) -> String {
+    const DENOMINATOR: i64 = 64;
+    let sixty_fourths = (value.abs() * DENOMINATOR as f64).round() as i64;
+    if sixty_fourths == 0 {
+        return "0".to_owned();
+    }
+    let whole = sixty_fourths / DENOMINATOR;
+    let numerator = sixty_fourths % DENOMINATOR;
+    if numerator == 0 {
+        return whole.to_string();
+    }
+    let divisor = gcd(numerator, DENOMINATOR);
+    format!("{}/{}", numerator / divisor, DENOMINATOR / divisor)
+}
+
+fn gcd(mut a: i64, mut b: i64) -> i64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a.abs().max(1)
 }
 
 /// Compact, screen-fixed ruler bands modelled on the reference application's canvas chrome.
@@ -299,9 +328,8 @@ fn format_label(unit: Unit, value: f64) -> String {
 pub const HORIZONTAL_RULER_HEIGHT: f32 = 18.0;
 pub const VERTICAL_RULER_WIDTH: f32 = 20.0;
 const HORIZONTAL_LABEL_OUTER_PADDING: f32 = 1.0;
-const HORIZONTAL_LABEL_TICK_GAP: f32 = 1.0;
-const HORIZONTAL_LABEL_AFTER_TICK: f32 = 2.0;
-const VERTICAL_LABEL_ABOVE_TICK: f32 = 1.0;
+const HORIZONTAL_LABEL_AFTER_TICK: f32 = 3.0;
+const VERTICAL_LABEL_AFTER_TICK: f32 = 3.0;
 const RULER_LABEL_SIZE: f32 = 9.0;
 
 /// Read-only paint input for one ruler band.
@@ -345,7 +373,7 @@ pub fn paint_ruler(ui: &egui::Ui, input: RulerPaintInput) {
     let calculation = input.calculation_geometry();
 
     let ticks = visible_ticks(calculation);
-    for kind in [TickKind::Minor, TickKind::Medium, TickKind::Major] {
+    for kind in [TickKind::Minor, TickKind::Quarter, TickKind::Medium, TickKind::Major] {
         for tick in ticks.iter().filter(|tick| tick.kind == kind) {
             paint_tick(&painter, input, tick, style);
         }
@@ -411,16 +439,8 @@ fn paint_tick(painter: &egui::Painter, input: RulerPaintInput, tick: &RulerTick,
         }
         RulerOrientation::Vertical => {
             painter.line_segment([egui::pos2(input.rect.right(), at), egui::pos2(input.rect.right() - length, at)], stroke);
-            if let Some(label) = &tick.label
-                && vertical_label_fits(input.rect, at, label, length)
-            {
-                painter.text(
-                    egui::pos2(input.rect.center().x, at - VERTICAL_LABEL_ABOVE_TICK),
-                    egui::Align2::CENTER_BOTTOM,
-                    label,
-                    crate::theme::regular(RULER_LABEL_SIZE),
-                    style.label,
-                );
+            if let Some(label) = &tick.label {
+                paint_vertical_label(painter, input.rect, at, label, style.label);
             }
         }
     }
@@ -435,27 +455,37 @@ fn horizontal_label_fits(rect: egui::Rect, at: f32, label: &str) -> bool {
     left >= rect.left() + 1.0 && left + estimated_label_width(label) <= rect.right() - 1.0
 }
 
-fn vertical_label_fits(rect: egui::Rect, at: f32, label: &str, _tick_length: f32) -> bool {
-    let half_width = estimated_label_width(label) * 0.5;
-    let centre = rect.center().x;
-    centre - half_width >= rect.left() + 1.0
-        && centre + half_width <= rect.right() - 1.0
-        && at - VERTICAL_LABEL_ABOVE_TICK - RULER_LABEL_SIZE >= rect.top() + 1.0
-        && at - VERTICAL_LABEL_ABOVE_TICK <= rect.bottom() - 1.0
+fn paint_vertical_label(painter: &egui::Painter, rect: egui::Rect, at: f32, label: &str, color: egui::Color32) {
+    let galley = painter.layout_no_wrap(label.to_owned(), crate::theme::regular(RULER_LABEL_SIZE), color);
+    if !vertical_label_fits(rect, at, galley.size()) {
+        return;
+    }
+    // Rotating clockwise makes the baseline run down the ruler's Y axis. The left-centre anchor
+    // holds the label's start on its tick and centres the glyph height inside the ruler band.
+    let shape = egui::epaint::TextShape::new(egui::pos2(rect.center().x, at + VERTICAL_LABEL_AFTER_TICK), galley, color)
+        .with_angle_and_anchor(std::f32::consts::FRAC_PI_2, egui::Align2::LEFT_CENTER);
+    painter.add(shape);
+}
+
+fn vertical_label_fits(rect: egui::Rect, at: f32, unrotated_size: egui::Vec2) -> bool {
+    // After a quarter turn, the galley's height lies across the band and its width runs downward.
+    unrotated_size.y <= rect.width() - 2.0 && at >= rect.top() + 1.0 && at + unrotated_size.x <= rect.bottom() - 1.0
 }
 
 fn tick_length(rect: egui::Rect, orientation: RulerOrientation, kind: TickKind) -> f32 {
     let available = match orientation {
-        RulerOrientation::Horizontal => (rect.height() - HORIZONTAL_LABEL_OUTER_PADDING - RULER_LABEL_SIZE - HORIZONTAL_LABEL_TICK_GAP).max(0.0),
-        RulerOrientation::Vertical => rect.width().max(0.0),
+        RulerOrientation::Horizontal => (rect.height() - 1.0).max(0.0),
+        RulerOrientation::Vertical => (rect.width() - 1.0).max(0.0),
     };
     let desired: f32 = match (orientation, kind) {
-        (RulerOrientation::Horizontal, TickKind::Minor) => 2.0,
-        (RulerOrientation::Horizontal, TickKind::Medium) => 4.0,
-        (RulerOrientation::Horizontal, TickKind::Major) => 6.0,
-        (RulerOrientation::Vertical, TickKind::Minor) => 2.0,
-        (RulerOrientation::Vertical, TickKind::Medium) => 4.0,
-        (RulerOrientation::Vertical, TickKind::Major) => 6.0,
+        (RulerOrientation::Horizontal, TickKind::Minor) => 4.0,
+        (RulerOrientation::Horizontal, TickKind::Quarter) => 6.0,
+        (RulerOrientation::Horizontal, TickKind::Medium) => 8.0,
+        (RulerOrientation::Horizontal, TickKind::Major) => 11.0,
+        (RulerOrientation::Vertical, TickKind::Minor) => 4.0,
+        (RulerOrientation::Vertical, TickKind::Quarter) => 6.0,
+        (RulerOrientation::Vertical, TickKind::Medium) => 8.0,
+        (RulerOrientation::Vertical, TickKind::Major) => 11.0,
     };
     desired.min(available)
 }
@@ -469,22 +499,14 @@ fn paint_canvas_edge(painter: &egui::Painter, orientation: RulerOrientation, rec
 }
 
 fn paint_pointer_marker(painter: &egui::Painter, orientation: RulerOrientation, rect: egui::Rect, axis_position: f32, color: egui::Color32) {
-    let points = pointer_marker_points(orientation, rect, axis_position);
-    painter.add(egui::Shape::convex_polygon(points.to_vec(), color, egui::Stroke::NONE));
+    let points = pointer_marker_line(orientation, rect, axis_position);
+    painter.line_segment(points, egui::Stroke::new(1.0, color));
 }
 
-fn pointer_marker_points(orientation: RulerOrientation, rect: egui::Rect, axis_position: f32) -> [egui::Pos2; 3] {
+fn pointer_marker_line(orientation: RulerOrientation, rect: egui::Rect, axis_position: f32) -> [egui::Pos2; 2] {
     match orientation {
-        RulerOrientation::Horizontal => [
-            egui::pos2(axis_position - 4.0, rect.bottom() - 1.0),
-            egui::pos2(axis_position + 4.0, rect.bottom() - 1.0),
-            egui::pos2(axis_position, rect.bottom() - 7.0),
-        ],
-        RulerOrientation::Vertical => [
-            egui::pos2(rect.right() - 1.0, axis_position - 4.0),
-            egui::pos2(rect.right() - 1.0, axis_position + 4.0),
-            egui::pos2(rect.right() - 7.0, axis_position),
-        ],
+        RulerOrientation::Horizontal => [egui::pos2(axis_position, rect.top()), egui::pos2(axis_position, rect.bottom())],
+        RulerOrientation::Vertical => [egui::pos2(rect.left(), axis_position), egui::pos2(rect.right(), axis_position)],
     }
 }
 
@@ -544,11 +566,49 @@ mod tests {
             let zoomed_in = choose_tick_spec(unit, 100.0).unwrap();
             let zoomed_out = choose_tick_spec(unit, 10.0).unwrap();
             assert!(zoomed_out.minor_interval_units >= zoomed_in.minor_interval_units);
-            assert!(zoomed_in.minor_interval_units * 100.0 >= MIN_MINOR_SPACING);
-            assert!(zoomed_out.minor_interval_units * 10.0 >= MIN_MINOR_SPACING);
+            if unit != Unit::Inches {
+                assert!(zoomed_in.minor_interval_units * 100.0 >= MIN_MINOR_SPACING);
+                assert!(zoomed_out.minor_interval_units * 10.0 >= MIN_MINOR_SPACING);
+            }
             assert!(zoomed_in.medium_every <= zoomed_in.major_every);
-            assert!(zoomed_in.major_every <= zoomed_in.label_every);
+            if unit != Unit::Inches {
+                assert!(zoomed_in.major_every <= zoomed_in.label_every);
+            }
         }
+    }
+
+    #[test]
+    fn inch_ticks_and_labels_match_every_reference_zoom_band() {
+        let cases = [
+            (0.72, 4.0, 32.0),
+            (5.76, 2.0, 16.0),
+            (9.0, 1.0, 8.0),
+            (18.0, 1.0 / 2.0, 4.0),
+            (36.0, 1.0 / 4.0, 2.0),
+            (72.0, 1.0 / 8.0, 1.0),
+            (216.0, 1.0 / 32.0, 1.0 / 4.0),
+            (432.0, 1.0 / 64.0, 1.0 / 8.0),
+            (864.0, 1.0 / 128.0, 1.0 / 16.0),
+            (1_728.0, 1.0 / 256.0, 1.0 / 32.0),
+        ];
+        for (points_per_inch, minor, label_interval) in cases {
+            let spec = inch_tick_spec(points_per_inch).unwrap();
+            assert_eq!(spec.minor_interval_units, minor);
+            assert_eq!(spec.label_every, 8);
+            assert_eq!(minor * f64::from(spec.label_every), label_interval);
+        }
+    }
+
+    #[test]
+    fn inch_numbering_stops_at_thirty_seconds_while_ticks_continue_finer() {
+        let far = inch_tick_spec(5.76).unwrap();
+        assert_eq!(far.minor_interval_units, 2.0);
+        assert_eq!(far.minor_interval_units * f64::from(far.label_every), 16.0);
+
+        let thirty_seconds = inch_tick_spec(1_728.0).unwrap();
+        assert_eq!(thirty_seconds.minor_interval_units, 1.0 / 256.0);
+        assert_eq!(thirty_seconds.minor_interval_units * f64::from(thirty_seconds.label_every), 1.0 / 32.0);
+        assert_eq!(thirty_seconds.label_every, 8);
     }
 
     #[test]
@@ -560,10 +620,10 @@ mod tests {
         assert_eq!(inches.label_every, 8);
 
         let millimetres = choose_tick_spec(Unit::Millimetres, 96.0 / 25.4).unwrap();
-        assert_eq!(millimetres.minor_interval_units, 2.0);
-        assert_eq!(millimetres.medium_every, 3);
-        assert_eq!(millimetres.major_every, 10);
-        assert_eq!(millimetres.label_every, 10);
+        assert_eq!(millimetres.minor_interval_units, 2.5);
+        assert_eq!(millimetres.medium_every, 4);
+        assert_eq!(millimetres.major_every, 8);
+        assert_eq!(millimetres.label_every, 8);
     }
 
     #[test]
@@ -577,6 +637,21 @@ mod tests {
         assert!(ticks.windows(2).all(|pair| pair[0].screen_position < pair[1].screen_position && pair[0].value < pair[1].value));
         assert!(ticks.iter().any(|tick| tick.kind == TickKind::Major));
         assert!(ticks.iter().any(|tick| tick.label.is_some()));
+    }
+
+    #[test]
+    fn vertical_point_labels_continue_past_nine_hundred() {
+        let geometry = RulerGeometry {
+            orientation: RulerOrientation::Vertical,
+            ruler_start: 0.0,
+            ruler_end: 1_600.0,
+            page_origin: 0.0,
+            page_length_pdf_points: 792.0,
+            screen_points_per_pdf_point: 1.0,
+            unit: Unit::Points,
+        };
+        let labels: Vec<f64> = visible_ticks(geometry).into_iter().filter(|tick| tick.label.is_some()).map(|tick| tick.value).collect();
+        assert!(labels.iter().any(|value| *value > 900.0), "point labels stopped at {labels:?}");
     }
 
     #[test]
@@ -657,6 +732,31 @@ mod tests {
     }
 
     #[test]
+    fn inch_labels_use_reduced_binary_fractions_without_decimals_or_mixed_numbers() {
+        assert_eq!(format_inch_label(0.0), "0");
+        assert_eq!(format_inch_label(1.0 / 64.0), "1/64");
+        assert_eq!(format_inch_label(2.0 / 64.0), "1/32");
+        assert_eq!(format_inch_label(8.0 / 64.0), "1/8");
+        assert_eq!(format_inch_label(16.0 / 64.0), "1/4");
+        assert_eq!(format_inch_label(32.0 / 64.0), "1/2");
+        assert_eq!(format_inch_label(48.0 / 64.0), "3/4");
+        assert_eq!(format_inch_label(1.0), "1");
+        assert_eq!(format_inch_label(1.25), "1/4");
+        assert_eq!(format_inch_label(-2.75), "3/4");
+        assert!(!format_inch_label(5.0 / 16.0).contains('.'));
+    }
+
+    #[test]
+    fn non_inch_units_label_only_whole_numbers() {
+        for unit in [Unit::Millimetres, Unit::Centimetres, Unit::Points] {
+            let spec = TickSpec { minor_interval_units: 0.1, medium_every: 5, major_every: 10, label_every: 1 };
+            assert_eq!(label_tick(unit, 1.5, 15, spec, 100.0), None);
+            assert_eq!(label_tick(unit, 2.0, 20, spec, 100.0).as_deref(), Some("2"));
+            assert_eq!(format_label(unit, 12.0), "12");
+            assert!(!format_label(unit, 12.0).contains('.'));
+        }
+    }
+    #[test]
     fn labels_do_not_show_negative_zero() {
         assert_eq!(format_label(Unit::Inches, -0.0), "0");
         assert_eq!(format_label(Unit::Points, 72.0), "72");
@@ -686,39 +786,66 @@ mod tests {
             for scale in [0.25, 0.75, 1.0, 1.333_333, 2.0, 4.0, 16.0] {
                 let labels: Vec<f64> =
                     visible_ticks(geometry(unit, scale)).into_iter().filter(|tick| tick.label.is_some()).map(|tick| tick.screen_position).collect();
-                assert!(labels.windows(2).all(|pair| pair[1] - pair[0] >= MIN_LABEL_SPACING - 0.01));
+                let minimum = if unit == Unit::Inches {
+                    let screen_points_per_unit = geometry(unit, scale).screen_points_per_unit().unwrap();
+                    let spec = choose_tick_spec(unit, screen_points_per_unit).unwrap();
+                    spec.minor_interval_units * f64::from(spec.label_every) * screen_points_per_unit
+                } else {
+                    MIN_LABEL_SPACING
+                };
+                assert!(labels.windows(2).all(|pair| pair[1] - pair[0] >= minimum - 0.01));
             }
         }
     }
 
     #[test]
+    fn every_label_interval_has_eight_subdivisions_with_standard_ruler_hierarchy() {
+        let spec = eight_subdivision_spec(1.0);
+        assert_eq!(spec.minor_interval_units, 1.0 / 8.0);
+        assert_eq!(spec.label_every, 8);
+        assert_eq!(tick_kind(1, spec), TickKind::Minor);
+        assert_eq!(tick_kind(2, spec), TickKind::Quarter);
+        assert_eq!(tick_kind(3, spec), TickKind::Minor);
+        assert_eq!(tick_kind(4, spec), TickKind::Medium);
+        assert_eq!(tick_kind(6, spec), TickKind::Quarter);
+        assert_eq!(tick_kind(8, spec), TickKind::Major);
+        assert_eq!(tick_kind(-2, spec), TickKind::Quarter);
+        assert_eq!(tick_kind(-8, spec), TickKind::Major);
+    }
+
+    #[test]
+    fn unlabeled_ticks_keep_their_hierarchy() {
+        let spec = eight_subdivision_spec(1.0);
+        assert_eq!(tick_kind(4, spec), TickKind::Medium);
+        assert!(!divisible(4, spec.label_every));
+        assert_eq!(tick_kind(8, spec), TickKind::Major);
+        assert!(divisible(8, spec.label_every));
+    }
+    #[test]
     fn tick_hierarchy_has_strictly_increasing_lengths() {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
         for orientation in [RulerOrientation::Horizontal, RulerOrientation::Vertical] {
             let minor = tick_length(rect, orientation, TickKind::Minor);
+            let quarter = tick_length(rect, orientation, TickKind::Quarter);
             let medium = tick_length(rect, orientation, TickKind::Medium);
             let major = tick_length(rect, orientation, TickKind::Major);
-            assert!(minor < medium && medium < major);
+            assert!(minor < quarter && quarter < medium && medium < major);
         }
     }
 
     #[test]
-    fn horizontal_labels_have_outer_padding_and_a_gap_before_major_ticks() {
+    fn horizontal_labels_keep_outer_padding_while_major_ticks_span_the_band() {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
         let label_top = rect.top() + HORIZONTAL_LABEL_OUTER_PADDING;
-        let label_bottom = label_top + RULER_LABEL_SIZE;
-        let major_tick_top = rect.bottom() - tick_length(rect, RulerOrientation::Horizontal, TickKind::Major);
         assert!(label_top > rect.top());
-        assert!(major_tick_top - label_bottom >= HORIZONTAL_LABEL_TICK_GAP);
+        assert_eq!(tick_length(rect, RulerOrientation::Horizontal, TickKind::Major), 11.0);
     }
 
     #[test]
     fn vertical_labels_are_centred_above_major_ticks_without_overlap() {
         let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 300.0));
         let at = 100.0;
-        assert!(vertical_label_fits(rect, at, "8", tick_length(rect, RulerOrientation::Vertical, TickKind::Major)));
-        let label_bottom = at - VERTICAL_LABEL_ABOVE_TICK;
-        assert!(label_bottom < at);
+        assert!(vertical_label_fits(rect, at, egui::vec2(8.0, RULER_LABEL_SIZE)));
         assert_eq!(rect.center().x, VERTICAL_RULER_WIDTH * 0.5);
     }
 
@@ -755,21 +882,20 @@ mod tests {
         assert!(!horizontal_label_fits(horizontal, horizontal.right(), "32"));
 
         let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 100.0));
-        assert!(!vertical_label_fits(vertical, vertical.top(), "8", 6.0));
-        assert!(vertical_label_fits(vertical, vertical.center().y, "8", 6.0));
+        assert!(!vertical_label_fits(vertical, vertical.top(), egui::vec2(8.0, RULER_LABEL_SIZE)));
+        assert!(!vertical_label_fits(vertical, vertical.bottom() - 4.0, egui::vec2(8.0, RULER_LABEL_SIZE)));
+        assert!(vertical_label_fits(vertical, vertical.center().y, egui::vec2(8.0, RULER_LABEL_SIZE)));
     }
 
     #[test]
-    fn pointer_markers_point_toward_the_canvas_edge() {
+    fn pointer_markers_are_full_band_lines() {
         let horizontal = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(300.0, HORIZONTAL_RULER_HEIGHT));
-        let h = pointer_marker_points(RulerOrientation::Horizontal, horizontal, 100.0);
-        assert_eq!(h[2], egui::pos2(100.0, horizontal.bottom() - 7.0));
-        assert_eq!(h[0].y, horizontal.bottom() - 1.0);
+        let h = pointer_marker_line(RulerOrientation::Horizontal, horizontal, 100.0);
+        assert_eq!(h, [egui::pos2(100.0, horizontal.top()), egui::pos2(100.0, horizontal.bottom())]);
 
         let vertical = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(VERTICAL_RULER_WIDTH, 300.0));
-        let v = pointer_marker_points(RulerOrientation::Vertical, vertical, 100.0);
-        assert_eq!(v[2], egui::pos2(vertical.right() - 7.0, 100.0));
-        assert_eq!(v[0].x, vertical.right() - 1.0);
+        let v = pointer_marker_line(RulerOrientation::Vertical, vertical, 100.0);
+        assert_eq!(v, [egui::pos2(vertical.left(), 100.0), egui::pos2(vertical.right(), 100.0)]);
     }
 
     #[test]
