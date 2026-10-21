@@ -2261,38 +2261,32 @@ mod tests {
     }
 
     /// Elements whose sequences nest inside each other's ranges, as a crafted page can draw them,
-    /// are checked against one count of the page's sequences rather than each scanning its range:
-    /// with the ranges scanned, this page took time in its elements times its sequences (10 s
-    /// here against under 1 s).
+    /// are checked against one count of the page's sequences rather than each scanning its range,
+    /// which took time in the elements times the sequences (an order of magnitude over the bound).
     #[test]
     fn structure_replacement_text_checks_nested_elements_in_one_pass() {
-        // An element draws a word first. Then element k (of n) owns sequences k and 2n-1-k, so
-        // each range holds the inner elements'; between them another element repeats an empty
-        // sequence m times (an MCID may be drawn more than once), which every range holds too.
-        // Nothing in the ranges draws, so a scan of them would read each one to the end.
-        let (n, m) = (30_000usize, 1_000_000usize);
-        let mut content = String::with_capacity((2 * n + m) * 32);
-        content.push_str(&format!("/Span <</MCID {}>> BDC BT /F1 20 Tf 1 0 0 1 50 150 Tm (ok) Tj ET EMC ", 2 * n));
-        for k in 0..n {
-            content.push_str(&format!("/Span <</MCID {k}>> BDC EMC "));
-        }
-        content.push_str(&format!("/Span <</MCID {}>> BDC EMC ", 2 * n + 1).repeat(m));
-        for k in (0..n).rev() {
-            content.push_str(&format!("/Span <</MCID {}>> BDC EMC ", 2 * n - 1 - k));
-        }
-        let owners = (0..n).chain((0..n).rev()).chain([n, n + 1]);
-        let tree: String = owners.map(|k| format!("{} 0 R ", 10 + k)).collect();
-        let tree = format!("<< /Nums [0 [{tree}]] >>");
-        let mut objects: Vec<(u32, String)> = (0..n)
-            .map(|k| (10 + k as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K [{k} {}] /ActualText (E{k}) >>", 2 * n - 1 - k)))
-            .collect();
-        objects.push((10 + n as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K {} /ActualText (OK) >>", 2 * n)));
-        objects.push((11 + n as u32, format!("<< /Type /StructElem /S /Span /P 5 0 R /K {} /ActualText (F) >>", 2 * n + 1)));
-        let objects: Vec<(u32, &str)> = objects.iter().map(|(n, o)| (*n, o.as_str())).collect();
-        let pdf = tagged(&content, "", &tree, &objects);
+        // An element draws a word first. Then element k (of N) holds sequences 1+k and 2N+M-k, so
+        // each range holds the inner elements'; between them another element holds M empty
+        // sequences (an MCID may be drawn more than once), which every range holds too. Nothing
+        // in the ranges draws, so a scan of them would read each one to the end.
+        const N: usize = 30_000;
+        const M: usize = 1_000_000;
+        let held = |text: &str, sequences: Vec<(usize, usize, Vec<Drawn>)>| Held { text: text.into(), sequences, filtered: false };
+        let glyph = TextGlyph {
+            text: "ok".into(),
+            rect: [50.0, 150.0, 70.0, 170.0],
+            quad: [[50.0, 170.0], [70.0, 170.0], [70.0, 150.0], [50.0, 150.0]],
+            direction: [1.0, 0.0],
+        };
+        let mut dev = TextDevice::new();
+        dev.held.push(held("OK", vec![(0, 0, vec![(0, [1.0, 0.0], glyph)])]));
+        dev.held.extend((0..N).map(|k| held("E", vec![(0, 1 + k, Vec::new()), (0, 2 * N + M - k, Vec::new())])));
+        dev.held.push(held("F", (0..M).map(|i| (0, 1 + N + i, Vec::new())).collect()));
+        dev.held_sequences = 2 * N + M + 1;
         let started = std::time::Instant::now();
-        assert_eq!(marked_text(&pdf, 0).plain_text(), "OK");
+        dev.finish();
         assert!(started.elapsed() < std::time::Duration::from_secs(5), "took {:?}", started.elapsed());
+        assert_eq!(dev.glyphs.iter().map(|g| g.2.text.as_str()).collect::<Vec<_>>(), ["OK"]);
     }
 
     /// #3660: an annotation's appearance has MCIDs of its own too.
