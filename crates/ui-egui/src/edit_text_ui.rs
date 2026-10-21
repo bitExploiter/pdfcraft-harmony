@@ -1424,14 +1424,15 @@ pub(crate) struct VisualText {
     history: DisplayHistory,
 }
 
-/// Display strings an editor has shown, each with the logical text it stood for, newest last,
-/// at most [`MAX_DISPLAY_HISTORY`]: egui's undo keeps `as_str()` snapshots, which are display
-/// order, and Undo and Redo hand them back through `replace_with`. Shared across frames in egui
-/// memory under the editor's id ([`VisualText::remember`]).
+/// Display strings an editor has shown, each with the logical text it stood for, newest last:
+/// egui's undo keeps `as_str()` snapshots, which are display order, and Undo and Redo hand them
+/// back through `replace_with`. Shared across frames in egui memory under the editor's id, for
+/// one paragraph at a time ([`VisualText::remember`]).
 type DisplayHistory = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<(String, String)>>>;
 
-/// More than egui's undo stack keeps (100 states).
-const MAX_DISPLAY_HISTORY: usize = 128;
+/// Only a bound on memory. egui keeps 100 undo states, but each can span many keystrokes, and
+/// every keystroke in right-to-left text records a display string (CodeRabbit on #3890).
+const MAX_DISPLAY_HISTORY: usize = 4096;
 
 /// A caret egui holds at display index `shown`, standing for the logical boundary `logical`
 /// (between logical characters `logical - 1` and `logical`).
@@ -1485,14 +1486,18 @@ impl VisualText {
         }
     }
 
-    /// The logical text a display string this editor showed stood for; text it never showed is
-    /// taken as it is (correct for text without right-to-left script).
-    fn logical_for_display(&self, shown: &str) -> String {
+    /// The logical text a display string this editor showed stood for. Text it never showed is
+    /// taken as it is only when it is its own display order (no right-to-left script); otherwise
+    /// its logical order is unknown and there is none.
+    fn logical_for_display(&self, shown: &str) -> Option<String> {
         if shown == self.visual {
-            return self.logical.borrow().clone();
+            return Some(self.logical.borrow().clone());
         }
         let history = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        history.iter().rev().find(|(s, _)| s == shown).map_or_else(|| shown.to_owned(), |(_, logical)| logical.clone())
+        if let Some((_, logical)) = history.iter().rev().find(|(s, _)| s == shown) {
+            return Some(logical.clone());
+        }
+        (crate::bidi::visual_with_order(shown).0 == shown).then(|| shown.to_owned())
     }
 
     /// Pick up where the last edit in the editor `id` left its caret, if the text is unchanged,
@@ -1500,6 +1505,14 @@ impl VisualText {
     pub(crate) fn remember(&mut self, ctx: &egui::Context, id: egui::Id) {
         let shared = ctx.data_mut(|d| d.get_temp_mut_or_default::<DisplayHistory>(id.with("visual-text-history")).clone());
         {
+            // A right-to-left text the history never showed is another paragraph: start afresh,
+            // so one paragraph's strings neither crowd out nor stand in for another's.
+            if self.visual != *self.logical.borrow() {
+                let mut history = shared.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !history.iter().any(|(s, _)| *s == self.visual) {
+                    history.clear();
+                }
+            }
             let mine = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drain(..).collect::<Vec<_>>();
             self.history = shared;
             for (shown, logical) in mine {
@@ -1651,8 +1664,11 @@ impl egui::TextBuffer for VisualText {
     /// Undo and Redo: `text` is an earlier `as_str()`, a display string. Put back the logical
     /// text it showed; egui then restores the snapshot's caret, which is in that display order.
     fn replace_with(&mut self, text: &str) {
-        let logical = self.logical_for_display(text);
-        *self.logical.borrow_mut() = logical;
+        // A snapshot whose logical text is unknown is refused rather than kept in display order,
+        // which would reverse the words without a sign.
+        if let Some(logical) = self.logical_for_display(text) {
+            *self.logical.borrow_mut() = logical;
+        }
         self.refresh();
         self.caret = None;
         self.edited = false;
@@ -2247,6 +2263,35 @@ mod tests {
         let (mut plain, _) = VisualText::new("abc".to_owned());
         plain.replace_with("abd");
         assert_eq!(plain.logical_text(), "abd");
+    }
+
+    #[test]
+    fn undo_reaches_back_past_many_keystrokes_and_never_reverses_the_words() {
+        use egui::TextBuffer as _;
+        // CodeRabbit on #3890: one egui undo state can span many keystrokes, so the history used
+        // to drop the snapshot Undo went back to and keep its display order as the text.
+        let ctx = egui::Context::default();
+        let id = egui::Id::new("history-test");
+        let (mut buf, _) = VisualText::new("مرحبا سلام".to_owned());
+        buf.remember(&ctx, id);
+        let before = buf.as_str().to_owned();
+        for _ in 0..300 {
+            let end = buf.as_str().chars().count();
+            buf.insert_text("ש", egui::text::CharIndex(end));
+        }
+        // Next frame: a fresh buffer over the same text shares the history.
+        let (mut next, _) = VisualText::new(buf.logical_text());
+        next.remember(&ctx, id);
+        next.replace_with(&before);
+        assert_eq!(next.logical_text(), "مرحبا سلام", "Undo after 300 keystrokes");
+        // Another paragraph in the same editor starts its own history.
+        let (mut other, _) = VisualText::new("שלום עולם".to_owned());
+        other.remember(&ctx, id);
+        let shown = other.as_str().to_owned();
+        other.replace_with(&before);
+        assert_eq!(other.logical_text(), "שלום עולם", "a string it never showed is refused");
+        assert_eq!(other.as_str(), shown);
+        assert_eq!(other.logical_for_display(&before), None);
     }
 
     #[test]
