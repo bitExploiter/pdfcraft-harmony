@@ -257,7 +257,9 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             CjkPreference::Default => Need::Other,
         };
         let extra = match need {
-            Need::Other if pdfcraft_fonts::ui_japanese_fonts().is_empty() => fallback(Need::Hans).or_else(|| fallback(Need::Hant)),
+            Need::Other if pdfcraft_fonts::ui_japanese_fonts().is_empty() => {
+                fallback(Need::Hans).or_else(|| fallback(Need::Hant)).or_else(|| fallback(Need::Japanese))
+            }
             Need::Hans | Need::Hant if pdfcraft_fonts::ui_arabic_fonts().is_empty() => fallback(Need::Other),
             _ => None,
         };
@@ -280,7 +282,7 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
             let japanese: Vec<String> = pdfcraft_fonts::ui_japanese_fonts().iter().map(|f| f.name()).collect();
             for stack in fonts.families.values_mut() {
                 let at = match need {
-                    Need::Other => None,
+                    Need::Other | Need::Japanese => None,
                     Need::Hans | Need::Hant => stack.iter().position(|n| japanese.contains(n)),
                 };
                 stack.insert(at.unwrap_or(stack.len()), SYSTEM_FALLBACK.to_owned());

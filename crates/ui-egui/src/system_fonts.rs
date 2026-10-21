@@ -36,6 +36,8 @@ const TAMIL_PROBE: char = '\u{0B95}';
 const HANS_PROBE: char = '\u{6B22}';
 /// 說 (U+8AAA): Traditional only, absent from the Japanese craft-fonts faces.
 const HANT_PROBE: char = '\u{8AAA}';
+/// あ (U+3042): Hiragana letter A, present in every Japanese UI face.
+const JAPANESE_PROBE: char = '\u{3042}';
 
 /// What the installed face is wanted for, from the interface language.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -47,6 +49,8 @@ pub enum Need {
     Hans,
     /// Traditional Chinese interface text.
     Hant,
+    /// Japanese interface text in a build without craft-fonts.
+    Japanese,
 }
 
 /// The installed fallback face for `need`, read once per need. `None` when it is turned off or no
@@ -55,10 +59,12 @@ pub fn fallback(need: Need) -> Option<Arc<FontData>> {
     static OTHER: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANS: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     static HANT: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
+    static JAPANESE: OnceLock<Option<Arc<FontData>>> = OnceLock::new();
     let cache = match need {
         Need::Other => &OTHER,
         Need::Hans => &HANS,
         Need::Hant => &HANT,
+        Need::Japanese => &JAPANESE,
     };
     cache.get_or_init(|| load(need)).clone()
 }
@@ -71,6 +77,7 @@ fn load(need: Need) -> Option<Arc<FontData>> {
         Need::Other => (PROBE, MAX_BYTES),
         Need::Hans => (HANS_PROBE, MAX_HAN_BYTES),
         Need::Hant => (HANT_PROBE, MAX_HAN_BYTES),
+        Need::Japanese => (JAPANESE_PROBE, MAX_HAN_BYTES),
     };
     candidates(need).iter().find_map(|path| read(path, probe, max))
 }
@@ -232,6 +239,32 @@ fn candidates(need: Need) -> Vec<PathBuf> {
     match need {
         Need::Other => other_candidates(),
         Need::Hans | Need::Hant => han_candidates(need == Need::Hant),
+        Need::Japanese => japanese_candidates(),
+    }
+}
+
+fn japanese_candidates() -> Vec<PathBuf> {
+    if cfg!(windows) {
+        ["YuGothR.ttc", "YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"].iter().map(|f| windows_fonts().join(f)).collect()
+    } else if cfg!(target_os = "macos") {
+        ["ヒラギノ角ゴシック W3.ttc", "Hiragino Sans GB.ttc", "AquaKana.ttc", "AppleSDGothicNeo.ttc"]
+            .iter()
+            .map(|f| Path::new("/System/Library/Fonts").join(f))
+            .collect()
+    } else {
+        unix_fonts(&[
+            "opentype/ipafont-gothic/ipag.ttf",
+            "truetype/fonts-japanese-gothic.ttf",
+            "vlgothic/VL-Gothic-Regular.ttf",
+            "truetype/vlgothic/VL-Gothic-Regular.ttf",
+            "google-droid-sans-fonts/DroidSansJapanese.ttf",
+            "truetype/droid/DroidSansFallbackFull.ttf",
+            "google-droid-sans-fonts/DroidSansFallbackFull.ttf",
+            "droid/DroidSansFallbackFull.ttf",
+            "truetype/wqy/wqy-microhei.ttc",
+            "wenquanyi/wqy-microhei/wqy-microhei.ttc",
+            "wqy-microhei/wqy-microhei.ttc",
+        ])
     }
 }
 
@@ -379,6 +412,7 @@ mod tests {
         assert_eq!(face_with(inter, PROBE), None);
         assert_eq!(face_with(inter, HANS_PROBE), None);
         assert_eq!(face_with(inter, HANT_PROBE), None);
+        assert_eq!(face_with(inter, JAPANESE_PROBE), None);
         assert_eq!(face_with(inter, 'A'), Some(0));
     }
 
@@ -391,7 +425,7 @@ mod tests {
 
     #[test]
     fn candidates_are_absolute_font_files() {
-        for need in [Need::Other, Need::Hans, Need::Hant] {
+        for need in [Need::Other, Need::Hans, Need::Hant, Need::Japanese] {
             let list = candidates(need);
             assert!(!list.is_empty(), "{need:?}");
             assert!(list.iter().all(|p| p.extension().is_some_and(|e| e == "ttf" || e == "ttc")), "{need:?}");
@@ -420,7 +454,7 @@ mod tests {
 
     #[test]
     fn han_candidates_skip_adobe_designs() {
-        for need in [Need::Hans, Need::Hant] {
+        for need in [Need::Hans, Need::Hant, Need::Japanese] {
             for path in candidates(need) {
                 let name = path.to_string_lossy().to_lowercase();
                 assert!(!["notosanscjk", "notoserifcjk", "sourcehan", "source-han"].iter().any(|b| name.contains(b)), "{name}");
