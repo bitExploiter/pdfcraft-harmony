@@ -176,11 +176,37 @@ impl PrinterMarks {
             }
             let info: String = info.chars().filter(|ch| pdfcraft_fonts::win_ansi_encodable(*ch)).collect();
             c.push_str(&format!("BT /PCHelv {} Tf 1 0 0 1 {} {} Tm ", n(INFO_SIZE), n(x0 + LENGTH + GAP + 12.0), n(y0 - GAP - BAR)));
-            c.push_str(&String::from_utf8_lossy(&literal(&win_ansi(&info))));
+            c.push_str(&ascii_literal(&literal(&win_ansi(&info))));
             c.push_str(" Tj ET\n");
         }
         c
     }
+}
+
+/// A PDF literal string made of WinAnsi bytes, as ASCII text: bytes from 0x80 up are written as
+/// octal escapes, so they reach the content stream unchanged instead of being replaced when the
+/// bytes are turned into a `String`.
+fn ascii_literal(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for &b in bytes {
+        if b < 0x80 {
+            out.push(char::from(b));
+        } else {
+            out.push_str(&format!("\\{b:03o}"));
+        }
+    }
+    out
+}
+
+/// How far the chosen marks reach beyond the trim box on each side (left, bottom, right, top):
+/// `reach`, or more where the bleed marks, which start at the bleed box, go further out.
+fn side_reach(marks: &PrinterMarks, trim: [f64; 4], bleed: [f64; 4]) -> [f64; 4] {
+    let base = marks.reach();
+    if !(marks.bleed && bleed != trim) {
+        return [base; 4];
+    }
+    let beyond = |bleed_edge: f64, trim_edge: f64| base.max((trim_edge - bleed_edge).abs() + GAP + LENGTH);
+    [beyond(bleed[0], trim[0]), beyond(bleed[1], trim[1]), beyond(bleed[2], trim[2]), beyond(bleed[3], trim[3])]
 }
 
 /// Add printer marks to `pages` (0-based). With `replace`, marks already there are removed
@@ -198,11 +224,11 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
         remove_marks(doc, pages, MarkKind::PrinterMarks)?;
     }
     let count = all.len();
-    let reach = marks.reach();
     let mut widened = Vec::new();
     for &i in pages {
         let ([media, crop, bleed, trim, art], given) = pdfcraft_organize_boxes(doc, i)?;
-        let needed = [trim[0] - reach, trim[1] - reach, trim[2] + reach, trim[3] + reach];
+        let side = side_reach(marks, trim, bleed);
+        let needed = [trim[0] - side[0], trim[1] - side[1], trim[2] + side[2], trim[3] + side[3]];
         let within = |b: [f64; 4]| b[0] <= needed[0] && b[1] <= needed[1] && b[2] >= needed[2] && b[3] >= needed[3];
         // The crop box is what shows, so the marks need room inside it, not only inside the media box.
         if !within(crop)
@@ -211,8 +237,13 @@ pub fn add_printer_marks(doc: &mut Document, pages: &[usize], marks: &PrinterMar
             let new_media = if within(media) {
                 None
             } else {
-                let room = room.max(reach);
-                Some([media[0].min(trim[0] - room), media[1].min(trim[1] - room), media[2].max(trim[2] + room), media[3].max(trim[3] + room)])
+                let room = |s: f64| room.max(s);
+                Some([
+                    media[0].min(trim[0] - room(side[0])),
+                    media[1].min(trim[1] - room(side[1])),
+                    media[2].max(trim[2] + room(side[2])),
+                    media[3].max(trim[3] + room(side[3])),
+                ])
             };
             // Without a wider media box, only the crop box grows, to the marks and no further than the media box.
             let new_crop = match new_media {
