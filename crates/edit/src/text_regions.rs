@@ -90,15 +90,25 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         }
     }
     let mut blocks: Vec<TextBlock> = Vec::new();
-    for row in rows {
+    for (n, row) in rows.iter().enumerate() {
+        let next_origin = rows.get(n + 1).and_then(|r| r.first()).and_then(|i| lines.get(*i)).map(|l| l.frame_origin().1);
         let Some(first) = row.first().and_then(|i| lines.get(*i)) else { continue };
-        let (Some(rect), Some(frame)) = (row_rect(&row, lines), frame_row_rect(&row, lines)) else { continue };
+        let (Some(rect), Some(frame)) = (row_rect(row, lines), frame_row_rect(row, lines)) else { continue };
         let joins = blocks.last().is_some_and(|block| {
             let Some(prev_row) = block.rows.last() else { return false };
             let Some(prev) = prev_row.first().and_then(|i| lines.get(*i)) else { return false };
             let Some(pr) = frame_row_rect(prev_row, lines) else { return false };
             let gap = prev.frame_origin().1 - first.frame_origin().1;
             let tol = prev.size.max(first.size).max(1.0);
+            // A blank line or the space around a heading is a bigger step than the leading of
+            // the rows around it: the block's own leading, or for a lone row, the step to the
+            // row after it.
+            let cap = prev.size.max(first.size) * 2.5;
+            let leading = match block.rows.len().checked_sub(2).and_then(|i| block.rows.get(i)).and_then(|r| r.first()).and_then(|i| lines.get(*i)) {
+                Some(before) => Some(before.frame_origin().1 - prev.frame_origin().1),
+                None => next_origin.map(|y| first.frame_origin().1 - y),
+            };
+            let limit = leading.filter(|l| *l > 0.0).map_or(cap, |l| (l * 1.35).min(cap));
             let aligned =
                 (pr[0] - frame[0]).abs() < tol || ((pr[0] + pr[2] - frame[0] - frame[2]) / 2.0).abs() < tol || (pr[2] - frame[2]).abs() < tol;
             // OCR lines stay apart: the scan fixes where each one is, so they never rewrap together.
@@ -108,7 +118,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 && aligned
                 && first.size.min(prev.size) >= first.size.max(prev.size) * 0.4
                 && gap > first.size.min(prev.size) * 0.8
-                && gap < first.size.max(prev.size) * 2.5
+                && gap < limit
         });
         if !joins {
             blocks.push(TextBlock {
@@ -132,7 +142,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         if !block.rows.is_empty() {
             block.editor_text.push('\n');
         }
-        for &index in &row {
+        for &index in row {
             let Some(line) = lines.get(index) else { continue };
             // Some producers position separate words without encoding a space.
             if let Some(prev) = block.lines.last().filter(|i| row.contains(i)).and_then(|i| lines.get(*i))
@@ -159,7 +169,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
         }
         block.text.push_str(row_text.trim_matches(paragraph_separator));
         block.rect = union(block.rect, rect);
-        block.rows.push(row);
+        block.rows.push(row.clone());
     }
     blocks
 }
