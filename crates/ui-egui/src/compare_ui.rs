@@ -436,3 +436,62 @@ fn page_top_y(app: &PdfCraftApp, view_index: usize, page: usize) -> f32 {
     let w = v.content_width(&doc.info, v.viewport_rect().width());
     v.layout(&doc.info, w).get(page).map_or(0.0, |r| r.min.y)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use egui_kittest::kittest::Queryable;
+
+    #[test]
+    fn blank_page_insertion_is_counted_and_shown_in_the_panel() {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        for pages in [1, 2] {
+            let bytes = app.session.create_blank(300.0, 400.0, pages).unwrap();
+            app.open_bytes("blank.pdf", None, bytes.as_ref().clone()).unwrap();
+        }
+        app.compare_old = Some(app.views[0].id);
+        app.run_compare();
+        let summary = app.toast.as_ref().unwrap().0.clone();
+        let new = app.views[1].id;
+        let mut fonts = false;
+        let mut h = egui_kittest::Harness::builder().with_size(egui::vec2(640.0, 480.0)).build_ui_state(
+            move |ui, app: &mut PdfCraftApp| {
+                if !fonts {
+                    ui.ctx().set_fonts(theme::font_definitions());
+                    fonts = true;
+                    return;
+                }
+                let _ = panel(ui, &Tokens::get(ui.ctx()), &app.compare, new);
+            },
+            app,
+        );
+        h.run();
+        let page_visible = h.query_by_label("Inserted · page 2").is_some();
+        assert!(summary == "1 difference found" && page_visible, "summary={summary:?}, page_visible={page_visible}");
+        if let Ok(path) = std::env::var("PDFCRAFT_COMPARE_SHOT") {
+            h.render().unwrap().save(path).unwrap();
+        }
+    }
+
+    #[test]
+    fn comparison_page_tops_follow_two_up_rows_and_cover() {
+        let mut app = PdfCraftApp::new();
+        let bytes = app.session.create_blank(300.0, 400.0, 4).unwrap();
+        app.open_bytes("test.pdf", None, bytes.as_ref().clone()).unwrap();
+        let v = &mut app.views[0];
+        v.layout = crate::canvas::PageLayout::TwoUp;
+        v.zoom = 1.0;
+        v.cover = false;
+        assert_eq!(page_top_y(&app, 0, 0), page_top_y(&app, 0, 1));
+        assert!(page_top_y(&app, 0, 2) > page_top_y(&app, 0, 1));
+        app.views[0].cover = true;
+        assert_eq!(page_top_y(&app, 0, 1), page_top_y(&app, 0, 2));
+        assert!(page_top_y(&app, 0, 3) > page_top_y(&app, 0, 2));
+        let unrotated_step = page_top_y(&app, 0, 3) - page_top_y(&app, 0, 1);
+        app.views[0].rotation = 90;
+        assert_eq!(page_top_y(&app, 0, 1), page_top_y(&app, 0, 2));
+        let rotated_step = page_top_y(&app, 0, 3) - page_top_y(&app, 0, 1);
+        assert!((unrotated_step - rotated_step - 100.0 * crate::canvas::PT).abs() < 0.001);
+    }
+}

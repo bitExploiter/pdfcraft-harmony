@@ -35,6 +35,16 @@ fn build_doc(pages: &[&str]) -> Arc<Vec<u8>> {
 }
 
 #[test]
+fn rewritten_middle_page_is_visually_compared() {
+    let mut s = Session::new();
+    let old = s.open("old.pdf", None, build_doc(&["Introduction", "Original payment conditions", "Conclusion"]), None).unwrap();
+    let new = s.open("new.pdf", None, build_doc(&["Introduction", "Entirely revised terms", "Conclusion"]), None).unwrap();
+    assert_eq!(s.compare(old, new).unwrap().page_pairs, [(0, 0), (1, 1), (2, 2)]);
+    let visual = s.compare_visual(old, new, 72.0).unwrap();
+    assert!(!visual.is_empty() && visual.iter().all(|(page, _)| *page == 1), "{visual:?}");
+}
+
+#[test]
 fn compare_realigns_pages_after_insertions_deletions_and_moves() {
     let mut s = Session::new().with_clock(|| 1_700_000_000);
     let page_a = "Section One overview of the master service agreement and definitions";

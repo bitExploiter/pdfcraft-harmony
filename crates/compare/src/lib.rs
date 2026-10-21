@@ -735,6 +735,20 @@ mod tests {
     }
 
     #[test]
+    fn rewritten_page_between_matching_pages_keeps_a_visual_pair() {
+        let mut old = words("unchanged introduction", 0);
+        old.extend(words("old payment conditions", 1));
+        old.extend(words("unchanged conclusion", 2));
+        let mut new = words("unchanged introduction", 0);
+        new.extend(words("entirely rewritten terms", 1));
+        new.extend(words("unchanged conclusion", 2));
+        let c = compare_with_pages(&old, 3, &new, 3);
+        assert_eq!(c.page_pairs, [(0, 0), (1, 1), (2, 2)]);
+        assert!(c.page_changes.is_empty());
+        assert!(c.changes.iter().any(|c| c.old.page == 1 && c.new.page == 1));
+    }
+
+    #[test]
     fn insertions_deletions_and_replacements() {
         let old = words("The quick brown fox jumps over the lazy dog", 0);
         let new = words("The quick red fox leaps over the very lazy dog today", 0);
@@ -861,6 +875,22 @@ mod tests {
         assert_eq!(cd.sync_new_page(1), 0);
         assert_eq!(cd.sync_new_page(2), 1);
         assert_eq!(cd.sync_new_page(3), 2);
+    }
+
+    #[test]
+    fn blank_page_changes_survive_identical_text() {
+        let mut old = words("first unchanged page", 0);
+        old.extend(words("last unchanged page", 1));
+        let mut with_blank = words("first unchanged page", 0);
+        with_blank.extend(words("last unchanged page", 2));
+        for (a, a_pages, b, b_pages, kind) in [(&old, 2, &with_blank, 3, PageKind::Inserted), (&with_blank, 3, &old, 2, PageKind::Deleted)] {
+            let c = compare_with_pages(a, a_pages, b, b_pages);
+            assert!(c.changes.is_empty());
+            assert_eq!(c.page_count(kind), 1, "{c:?}");
+            assert!(!c.identical());
+            let change = &c.page_changes[0];
+            assert_eq!(if kind == PageKind::Inserted { change.new_page } else { change.old_page }, 1);
+        }
     }
 
     #[test]
