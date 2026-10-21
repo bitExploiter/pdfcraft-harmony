@@ -8,7 +8,7 @@ use pdfcraft_cos::{Document, SaveOptions, write_incremental};
 use super::*;
 
 /// One page drawing `content` with Helvetica as /F1.
-fn page(content: &str) -> Document {
+pub(crate) fn page(content: &str) -> Document {
     let objs: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".into(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".into(),
@@ -37,12 +37,12 @@ fn reopen(doc: &Document) -> Document {
 }
 
 /// The steps from each row down to the next, in points.
-fn steps(doc: &Document) -> Vec<f64> {
+pub(crate) fn steps(doc: &Document) -> Vec<f64> {
     let b: Vec<f64> = text::text_lines(&reopen(doc), 0).unwrap().iter().map(|l| l.rect[1]).collect();
     b.windows(2).map(|w| w[0] - w[1]).collect()
 }
 
-fn close(got: &[f64], want: &[f64]) -> bool {
+pub(crate) fn close(got: &[f64], want: &[f64]) -> bool {
     got.len() == want.len() && got.iter().zip(want).all(|(g, w)| (g - w).abs() < 0.5)
 }
 
