@@ -1631,6 +1631,122 @@ fn parallel_text_extraction_keeps_page_order_and_follows_edits() {
 }
 
 #[test]
+fn text_replace_preserves_text_runs_and_is_undoable() {
+    let dir = workdir("text-replace");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let replaced = ok(&mut a, "text_replace", json!({ "doc": doc, "query": "page", "replacement": "Sheet" }));
+    assert_eq!(page_text(&mut a, doc), vec!["Sheet 1", "Sheet 2", "Sheet 3"]);
+    assert_eq!(replaced["undo"], "Edit text");
+    ok(&mut a, "edit_undo", json!({ "doc": doc }));
+    assert_eq!(page_text(&mut a, doc), vec!["Page 1", "Page 2", "Page 3"]);
+}
+
+#[test]
+fn text_replace_can_target_a_single_occurrence() {
+    let dir = workdir("text-replace-one");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "text_replace", json!({ "doc": doc, "query": "page", "replacement": "Sheet", "page": 2, "occurrence": 1 }));
+    assert_eq!(page_text(&mut a, doc), vec!["Page 1", "Sheet 2", "Page 3"]);
+    ok(&mut a, "edit_undo", json!({ "doc": doc }));
+    assert_eq!(page_text(&mut a, doc), vec!["Page 1", "Page 2", "Page 3"]);
+}
+
+/// A one-page PDF whose cells are separate runs, each under its own clip, like a report header.
+fn clipped_cells_pdf() -> Vec<u8> {
+    let cell = |x: i32, w: i32, text: &str| format!("q {x} 95 {w} 14 re W n 0 0 0 rg q BT /F1 8 Tf {} 100 Td ({text}) Tj ET Q Q ", x + 2);
+    let content = [cell(20, 36, "Periodo:"), cell(58, 80, "03/10/2026 05:00:00"), cell(140, 12, "a"), cell(154, 80, "03/10/2026 07:00:00")].concat();
+    let objs = [
+        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+        "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Contents 5 0 R /Resources << /Font << /F1 4 0 R >> >> >>".to_string(),
+        "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>".to_string(),
+        format!(
+            "<< /Length {} >>
+stream
+{content}
+endstream",
+            content.len()
+        ),
+    ];
+    let mut out = b"%PDF-1.7
+"
+    .to_vec();
+    let mut offsets = Vec::new();
+    for (i, obj) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(
+            format!(
+                "{} 0 obj
+{obj}
+endobj
+",
+                i + 1
+            )
+            .as_bytes(),
+        );
+    }
+    let xref = out.len();
+    out.extend_from_slice(
+        format!(
+            "xref
+0 {}
+0000000000 65535 f 
+",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    for offset in offsets {
+        out.extend_from_slice(
+            format!(
+                "{offset:010} 00000 n 
+"
+            )
+            .as_bytes(),
+        );
+    }
+    out.extend_from_slice(
+        format!(
+            "trailer
+<< /Size {} /Root 1 0 R >>
+startxref
+{xref}
+%%EOF
+",
+            objs.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+#[test]
+fn text_replace_keeps_the_new_text_in_its_own_clipped_cell() {
+    let dir = workdir("text-replace-cells");
+    std::fs::write(dir.join("cells.pdf"), clipped_cells_pdf()).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "cells.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "text_replace", json!({ "doc": doc, "query": "03/10/2026 05:00:00", "replacement": "02/10/2026 14:00:00" }));
+    // Each cell stays its own run: a paragraph rewritten as one run would sit in the first cell's
+    // clip, which hides everything past the label.
+    let paragraphs = ok(&mut a, "text_paragraphs", json!({ "doc": doc, "page": 1 }));
+    assert_eq!(paragraphs["paragraphs"][0]["lines"].as_array().unwrap().len(), 4, "{paragraphs}");
+    assert_eq!(paragraphs["paragraphs"][0]["editor_text"], "Periodo: 02/10/2026 14:00:00 a 03/10/2026 07:00:00");
+}
+
+#[test]
+fn text_replace_rejects_page_without_occurrence() {
+    let dir = workdir("text-replace-page-only");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let args = json!({ "doc": doc, "query": "page", "replacement": "Sheet", "page": 2 });
+    assert!(matches!(a.call("text_replace", &args), Err(ToolError::InvalidArgs(_))));
+    assert_eq!(page_text(&mut a, doc), vec!["Page 1", "Page 2", "Page 3"]);
+}
+
+#[test]
 fn bookmarks_through_tools() {
     let dir = workdir("bookmarks");
     let mut a = auto(&dir);

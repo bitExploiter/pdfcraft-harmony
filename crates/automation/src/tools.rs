@@ -194,6 +194,10 @@ pub fn tools() -> Vec<ToolDef> {
             .with(schema(json!({ "doc": doc(), "query": { "type": "string", "minLength": 1 }, "limit": { "type": "integer", "minimum": 1, "description": "Maximum matches (default 500). When another match exists, next holds start_page and skip to continue. complete is false for either additional matches or failed pages; an exhausted search with warnings has no next." },
                 "start_page": { "type": "integer", "minimum": 1, "description": "Page to start searching from (default 1)." },
                 "skip": { "type": "integer", "minimum": 0, "description": "Matches to pass over on start_page before returning any (default 0)." } }), &["doc", "query"])),
+        t("text_replace", "Replace text", "Replace all matching phrases in the document in one undoable edit, or only the one match given by page and occurrence. Existing source run styles are retained; replacement characters unsupported by the source font are refused.")
+            .with(schema(json!({ "doc": doc(), "query": { "type": "string", "minLength": 1 }, "replacement": { "type": "string" }, "case_sensitive": { "type": "boolean" }, "whole_words": { "type": "boolean" },
+                "occurrence": { "type": "integer", "minimum": 1, "description": "Replace only this match (1-based, in reading order) on page; requires page." },
+                "page": { "type": "integer", "minimum": 1, "description": "Page holding the occurrence." } }), &["doc", "query", "replacement"])),
         t("page_rotate", "Rotate pages", "Rotate pages by a multiple of 90 degrees (positive is clockwise): the listed pages (default all), filtered like Acrobat's Rotate Pages by subset (all, even, odd page numbers) and orientation (all, landscape, portrait). Undoable.")
             .cmd("page.rotate")
             .with(schema(

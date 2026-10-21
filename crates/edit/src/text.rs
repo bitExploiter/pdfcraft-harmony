@@ -197,6 +197,8 @@ struct TextState {
     leading: f64,
     rise: f64,
     fill: Vec<Op>,
+    /// The clip in force (see `Ts::clip`).
+    clip: usize,
     /// The text rendering mode (`Tr`); 3 is invisible text, as in an OCR layer over a scan.
     render_mode: i64,
 }
@@ -211,6 +213,7 @@ impl TextState {
             leading: ts.leading,
             rise: ts.rise,
             fill: ts.fill.clone(),
+            clip: ts.clip,
             render_mode: ts.render_mode,
         }
     }
@@ -511,6 +514,9 @@ pub struct LineEdit {
 #[derive(Clone)]
 struct Ts {
     ctm: Matrix,
+    /// Which clip is in force: 0 for none, else one more than the index of the `W`/`W*` that set it.
+    /// Runs under different clips (table cells) are not one line.
+    clip: usize,
     /// The operators that set the current fill colour (`g`, `rg`, `k`, or `cs` + `sc`/`scn`).
     fill: Vec<Op>,
     font: Option<(Vec<u8>, Rc<Metrics>)>,
@@ -791,6 +797,7 @@ impl Carry {
     fn new() -> Self {
         let ts = Ts {
             ctm: Matrix::IDENTITY,
+            clip: 0,
             fill: Vec::new(),
             font: None,
             face: None,
@@ -885,6 +892,7 @@ fn interpret(
                     ts = s;
                 }
             }
+            b"W" | b"W*" => ts.clip = i.saturating_add(1),
             b"cm" => {
                 if let Some(m) = op.nums::<6>() {
                     ts.ctm = Matrix(m).then(&ts.ctm);
@@ -1123,7 +1131,7 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
             let bt = pen.bt;
             let (near, gap) = pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 });
             piece == si
-                && lines.last().is_some_and(|l| l.scope == s.scope && l.logical_order == s.logical_order)
+                && lines.last().is_some_and(|l| l.scope == s.scope && l.logical_order == s.logical_order && l.origin.state.clip == s.state.clip)
                 && (bt == s.bt || lines.last().is_some_and(|l| compatible_word(l, &s)))
                 && (s.text.trim().is_empty() || lines.last().is_some_and(|l| same_font(l, &s.font, s.face.as_deref())))
                 && (s.text.trim().is_empty()
@@ -1218,7 +1226,7 @@ fn compatible_word(line: &TextLine, shown: &Shown) -> bool {
 fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream: usize) {
     let joins = last.is_some_and(|pen| {
         let bt = pen.bt;
-        lines.last().is_some_and(|l| l.scope == s.scope && l.logical_order == s.logical_order)
+        lines.last().is_some_and(|l| l.scope == s.scope && l.logical_order == s.logical_order && l.origin.state.clip == s.state.clip)
             && (bt == s.bt || lines.last().is_some_and(|l| compatible_word(l, &s)))
             && (s.text.trim().is_empty() || lines.last().is_some_and(|l| same_font(l, &s.font, s.face.as_deref())))
             && (s.text.trim().is_empty()

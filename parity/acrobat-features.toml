@@ -1398,6 +1398,18 @@ evidence = ["crates/ui-egui/tests/ui.rs::find_counts_matches_across_pages", "cra
 notes = "Horizontal and WMode 1 vertical text are grouped independently, including a horizontal heading above right-to-left vertical columns. Complex interleaved flows still use a geometric reading-order heuristic."
 
 [[feature]]
+id = "view.replace-text"
+title = "Replace text while preserving source styles"
+area = "B"
+tier = "P1"
+milestone = "M12"
+status = "partial"
+commands = []
+tools = ["text_replace"]
+evidence = ["crates/automation/tests/automation.rs::text_replace_preserves_text_runs_and_is_undoable", "crates/engine/src/tests.rs::replace_occurrences_honours_case_and_word_options", "crates/automation/tests/automation.rs::text_replace_can_target_a_single_occurrence", "crates/engine/src/tests.rs::replace_occurrences_can_target_one_match"]
+notes = "Replaces matching text in one undoable edit and preserves source run styles. Interface exposes Replace (the current match only) and Replace all beside Find; the single-match target is counted over editable text blocks, so a match spanning blocks can shift it. Case-insensitive matching currently folds ASCII only; full Unicode case folding and verified UI coverage remain."
+
+[[feature]]
 id = "view.find-next-previous"
 title = "Find next / previous match"
 area = "B"
