@@ -337,3 +337,19 @@ fn primary_ui_fonts_cover_latin_and_cyrillic_catalogs() {
         }
     }
 }
+
+/// Chinese document names must remain readable when the interface language is English.
+#[test]
+fn english_ui_draws_chinese_document_names_with_installed_fonts() {
+    let chinese = theme::installed_font_definitions(theme::CjkPreference::SimplifiedChinese);
+    if !chinese.font_data.contains_key(theme::SYSTEM_FALLBACK) {
+        eprintln!("skipping: no installed Chinese face or system fonts disabled");
+        return;
+    }
+    let mut fonts = Fonts::new(TextOptions::default(), theme::installed_font_definitions(theme::CjkPreference::Default));
+    let name = "中文测试文档 页面预览 字体显示 文件管理.pdf";
+    for id in families() {
+        let missing: String = name.chars().filter(|c| !fonts.has_glyphs(&id, &c.to_string())).collect();
+        assert!(missing.is_empty(), "{id:?} lacks {missing}");
+    }
+}

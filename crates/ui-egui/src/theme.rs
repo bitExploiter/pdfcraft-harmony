@@ -216,6 +216,8 @@ pub fn install_fonts_for(ctx: &egui::Context, cjk: CjkPreference) {
 
 /// The name of the installed face [`installed_font_definitions`] may add after the embedded ones.
 pub const SYSTEM_FALLBACK: &str = "system-fallback";
+/// The name of the installed Chinese face used for document names in other interface languages.
+pub const SYSTEM_HAN_FALLBACK: &str = "system-han-fallback";
 /// The name of the installed Devanagari (Hindi) face [`installed_font_definitions`] may add.
 pub const SYSTEM_DEVANAGARI_FALLBACK: &str = "system-devanagari-fallback";
 /// The name of the installed Telugu face [`installed_font_definitions`] may add.
@@ -236,6 +238,7 @@ pub const SYSTEM_TAMIL_FALLBACK: &str = "system-tamil-fallback";
 /// - Otherwise it is the last fallback of every family (an Arabic file name in a build without
 ///   craft-fonts).
 ///
+/// In other interface languages, an installed Chinese face also draws Chinese document names.
 /// Installed Devanagari, Telugu, Sinhala and Tamil faces, when there are, end every family just
 /// before that one, so Hindi, Telugu (#1531), Sinhala and Tamil (#1688) text, such as a file
 /// name, draws in a build without such faces.
@@ -247,6 +250,17 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
     #[cfg(not(target_arch = "wasm32"))]
     {
         use crate::system_fonts::{Need, fallback};
+        // File names can be Chinese even when the interface is English. Keep the general
+        // fallback too: replacing it with Han would regress Arabic names.
+        if cjk == CjkPreference::Default
+            && pdfcraft_fonts::ui_chinese_fonts().is_empty()
+            && let Some(data) = fallback(Need::Hans)
+        {
+            fonts.font_data.insert(SYSTEM_HAN_FALLBACK.to_owned(), data);
+            for stack in fonts.families.values_mut() {
+                stack.push(SYSTEM_HAN_FALLBACK.to_owned());
+            }
+        }
         // Before the general installed face, which stays the last fallback outside Chinese.
         for (name, data) in [
             (SYSTEM_DEVANAGARI_FALLBACK, crate::system_fonts::devanagari_fallback()),
