@@ -1107,7 +1107,6 @@ const CONTROL_FILE_ADVICE: &str =
 /// open to other users: on Unix by its owner and mode (the app writes it with mode 600), on
 /// Windows by its owner and access list (the app gives it one of its user and SYSTEM, #3922).
 fn read_control_file(file: &str) -> Result<serde_json::Value, String> {
-    use std::io::Read as _;
     let at_path = std::fs::symlink_metadata(file).map_err(|e| format!("{file}: {e}"))?;
     if at_path.file_type().is_symlink() {
         return Err(format!("{file}: is a symbolic link, which could point at another user's file. {CONTROL_FILE_ADVICE}"));
@@ -1115,34 +1114,41 @@ fn read_control_file(file: &str) -> Result<serde_json::Value, String> {
     if !at_path.is_file() {
         return Err(format!("{file}: not a regular file. {CONTROL_FILE_ADVICE}"));
     }
-    let f = std::fs::File::open(file).map_err(|e| format!("{file}: {e}"))?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        // Checked on the open file, so nothing swapped in after `symlink_metadata` gets through.
-        let opened = f.metadata().map_err(|e| format!("{file}: {e}"))?;
-        if (opened.dev(), opened.ino()) != (at_path.dev(), at_path.ino()) {
-            return Err(format!("{file}: was replaced while being opened. {CONTROL_FILE_ADVICE}"));
+    #[cfg(not(windows))]
+    let text = {
+        use std::io::Read as _;
+        let f = std::fs::File::open(file).map_err(|e| format!("{file}: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            // Checked on the open file, so nothing swapped in after `symlink_metadata` gets through.
+            let opened = f.metadata().map_err(|e| format!("{file}: {e}"))?;
+            if (opened.dev(), opened.ino()) != (at_path.dev(), at_path.ino()) {
+                return Err(format!("{file}: was replaced while being opened. {CONTROL_FILE_ADVICE}"));
+            }
+            if let Some(problem) = control_file_problem(opened.uid(), opened.mode(), current_uid()) {
+                return Err(format!("{file}: {problem}. {CONTROL_FILE_ADVICE}"));
+            }
         }
-        if let Some(problem) = control_file_problem(opened.uid(), opened.mode(), current_uid()) {
-            return Err(format!("{file}: {problem}. {CONTROL_FILE_ADVICE}"));
-        }
-    }
-    // Windows: the same owner and access check, on the file's security descriptor (#3922). A file
+        let mut text = String::new();
+        f.take(CONTROL_FILE_MAX.saturating_add(1)).read_to_string(&mut text).map_err(|e| format!("{file}: {e}"))?;
+        text
+    };
+    // Windows: the same owner and access check, on the security descriptor of the very handle the
+    // contents are read through, so nothing swapped in at the path gets through (#3922). A file
     // planted by another user, or one other users can read, is refused; if the check itself can't
     // run, the file isn't trusted either.
     #[cfg(windows)]
-    {
+    let text = {
         use pdfcraft_platform::owner_only;
         let me = owner_only::current_user_sid().map_err(|e| format!("{file}: can't check who owns it: {e}. {CONTROL_FILE_ADVICE}"))?;
-        let sddl =
-            owner_only::sddl_of(std::path::Path::new(file)).map_err(|e| format!("{file}: can't check who owns it: {e}. {CONTROL_FILE_ADVICE}"))?;
+        let (sddl, bytes) = owner_only::read_with_sddl(std::path::Path::new(file), CONTROL_FILE_MAX)
+            .map_err(|e| format!("{file}: can't check who owns it: {e}. {CONTROL_FILE_ADVICE}"))?;
         if let Some(problem) = owner_only::foreign_access(&sddl, &me) {
             return Err(format!("{file}: {problem}. {CONTROL_FILE_ADVICE}"));
         }
-    }
-    let mut text = String::new();
-    f.take(CONTROL_FILE_MAX.saturating_add(1)).read_to_string(&mut text).map_err(|e| format!("{file}: {e}"))?;
+        String::from_utf8(bytes).map_err(|e| format!("{file}: {e}"))?
+    };
     if u64::try_from(text.len()).unwrap_or(u64::MAX) > CONTROL_FILE_MAX {
         return Err(format!("{file}: too large for a control file (over {} KiB)", CONTROL_FILE_MAX / 1024));
     }
@@ -1188,6 +1194,18 @@ mod tests {
         assert!(refused.contains("another account") && refused.contains("%USERPROFILE%"), "{refused}");
         pdfcraft_platform::owner_only::restrict_to_owner(&file).unwrap();
         assert_eq!(super::read_control_file(&path).unwrap()["token"].as_str(), Some("t0ken"));
+        // The contents come with the check, capped: exactly the limit is read, one byte more is refused.
+        let padded = |len: usize| {
+            let json = r#"{"port":4242,"token":"t0ken"}"#;
+            json.to_string() + &" ".repeat(len - json.len())
+        };
+        std::fs::write(&file, padded(64 * 1024)).unwrap();
+        assert_eq!(super::read_control_file(&path).unwrap()["port"].as_u64(), Some(4242));
+        std::fs::write(&file, padded(64 * 1024 + 1)).unwrap();
+        assert!(super::read_control_file(&path).unwrap_err().contains("too large"));
+        // Valid JSON once the byte is replaced by U+FFFD, so only a strict UTF-8 read refuses it.
+        std::fs::write(&file, b"{\"port\":4242,\"token\":\"\xFF\"}").unwrap();
+        assert!(super::read_control_file(&path).is_err(), "not UTF-8");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
