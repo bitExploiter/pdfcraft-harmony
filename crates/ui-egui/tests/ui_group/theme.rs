@@ -51,7 +51,8 @@ fn open_view_menu(h: &mut Harness<'static, PdfCraftApp>) {
 #[test]
 fn toolbar_and_view_menu_share_three_state_preferences() {
     let mut h = harness();
-    // Explicit light wins even on a dark desktop, including egui's popup style.
+    assert_theme(&h, ThemePreference::System, ThemeKind::Dark);
+    click_toolbar(&mut h, "Use system setting");
     assert_theme(&h, ThemePreference::Light, ThemeKind::Light);
     click_toolbar(&mut h, "Light gray");
     assert_theme(&h, ThemePreference::Dark, ThemeKind::Dark);
@@ -216,12 +217,12 @@ fn preferences_theme_cards_and_use_system_setting_stay_in_sync() {
         combo.value().unwrap_or_default()
     }
     let mut h = harness();
-    h.get_by_label("Display theme: Light gray").click_secondary();
+    h.get_by_label("Display theme: Use system setting").click_secondary();
     h.run_steps(4);
     h.get_by_label("Appearance settings…").click();
     h.run_steps(10);
-    assert_theme(&h, ThemePreference::Light, ThemeKind::Light);
-    assert_eq!(mode_shown(&h), "Light");
+    assert_theme(&h, ThemePreference::System, ThemeKind::Dark);
+    assert_eq!(mode_shown(&h), "Use system setting");
 
     // The OS is dark: the Dark card's radio row picks Dark, and the combo box says so.
     // The cards sit below the fold of the Preferences scroll area at this window size.

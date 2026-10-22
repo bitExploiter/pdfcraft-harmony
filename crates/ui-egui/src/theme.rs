@@ -16,8 +16,8 @@ pub enum ThemeKind {
 /// The saved user choice, independent of the light/dark colours currently displayed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub enum ThemePreference {
-    System,
     #[default]
+    System,
     Light,
     Dark,
 }
