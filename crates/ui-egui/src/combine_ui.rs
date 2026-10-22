@@ -166,7 +166,6 @@ struct ItemToConvert {
     id: u64,
     name: String,
     bytes: Arc<Vec<u8>>,
-    office_path: Option<std::path::PathBuf>,
 }
 
 /// Messages from the background Office document converter worker.
@@ -2775,7 +2774,7 @@ impl PdfCraftApp {
             .combine_draft
             .iter()
             .filter(|f| f.needs_conversion())
-            .map(|f| ItemToConvert { id: f.id, name: f.name.clone(), bytes: f.bytes.clone(), office_path: f.office_path.clone() })
+            .map(|f| ItemToConvert { id: f.id, name: f.name.clone(), bytes: f.bytes.clone() })
             .collect();
 
         if to_convert.is_empty() {
@@ -2801,13 +2800,7 @@ impl PdfCraftApp {
                 }
 
                 #[cfg(not(target_arch = "wasm32"))]
-                let converted = if let Some(p) = &item.office_path
-                    && p.is_file()
-                {
-                    pdfcraft_engine::converter::convert_to_temp_pdf(p)
-                } else {
-                    pdfcraft_engine::converter::convert_bytes_to_pdf(&item.name, &item.bytes)
-                };
+                let converted = pdfcraft_engine::converter::convert_bytes_to_pdf(&item.name, &item.bytes);
 
                 #[cfg(target_arch = "wasm32")]
                 let converted: Result<pdfcraft_engine::converter::TempConvertedPdf, pdfcraft_engine::converter::ConversionError> =
