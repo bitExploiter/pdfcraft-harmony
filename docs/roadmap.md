@@ -1,7 +1,7 @@
 # PdfCraft roadmap: milestones and what's next
 
 
-> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** patch (PR #3753: Refresh against upstream 80b7d215; retain new default-view, organizer zoom and print-paper preferences across window transfers, and share the printer-options provider with detached windows. Document transfer lifecycle and coordinate contracts. Fill the feature labels in all 33 current catalogs. Estimates unchanged.)
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** patch (PR #3753: Refresh against upstream d5047aa4; retain new default-view, organizer zoom and print-paper preferences across window transfers, and share the printer-options provider with detached windows. Document transfer lifecycle and coordinate contracts. Fill the feature labels in all 33 current catalogs. Estimates unchanged.)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M3: native Windows tab tear-off; estimates unchanged)
 
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M12 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections; estimates unchanged)

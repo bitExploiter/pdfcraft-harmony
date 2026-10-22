@@ -691,4 +691,4 @@ Newest first: the date, what moved, and the new overall estimate.
 
 - **2026-10-18 (renderer, hayro patches 19/35):** A mesh shading (types 4–7) is sampled over its own triangles instead of the whole path: a BricsCAD plan with 310 one-triangle `sh` fills took 2 s per 1024 px tile at every zoom (and hit the 20 s watchdog on a busy machine); now about 70 ms, so zooming into dense topology drawings stays fluid. Estimates unchanged.
 
-- 2026-10-22 (PR #3753): Refresh against upstream 80b7d215; retain new default-view, organizer zoom and print-paper preferences across window transfers, and share the printer-options provider with detached windows. Document transfer lifecycle and coordinate contracts. Fill the feature labels in all 33 current catalogs. Estimates unchanged.
+- 2026-10-22 (PR #3753): Refresh against upstream d5047aa4; retain new default-view, organizer zoom and print-paper preferences across window transfers, and share the printer-options provider with detached windows. Document transfer lifecycle and coordinate contracts. Fill the feature labels in all 33 current catalogs. Estimates unchanged.

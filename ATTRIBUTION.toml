@@ -52,7 +52,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Czech UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "597e59a6fd0602b4df2177c1704f044f72aec46010fe4f19b297d116652cb998"
+sha256 = "35845f340a19678d2ed0ab84ff35813deca0b1d29f4e0f303f3c01faa6cf2805"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/pt-br.tsv"
@@ -63,18 +63,18 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Brazilian Portuguese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "613425e6cdb446157d9f3d7053da77f9016cf529910746fb986cd5fca73d9dda"
+sha256 = "dca6976b2509f66646ca1b8ce032c89437b0e36360020b248b421d258c5a17f4"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/es.tsv"
 title = "Spanish interface translation catalog"
 author = "PdfCraft contributors"
-source = "Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; the 2026-10-20 coverage additions are AI-assisted and not separately native-reviewed; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed"
+source = "Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; the 2026-10-20 coverage additions are AI-assisted and not separately native-reviewed; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 signature-check wordings are contributor-original AI-assisted translations from English, not separately native-reviewed"
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Spanish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "120d81c8062112d17a1df6d7ed5954591288ef8350171ffa1b6a3ba7f64cb268"
+sha256 = "6949b4c0968f7e08856e4cc8de5189e60260c0f5e8b6eeeeffd487b4df73be8a"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/fr.tsv"
@@ -135,12 +135,12 @@ sha256 = "c6150708ed3ef13dcdc1c9bdbf94664d9df414879b805cd8bc679e5ab706aeeb"
 path = "crates/ui-egui/src/i18n/pl.tsv"
 title = "Polish interface translation catalog"
 author = "PdfCraft contributors"
-source = "Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed"
+source = "Contributor-original: clean-room translations of PdfCraft's English UI labels, no proprietary localisation resources; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 signature-check wordings are contributor-original AI-assisted translations from English, not separately native-reviewed"
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Polish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "ceec7dfe93e7ac5325049869d818c2292f856428c373e7a3d2a91352141afe4b"
+sha256 = "12fa21a245a182fa86c4aba01f95240988946ee43e659e6b8e4cf4a6117692a4"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/ru.tsv"
@@ -250,7 +250,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Lithuanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "a044692aa7deb93adbc0becb1360c8f670a547bd46504815cc5151ab5c8cb175"
+sha256 = "2267fcae3ee7d6779afeec05552504b4ee87cb13716e935706e282b5dfc73f6c"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/hi.tsv"
@@ -292,7 +292,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Romanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "ec386df00da2d457e769475f2b92b55c73e77eba358f208141c78e7cc07ecf1c"
+sha256 = "b1a7c075b4eaf153f9172a8262b791c16fd47f5f0a0cfde47258768e2a23877d"
 
 
 [[asset]]
@@ -304,7 +304,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Finnish UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "140bb7f0a1c4fd161c9d30e7b3a5847420c926c38a1e9175a2afdede4a2e53e7"
+sha256 = "815807386566f4817f9ce0fea8f21cdfc2076aa54e4a2d8c2c26de91303274bb"
 
 [[asset]]
 path = "assets/icons/accessibility.svg"
@@ -3277,7 +3277,7 @@ source = "Contributor-original: hand-written PDF objects, no third-party content
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "document"
-usage = "Form-filling UI tests (crates/ui-egui/tests/forms.rs, commands.rs)"
+usage = "Form-filling UI tests (crates/ui-egui/tests/it/forms.rs, commands.rs)"
 sha256 = "c6f8b656e225101129aa36bd5467adc8dba16730915f19caca17f6a546d0b040"
 
 [[asset]]
@@ -3310,7 +3310,7 @@ source = "Contributor-original: hand-written PDF objects; signature made with `o
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "document"
-usage = "Signature validation tests (crates/sign/tests/pdf.rs): a signature PdfCraft did not make"
+usage = "Signature validation tests (crates/sign/tests/it/pdf.rs): a signature PdfCraft did not make"
 sha256 = "8b91c3b4e39c4a31717a0dd0685bd7d0468671df32aee5b9818d44dc72c2bc3c"
 
 [[asset]]
@@ -3403,7 +3403,7 @@ source = "Contributor-original: hand-written PDF objects; signature made with `o
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "document"
-usage = "Signature validation tests (crates/sign/tests/pdf.rs): the legacy adbe.x509.rsa_sha1 format"
+usage = "Signature validation tests (crates/sign/tests/it/pdf.rs): the legacy adbe.x509.rsa_sha1 format"
 sha256 = "b77bfb21166f4bd043597e45a1ea28b9d9f4ba6df0142b3a0fc8b7f8e0fc111b"
 
 [[asset]]
@@ -3421,12 +3421,12 @@ sha256 = "d1a443233345724859de8e4fb48968ba91e885e12ddbd710701548bd91b39428"
 path = "crates/ui-egui/src/i18n/vi.tsv"
 title = "Vietnamese interface translation catalog"
 author = "PdfCraft contributors"
-source = "Contributor-original: clean-room translations of PdfCraft's English UI labels; PhotoCraft and VectorCraft Vietnamese catalogs used only as translation memory when English source and semantic context matched; original catalog reviewed by a native Vietnamese-speaking contributor; 2026-10-15 coverage additions are AI-assisted and not separately native-reviewed; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed"
+source = "Contributor-original: clean-room translations of PdfCraft's English UI labels; PhotoCraft and VectorCraft Vietnamese catalogs used only as translation memory when English source and semantic context matched; original catalog reviewed by a native Vietnamese-speaking contributor; 2026-10-15 coverage additions are AI-assisted and not separately native-reviewed; 2026-10-18 page-gap labels are contributor-original AI-assisted translations from English, not separately native-reviewed; 2026-10-22 signature-check wordings are contributor-original AI-assisted translations from English, not separately native-reviewed"
 licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Vietnamese UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "5ba6d29c236174569c5b5125b7e754c6dc67d9cf097c0fa9b8f292331ead32d1"
+sha256 = "7361fa61341a9d94192c8f311164b2e858b5ef14b52c19663558784b0e28f27a"
 
 [[asset]]
 path = "crates/ui-egui/src/i18n/sl.tsv"
@@ -3537,4 +3537,4 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Catalan UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "464f185c740d7153a56172eaaf209d9d3f98f6e177312908a107cb6b12d936fc"
+sha256 = "b6e93e68baace7cce48e1e03d396663b51ca7c9a134ccb0683cebeccde3c6c06"
