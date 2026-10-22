@@ -69,11 +69,12 @@ copy_docs "$STAGE/share/doc/pdfcraft"
 if [ "$ARCH" = "$HOST_ARCH" ]; then
   "$STAGE/bin/pdfcraft" --version
 else
-  # They cannot run here, so check what they are instead.
+  # They cannot run here, so check what they are instead: executables, not libraries or objects.
+  # An older file(1) calls a PIE a shared object; its interpreter still marks it as a program.
   want="$ARCH"; [ "$ARCH" != x86_64 ] || want=x86-64
   for b in "$STAGE"/bin/*; do
     case "$(file -b "$b")" in
-      ELF*"$want"*FreeBSD*) ;;
+      ELF*" executable, "*"$want"*FreeBSD* | ELF*"$want"*FreeBSD*interpreter*) ;;
       *) echo "error: $b is not a FreeBSD $ARCH executable: $(file -b "$b")" >&2; exit 1 ;;
     esac
   done
