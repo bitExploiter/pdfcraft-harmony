@@ -1499,6 +1499,41 @@ fn japanese_paragraph_uses_unicode_type3_fallback() {
     assert_eq!(text::text_blocks(&reopened, 0).unwrap()[0].text, replacement);
 }
 
+/// Korean replacement text keeps its craft face (Hakgyoansim Namu): Hangul and the Latin inside
+/// the line draw from it, the resource is `PCKo`-prefixed, and both openings report the face.
+#[test]
+fn korean_replacement_text_uses_the_korean_face() {
+    if pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping korean_replacement_text_uses_the_korean_face: no Kore face in this build (set CRAFT_FONTS_DIR to a checkout with one)");
+        return;
+    }
+    let replacement = "한국어 테스트 Namu 문서";
+    let mut doc = text_page("BT /F2 12 Tf 72 700 Td (ab) Tj ET");
+    text::replace_line(&mut doc, 0, 0, replacement).unwrap();
+    for d in [&doc, &reopen(&doc)] {
+        let lines = text::text_lines(d, 0).unwrap();
+        assert_eq!(lines[0].text, replacement);
+        assert!(lines[0].base_font.contains("Hakgyoansim"), "{} should report the Korean face", lines[0].base_font);
+    }
+    let p = pdfcraft_model::pages(&doc).swap_remove(0);
+    let res = doc.resolve(p.dict.get(b"Resources").unwrap());
+    let fonts = doc.resolve(res.as_dict().unwrap().get(b"Font").unwrap());
+    let ko: Vec<Vec<u8>> = fonts.as_dict().unwrap().iter().filter(|(n, _)| n.starts_with(b"PCKo")).map(|(n, _)| n.clone()).collect();
+    assert!(!ko.is_empty(), "the Korean fallback is generated as a PCKo font");
+}
+
+/// Without a Korean face the refusal names Korean and says how to get one; nothing is drawn.
+#[test]
+fn korean_replacement_without_a_korean_face_says_so() {
+    if pdfcraft_fonts::document_korean_font().is_some() {
+        return;
+    }
+    let mut doc = text_page("BT /F2 12 Tf 72 700 Td (ab) Tj ET");
+    let err = text::replace_line(&mut doc, 0, 0, "한국어 테스트").unwrap_err().to_string();
+    assert!(err.contains("Korean") && err.contains("CRAFT_FONTS_DIR"), "{err}");
+    assert_eq!(text::text_lines(&doc, 0).unwrap()[0].text, "ab", "the line is untouched");
+}
+
 /// The first `n` Japanese characters, in code point order, that every craft-fonts face can draw, so
 /// whichever face an edit picks has them all. Without craft-fonts there are no faces, every character
 /// passes, and the text is still long.
