@@ -303,27 +303,71 @@ fn prune_fields(doc: &mut Document, widgets: &HashSet<ObjRef>, on_page: Option<&
     let af_ref = af.as_ref();
     let mut af_dict = doc.resolve(&af).as_dict().cloned().unwrap_or_default();
     let fields = af_dict.get(b"Fields").map(|f| doc.resolve(f)).and_then(|f| f.as_array().cloned()).unwrap_or_default();
-    // Returns whether the node survives.
-    fn keep(doc: &mut Document, r: ObjRef, widgets: &HashSet<ObjRef>, on_page: Option<&HashSet<ObjRef>>, depth: usize) -> bool {
-        if widgets.contains(&r) || depth > 64 {
+    struct FormPrune<'a> {
+        widgets: &'a HashSet<ObjRef>,
+        on_page: Option<&'a HashSet<ObjRef>>,
+        surviving_nodes: HashSet<ObjRef>,
+        has_signatures: bool,
+    }
+    let mut state = FormPrune { widgets, on_page, surviving_nodes: HashSet::new(), has_signatures: false };
+    // Returns whether the node survives, and collects surviving node refs and signature presence.
+    fn check_node(doc: &mut Document, r: ObjRef, inherited_ft: Option<&[u8]>, state: &mut FormPrune<'_>, depth: usize) -> bool {
+        if state.widgets.contains(&r) || depth > 64 {
             return depth > 64;
         }
         let Some(d) = doc.get(r).as_dict().cloned() else { return true };
+        let own_ft = d.get(b"FT").map(|v| doc.resolve(v)).and_then(|v| v.as_name().map(|n| n.to_vec()));
+        let ft = own_ft.as_deref().or(inherited_ft);
+        let is_sig = ft == Some(b"Sig");
         let Some(kids) = d.get(b"Kids").map(|k| doc.resolve(k)).and_then(|k| k.as_array().cloned()) else {
-            return on_page.is_none_or(|p| p.contains(&r));
+            let survives = state.on_page.is_none_or(|p| p.contains(&r));
+            if survives {
+                state.surviving_nodes.insert(r);
+                if is_sig {
+                    state.has_signatures = true;
+                }
+            }
+            return survives;
         };
-        let survivors: Vec<Object> =
-            kids.iter().filter(|k| k.as_ref().is_none_or(|kr| keep(doc, kr, widgets, on_page, depth + 1))).cloned().collect();
+        let survivors: Vec<Object> = kids.iter().filter(|k| k.as_ref().is_none_or(|kr| check_node(doc, kr, ft, state, depth + 1))).cloned().collect();
         if survivors.len() != kids.len() {
             let _ = doc.update_dict(r, |d| d.set(b"Kids".to_vec(), Object::Array(survivors.clone())));
         }
-        !survivors.is_empty()
+        let survives = !survivors.is_empty();
+        if survives {
+            state.surviving_nodes.insert(r);
+            if is_sig {
+                state.has_signatures = true;
+            }
+        }
+        survives
     }
-    let survivors: Vec<Object> = fields.iter().filter(|f| f.as_ref().is_none_or(|r| keep(doc, r, widgets, on_page, 0))).cloned().collect();
+    let survivors: Vec<Object> = fields.iter().filter(|f| f.as_ref().is_none_or(|r| check_node(doc, r, None, &mut state, 0))).cloned().collect();
     if survivors.len() == fields.len() && widgets.is_empty() {
         return Ok(()); // only looked for fields on no page, and there were none
     }
     af_dict.set(b"Fields".to_vec(), Object::Array(survivors));
+    if let Some(co_obj) = af_dict.get(b"CO").cloned() {
+        let co_array = doc.resolve(&co_obj).as_array().cloned().unwrap_or_default();
+        let co_survivors: Vec<Object> =
+            co_array.into_iter().filter(|item| item.as_ref().is_some_and(|r| state.surviving_nodes.contains(&r))).collect();
+        if co_survivors.is_empty() {
+            af_dict.remove(b"CO");
+            if let Some(r) = co_obj.as_ref() {
+                doc.free(r);
+            }
+        } else if let Some(r) = co_obj.as_ref() {
+            doc.set(r, Object::Array(co_survivors));
+        } else {
+            af_dict.set(b"CO".to_vec(), Object::Array(co_survivors));
+        }
+    }
+    if !state.has_signatures {
+        let removed = af_dict.remove(b"SigFlags");
+        if let Some(r) = removed.and_then(|o| o.as_ref()) {
+            doc.free(r);
+        }
+    }
     match af_ref {
         Some(r) => doc.set(r, Object::Dict(af_dict)),
         None => doc.update_dict(root, |d| d.set(b"AcroForm".to_vec(), Object::Dict(af_dict)))?,
