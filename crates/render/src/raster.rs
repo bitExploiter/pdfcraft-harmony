@@ -543,14 +543,24 @@ impl<'a> Device<'a> for SvgSize {
     fn draw_image(&mut self, image: Image<'a, '_>, transform: kurbo::Affine) {
         let (w, h) = (image.width(), image.height());
         self.element(PIXEL_BYTES.saturating_mul(u64::from(w)).saturating_mul(u64::from(h)));
-        // An image mask is drawn with the fill paint, so a pattern one is that paint over its box.
+        // hayro-svg draws an image mask filled with a pattern as its box path filled with that
+        // paint, in a group masked by the image.
         if let Image::Stencil(s) = &image
             && !self.stop.load(Ordering::Relaxed)
         {
             use kurbo::Shape as _;
             let rect = kurbo::Rect::new(0.0, 0.0, f64::from(w), f64::from(h)).to_path(0.1);
             // Only the paint is wanted, so ask for the smallest decode the codec allows.
-            s.with_stencil(|_, paint| self.paint(paint, &rect, transform, None), Some((1, 1)));
+            s.with_stencil(
+                |_, paint| {
+                    if matches!(paint, Paint::Pattern(_)) {
+                        self.element(0);
+                        self.add_path(&rect);
+                        self.paint(paint, &rect, transform, None);
+                    }
+                },
+                Some((1, 1)),
+            );
         }
     }
     fn pop_clip_path(&mut self) {}
@@ -3114,9 +3124,12 @@ trailer << /Root 1 0 R >>
         // An image is a PNG in base64: up to 6⅔ bytes a pixel, not 4.
         let plain = size("q 100 0 0 50 0 0 cm /Im1 Do Q");
         assert!(plain >= 128 + 100 * 50 * 7, "{plain}");
-        // An image mask filled with a pattern adds that paint over its box.
+        // An image mask filled with a pattern adds that paint over its box, once, and each draw
+        // adds the masked group and the box path it is drawn as.
         let shaded = size("q 100 0 0 50 0 0 cm /Pattern cs /S1 scn /Im1 Do Q");
         assert!(shaded >= plain + 128 + 100 * 50 * PIXEL_BYTES, "{plain} {shaded}");
+        let twice = size("q 100 0 0 50 0 0 cm /Pattern cs /S1 scn /Im1 Do /Im1 Do Q");
+        assert_eq!(twice - shaded, plain + 128 + square, "{plain} {shaded} {twice}");
     }
 
     #[test]
