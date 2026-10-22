@@ -189,6 +189,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-22 (M7, PR #3820 review):** Group moves validate every document-derived `TJ` operand range, including ascending non-overlapping cell boundaries, and return an edit error instead of indexing unchecked. Synthetic tests cover mismatched bounds and malformed array entries; scope and estimates unchanged.
 - **2026-10-22 (M7, PR #3820 integration):** Refreshed the horizontal `TJ` table-cell split against main `80b7d215`, preserving vertical text geometry, numeric-only vertical advances and unreadable-CMap edit refusals. Cell replacements, previews and moves read the final `TJ` operand consistently. Synthetic integration regressions cover both seams; scope and estimates unchanged.
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 

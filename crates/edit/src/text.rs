@@ -842,16 +842,22 @@ fn line_owns_shown(line: &TextLine, s: &Shown) -> bool {
 fn patch_tj_subarray(pieces: &[Object], range: std::ops::Range<usize>, slices: &[&TjSlice]) -> Vec<Object> {
     let mut out = Vec::new();
     let mut idx = range.start;
-    while idx < range.end && idx < pieces.len() {
+    while idx < range.end {
+        let Some(piece) = pieces.get(idx) else { break };
         if let Some(s) = slices.iter().find(|s| s.range.start == idx && s.range.end <= range.end) {
             out.push(pdfcraft_content::num(s.adjustment));
-            idx = s.range.end.max(idx + 1);
+            idx = s.range.end.max(idx.saturating_add(1));
         } else {
-            out.push(pieces[idx].clone());
-            idx += 1;
+            out.push(piece.clone());
+            idx = idx.saturating_add(1);
         }
     }
     out
+}
+
+/// Read a document-derived `TJ` range without trusting its bounds or ordering.
+fn tj_operands(pieces: &[Object], range: std::ops::Range<usize>) -> Result<&[Object], EditError> {
+    pieces.get(range).ok_or_else(|| EditError::Invalid("a text operation has an invalid array range".into()))
 }
 
 /// Patch a `TJ` operator in place by replacing `slices` with numeric advance adjustments.
@@ -3490,11 +3496,16 @@ pub(crate) fn translate_blocks(doc: &mut Document, page: usize, indexes: &[usize
             let mut replacement = Vec::new();
             let first_start = runs.first().and_then(|r| r.slice.as_ref().map(|s| s.start)).unwrap_or(0);
             if first_start > 0 {
-                replacement.push(Op::new("TJ", vec![Object::Array(arr[..first_start].to_vec())]));
+                replacement.push(Op::new("TJ", vec![Object::Array(tj_operands(arr, 0..first_start)?.to_vec())]));
             }
             for (idx_m, s) in runs.iter().enumerate() {
                 let seg = s.slice.as_ref().ok_or_else(|| EditError::Invalid("a selected text operation cannot be moved".into()))?;
-                let next_start = runs.get(idx_m + 1).and_then(|next| next.slice.as_ref().map(|r| r.start)).unwrap_or(arr.len());
+                let next_start = runs.get(idx_m.saturating_add(1)).and_then(|next| next.slice.as_ref().map(|r| r.start)).unwrap_or(arr.len());
+                // interpret emits ascending, disjoint ranges from this same final TJ array.
+                // Check both ranges even for an unselected cell: overlaps or reversed runs
+                // must return an error before any content is written to the document.
+                let cell = tj_operands(arr, seg.clone())?;
+                let gap = tj_operands(arr, seg.end..next_start)?;
                 if selected_lines.iter().any(|l| line_owns_shown(l, s)) {
                     let (shift, rise, dy) = move_params(s)?;
                     if dy != 0.0 {
@@ -3503,18 +3514,18 @@ pub(crate) fn translate_blocks(doc: &mut Document, page: usize, indexes: &[usize
                     if shift != 0.0 {
                         replacement.push(Op::new("TJ", vec![Object::Array(vec![n(shift)])]));
                     }
-                    replacement.push(Op::new("TJ", vec![Object::Array(arr[seg.clone()].to_vec())]));
+                    replacement.push(Op::new("TJ", vec![Object::Array(cell.to_vec())]));
                     if shift != 0.0 {
                         replacement.push(Op::new("TJ", vec![Object::Array(vec![n(-shift)])]));
                     }
                     if dy != 0.0 {
                         replacement.push(Op::new("Ts", vec![n(s.state.rise)]));
                     }
-                    if seg.end < next_start {
-                        replacement.push(Op::new("TJ", vec![Object::Array(arr[seg.end..next_start].to_vec())]));
+                    if !gap.is_empty() {
+                        replacement.push(Op::new("TJ", vec![Object::Array(gap.to_vec())]));
                     }
                 } else {
-                    replacement.push(Op::new("TJ", vec![Object::Array(arr[seg.start..next_start].to_vec())]));
+                    replacement.push(Op::new("TJ", vec![Object::Array(tj_operands(arr, seg.start..next_start)?.to_vec())]));
                 }
             }
             patches.insert(op_idx, replacement);
@@ -3566,6 +3577,26 @@ pub(crate) fn translate_blocks(doc: &mut Document, page: usize, indexes: &[usize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tj_move_ranges_reject_mismatched_bounds() {
+        let pieces =
+            [Object::String(PdfString::literal(vec![0xff, 0x80])), Object::Int(-8000), Object::String(PdfString::literal(b"Right".to_vec()))];
+        assert_eq!(tj_operands(&pieces, 0..1).unwrap(), &pieces[..1]);
+        assert_eq!(tj_operands(&pieces, 1..2).unwrap(), &pieces[1..2]);
+        assert_eq!(tj_operands(&pieces, 2..3).unwrap(), &pieces[2..]);
+        assert!(tj_operands(&pieces, 3..3).unwrap().is_empty());
+        // Parsed runs normally share the exact array that produced them. Exercise the
+        // defensive boundary directly with stale, overlapping and extreme ranges.
+        for (start, end) in [(0, 4), (4, 4), (2, 1), (0, usize::MAX), (usize::MAX, usize::MAX)] {
+            let range = start..end;
+            assert_eq!(
+                tj_operands(&pieces, range.clone()),
+                Err(EditError::Invalid("a text operation has an invalid array range".into())),
+                "{range:?}"
+            );
+        }
+    }
 
     fn block(text: &str, rect: [f64; 4]) -> TextBlock {
         TextBlock {

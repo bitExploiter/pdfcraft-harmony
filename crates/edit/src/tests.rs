@@ -6592,3 +6592,41 @@ fn tj_cells_with_a_surplus_array_edit_only_the_array_that_is_drawn() {
         }
     }
 }
+
+/// Invalid TJ entries are ignored by reading; moving any subset still preserves all other
+/// text, including the leading/trailing adjustments and the gap between cells.
+#[test]
+fn tj_moves_preserve_cells_with_malformed_array_entries() {
+    let original = text_page(
+        "BT /F1 12 Tf 72 700 Td [] [null false /Ignored 20 (Left) -8000 [] <<>> (Right) 50] TJ ET \
+         BT /F1 12 Tf 72 650 Td (Tail) Tj ET",
+    );
+    let before = text::text_lines(&original, 0).unwrap();
+    assert_eq!(before.iter().map(|line| line.text.as_str()).collect::<Vec<_>>(), ["Left", "Right", "Tail"]);
+    for indexes in [vec![0], vec![1], vec![0, 1]] {
+        let mut doc = original.clone();
+        let targets = indexes.iter().map(|index| ObjectTarget { kind: ObjectKind::Text, index: *index }).collect::<Vec<_>>();
+        move_objects(&mut doc, 0, &targets, [12.0, -8.0]).unwrap();
+        let after = text::text_lines(&reopen(&doc), 0).unwrap();
+        assert_eq!(after.len(), before.len());
+        for (index, line) in before.iter().enumerate() {
+            let actual = after.iter().find(|other| other.text == line.text).unwrap();
+            let (dx, dy) = if indexes.contains(&index) { (12.0, -8.0) } else { (0.0, 0.0) };
+            let [x, y] = line.baseline();
+            let [actual_x, actual_y] = actual.baseline();
+            assert!((actual_x - x - dx).abs() < 0.01 && (actual_y - y - dy).abs() < 0.01, "selected {indexes:?}, {}", line.text);
+            // Selection boxes also include TJ advances. Emitting the trailing 50 in a
+            // separate run can change that box without moving any ink, already before
+            // the checked-range change. Compare every painted word, not that advance.
+            assert!(!line.ink.is_empty());
+            assert_eq!(actual.ink.len(), line.ink.len());
+            for (ink, actual_ink) in line.ink.iter().zip(&actual.ink) {
+                let [x0, y0, x1, y1] = *ink;
+                assert!(close(*actual_ink, [x0 + dx, y0 + dy, x1 + dx, y1 + dy]), "selected {indexes:?}, {}: {actual:?}", line.text);
+            }
+            if line.text == "Tail" {
+                assert!(close(actual.rect, line.rect));
+            }
+        }
+    }
+}
