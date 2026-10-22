@@ -189,6 +189,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-15 (community, M3, #1904 touchpad speed):** On Wayland a two-finger swipe moved the page only as far as the fingers, while XWayland reports the same swipe as wheel lines and scrolls about four times as far. Preferences ▸ Scroll speed (touchpad) (Slow, Normal, Fast) scales touchpad point input before egui reads it: 2×, 4× and 8× on Linux, 0.5×, 1× and 2× on macOS, so macOS is unchanged by default. Every scroll area, the page view's lag-free path (#759) and its glide (#531) follow it; ⌘/Ctrl zoom doesn't. Saved, set as `touchpad_scroll_speed` on the control channel, translated in all 22 catalogs. X11 and Windows report touchpads as lines and keep following the wheel setting; the row is hidden on Windows and the web.
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
