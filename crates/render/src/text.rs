@@ -1657,49 +1657,52 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
     // While walking a group of vertical columns right to left, the next column is chosen from the
     // one just taken, not from the top of the page again (#3712).
     let mut focus: Option<usize> = None;
-    while !remaining.is_empty() {
-        let mut top = focus.or_else(|| remaining.iter().min_by(|a, b| blocks[**a].1[1].total_cmp(&blocks[**b].1[1])).copied());
-        // Without a column group in progress, a group of vertical columns starts at its rightmost
-        // column, whatever order the content stream drew them in (#3712).
-        if let Some(t) = top
-            && focus.is_none()
-            && blocks[t].0.len() == 1
-            && segs[blocks[t].0[0]].vertical
-        {
-            let top_of = blocks[t].1[1];
-            if let Some(right) = remaining
+    // A block to the left of `anchor` that shares vertical space with it (#3712).
+    let left_over = |c: usize, anchor: [f32; 4]| {
+        let cb = blocks[c].1;
+        let v = cb[3].min(anchor[3]) - cb[1].max(anchor[1]);
+        cb[2] <= anchor[0] + 1.0 && v > 0.5 * (cb[3] - cb[1]).min(anchor[3] - anchor[1])
+    };
+    // The block a walk starts from: the topmost remaining block, or the rightmost column of the
+    // group of vertical columns that starts at that height (#3712).
+    let top_block = |remaining: &[usize]| -> Option<usize> {
+        let top = remaining.iter().copied().min_by(|a, b| blocks[*a].1[1].total_cmp(&blocks[*b].1[1]))?;
+        if blocks[top].0.len() == 1 && segs[blocks[top].0[0]].vertical {
+            let top_of = blocks[top].1[1];
+            remaining
                 .iter()
                 .copied()
                 .filter(|c| blocks[*c].0.len() == 1 && segs[blocks[*c].0[0]].vertical && (blocks[*c].1[1] - top_of).abs() <= 1.0)
                 .max_by(|a, b| blocks[*a].1[0].total_cmp(&blocks[*b].1[0]))
-            {
-                top = Some(right);
-            }
+                .or(Some(top))
+        } else {
+            Some(top)
         }
-        let Some(top) = top else { break };
+    };
+    while !remaining.is_empty() {
+        // A focused column has already been taken, so it only anchors the next pick: the column
+        // nearest on its left that shares vertical space with it. When no column is left of it,
+        // its group has ended and selection resumes from the remaining blocks; taking the
+        // finished column again would leave `remaining` unchanged, so it would be pushed into
+        // `block_order` forever.
+        let next = focus.and_then(|f| {
+            let fb = blocks[f].1;
+            remaining.iter().copied().filter(|c| left_over(*c, fb)).max_by(|a, b| blocks[*a].1[0].total_cmp(&blocks[*b].1[0]))
+        });
+        let continuing = next.is_some();
+        let Some(top) = next.or_else(|| top_block(&remaining)) else { break };
         let tb = blocks[top].1;
-        // Vertical columns read right to left: after the rightmost column of a group, take the
-        // column nearest on its left that shares vertical space with it (#3712).
         let vertical_top = blocks[top].0.len() == 1 && segs[blocks[top].0[0]].vertical;
-        let left_over = |c: &usize| {
-            let cb = blocks[*c].1;
-            let v = cb[3].min(tb[3]) - cb[1].max(tb[1]);
-            cb[2] <= tb[0] + 1.0 && v > 0.5 * (cb[3] - cb[1]).min(tb[3] - tb[1])
-        };
         // The first column of a vertical group is taken as it is (its rightmost); then each next
         // one is its nearest column on the left.
-        let pick = if vertical_top {
-            if focus.is_some() {
-                remaining.iter().copied().filter(|c| left_over(c)).max_by(|a, b| blocks[*a].1[0].total_cmp(&blocks[*b].1[0])).unwrap_or(top)
-            } else {
-                top
-            }
+        let pick = if continuing || vertical_top {
+            top
         } else {
-            remaining.iter().copied().filter(|c| left_over(c)).min_by(|a, b| blocks[*a].1[0].total_cmp(&blocks[*b].1[0])).unwrap_or(top)
+            remaining.iter().copied().filter(|c| left_over(*c, tb)).min_by(|a, b| blocks[*a].1[0].total_cmp(&blocks[*b].1[0])).unwrap_or(top)
         };
         remaining.retain(|r| *r != pick);
         block_order.push(pick);
-        focus = (vertical_top && pick == top).then_some(pick);
+        focus = (!continuing && vertical_top).then_some(pick);
     }
 
     // 4. Emit each segment in block order. Its glyphs are placed here, into scratch that every segment reuses, and
@@ -1843,6 +1846,55 @@ mod tests {
         }
         let text = layout(glyphs);
         assert_eq!(text.plain_text(), "見出し\n縦書き本文");
+    }
+
+    /// Layout under a hang guard: a block order that takes the block it just took leaves
+    /// `remaining` unchanged, so the test fails at the guard instead of exhausting memory.
+    fn layout_bounded(glyphs: Vec<TextGlyph>) -> PageText {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(layout(glyphs));
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(10)).expect("layout finishes: each block is taken exactly once")
+    }
+
+    #[test]
+    fn a_vertical_column_above_horizontal_text_ends_the_walk() {
+        // Two upright CJK glyphs stacked near the top of the page, then a horizontal line well
+        // below them. The column is taken first; the line shares no vertical space with it, so
+        // no successor is left of the column while a block remains.
+        let mut glyphs = Vec::new();
+        for (j, ch) in "縦書".chars().enumerate() {
+            let y = 100.0 + 12.0 * j as f32;
+            glyphs.push(em_box(&ch.to_string(), 200.0, y, 212.0, y + 12.0));
+        }
+        for (j, ch) in "本文".chars().enumerate() {
+            let x = 72.0 + 12.0 * j as f32;
+            glyphs.push(em_box(&ch.to_string(), x, 400.0, x + 12.0, 412.0));
+        }
+        let text = layout_bounded(glyphs);
+        assert_eq!(text.plain_text(), "縦書\n本文");
+        assert_eq!(text.glyphs.len(), 4, "each glyph is emitted exactly once");
+        assert_eq!(text.line_of, [0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn two_vertically_disjoint_vertical_columns_both_end() {
+        // Two groups of stacked upright CJK glyphs with no vertical space between them. After
+        // the first group is taken nothing is left of it, but the second group still remains.
+        let mut glyphs = Vec::new();
+        for (j, ch) in "上組".chars().enumerate() {
+            let y = 100.0 + 12.0 * j as f32;
+            glyphs.push(em_box(&ch.to_string(), 300.0, y, 312.0, y + 12.0));
+        }
+        for (j, ch) in "下組".chars().enumerate() {
+            let y = 400.0 + 12.0 * j as f32;
+            glyphs.push(em_box(&ch.to_string(), 300.0, y, 312.0, y + 12.0));
+        }
+        let text = layout_bounded(glyphs);
+        assert_eq!(text.plain_text(), "上組\n下組");
+        assert_eq!(text.glyphs.len(), 4, "each glyph is emitted exactly once");
+        assert_eq!(text.line_of, [0, 0, 1, 1]);
     }
 
     #[test]
