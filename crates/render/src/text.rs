@@ -1161,8 +1161,10 @@ fn restarts_run(glyphs: &[&TextGlyph], start: usize, next: usize, progress: f32)
 ///
 /// Glyphs are placed by x. Runs that collide, meaning that glyphs of different runs overprint each other, stay whole
 /// and are placed by their left edge. Runs that only interleave along the line, such as symbols between letters, keep
-/// their glyph-by-glyph order, so the common case is one sort. A run of zero-width glyphs (a combining mark) has no
-/// extent of its own, so it goes next to the glyph it starts at.
+/// their glyph-by-glyph order, so the common case is one sort. A vertical column keeps the drawing order it was
+/// written in, top to bottom, because the x offsets between its stacked glyphs are not the line positions a sort
+/// would order. A run of zero-width glyphs (a combining mark) has no extent of its own, so it goes next to the glyph
+/// it starts at.
 fn place_glyphs(glyphs: &[&TextGlyph], height: &dyn Fn(usize) -> f32, s: &Seg, sc: &mut Scratch) {
     let x0 = |i: usize| glyphs[i].rect[0];
     let zero_width = |i: usize| glyphs[i].rect[2] - glyphs[i].rect[0] <= 0.05 * height(i);
@@ -1177,7 +1179,11 @@ fn place_glyphs(glyphs: &[&TextGlyph], height: &dyn Fn(usize) -> f32, s: &Seg, s
             sc.text.push(run);
         }
     }
-    if sc.text.len() <= 1 {
+    if s.vertical {
+        // A column of stacked glyphs reads top to bottom in drawing order, whatever small x
+        // offsets sit between them (the stack allows part of a glyph width).
+        sc.placed.extend(s.first.range());
+    } else if sc.text.len() <= 1 {
         // A single run cannot collide with itself: its glyphs only need sorting by x.
         sc.placed.extend(sc.text.iter().flat_map(|run| run.range()));
         sc.placed.sort_unstable_by(|a, b| x0(*a).total_cmp(&x0(*b)).then(a.cmp(b)));
@@ -1746,7 +1752,9 @@ fn arrange(glyphs: &[TextGlyph]) -> (Vec<usize>, Vec<u32>, Vec<bool>) {
         };
         remaining.retain(|r| *r != pick);
         block_order.push(pick);
-        focus = (!continuing && vertical_top).then_some(pick);
+        // A column anchors the next pick whether or not it continued a walk, so a column that
+        // starts lower than the ones to its right is still read in its turn, not after them.
+        focus = vertical_top.then_some(pick);
     }
 
     // 4. Emit each segment in block order. Its glyphs are placed here, into scratch that every segment reuses, and
@@ -1879,6 +1887,22 @@ mod tests {
     }
 
     #[test]
+    fn a_vertical_column_keeps_its_glyph_order_whatever_the_x_offsets() {
+        // A converter's text layer can put the glyphs of one column a point or two off each
+        // other's x; the column still reads top to bottom, in drawing order, not left to right.
+        let column = "見出本文";
+        let offsets = [0.0, 2.0, 1.0, 3.0];
+        let mut glyphs = Vec::new();
+        for (j, (ch, dx)) in column.chars().zip(offsets).enumerate() {
+            let (x, y) = (200.0 + dx, 100.0 + 12.0 * j as f32);
+            glyphs.push(em_box(&ch.to_string(), x, y, x + 12.0, y + 12.0));
+        }
+        let text = layout(glyphs);
+        assert_eq!(text.plain_text(), column);
+        assert!(text.line_of.iter().all(|l| *l == 0));
+    }
+
+    #[test]
     fn horizontal_cjk_text_stays_horizontal() {
         // Adjacent CJK glyphs on one baseline are not a vertical stack, even when they kern into
         // each other, and a paragraph of them keeps its lines in order.
@@ -1956,6 +1980,24 @@ mod tests {
         assert_eq!(text.plain_text(), "上組\n下組");
         assert_eq!(text.glyphs.len(), 4, "each glyph is emitted exactly once");
         assert_eq!(text.line_of, [0, 0, 1, 1]);
+    }
+
+    #[test]
+    fn a_vertical_column_that_starts_lower_is_read_in_its_turn() {
+        // Four columns right to left, the third starting 30 pt lower than the others, as an
+        // indented or ragged column does. The walk follows each column to its left neighbour.
+        let columns = ["春夏秋冬梅雨", "東西南北中央", "山川草木鳥獣", "日月星辰天地"];
+        let mut glyphs = Vec::new();
+        for (i, column) in columns.iter().enumerate() {
+            let x = 500.0 - 18.0 * i as f32;
+            let down = if i == 2 { 30.0 } else { 0.0 };
+            for (j, ch) in column.chars().enumerate() {
+                let y = 100.0 + down + 12.0 * j as f32;
+                glyphs.push(em_box(&ch.to_string(), x, y, x + 12.0, y + 12.0));
+            }
+        }
+        let text = layout_bounded(glyphs);
+        assert_eq!(text.plain_text(), columns.join("\n"));
     }
 
     #[test]
