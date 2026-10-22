@@ -168,7 +168,7 @@ update the numbers.
   stay unchanged, and original image pixels remain in the PDF.
 - **Missing:** additional language choices, vertical Japanese, editable-text output, deskew on pages
   with annotations, despeckle, background/camera cleanup, MRC compression, browser OCR and scanner input.
-- **Evidence:** `crates/engine/tests/scan_ocr.rs` and the OCR automation/UI tests; model tests require
+- **Evidence:** `crates/engine/tests/it/scan_ocr.rs` and the OCR automation/UI tests; model tests require
   `cargo xtask models`, Japanese fixture generation requires the release `CRAFT_FONTS_DIR` input.
 - **Impact:** scanned documents remain a core Pro workflow with wider language and layout demands.
 - **Estimate:** previous 40–75 h estimate needs reassessment after this narrower feature slice.
@@ -255,7 +255,7 @@ update the numbers.
   reference image and no oracle. **We render 1 distinct image across all 96; Poppler renders 8**,
   drawing a blank page for the seven halftone-skip and symbol fixtures and mis-decoding TPGRON
   refinement (its output changes when TPGRON is switched on, which a correct decoder's cannot).
-  Pinned as `crates/render/tests/jbig2_invariants.rs`. **Poppler is not a usable oracle for JBIG2**,
+  Pinned as `crates/render/tests/it/jbig2_invariants.rs`. **Poppler is not a usable oracle for JBIG2**,
   and roughly a fifth of its fixtures should be read as its bugs rather than ours.
 - **Annotations are shown, and that was measured rather than argued.** Poppler synthesises an
   appearance for an annotation that has none, where we draw only what the document carries (link
