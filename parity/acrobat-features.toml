@@ -8097,8 +8097,8 @@ milestone = "M10"
 status = "shipped"
 commands = ["print.dialog"]
 tools = ["doc_print"]
-evidence = ["crates/print/src/tests.rs::size_modes", "crates/print/src/tests.rs::architectural_sheets_preserve_full_scale", "crates/automation/tests/automation.rs::architectural_and_iso_papers_through_tools", "crates/ui-egui/tests/print.rs::architectural_page_can_be_matched_at_100_percent"]
-notes = "auto portrait/landscape"
+evidence = ["crates/print/src/tests.rs::size_modes", "crates/print/src/tests.rs::architectural_sheets_preserve_full_scale", "crates/automation/tests/automation.rs::architectural_and_iso_papers_through_tools", "crates/ui-egui/tests/print.rs::architectural_page_can_be_matched_at_100_percent", "crates/print/src/tests.rs::landscape_sheets_ask_cups_to_turn_the_page"]
+notes = "auto portrait/landscape. CUPS jobs carry orientation-requested=4 when every sheet is landscape, so a landscape sheet fills its portrait paper instead of being shrunk into it (#2713); a job that mixes orientations is left to the spooler, and Windows sets orientation in its own print ticket. The CUPS option is checked against Apple's filters and one physical printer, not a test that runs a spooler."
 
 [[feature]]
 id = "print.comments-and-forms"

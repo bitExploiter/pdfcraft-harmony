@@ -644,7 +644,15 @@ impl PdfCraftApp {
                     }
                 }
             }
-            Some(printer) => self.send_to_printer(printer, bytes, self.print_draft.job(&name)),
+            Some(printer) => {
+                let mut job = self.print_draft.job(&name);
+                // CUPS is told which way the sheets run; Windows' print ticket already is.
+                if !cfg!(windows) {
+                    let sizes: Vec<(f64, f64)> = doc.info.pages.iter().map(|p| (f64::from(p.width), f64::from(p.height))).collect();
+                    job.options.extend(print::layout(&sizes, &settings).ok().and_then(|sheets| print::cups_orientation(&sheets)));
+                }
+                self.send_to_printer(printer, bytes, job)
+            }
             None => self.save_print_pdf(&name, bytes),
         }
     }

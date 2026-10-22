@@ -152,7 +152,8 @@ impl Automation {
         };
         let settings = print::Settings { pages, paper, orientation, layout, content, raster, crops: Vec::new() };
         let sizes: Vec<(f64, f64)> = self.doc(a)?.info.pages.iter().map(|p| (p.width as f64, p.height as f64)).collect();
-        let sheets = print::layout(&sizes, &settings).map_err(|e| bad(e.to_string()))?.len();
+        let laid_out = print::layout(&sizes, &settings).map_err(|e| bad(e.to_string()))?;
+        let sheets = laid_out.len();
         let bytes = self.session.print_pdf(id, &settings).map_err(failed)?;
         let mut out = json!({ "sheets": sheets, "pages": settings.pages.len(), "bytes": bytes.len() });
         match (a.opt_str("path")?, a.opt_str("printer")?) {
@@ -163,7 +164,7 @@ impl Automation {
             }
             (None, Some(printer)) => {
                 let name = self.doc(a)?.name.clone();
-                let job = spool::Job {
+                let mut job = spool::Job {
                     printer: if printer == "default" { None } else { Some(printer.to_string()) },
                     copies: a.opt_int("copies")?.unwrap_or(1).clamp(1, 999) as u32,
                     collate: a.opt_bool("collate")?.unwrap_or(true),
@@ -183,6 +184,11 @@ impl Automation {
                         Some(_) => return Err(bad("options must be an object of option keys and choices from printer_options")),
                     },
                 };
+                // CUPS is told which way the sheets run, as the Print dialog does (#2713); Windows'
+                // print ticket already is. An orientation the caller chose in `options` stands.
+                if !cfg!(windows) && !job.options.iter().any(|(k, _)| k == "orientation-requested") {
+                    job.options.extend(print::cups_orientation(&laid_out));
+                }
                 out["job"] = json!(spool::submit(&bytes, &job).map_err(|e| failed(e.to_string()))?);
             }
             _ => return Err(bad("pass either path (save the print-ready PDF) or printer (a name from printers, or \"default\")")),

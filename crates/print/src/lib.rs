@@ -323,6 +323,18 @@ pub fn cups_media(index: usize) -> Option<&'static str> {
     }
 }
 
+/// The CUPS job option that keeps landscape sheets landscape (`orientation-requested` 4).
+///
+/// The print-ready PDF's sheets are already laid out on their paper, but the paper is named
+/// portrait (`Letter`), and without this option CUPS leaves a landscape sheet unrotated and
+/// shrinks it into the portrait paper instead of turning it to fill it (#2713). It is a property
+/// of the whole job, so it is given only when *every* sheet is landscape; a job that mixes
+/// orientations is left to the spooler, as portrait sheets would be turned wrongly.
+pub fn cups_orientation(sheets: &[Sheet]) -> Option<(String, String)> {
+    let landscape = !sheets.is_empty() && sheets.iter().all(|s| s.size.0 > s.size.1);
+    landscape.then(|| ("orientation-requested".to_string(), "4".to_string()))
+}
+
 /// Whether most of page `index`'s text runs bottom-to-top as the page displays (a label laid
 /// sideways on a letter or A4 sheet), counting each text-showing operator once; form XObjects
 /// are followed a few levels deep.

@@ -493,6 +493,28 @@ fn printer_option_defaults_and_job_arguments() {
     assert!(spool::printer_options("../../etc/passwd").is_empty(), "not a queue name");
 }
 
+#[test]
+fn landscape_sheets_ask_cups_to_turn_the_page() {
+    let landscape = |size: (f64, f64)| Sheet { size, ..Sheet::default() };
+    let ask = Some(("orientation-requested".to_string(), "4".to_string()));
+    // A landscape Size sheet, and a booklet (always landscape sheets), are both turned.
+    let page = layout(&[(300.0, 200.0)], &settings(vec![0], Layout::Size(SizeMode::Fit))).unwrap();
+    assert_eq!(cups_orientation(&page), ask);
+    let booklet =
+        layout(&[(200.0, 300.0); 4], &settings(vec![0, 1, 2, 3], Layout::Booklet { subset: BookletSubset::BothSides, binding: Binding::Left }))
+            .unwrap();
+    assert_eq!(cups_orientation(&booklet), ask);
+    // Portrait sheets, mixed jobs and nothing at all say nothing.
+    let portrait = layout(&[(200.0, 300.0)], &settings(vec![0], Layout::Size(SizeMode::Fit))).unwrap();
+    assert_eq!(cups_orientation(&portrait), None);
+    assert_eq!(cups_orientation(&[landscape((792.0, 612.0)), landscape((612.0, 792.0))]), None, "a mixed job is not turned as a whole");
+    assert_eq!(cups_orientation(&[landscape((612.0, 612.0))]), None, "a square sheet has no orientation");
+    assert_eq!(cups_orientation(&[]), None);
+    // `lp` is given it, among the job's other options.
+    let job = Job { options: ask.into_iter().collect(), ..Job::default() };
+    assert!(lp_args(&job).join(" ").ends_with("-o fit-to-page=false -o orientation-requested=4"));
+}
+
 #[cfg(all(unix, not(target_arch = "wasm32")))]
 mod cups_options {
     use crate::spool;
