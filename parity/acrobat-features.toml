@@ -3517,11 +3517,11 @@ title = "Print dialog presets in document properties"
 area = "D"
 tier = "P2"
 milestone = "M10"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "shipped"
+commands = ["file.properties"]
+tools = ["doc_initial_view"]
+evidence = ["crates/organize/src/tests.rs::print_dialog_presets_and_base_url_round_trip", "crates/automation/tests/automation.rs::initial_view_print_presets_and_base_url_through_tools"]
+notes = "Print scaling, duplex, paper source by page size, print page ranges, number of copies in ViewerPreferences"
 
 [[feature]]
 id = "organize.base-url"
@@ -3529,11 +3529,11 @@ title = "Base URL for relative links"
 area = "D"
 tier = "P3"
 milestone = "M12"
-status = "planned"
-commands = []
-tools = []
-evidence = []
-notes = ""
+status = "shipped"
+commands = ["file.properties"]
+tools = ["doc_initial_view"]
+evidence = ["crates/organize/src/tests.rs::print_dialog_presets_and_base_url_round_trip", "crates/automation/tests/automation.rs::initial_view_print_presets_and_base_url_through_tools"]
+notes = "Catalog /URI dictionary /Base URL for relative links"
 
 # ==================================================================================================
 # E. Comments and review

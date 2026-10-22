@@ -47,7 +47,7 @@ pub use pdfcraft_organize::{BoxSpec, FieldConflicts, PageBox, SplitBy, Transitio
 
 /// One file produced by a split: (1-based first page, last page, PDF bytes).
 pub use pdfcraft_organize::LabelStyle;
-pub use pdfcraft_organize::view::{InitialView, Layout as InitialLayout, Magnification, Navigation};
+pub use pdfcraft_organize::view::{DuplexMode, InitialView, Layout as InitialLayout, Magnification, Navigation, PrintPresets, PrintScaling};
 
 pub use pdfcraft_cos::Algorithm;
 pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};

@@ -44,6 +44,45 @@ pub enum Magnification {
     Percent(f64),
 }
 
+/// Page scaling option in the print dialog (`/ViewerPreferences /PrintScaling`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PrintScaling {
+    #[default]
+    AppDefault,
+    None,
+}
+
+/// Paper handling option in the print dialog (`/ViewerPreferences /Duplex`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DuplexMode {
+    Simplex,
+    DuplexFlipShortEdge,
+    DuplexFlipLongEdge,
+}
+
+/// Print dialog presets stored in `/ViewerPreferences` (ISO 32000-2 §12.5.6.5 Table 155).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PrintPresets {
+    pub page_scaling: Option<PrintScaling>,
+    pub duplex: Option<DuplexMode>,
+    pub pick_tray_by_pdf_size: Option<bool>,
+    /// 1-based page ranges `[first_1, last_1, first_2, last_2, ...]`. Must have an even length.
+    pub print_page_range: Option<Vec<u32>>,
+    /// Number of copies (≥ 1).
+    pub num_copies: Option<u32>,
+}
+
+impl PrintPresets {
+    /// Returns true if all preset fields are `None`.
+    pub fn is_empty(&self) -> bool {
+        self.page_scaling.is_none()
+            && self.duplex.is_none()
+            && self.pick_tray_by_pdf_size.is_none()
+            && self.print_page_range.as_ref().is_none_or(Vec::is_empty)
+            && self.num_copies.is_none()
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct InitialView {
     pub navigation: Navigation,
@@ -63,6 +102,10 @@ pub struct InitialView {
     pub language: Option<String>,
     /// Right-edge binding (`/Direction /R2L`).
     pub right_to_left: bool,
+    /// Print dialog presets (`/ViewerPreferences`).
+    pub print_presets: Option<PrintPresets>,
+    /// Document-wide base URI for relative links (`/URI` dictionary `/Base` in Document Catalog, ISO 32000-2 §12.6.4.7).
+    pub base_url: Option<String>,
 }
 
 fn catalog(doc: &Document) -> Result<(pdfcraft_cos::ObjRef, Dict), OrganizeError> {
@@ -93,6 +136,10 @@ pub fn initial_view(doc: &Document) -> InitialView {
             _ => Layout::Default,
         },
         language: c.get(b"Lang").map(|o| doc.resolve(o)).and_then(|o| o.as_string().map(|s| s.to_text())).filter(|s| !s.is_empty()),
+        base_url: c.get(b"URI").map(|o| doc.resolve(o)).and_then(|o| match &*o {
+            Object::Dict(d) => d.get(b"Base").map(|b| doc.resolve(b)).and_then(|b| b.as_string().map(|s| s.to_text())).filter(|s| !s.is_empty()),
+            _ => None,
+        }),
         ..InitialView::default()
     };
     if let Some(vp) = c.get(b"ViewerPreferences").map(|o| doc.resolve(o)).and_then(|o| o.as_dict().cloned()) {
@@ -104,6 +151,42 @@ pub fn initial_view(doc: &Document) -> InitialView {
         v.hide_toolbar = flag(b"HideToolbar");
         v.hide_window_ui = flag(b"HideWindowUI");
         v.right_to_left = name(&vp, b"Direction").as_deref() == Some(b"R2L");
+
+        let page_scaling = match name(&vp, b"PrintScaling").as_deref() {
+            Some(b"AppDefault") => Some(PrintScaling::AppDefault),
+            Some(b"None") => Some(PrintScaling::None),
+            _ => None,
+        };
+        let duplex = match name(&vp, b"Duplex").as_deref() {
+            Some(b"Simplex") => Some(DuplexMode::Simplex),
+            Some(b"DuplexFlipShortEdge") => Some(DuplexMode::DuplexFlipShortEdge),
+            Some(b"DuplexFlipLongEdge") => Some(DuplexMode::DuplexFlipLongEdge),
+            _ => None,
+        };
+        let pick_tray = vp.get(b"PickTrayByPDFSize").map(|o| doc.resolve(o)).and_then(|o| match *o {
+            Object::Bool(b) => Some(b),
+            _ => None,
+        });
+        let print_page_range = vp.get(b"PrintPageRange").map(|o| doc.resolve(o)).and_then(|o| match &*o {
+            Object::Array(arr) => {
+                let nums: Vec<u32> = arr
+                    .iter()
+                    .filter_map(|x| match *doc.resolve(x) {
+                        Object::Int(i) => u32::try_from(i).ok(),
+                        _ => None,
+                    })
+                    .collect();
+                if nums.len() == arr.len() && nums.len().is_multiple_of(2) && !nums.is_empty() { Some(nums) } else { None }
+            }
+            _ => None,
+        });
+        let num_copies = vp.get(b"NumCopies").map(|o| doc.resolve(o)).and_then(|o| match *o {
+            Object::Int(i) => u32::try_from(i).ok().filter(|&n| n >= 1),
+            _ => None,
+        });
+        if page_scaling.is_some() || duplex.is_some() || pick_tray.is_some() || print_page_range.is_some() || num_copies.is_some() {
+            v.print_presets = Some(PrintPresets { page_scaling, duplex, pick_tray_by_pdf_size: pick_tray, print_page_range, num_copies });
+        }
     }
     // The opening destination: an explicit array, or a GoTo action's.
     let dest = c.get(b"OpenAction").map(|o| doc.resolve(o)).and_then(|o| match &*o {
@@ -177,6 +260,74 @@ pub fn set_initial_view(doc: &mut Document, v: &InitialView) -> Result<(), Organ
     } else {
         vp.remove(b"Direction");
     }
+    if let Some(presets) = &v.print_presets {
+        match presets.page_scaling {
+            Some(PrintScaling::AppDefault) => {
+                vp.set(b"PrintScaling".to_vec(), Object::name("AppDefault"));
+            }
+            Some(PrintScaling::None) => {
+                vp.set(b"PrintScaling".to_vec(), Object::name("None"));
+            }
+            None => {
+                vp.remove(b"PrintScaling");
+            }
+        }
+        match presets.duplex {
+            Some(DuplexMode::Simplex) => {
+                vp.set(b"Duplex".to_vec(), Object::name("Simplex"));
+            }
+            Some(DuplexMode::DuplexFlipShortEdge) => {
+                vp.set(b"Duplex".to_vec(), Object::name("DuplexFlipShortEdge"));
+            }
+            Some(DuplexMode::DuplexFlipLongEdge) => {
+                vp.set(b"Duplex".to_vec(), Object::name("DuplexFlipLongEdge"));
+            }
+            None => {
+                vp.remove(b"Duplex");
+            }
+        }
+        match presets.pick_tray_by_pdf_size {
+            Some(b) => {
+                vp.set(b"PickTrayByPDFSize".to_vec(), Object::Bool(b));
+            }
+            None => {
+                vp.remove(b"PickTrayByPDFSize");
+            }
+        }
+        match &presets.print_page_range {
+            Some(range) if !range.is_empty() && range.len().is_multiple_of(2) => {
+                vp.set(b"PrintPageRange".to_vec(), Object::Array(range.iter().map(|&p| Object::Int(i64::from(p))).collect()));
+            }
+            _ => {
+                vp.remove(b"PrintPageRange");
+            }
+        }
+        match presets.num_copies {
+            Some(n) if n >= 1 => {
+                vp.set(b"NumCopies".to_vec(), Object::Int(i64::from(n)));
+            }
+            _ => {
+                vp.remove(b"NumCopies");
+            }
+        }
+    } else {
+        vp.remove(b"PrintScaling");
+        vp.remove(b"Duplex");
+        vp.remove(b"PickTrayByPDFSize");
+        vp.remove(b"PrintPageRange");
+        vp.remove(b"NumCopies");
+    }
+    let uri_dict = match &v.base_url {
+        Some(url) if !url.trim().is_empty() => {
+            let mut u = c.get(b"URI").map(|o| doc.resolve(o)).and_then(|o| o.as_dict().cloned()).unwrap_or_default();
+            u.set(b"Base".to_vec(), PdfString::text(url.trim()));
+            Some(u)
+        }
+        _ => c.get(b"URI").map(|o| doc.resolve(o)).and_then(|o| o.as_dict().cloned()).and_then(|mut u| {
+            u.remove(b"Base");
+            if u.is_empty() || (u.len() == 1 && u.get(b"Type").is_some()) { None } else { Some(u) }
+        }),
+    };
     let open_action_is_dest = match c.get(b"OpenAction").map(|o| doc.resolve(o)) {
         None => true,
         Some(o) => matches!(&*o, Object::Array(_)) || o.as_dict().is_some_and(|d| d.name(b"S") == Some(b"GoTo")),
@@ -235,6 +386,12 @@ pub fn set_initial_view(doc: &mut Document, v: &InitialView) -> Result<(), Organ
             Some(l) if !l.trim().is_empty() => c.set(b"Lang".to_vec(), PdfString::text(l.trim())),
             _ => {
                 c.remove(b"Lang");
+            }
+        }
+        match uri_dict {
+            Some(u) => c.set(b"URI".to_vec(), Object::Dict(u)),
+            None => {
+                c.remove(b"URI");
             }
         }
         match (&dest, open_action_is_dest) {
