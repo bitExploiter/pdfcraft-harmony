@@ -1673,14 +1673,18 @@ fn control_open_replies_pending_while_the_worker_opens_and_focuses_once_it_has()
 
     // The worker completes the open on later frames; the tab shows, and only then does a
     // repeated open focus it instead of reporting another pending open.
+    // Wait for the worker by state, not by a frame count: 30 frames without a pause ran out on
+    // a busy Windows CI runner before the open finished. The deadline only guards a hang.
     let mut documents = 0;
-    for _ in 0..30 {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    while std::time::Instant::now() < deadline {
         h.run_steps(1);
         let state = ok(&mut h, &c, "ui.state", json!({}));
         documents = state["documents"].as_array().map(|d| d.len()).unwrap_or_default();
         if documents == 1 {
             break;
         }
+        std::thread::sleep(std::time::Duration::from_millis(5));
     }
     assert_eq!(documents, 1, "the pending open completed into a tab");
 
