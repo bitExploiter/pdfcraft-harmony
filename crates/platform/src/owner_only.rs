@@ -101,15 +101,16 @@ fn sid_from_whoami(text: &str) -> Option<String> {
     digits.split('-').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())).then(|| last.to_string())
 }
 
-/// Make the current user the owner of `path` and give it an access list of its own that only that
-/// user and SYSTEM are on, dropping what it inherited from its folder (`icacls /setowner`, then
-/// `/inheritance:r /grant:r`). The owner is set because a file an elevated administrator creates is
-/// owned by the Administrators group, not by the user.
+/// Give `path` an access list of its own that only the current user and SYSTEM are on, dropping
+/// what it inherited from its folder, then make that user its owner (`icacls /inheritance:r
+/// /grant:r`, then `/setowner`). The owner is set because a file an elevated administrator creates
+/// is owned by the Administrators group, not by the user. The list comes first: its owner may always
+/// replace it, while setting the owner needs the Full control it grants (a folder may give Modify).
 #[cfg(windows)]
 pub fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
     let me = current_user_sid()?;
-    icacls(path, &["/setowner".into(), format!("*{me}")])?;
-    icacls(path, &["/inheritance:r".into(), "/grant:r".into(), format!("*{me}:(F)"), "*S-1-5-18:(F)".into()])
+    icacls(path, &["/inheritance:r".into(), "/grant:r".into(), format!("*{me}:(F)"), "*S-1-5-18:(F)".into()])?;
+    icacls(path, &["/setowner".into(), format!("*{me}")])
 }
 
 #[cfg(windows)]
@@ -259,6 +260,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A folder may give its user Modify but not Full control, so a file created there doesn't let
+    /// its owner change the owner (no `WRITE_OWNER`). An owner can always replace the access list,
+    /// though, and the user's Full control on it then allows setting the owner.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_in_a_folder_granting_only_modify_is_still_restricted() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-owner-only-modify-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = current_user_sid().unwrap();
+        let modify = std::process::Command::new("icacls")
+            .arg(&dir)
+            .args(["/inheritance:r", "/grant:r"])
+            .arg(format!("*{me}:(OI)(CI)M"))
+            .arg("*S-1-5-18:(OI)(CI)F")
+            .output()
+            .unwrap();
+        assert!(modify.status.success(), "{}", String::from_utf8_lossy(&modify.stderr));
+        let file = dir.join("ctl.json");
+        std::fs::write(&file, b"{}").unwrap();
+        restrict_to_owner(&file).unwrap();
+        let sddl = sddl_of(&file).unwrap();
+        assert_eq!((section(&sddl, "O:"), foreign_access(&sddl, &me)), (Some(me.as_str()), None), "{sddl}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An `OWNER RIGHTS` entry replaces what an owner may do implicitly. Granting only *write
+    /// owner* that way, the access list can't be replaced although the owner can still be set: the
+    /// file isn't taken as restricted.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_whose_access_list_cant_be_replaced_is_not_restricted() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-owner-only-ow-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = current_user_sid().unwrap();
+        let file = dir.join("ctl.json");
+        std::fs::write(&file, b"{}").unwrap();
+        let rights = std::process::Command::new("icacls")
+            .arg(&file)
+            .args(["/inheritance:r", "/grant:r"])
+            .arg(format!("*{me}:(R)"))
+            .arg("*S-1-3-4:(WO)")
+            .output()
+            .unwrap();
+        assert!(rights.status.success(), "{}", String::from_utf8_lossy(&rights.stderr));
+        assert!(restrict_to_owner(&file).is_err(), "the access list could not be replaced");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// When the tools fail, the functions say so: nothing is taken as restricted or as checked.
     #[cfg(windows)]
     #[test]
@@ -315,7 +366,8 @@ mod tests {
         assert!(read_with_sddl(&file, 64).is_ok());
         // When the owner can't be set, the file isn't taken as restricted, although its access
         // list could still be replaced (an owner may always change that).
-        let deny = std::process::Command::new("icacls").arg(&file).arg("/deny").arg(format!("*{me}:(WO)")).output().unwrap();
+        // Everyone is denied it, an entry `/grant:r` for the user leaves in place.
+        let deny = std::process::Command::new("icacls").arg(&file).arg("/deny").arg("*S-1-1-0:(WO)").output().unwrap();
         assert!(deny.status.success(), "{}", String::from_utf8_lossy(&deny.stderr));
         assert!(restrict_to_owner(&file).is_err(), "setting the owner failed");
         let _ = std::fs::remove_dir_all(&dir);
