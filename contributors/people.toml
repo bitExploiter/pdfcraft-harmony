@@ -173,3 +173,7 @@ sync_github_name = true
 
 [people.amoisttowe1]
 real_name = "Nick Nyssen"
+
+[people.MoAb-01]
+display_name = "MA"
+sync_github_name = false

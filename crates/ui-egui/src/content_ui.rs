@@ -560,18 +560,53 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             // The box is white in every theme, so the caret must not follow the theme (pale in dark mode) (#655).
             ui.visuals_mut().text_cursor.stroke.color = crate::edit_text_ui::caret_color_on(Color32::WHITE);
             let [cr, cg, cb] = t.style.color.map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
+            let text_color = Color32::from_rgb(cr, cg, cb);
+            let is_rtl = crate::bidi::has_rtl(&t.text);
+            let font_clone = font.clone();
+            let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
+                let raw = text.as_str();
+                if !crate::bidi::has_rtl(raw) {
+                    let job = egui::text::LayoutJob::simple(
+                        raw.to_owned(),
+                        font_clone.clone(),
+                        text_color,
+                        wrap_width,
+                    );
+                    ui.fonts_mut(|f| f.layout_job(job))
+                } else {
+                    let measure = |f: &mut egui::epaint::text::FontsView<'_>, s: &str| {
+                        f.layout_no_wrap(s.to_owned(), font_clone.clone(), Color32::WHITE).size().x
+                    };
+                    let width = wrap_width.max(60.0);
+                    let lines = ui.fonts_mut(|f| {
+                        crate::bidi::wrap(raw, |s| measure(f, s) <= width)
+                    });
+                    let display = lines.into_iter().map(|l| l.text).collect::<Vec<_>>().join("\n");
+                    let mut job = egui::text::LayoutJob::simple(
+                        display,
+                        font_clone.clone(),
+                        text_color,
+                        f32::INFINITY,
+                    );
+                    job.halign = egui::Align::RIGHT;
+                    ui.fonts_mut(|f| f.layout_job(job))
+                }
+            };
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                let resp = ui.add(
-                    egui::TextEdit::multiline(&mut t.text)
-                        .font(font)
-                        .desired_width(r.width().max(60.0))
-                        .desired_rows(1)
-                        .background_color(if background_ready { Color32::TRANSPARENT } else { Color32::WHITE })
-                        .text_color(Color32::from_rgb(cr, cg, cb))
-                        .hint_text(tl!("Type text"))
-                        .id_salt("added-text-edit"),
-                );
+                let mut edit = egui::TextEdit::multiline(&mut t.text)
+                    .font(font)
+                    .layouter(&mut layouter)
+                    .desired_width(r.width().max(60.0))
+                    .desired_rows(1)
+                    .background_color(if background_ready { Color32::TRANSPARENT } else { Color32::WHITE })
+                    .text_color(text_color)
+                    .hint_text(tl!("Type text"))
+                    .id_salt("added-text-edit");
+                if is_rtl {
+                    edit = edit.horizontal_align(egui::Align::RIGHT);
+                }
+                let resp = ui.add(edit);
                 if t.focus {
                     resp.request_focus();
                     t.focus = false;
@@ -615,8 +650,11 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
 
 /// A finished draft as an edit: new text is added (and selected once it exists), retyped text
 /// updated, and text emptied by retyping removed. Empty new text adds nothing.
-fn finish(cv: &mut ContentView, d: TextDraft, added: &[Added]) -> Option<Edit> {
+fn finish(cv: &mut ContentView, mut d: TextDraft, added: &[Added]) -> Option<Edit> {
     let text = d.text.trim_end().to_string();
+    if crate::bidi::has_rtl(&text) && d.style.align == pdfcraft_engine::TextAlign::Left {
+        d.style.align = pdfcraft_engine::TextAlign::Right;
+    }
     match d.index {
         None if text.trim().is_empty() => None,
         None => {
