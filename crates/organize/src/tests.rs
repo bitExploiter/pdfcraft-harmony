@@ -1392,6 +1392,32 @@ fn combine_nests_source_bookmarks_and_keeps_attachments() {
     assert_eq!(keys, ["notes.txt", "notes.txt (2)"]);
 }
 
+/// An outline item's `/Count` is every item showing below it, at all levels, not just its
+/// children (ISO 32000-2 §12.3.3): copied bookmarks open inside open ones, the per-file
+/// bookmark and the root all count the whole visible tree (from review of #3748).
+#[test]
+fn combined_outline_counts_every_visible_descendant() {
+    let mut c = doc_c();
+    // Chapter one (open) › Section, now open › Sub: three levels, all showing.
+    add_bookmark(&mut c, &[0, 0], 0, "Sub", 1).unwrap();
+    set_bookmark_open(&mut c, &[0, 0], true).unwrap();
+    let count = |doc: &Document, r: ObjRef| doc.get(r).as_dict().and_then(|d| d.int(b"Count"));
+    let first = |doc: &Document, r: ObjRef| doc.get(r).as_dict().and_then(|d| d.reference(b"First")).unwrap();
+    let flat = crate::CombineOptions { file_bookmarks: false, ..Default::default() };
+    let out = full_roundtrip(&combine_with(&[("C", &c)], flat).unwrap().doc);
+    let root = catalog(&out).reference(b"Outlines").unwrap();
+    let chapter = first(&out, root);
+    assert_eq!(titles(&bookmarks(&out)), ["Chapter one[Section[Sub]]"]);
+    assert_eq!(count(&out, chapter), Some(2), "Section and Sub both show below Chapter one");
+    assert_eq!(count(&out, first(&out, chapter)), Some(1), "Sub shows below Section");
+    assert_eq!(count(&out, root), Some(3));
+    // With a bookmark per file, that one starts collapsed and would show all three.
+    let out = full_roundtrip(&combine(&[("C", &c)]).unwrap());
+    let file = first(&out, catalog(&out).reference(b"Outlines").unwrap());
+    assert_eq!(count(&out, file), Some(-3));
+    assert_eq!(count(&out, first(&out, file)), Some(2));
+}
+
 /// Combine Files without a bookmark per file (#3679): the files' own bookmarks are the top level,
 /// in file order, open or closed as in the file, pointing into their own copies. A file without
 /// bookmarks adds none, so combining only such files gives no outline at all.
