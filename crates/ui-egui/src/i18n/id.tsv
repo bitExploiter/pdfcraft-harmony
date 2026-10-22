@@ -2754,3 +2754,7 @@ theme	Appearance	Tampilan
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Garis Batas:
+
+# A text border's own colour (M5).
+	Border colour	Warna garis batas
+	Same as text	Sama dengan teks

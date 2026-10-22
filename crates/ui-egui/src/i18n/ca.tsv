@@ -2777,3 +2777,7 @@ theme	Appearance	Aspecte
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Vora:
+
+# A text border's own colour (M5).
+	Border colour	Color de la vora
+	Same as text	Igual que el text

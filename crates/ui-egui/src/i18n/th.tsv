@@ -2684,3 +2684,7 @@ theme	Appearance	ลักษณะที่ปรากฏ
 
 # Fill & Sign text: the border around it (M5).
 	Border:	เส้นขอบ:
+
+# A text border's own colour (M5).
+	Border colour	สีเส้นขอบ
+	Same as text	เหมือนข้อความ

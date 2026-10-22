@@ -1568,7 +1568,7 @@ fn control_quit_retains_inactive_fill_sign_typing_after_cancel() {
         at: [40.0, 200.0],
         text: "Unsaved signature note".into(),
         size: 10.0,
-        border: 0.0,
+        border: pdfcraft_ui_egui::fill_sign::TextBorder::NONE,
         focus: false,
     });
     h.state_mut().active = None;

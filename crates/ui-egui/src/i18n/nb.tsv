@@ -2697,3 +2697,7 @@ key	Space	Mellomrom
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Kantlinje:
+
+# A text border's own colour (M5).
+	Border colour	Kantlinjefarge
+	Same as text	Samme som teksten

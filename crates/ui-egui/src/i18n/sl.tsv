@@ -2523,3 +2523,7 @@ animation effects	Off	Izklopljeni
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Obroba:
+
+# A text border's own colour (M5).
+	Border colour	Barva obrobe
+	Same as text	Kot besedilo

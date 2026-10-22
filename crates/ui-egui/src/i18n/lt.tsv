@@ -2779,3 +2779,7 @@ theme	Appearance	Išvaizda
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Rėmelis:
+
+# A text border's own colour (M5).
+	Border colour	Rėmelio spalva
+	Same as text	Kaip tekstas

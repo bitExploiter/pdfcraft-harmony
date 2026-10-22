@@ -2519,3 +2519,7 @@ animation effects	Off	Aus
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Rahmen:
+
+# A text border's own colour (M5).
+	Border colour	Rahmenfarbe
+	Same as text	Wie Text

@@ -2803,3 +2803,7 @@ theme	Appearance	Aparência
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Borda:
+
+# A text border's own colour (M5).
+	Border colour	Cor da borda
+	Same as text	Igual ao texto

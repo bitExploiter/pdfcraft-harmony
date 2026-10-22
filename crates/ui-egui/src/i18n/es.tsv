@@ -2841,3 +2841,7 @@ theme	Appearance	Aspecto
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Borde:
+
+# A text border's own colour (M5).
+	Border colour	Color del borde
+	Same as text	Igual que el texto

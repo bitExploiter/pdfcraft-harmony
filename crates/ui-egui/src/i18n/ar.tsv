@@ -2794,3 +2794,7 @@ certificate	Version	الإصدار
 
 # Fill & Sign text: the border around it (M5).
 	Border:	الحد:
+
+# A text border's own colour (M5).
+	Border colour	لون الحد
+	Same as text	مثل النص

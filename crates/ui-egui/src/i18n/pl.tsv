@@ -2614,3 +2614,7 @@ animation effects	Off	Wyłączone
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Obramowanie:
+
+# A text border's own colour (M5).
+	Border colour	Kolor obramowania
+	Same as text	Jak tekst

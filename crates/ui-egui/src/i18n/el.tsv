@@ -2524,3 +2524,7 @@ animation effects	Off	Ανενεργά
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Περίγραμμα:
+
+# A text border's own colour (M5).
+	Border colour	Χρώμα περιγράμματος
+	Same as text	Ίδιο με το κείμενο

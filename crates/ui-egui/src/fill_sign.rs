@@ -5,7 +5,7 @@
 
 use egui::{Color32, CornerRadius, Pos2, Sense, Stroke, pos2, vec2};
 use pdfcraft_engine::signature_scan::{DEFAULT_SENSITIVITY, PREVIEW_MAX_SIDE, SCAN_MAX_SIDE, ScanError};
-use pdfcraft_engine::{Edit, FillMark, NewAnnotation, PhotoRect, Shape, SignatureImage, SignaturePhoto, Style, Turn};
+use pdfcraft_engine::{Edit, FillMark, NewAnnotation, PhotoRect, Rgb, Shape, SignatureImage, SignaturePhoto, Style, Turn};
 use pdfcraft_render::{DocInfo, PageInfo};
 
 use crate::canvas::{DocView, PageXform};
@@ -404,9 +404,21 @@ pub struct TypeBox {
     pub at: [f64; 2],
     pub text: String,
     pub size: f64,
-    /// The border around the text, in points (0: none).
-    pub border: f64,
+    /// The border around the text.
+    pub border: TextBorder,
     pub focus: bool,
+}
+
+/// The border around typed text: its width in points (0: none) and its own colour (`None`: the
+/// text's).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct TextBorder {
+    pub width: f64,
+    pub color: Option<Rgb>,
+}
+
+impl TextBorder {
+    pub const NONE: Self = Self { width: 0.0, color: None };
 }
 
 /// The default size Fill & Sign uses for typed text.
@@ -438,13 +450,13 @@ fn new(page: usize, shape: Shape, contents: String, author: &str) -> Edit {
 }
 
 /// A typewriter annotation sized to its text, its displayed top-left at `at` on a page turned by
-/// `rotation` (its `/Rotate`). A `border` (points) goes around the box sized to the text, so the
-/// text sits where it would without one.
-pub fn typed(page: usize, at: [f64; 2], text: &str, size: f64, border: f64, rotation: i64, author: &str) -> Edit {
-    let border = valid_text_border(border).unwrap_or(0.0);
+/// `rotation` (its `/Rotate`). A `border` goes around the box sized to the text, so the text sits
+/// where it would without one.
+pub fn typed(page: usize, at: [f64; 2], text: &str, size: f64, border: TextBorder, rotation: i64, author: &str) -> Edit {
+    let width = valid_text_border(border.width).unwrap_or(0.0);
     let [x0, y0, x1, y1] = crate::comments::text_box_rect(at, text, size, rotation);
-    let shape = Shape::Typewriter { rect: [x0 - border, y0 - border, x1 + border, y1 + border], font_size: size };
-    let style = Style { width: border, ..Style::default_for(&shape) };
+    let shape = Shape::Typewriter { rect: [x0 - width, y0 - width, x1 + width, y1 + width], font_size: size };
+    let style = Style { width, border_color: border.color.filter(|_| width > 0.0), ..Style::default_for(&shape) };
     Edit::AddAnnotation(NewAnnotation { page, shape, style, contents: text.to_string(), author: author.to_string() })
 }
 
@@ -644,7 +656,7 @@ pub(crate) fn page_input(
     info: &DocInfo,
     tool: FillTool,
     text_size: f64,
-    text_border: f64,
+    text_border: TextBorder,
     view: &mut DocView,
     signature: Option<&SavedSig>,
     initials: Option<&SavedSig>,
@@ -766,9 +778,10 @@ pub(crate) fn type_box(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
                     .id_salt("fill-text-edit"),
             );
             // The border the text will get, around the box being typed into.
-            if t.border > 0.0 {
-                let w = (t.border as f32 * zoom).max(1.0);
-                ui.painter().rect_stroke(r.rect, 0.0, Stroke::new(w, Color32::BLACK), egui::StrokeKind::Outside);
+            if t.border.width > 0.0 {
+                let w = (t.border.width as f32 * zoom).max(1.0);
+                let color = t.border.color.map_or(Color32::BLACK, crate::comments::color32);
+                ui.painter().rect_stroke(r.rect, 0.0, Stroke::new(w, color), egui::StrokeKind::Outside);
             }
             if t.focus {
                 r.request_focus();

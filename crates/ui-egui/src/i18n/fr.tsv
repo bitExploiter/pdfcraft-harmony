@@ -2784,3 +2784,7 @@ certificate	Version	Version
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Bordure :
+
+# A text border's own colour (M5).
+	Border colour	Couleur de bordure
+	Same as text	Comme le texte

@@ -2777,3 +2777,7 @@ theme	Appearance	Aspect
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Chenar:
+
+# A text border's own colour (M5).
+	Border colour	Culoare chenar
+	Same as text	Ca textul

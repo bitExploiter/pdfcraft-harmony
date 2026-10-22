@@ -2431,3 +2431,7 @@ animation effects	Off	Выкл
 
 # Fill & Sign text: the border around it (M5).
 	Border:	Граница:
+
+# A text border's own colour (M5).
+	Border colour	Цвет границы
+	Same as text	Как у текста
