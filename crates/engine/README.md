@@ -16,6 +16,10 @@ Two frontends exist on top of it today: `pdfcraft-ui-egui` (desktop and web) and
 `pdfcraft-automation` (headless tools, the CLI and MCP). Anything one can do, the other must be
 able to do — see AGENTS.md §3.
 
+Automatic AcroForm initialization follows the [open-script policy](../../docs/acroform-open-scripts.md):
+automatic scripts are skipped, saved values are preserved and the form banner explains why.
+Explicit scripting keeps its existing behavior and resource limitations.
+
 ## The editing model
 
 Each open document holds a `pdfcraft_cos::Document`: the object graph plus a copy-on-write overlay.
