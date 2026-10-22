@@ -1592,6 +1592,8 @@ mod tests {
         // Spelled the same in Czech: product and format names, abbreviations, key caps, words
         // Czech shares with English, and templates with no English words.
         const KEEP_AS_IS: &[&str] = &[
+            "RGB",
+            "CMYK",
             "OK",
             "PDF/A…",
             "Microsoft Word (.docx)",
@@ -1768,6 +1770,8 @@ mod tests {
             assert!(has(tr_lang, spec.label), "Turkish lacks the {menu} menu label {:?} ({})", spec.label, spec.id);
         }
         const KEEP_AS_IS: &[&str] = &[
+            "RGB",
+            "CMYK",
             "OK",
             "PDF/A…",
             "Microsoft Word (.docx)",
@@ -2935,6 +2939,8 @@ mod tests {
         // Authoritative allowlist for intentional English-identical Vietnamese rows.
         const KEEP_AS_IS: &[&str] = &[
             "OK",
+            "RGB",
+            "CMYK",
             "Digital ID",
             "ZIP",
             "JavaScript",
@@ -3820,6 +3826,9 @@ mod tests {
             "−Bin",
             // The distinguished name of a certificate, abbreviated as in X.500.
             "DN: ",
+            // Colour-model names, written in Latin letters.
+            "RGB",
+            "CMYK",
         ];
         let unchanged: Vec<_> = entries
             .iter()
@@ -3900,6 +3909,9 @@ mod tests {
             "−Bin",
             // The distinguished name of a certificate, abbreviated as in X.500.
             "DN: ",
+            // Colour-model names, written in Latin letters.
+            "RGB",
+            "CMYK",
         ];
         let unchanged: Vec<_> = entries
             .iter()
