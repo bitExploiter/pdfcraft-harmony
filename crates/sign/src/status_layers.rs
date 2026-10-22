@@ -154,7 +154,7 @@ pub const fn status_rgb(status: Status) -> [u8; 3] {
 
 /// Acrobat-style validated tick: a filled, outlined check ribbon rather than PR #2808's
 /// green circle-check. The proportions match the signature panel's robust tick treatment.
-const ACROBAT_CHECK: &str = "3.6 10.08 m 5.52 12.72 l 9.6 8.16 l 17.76 20.64 l 20.4 18.72 l 10.08 3.84 h f";
+const ACROBAT_CHECK: &str = "3.6 10.08 m 5.52 12.72 l 9.6 8.16 l 17.76 20.64 l 20.4 18.72 l 10.08 3.84 h B";
 
 /// `triangle-alert.svg`: `<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>`,
 /// `<path d="M12 9v4"/>`, `<path d="M12 17h.01"/>`.
@@ -543,6 +543,7 @@ fn icon_ops(path: &str, rgb: [u8; 3], bbox: &[f64; 4]) -> Option<Vec<u8>> {
     let mut out = serialize_ops(&[
         Op::new("q", vec![]),
         Op::new("RG", vec![channel(r), channel(g), channel(b)]),
+        Op::new("rg", vec![channel(r), channel(g), channel(b)]),
         Op::new("w", vec![num(2.0)]),
         Op::new("J", vec![num(1.0)]),
         Op::new("j", vec![num(1.0)]),
