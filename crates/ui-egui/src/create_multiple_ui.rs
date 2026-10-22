@@ -50,7 +50,7 @@ impl PdfCraftApp {
                     continue;
                 }
             };
-            if kind == SourceKind::Pdf {
+            if kind == SourceKind::Pdf && !pdfcraft_engine::is_office_name(&name) {
                 refused.push(format!("{name} ({})", tl!("already a PDF")));
                 continue;
             }
