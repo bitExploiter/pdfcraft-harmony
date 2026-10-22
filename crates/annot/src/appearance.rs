@@ -282,6 +282,7 @@ fn text_turn(d: &Dict) -> i64 {
 /// it can be drawn.
 pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
     let text = |key: &[u8]| d.get(key).and_then(Object::as_string).map(PdfString::to_text);
+    let stamp = d.name(b"Subtype") == Some(b"Stamp");
     let (what, text) = match d.name(b"Subtype")? {
         b"FreeText" => ("the comment's text", text(b"Contents")?),
         b"Line" | b"PolyLine" | b"Polygon" => ("the measurement label", text(b"PCMeasureValue")?),
@@ -290,6 +291,8 @@ pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
         b"Redact" => ("the redaction's overlay text", text(b"OverlayText")?),
         _ => return None,
     };
+    // A stamp's text may use the extra Latin letters its own encoding draws ([`StampEncoding`]).
+    let text = if stamp { fold_extra(&text) } else { text };
     Some((what, first_undrawable(&text)?))
 }
 
