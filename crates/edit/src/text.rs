@@ -72,6 +72,10 @@ pub struct TextLine {
     /// does not require one rendering mode, so a line that starts as ink can continue as a mask;
     /// [`refuse_clipping_text`] reads this rather than the origin's mode alone.
     clips: bool,
+    /// Joining these shows required non-sequential positioning, not ordinary text advance.
+    positioned: bool,
+    /// Mode/rise changes inside a run are outside the spacing-only rewrite, even if restored.
+    mixed_appearance: bool,
 }
 
 impl TextLine {
@@ -154,7 +158,7 @@ pub struct TextEditLayout {
 pub fn text_edit_layout(doc: &Document, page: usize, block: usize, text: &str, style: &BlockStyle) -> Result<TextEditLayout, EditError> {
     // This runs on every keystroke: read the page once for the paragraphs, the untouched runs
     // and the rewrite, which starts from the same unchanged page.
-    let lines = text_lines(doc, page)?;
+    let (lines, runs) = text_lines_with_runs(doc, page, true)?;
     let original = group_blocks(&lines);
     let source = original.get(block).ok_or(EditError::Invalid("text block does not exist".into()))?;
     if text == source.editor_text && *style == BlockStyle::default() {
@@ -171,7 +175,7 @@ pub fn text_edit_layout(doc: &Document, page: usize, block: usize, text: &str, s
         }
     }
     let mut draft = doc.clone();
-    rewrite_block_from(&mut draft, page, lines, block, Some(text), style, MAX_TYPE3_GLYPHS)?;
+    rewrite_block_from(&mut draft, page, (lines, runs), block, Some(text), style, MAX_TYPE3_GLYPHS)?;
     let mut rect: Option<[f64; 4]> = None;
     for line in text_lines(&draft, page)? {
         if let Some(count) = untouched.get_mut(&key(&line))
@@ -286,6 +290,27 @@ impl TextBlock {
         if self.editor_text.len() > 4_000_000 || draft.len() > 4_000_000 {
             return vec![(0..draft.len(), self.lines.first().copied().unwrap_or(0))];
         }
+        let sources = self.edited_char_sources(draft);
+        let fallback = self.lines.first().copied().unwrap_or(0);
+        let mut result: Vec<(std::ops::Range<usize>, usize)> = Vec::new();
+        for ((byte, ch), source) in draft.char_indices().zip(sources) {
+            let source = source.0;
+            let end = byte.saturating_add(ch.len_utf8());
+            if let Some((range, _)) = result.last_mut().filter(|(_, prev)| *prev == source) {
+                range.end = end;
+            } else {
+                result.push((byte..end, source));
+            }
+        }
+        if result.is_empty() && !draft.is_empty() {
+            result.push((0..draft.len(), fallback));
+        }
+        result
+    }
+
+    /// Style inheritance and retained source-byte identity are distinct: inserted characters
+    /// inherit a style, but never inherit a source glyph's kerning boundary.
+    fn edited_char_sources(&self, draft: &str) -> Vec<(usize, Option<usize>)> {
         let old: Vec<_> = self.editor_text.chars().collect();
         let new: Vec<_> = draft.char_indices().collect();
         let chars: Vec<_> = new.iter().map(|(_, c)| *c).collect();
@@ -295,7 +320,7 @@ impl TextBlock {
             while self.spans.get(span).is_some_and(|(r, _)| byte >= r.end) {
                 span += 1;
             }
-            original.push(self.spans.get(span).or_else(|| self.spans.last()).map_or(0, |(_, i)| *i));
+            original.push((self.spans.get(span).or_else(|| self.spans.last()).map_or(0, |(_, i)| *i), Some(byte)));
         }
         let mut sources = Vec::with_capacity(new.len());
         let slices = |text: &[char]| words(text).into_iter().map(|w| text.get(w).unwrap_or_default().to_vec()).collect::<Vec<_>>();
@@ -323,18 +348,7 @@ impl TextBlock {
             }
             None => replaced(&original, 0, &old, &chars, &mut sources),
         }
-        let fallback = original.first().copied().unwrap_or(0);
-        let mut result: Vec<(std::ops::Range<usize>, usize)> = Vec::new();
-        for (i, (byte, ch)) in new.iter().enumerate() {
-            let source = sources.get(i).copied().unwrap_or(fallback);
-            let end = byte.saturating_add(ch.len_utf8());
-            if let Some((range, _)) = result.last_mut().filter(|(_, prev)| *prev == source) {
-                range.end = end;
-            } else {
-                result.push((*byte..end, source));
-            }
-        }
-        result
+        sources
     }
 }
 
@@ -423,20 +437,20 @@ fn backtrack(trace: &[Vec<isize>], n: isize, m: isize, max: isize) -> Vec<Step> 
 
 /// `old`, at char `at` of the source, became `new`: characters kept at either end keep their
 /// runs, and the rest inherit the run just before the change (or the first one it replaces).
-fn replaced(original: &[usize], at: usize, old: &[char], new: &[char], out: &mut Vec<usize>) {
+fn replaced(original: &[(usize, Option<usize>)], at: usize, old: &[char], new: &[char], out: &mut Vec<(usize, Option<usize>)>) {
     let prefix = old.iter().zip(new).take_while(|(a, b)| a == b).count();
     let suffix = old.iter().rev().zip(new.iter().rev()).take(old.len().min(new.len()).saturating_sub(prefix)).take_while(|(a, b)| a == b).count();
     let start = at.saturating_add(prefix);
-    let inherited = start.checked_sub(1).and_then(|i| original.get(i)).or_else(|| original.get(start)).copied().unwrap_or(0);
+    let inherited = start.checked_sub(1).and_then(|i| original.get(i)).or_else(|| original.get(start)).copied().unwrap_or((0, None));
     for i in 0..new.len() {
         let source = if i < prefix {
             original.get(at.saturating_add(i)).copied()
         } else if i >= new.len().saturating_sub(suffix) {
             original.get(at.saturating_add(old.len()).saturating_sub(new.len() - i)).copied()
         } else {
-            Some(inherited)
+            Some((inherited.0, None))
         };
-        out.push(source.unwrap_or(inherited));
+        out.push(source.unwrap_or((inherited.0, None)));
     }
 }
 
@@ -1094,11 +1108,18 @@ fn interpret(
 
 /// The lines of text on a page (0-based), in content order.
 pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditError> {
+    text_lines_with_runs(doc, page, false).map(|(lines, _)| lines)
+}
+
+/// Private state runs refine each public line, never its public index or paragraph membership.
+fn text_lines_with_runs(doc: &Document, page: usize, keep_runs: bool) -> Result<(Vec<TextLine>, Vec<Vec<TextLine>>), EditError> {
     let p = page_dict(doc, page)?;
     let res = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
     let fonts_res = res.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()).unwrap_or_default();
     let mut cache = HashMap::new();
     let mut lines: Vec<TextLine> = Vec::new();
+    let mut runs: Vec<Vec<TextLine>> = Vec::new();
+    let mut run_last = None;
     let mut carry = Carry::new();
     // The streams are one stream in pieces (§7.8.2), split between any two tokens: parse them
     // joined, so an operator whose operands end one piece still has them.
@@ -1135,6 +1156,15 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 // only across a word space, not across a table cell or a tab stop.
                 && (s.state.render_mode != 3 || gap < pen.size * 0.6)
         });
+        if keep_runs {
+            if !joins {
+                runs.push(Vec::new());
+                run_last = None;
+            }
+            if let Some(parts) = runs.last_mut() {
+                add_shown(parts, &mut run_last, &s, si, true);
+            }
+        }
         if joins && let Some(l) = lines.last_mut() {
             let gap = last.map_or(0.0, |(_, pen)| pen.continues(&s, 0.0).1);
             if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
@@ -1150,6 +1180,8 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
             l.visual_order |= s.visual_order;
             l.actual_text |= s.actual_text;
             l.clips |= s.state.render_mode >= 4;
+            l.positioned |= !sequential_show(last.map(|(_, pen)| pen), &s);
+            l.mixed_appearance |= l.origin.state.render_mode != s.state.render_mode || l.origin.state.rise != s.state.rise;
             // Spaces may use a separate subset font; they do not change the visible style.
         } else {
             lines.push(TextLine {
@@ -1171,6 +1203,8 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 logical_order: s.logical_order,
                 actual_text: s.actual_text,
                 clips: s.state.render_mode >= 4,
+                positioned: false,
+                mixed_appearance: false,
                 ops: std::iter::once(s.op).chain(s.extra_ops.iter().copied()).collect(),
                 origin: Origin {
                     tm: s.tm.0,
@@ -1188,7 +1222,7 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
         last = Some((si, Pen::after(&s)));
     }
     // Content streams draw right-to-left lines in visual order; the editor works in typing order.
-    for l in lines.iter_mut().filter(|l| !l.logical_order) {
+    for l in lines.iter_mut().chain(runs.iter_mut().flatten()).filter(|l| !l.logical_order) {
         // A visual-order Indic font draws pre-base vowel signs before their consonant.
         if l.visual_order && !l.actual_text {
             l.text = crate::indic::to_logical(&l.text);
@@ -1196,8 +1230,447 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
         l.text = crate::bidi::to_logical(&l.text);
     }
     // Lines of only spaces aren't editable text.
-    lines.retain(|l| !l.text.trim().is_empty());
-    Ok(lines)
+    if keep_runs {
+        Ok(lines.into_iter().zip(runs).filter(|(line, _)| !line.text.trim().is_empty()).unzip())
+    } else {
+        lines.retain(|l| !l.text.trim().is_empty());
+        Ok((lines, runs))
+    }
+}
+
+/// Only allow arithmetic roundoff when checking whether shows use sequential pen positions.
+fn sequential_show(last: Option<Pen>, shown: &Shown) -> bool {
+    let Some(last) = last else { return true };
+    let (_, start, _, across) = shown.span();
+    let same = |a: f64, b: f64| a.is_finite() && b.is_finite() && (a - b).abs() <= f64::EPSILON * 8.0 * a.abs().max(b.abs()).max(1.0);
+    same(last.end, start) && same(last.across, across)
+}
+
+/// One public line as an editor row, without selecting its neighbouring paragraph lines.
+fn single_line_block(line: &TextLine, index: usize) -> TextBlock {
+    TextBlock {
+        text: line.text.clone(),
+        editor_text: line.text.clone(),
+        rect: line.rect,
+        base_font: line.base_font.clone(),
+        size: line.size,
+        bold: line.bold,
+        italic: line.italic,
+        color: line.color,
+        rotation: line.rotation(),
+        lines: vec![index],
+        rows: vec![vec![index]],
+        spans: vec![(0..line.text.len(), index)],
+        invisible: line.origin.state.render_mode == 3,
+    }
+}
+
+/// A separate paragraph text object cannot preserve an unselected show that relies on the
+/// selected show's advance. Absolute/line positioning ends that dependency; a line splice
+/// does not need this restriction because it retains the original text matrix.
+fn refuse_dependent_following_text(doc: &Document, page: usize, dropped: &std::collections::HashSet<usize>) -> Result<(), EditError> {
+    let page = page_dict(doc, page)?;
+    let pieces = Pieces::join(&content_streams(doc, &page.dict).into_iter().map(|(_, data)| data).collect::<Vec<_>>());
+    let mut dependent = false;
+    for (index, op) in pieces.parse().ops.iter().enumerate() {
+        if matches!(op.op.as_slice(), b"BT" | b"ET" | b"Tm" | b"Td" | b"TD" | b"T*" | b"'" | b"\"") {
+            dependent = false;
+        }
+        if dropped.contains(&index) {
+            dependent = true;
+        } else if dependent && matches!(op.op.as_slice(), b"Tj" | b"TJ") {
+            return Err(EditError::Invalid(
+                "mixed text spacing cannot be rewritten without moving following text; the document was not changed".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Sparse, retained TJ displacements in page points. Internal boundaries are emitted after
+/// their left glyph, never as an indent on a newly wrapped row. Only source start sentinels
+/// are emitted before a glyph. Numeric-only source operators are consumed exactly once.
+#[derive(Clone, Default)]
+struct TextPositioning {
+    source: bool,
+    ends: std::collections::HashSet<usize>,
+    before: std::collections::BTreeMap<usize, Vec<f64>>,
+    after: std::collections::BTreeMap<usize, Vec<f64>>,
+    drops: std::collections::HashSet<usize>,
+}
+
+impl TextPositioning {
+    fn is_empty(&self) -> bool {
+        self.before.is_empty() && self.after.is_empty()
+    }
+
+    fn internal_after(&self, byte: usize, ch: char) -> f64 {
+        let end = byte.saturating_add(ch.len_utf8());
+        if self.ends.contains(&end) { 0.0 } else { self.after.get(&end).into_iter().flatten().sum() }
+    }
+
+    fn advance(&self, byte: usize, ch: char) -> f64 {
+        self.before.get(&byte).into_iter().flatten().chain(self.after.get(&byte.saturating_add(ch.len_utf8())).into_iter().flatten()).sum()
+    }
+}
+
+struct SpacingExpansion {
+    lines: Vec<TextLine>,
+    block: TextBlock,
+    positioning: TextPositioning,
+}
+
+/// Decode only selected sequential-horizontal TJ programs. Unicode must round-trip to the
+/// original code bytes: a second code for the same character may have a different width.
+/// State at each numeric operand matters, including numeric-only TJ between state changes.
+fn text_positioning(
+    doc: &Document,
+    fonts: &Dict,
+    ops: &[Op],
+    lines: &[TextLine],
+    runs: &[Vec<TextLine>],
+    block: &TextBlock,
+    draft: &str,
+) -> Result<(TextPositioning, std::collections::HashSet<usize>), EditError> {
+    let invalid = || EditError::Invalid("the source TJ positioning cannot be mapped safely; the document was not changed".into());
+    let mut source = Vec::new();
+    let mut positioned = std::collections::HashSet::new();
+    let mut result = TextPositioning::default();
+    let mut count = 0_usize;
+    for (range, index) in &block.spans {
+        let line = lines.get(*index).ok_or_else(invalid)?;
+        let first = line.ops.iter().min().copied().ok_or_else(invalid)?;
+        let last = line.ops.iter().max().copied().ok_or_else(invalid)?;
+        let interval = ops.get(first..=last).ok_or_else(invalid)?;
+        if !interval
+            .iter()
+            .any(|op| op.is("TJ") && op.operands.iter().filter_map(Object::as_array).flatten().any(|v| v.as_f64().is_some_and(|n| n != 0.0)))
+        {
+            continue;
+        }
+        let font = fonts.get(line.font.as_bytes()).and_then(|f| doc.dict(f)).ok_or_else(invalid)?;
+        let metrics = Metrics::from_dict(doc, &font);
+        let mut state = line.origin.state.clone();
+        let size = state.font.as_ref().map(|(_, size)| *size).ok_or_else(invalid)?;
+        let matrix = Matrix(line.origin.tm).then(&Matrix(line.origin.ctm));
+        let across = matrix.0[0].hypot(matrix.0[1]);
+        let states: HashMap<_, _> =
+            runs.get(*index).ok_or_else(invalid)?.iter().flat_map(|part| part.ops.iter().map(move |op| (*op, &part.origin.state))).collect();
+        let mut decoded = String::new();
+        let mut advance = 0.0;
+        let mut gaps: std::collections::BTreeMap<usize, Vec<f64>> = std::collections::BTreeMap::new();
+        for (offset, op) in interval.iter().enumerate() {
+            let at = first.checked_add(offset).ok_or_else(invalid)?;
+            match op.op.as_slice() {
+                b"Tc" => state.char_spacing = op.num(0).ok_or_else(invalid)?,
+                b"Tw" => state.word_spacing = op.num(0).ok_or_else(invalid)?,
+                b"Tz" => state.scale = op.num(0).ok_or_else(invalid)? / 100.0,
+                b"Tf" => {
+                    if op.name(0) != Some(line.font.as_bytes()) || op.num(1) != Some(size) {
+                        return Err(invalid());
+                    }
+                }
+                b"Tj" | b"TJ" | b"'" | b"\"" => {
+                    if at != first && matches!(op.op.as_slice(), b"'" | b"\"") {
+                        return Err(invalid());
+                    }
+                    let pieces = if op.is("TJ") {
+                        op.operands.first().and_then(Object::as_array).ok_or_else(invalid)?.as_slice()
+                    } else {
+                        std::slice::from_ref(op.operands.last().ok_or_else(invalid)?)
+                    };
+                    if let Some(original) = states.get(&at) {
+                        if state.char_spacing != original.char_spacing || state.word_spacing != original.word_spacing || state.scale != original.scale
+                        {
+                            return Err(invalid());
+                        }
+                    } else if pieces.iter().any(|v| matches!(v, Object::String(s) if !s.bytes.is_empty())) {
+                        return Err(invalid());
+                    } else {
+                        result.drops.insert(at);
+                    }
+                    for piece in pieces {
+                        if let Object::String(string) = piece {
+                            let mut byte = 0_usize;
+                            for (code, len) in metrics.codes(&string.bytes) {
+                                let end = byte.checked_add(len).ok_or_else(invalid)?;
+                                let raw = string.bytes.get(byte..end).ok_or_else(invalid)?;
+                                let text = metrics.text_of(code).ok_or_else(invalid)?;
+                                if text.chars().count() != 1 || metrics.encode(&text).as_deref() != Some(raw) {
+                                    return Err(invalid());
+                                }
+                                advance += (metrics.width(code) * size
+                                    + state.char_spacing
+                                    + if metrics.is_space(code, len) { state.word_spacing } else { 0.0 })
+                                    * state.scale
+                                    * across;
+                                if !advance.is_finite() {
+                                    return Err(invalid());
+                                }
+                                decoded.push_str(&text);
+                                if decoded.len() > 4_000_000 {
+                                    return Err(invalid());
+                                }
+                                byte = end;
+                            }
+                            if byte != string.bytes.len() {
+                                return Err(invalid());
+                            }
+                        } else {
+                            let number = piece.as_f64().ok_or_else(invalid)?;
+                            let gap = -number / 1000.0 * size * state.scale * across;
+                            if !number.is_finite() || !gap.is_finite() || !state.scale.is_finite() || state.scale <= 0.0 {
+                                return Err(invalid());
+                            }
+                            advance += gap;
+                            if !advance.is_finite() {
+                                return Err(invalid());
+                            }
+                            if number != 0.0 {
+                                count = count.checked_add(1).filter(|n| *n <= 100_000).ok_or_else(invalid)?;
+                                gaps.entry(range.start.checked_add(decoded.len()).ok_or_else(invalid)?).or_default().push(gap);
+                            }
+                        }
+                    }
+                }
+                // These do not move the text matrix. All explicit positioning, graphics
+                // transforms/restores and unknown operators remain outside this bounded path.
+                b"TL" | b"Tr" | b"Ts" | b"g" | b"rg" | b"k" | b"cs" | b"sc" | b"scn" | b"BMC" | b"BDC" | b"EMC" | b"MP" | b"DP" => {}
+                _ => return Err(invalid()),
+            }
+        }
+        if decoded != line.text || block.editor_text.get(range.clone()) != Some(decoded.as_str()) {
+            return Err(invalid());
+        }
+        // Large positive offsets between letters are inferred tracking/word gaps, whose
+        // extraction changes when the retained neighbour count changes. Do not normalize them.
+        let minimum_em = states.values().map(|s| size * s.scale * across).fold(f64::INFINITY, f64::min);
+        for (at, values) in &gaps {
+            let local = at.checked_sub(range.start).ok_or_else(invalid)?;
+            let left = decoded.get(..local).and_then(|s| s.chars().next_back());
+            let right = decoded.get(local..).and_then(|s| s.chars().next());
+            if left.is_some_and(|c| !c.is_whitespace())
+                && right.is_some_and(|c| !c.is_whitespace())
+                && values.iter().any(|gap| *gap > minimum_em * 0.2)
+            {
+                return Err(invalid());
+            }
+        }
+        result.source = true;
+        positioned.insert(*index);
+        for (at, values) in gaps {
+            source.push((range.clone(), at, values));
+        }
+    }
+    if source.is_empty() {
+        return Ok((result, positioned));
+    }
+    let mapping = block.edited_char_sources(draft);
+    let new: Vec<_> = draft.char_indices().collect();
+    let wanted: std::collections::HashSet<_> = source
+        .iter()
+        .flat_map(|(range, at, _)| {
+            [(*at < range.end).then_some(*at), block.editor_text.get(range.start..*at).and_then(|s| s.chars().next_back()).map(|c| at - c.len_utf8())]
+        })
+        .flatten()
+        .collect();
+    let retained: HashMap<_, _> =
+        mapping.iter().enumerate().filter_map(|(i, (_, old))| old.filter(|old| wanted.contains(old)).map(|old| (old, i))).collect();
+    for (range, at, values) in source {
+        let left = block.editor_text.get(range.start..at).and_then(|s| s.chars().next_back()).map(|c| at - c.len_utf8());
+        let right = (at < range.end).then_some(at);
+        let boundary = match (left, right) {
+            (Some(left), Some(right)) => retained
+                .get(&left)
+                .zip(retained.get(&right))
+                .filter(|(a, b)| a.checked_add(1) == Some(**b))
+                .and_then(|(_, b)| new.get(*b).map(|(byte, _)| *byte)),
+            (None, Some(right)) => retained
+                .get(&right)
+                .filter(|i| **i == 0 || i.checked_sub(1).and_then(|n| mapping.get(n)).and_then(|(_, old)| *old).is_some_and(|old| old < range.start))
+                .and_then(|i| new.get(*i).map(|(byte, _)| *byte)),
+            (Some(left), None) => retained
+                .get(&left)
+                .filter(|i| {
+                    i.checked_add(1) == Some(mapping.len())
+                        || i.checked_add(1).and_then(|n| mapping.get(n)).and_then(|(_, old)| *old).is_some_and(|old| old >= range.end)
+                })
+                .and_then(|i| new.get(*i).map(|(byte, ch)| byte.saturating_add(ch.len_utf8()))),
+            _ => None,
+        };
+        if let Some(byte) = boundary {
+            if right.is_none() {
+                result.ends.insert(byte);
+            }
+            let target = if left.is_none() { &mut result.before } else { &mut result.after };
+            target.entry(byte).or_default().extend(values);
+        }
+    }
+    Ok((result, positioned))
+}
+
+/// Refine selected public rows, preserving their exact text, boundaries and source operators.
+/// Unselected page lines remain available to the existing coincidence/clipping checks.
+fn expand_spacing_runs(
+    doc: &Document,
+    page: usize,
+    lines: &[TextLine],
+    runs: &[Vec<TextLine>],
+    block: &TextBlock,
+    draft: &str,
+) -> Result<Option<SpacingExpansion>, EditError> {
+    if !block.lines.iter().any(|i| runs.get(*i).is_some_and(|parts| parts.len() > 1)) {
+        return Ok(None);
+    }
+    let invalid = || EditError::Invalid("mixed text spacing cannot be mapped safely to this text; the document was not changed".into());
+    if draft.len() > 4_000_000
+        || block.editor_text.len() > 4_000_000
+        || draft.chars().any(crate::bidi::is_rtl)
+        || pdfcraft_fonts::source_shaping::required(draft)
+    {
+        return Err(invalid());
+    }
+    // Exact TJ boundaries are retained separately from style inheritance. Explicit matrix
+    // positioning remains unsupported, even when it has the same net advance.
+    let page_dict = page_dict(doc, page)?;
+    let pieces = Pieces::join(&content_streams(doc, &page_dict.dict).into_iter().map(|(_, data)| data).collect::<Vec<_>>());
+    let ops = pieces.parse().ops;
+    let resources = page_dict.dict.get(b"Resources").and_then(|r| doc.dict(r)).unwrap_or_default();
+    let fonts = resources.get(b"Font").and_then(|f| doc.dict(f)).unwrap_or_default();
+    let (positioning, positioned) = text_positioning(doc, &fonts, &ops, lines, runs, block, draft)?;
+    // Adjacent public font/color runs are not row-edge sentinels. Preserve their established
+    // writer until source-glyph identity across those separate semantic lines is supported.
+    if block.rows.iter().any(|row| row.len() > 1 && row.iter().any(|index| positioned.contains(index))) {
+        return Err(invalid());
+    }
+    for index in &block.lines {
+        let line = lines.get(*index).ok_or_else(invalid)?;
+        let first = line.ops.iter().min().copied().ok_or_else(invalid)?;
+        let last = line.ops.iter().max().copied().ok_or_else(invalid)?;
+        let start = first.checked_add(1).ok_or_else(invalid)?;
+        if start <= last
+            && ops
+                .get(start..=last)
+                .ok_or_else(invalid)?
+                .iter()
+                .any(|op| matches!(op.op.as_slice(), b"Tm" | b"Td" | b"TD" | b"T*" | b"'" | b"\"" | b"BT" | b"ET"))
+        {
+            return Err(invalid());
+        }
+    }
+    for row in &block.rows {
+        let first = row.first().and_then(|i| lines.get(*i)).ok_or_else(invalid)?;
+        if row.iter().filter_map(|i| lines.get(*i)).any(|line| {
+            line.origin.tm.get(..4) != first.origin.tm.get(..4)
+                || line.origin.ctm != first.origin.ctm
+                || line.origin.baseline != first.origin.baseline
+        }) {
+            return Err(invalid());
+        }
+    }
+    let selected: std::collections::HashSet<_> = block.lines.iter().copied().collect();
+    let mut refined = Vec::new();
+    let mut indexes: Vec<Vec<usize>> = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        let parts = if selected.contains(&index) { runs.get(index).map(Vec::as_slice).ok_or_else(invalid)? } else { std::slice::from_ref(line) };
+        if selected.contains(&index) {
+            if parts.is_empty()
+                || !line.upright()
+                || line.visual_order
+                || line.actual_text
+                || (line.positioned && !positioned.contains(&index))
+                || line.mixed_appearance
+                || line.text.chars().any(crate::bidi::is_rtl)
+            {
+                return Err(invalid());
+            }
+            let text: String = parts.iter().map(|part| part.text.as_str()).collect();
+            let source_ops: std::collections::HashSet<_> = line.ops.iter().copied().collect();
+            let private_ops: std::collections::HashSet<_> = parts.iter().flat_map(|part| part.ops.iter().copied()).collect();
+            if text != line.text
+                || source_ops != private_ops
+                || parts.iter().any(|part| {
+                    let transform = Matrix(part.origin.tm).then(&Matrix(part.origin.ctm));
+                    let across = transform.0[0].hypot(transform.0[1]);
+                    !part.upright()
+                        || !across.is_finite()
+                        || across <= 0.0
+                        || transform.0.get(1) != Some(&0.0)
+                        || transform.0.get(2) != Some(&0.0)
+                        || part.origin.state.scale <= 0.0
+                        || part.origin.state.font.as_ref().is_none_or(|(_, size)| !size.is_finite() || *size <= 0.0)
+                        || !part.rect.iter().all(|n| n.is_finite())
+                        || part.rect.first().is_some_and(|left| *left < part.origin.x)
+                        || part.rect.get(2).zip(part.rect.first()).is_none_or(|(right, left)| right <= left)
+                        || part.visual_order
+                        || part.origin.tm.get(..4) != line.origin.tm.get(..4)
+                        || part.origin.ctm != line.origin.ctm
+                        || part.origin.state.font.as_ref().map(|(_, size)| size) != line.origin.state.font.as_ref().map(|(_, size)| size)
+                        || !part
+                            .origin
+                            .tm
+                            .iter()
+                            .chain(&part.origin.ctm)
+                            .chain([&part.origin.state.char_spacing, &part.origin.state.word_spacing, &part.origin.state.scale])
+                            .all(|n| n.is_finite())
+                })
+            {
+                return Err(invalid());
+            }
+        }
+        let mut mapped = Vec::with_capacity(parts.len());
+        for part in parts {
+            mapped.push(refined.len());
+            refined.push(part.clone());
+        }
+        indexes.push(mapped);
+    }
+    let map_indices = |source: &[usize]| -> Result<Vec<usize>, EditError> {
+        let mut result = Vec::new();
+        for index in source {
+            result.extend(indexes.get(*index).ok_or_else(invalid)?.iter().copied());
+        }
+        Ok(result)
+    };
+    let mut expanded = block.clone();
+    expanded.lines = map_indices(&block.lines)?;
+    expanded.rows = block.rows.iter().map(|row| map_indices(row)).collect::<Result<_, _>>()?;
+    expanded.spans.clear();
+    for (range, index) in &block.spans {
+        let line = lines.get(*index).ok_or_else(invalid)?;
+        if block.editor_text.get(range.clone()) != Some(line.text.as_str()) {
+            return Err(invalid());
+        }
+        let mut start = range.start;
+        for mapped in indexes.get(*index).ok_or_else(invalid)? {
+            let part = refined.get(*mapped).ok_or_else(invalid)?;
+            let end = start.checked_add(part.text.len()).ok_or_else(invalid)?;
+            if end > range.end || block.editor_text.get(start..end) != Some(part.text.as_str()) {
+                return Err(invalid());
+            }
+            expanded.spans.push((start..end, *mapped));
+            start = end;
+        }
+        if start != range.end {
+            return Err(invalid());
+        }
+    }
+    Ok(Some(SpacingExpansion { lines: refined, block: expanded, positioning }))
+}
+
+/// Do not round authoring-state precision: tiny spacing can be magnified by a text/CTM scale.
+fn spacing_ops(state: &TextState) -> Vec<Op> {
+    vec![
+        Op::new("Tc", vec![Object::Real(state.char_spacing)]),
+        Op::new("Tw", vec![Object::Real(state.word_spacing)]),
+        Op::new("Tz", vec![Object::Real(state.scale * 100.0)]),
+    ]
+}
+
+/// Private authoring runs retain exact Tc/Tz, including producer jitter. Public lines keep
+/// their existing grouping; only the rewrite needs these state boundaries.
+fn same_character_spacing_and_scale(line: &TextLine, shown: &Shown) -> bool {
+    line.origin.state.char_spacing == shown.state.char_spacing && line.origin.state.scale == shown.state.scale
 }
 
 /// Joining independent text objects is safe only when they use the same text and graphics
@@ -1215,20 +1688,21 @@ fn compatible_word(line: &TextLine, shown: &Shown) -> bool {
 
 /// The line `s` continues, or a new one: `last` is the previous run of the same stream
 /// (`bt`, baseline, end x, size).
-fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream: usize) {
+fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: &Shown, stream: usize, exact_spacing: bool) {
     let joins = last.is_some_and(|pen| {
         let bt = pen.bt;
         lines.last().is_some_and(|l| l.scope == s.scope && l.logical_order == s.logical_order)
-            && (bt == s.bt || lines.last().is_some_and(|l| compatible_word(l, &s)))
+            && (bt == s.bt || lines.last().is_some_and(|l| compatible_word(l, s)))
+            && (!exact_spacing || s.text.trim().is_empty() || lines.last().is_some_and(|l| same_character_spacing_and_scale(l, s)))
             && (s.text.trim().is_empty() || lines.last().is_some_and(|l| same_font(l, &s.font, s.face.as_deref())))
             && (s.text.trim().is_empty()
                 || lines.last().is_some_and(|l| {
                     (s.size - l.size).abs() < 0.01 && s.bold == l.bold && s.italic == l.italic && fill_color(&s.state.fill) == l.color
                 }))
-            && pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 }).0
+            && pen.continues(s, if bt == s.bt { 3.0 } else { 1.5 }).0
     });
     if joins && let Some(l) = lines.last_mut() {
-        let gap = last.map_or(0.0, |pen| pen.continues(&s, 0.0).1);
+        let gap = last.map_or(0.0, |pen| pen.continues(s, 0.0).1);
         if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
             l.text.push(' ');
         }
@@ -1242,6 +1716,8 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
         l.visual_order |= s.visual_order;
         l.actual_text |= s.actual_text;
         l.clips |= s.state.render_mode >= 4;
+        l.positioned |= !sequential_show(*last, s);
+        l.mixed_appearance |= l.origin.state.render_mode != s.state.render_mode || l.origin.state.rise != s.state.rise;
     } else {
         lines.push(TextLine {
             text: s.text.clone(),
@@ -1262,6 +1738,8 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
             logical_order: s.logical_order,
             actual_text: s.actual_text,
             clips: s.state.render_mode >= 4,
+            positioned: false,
+            mixed_appearance: false,
             ops: std::iter::once(s.op).chain(s.extra_ops.iter().copied()).collect(),
             origin: Origin {
                 tm: s.tm.0,
@@ -1276,7 +1754,7 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
             },
         });
     }
-    *last = Some(Pen::after(&s));
+    *last = Some(Pen::after(s));
 }
 
 /// How deep form XObjects nest before reading stops (they may also refer to themselves). The
@@ -1390,7 +1868,7 @@ fn reading_lines(doc: &Document, page: usize) -> Result<(Vec<TextLine>, bool), E
             if last_stream.replace(si).is_some_and(|prev| prev != si) {
                 last = None;
             }
-            add_shown(&mut w.lines, &mut last, s, si);
+            add_shown(&mut w.lines, &mut last, &s, si, false);
         }
         for (_, name, ts) in forms {
             enter(w, resources, &name, ts);
@@ -1840,6 +2318,71 @@ fn source_show(metrics: &Metrics, text: &str, size: f64, space: f64, char_spacin
     Ok(out)
 }
 
+/// Emit the same retained page-space gaps measured by the paragraph layout. A gap executes
+/// under the output segment's state, which need not be the state of its original numeric TJ.
+fn positioned_show(
+    metrics: &Metrics,
+    text: &str,
+    byte: usize,
+    state: &TextState,
+    across: f64,
+    space: f64,
+    positioning: &TextPositioning,
+) -> Result<Vec<Op>, EditError> {
+    let size = state.font.as_ref().map_or(0.0, |(_, size)| *size);
+    if positioning.is_empty() {
+        return source_show(metrics, text, size, space, state.char_spacing, state.word_spacing);
+    }
+    let denominator = size * state.scale * across;
+    if !denominator.is_finite() || denominator <= 0.0 {
+        return Err(EditError::Invalid("the output TJ transform is invalid".into()));
+    }
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (at, ch) in text.char_indices() {
+        for (edge, gaps) in [
+            (at, positioning.before.get(&byte.saturating_add(at))),
+            (at.saturating_add(ch.len_utf8()), positioning.after.get(&byte.saturating_add(at).saturating_add(ch.len_utf8()))),
+        ] {
+            if let Some(gaps) = gaps {
+                let chunk = text.get(start..edge).ok_or_else(|| EditError::Invalid("the positioned text range changed".into()))?;
+                if !chunk.is_empty() {
+                    out.extend(source_show(metrics, chunk, size, space, state.char_spacing, state.word_spacing)?);
+                }
+                let numbers = gaps
+                    .iter()
+                    .map(|gap| {
+                        let number = -gap / denominator * 1000.0;
+                        if number.is_finite() {
+                            Ok(Object::Real(number))
+                        } else {
+                            Err(EditError::Invalid("the output TJ adjustment is invalid".into()))
+                        }
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                out.push(Op::new("TJ", vec![Object::Array(numbers)]));
+                start = edge;
+            }
+        }
+    }
+    if let Some(tail) = text.get(start..).filter(|tail| !tail.is_empty()) {
+        out.extend(source_show(metrics, tail, size, space, state.char_spacing, state.word_spacing)?);
+    }
+    // Keep kerning inside one show. Splitting at every gap changes word inference under
+    // anisotropic transforms and loses the original in-array tracking semantics.
+    let mut pieces = Vec::new();
+    for op in out {
+        for operand in op.operands {
+            match operand {
+                Object::Array(items) => pieces.extend(items),
+                Object::String(string) => pieces.push(Object::String(string)),
+                _ => return Err(EditError::Invalid("the positioned output is not a text show".into())),
+            }
+        }
+    }
+    Ok(vec![Op::new("TJ", vec![Object::Array(pieces)])])
+}
+
 /// Replace the text of line `line` (an index into [`text_lines`]) on `page` with `text`.
 pub fn replace_line(doc: &mut Document, page: usize, line: usize, text: &str) -> Result<LineEdit, EditError> {
     replace_line_with_limit(doc, page, line, text, MAX_TYPE3_GLYPHS)
@@ -1864,7 +2407,7 @@ fn refuse_clipping_text(lines: &[TextLine], dropped: &std::collections::HashSet<
 /// [`replace_line`] with the most unique characters one generated font may hold (tests lower it).
 pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usize, text: &str, max_glyphs: usize) -> Result<LineEdit, EditError> {
     let text = text.replace(['\n', '\r'], " ");
-    let lines = text_lines(doc, page)?;
+    let (lines, runs) = text_lines_with_runs(doc, page, true)?;
     let target = lines.get(line).cloned().ok_or_else(|| EditError::Invalid(format!("page {} has no line {}", page + 1, line + 1)))?;
     // Copies of the line drawn on the same baseline go with it, so the replacement is all that
     // shows. Which operators go is settled here, before any font is generated, so that a refusal
@@ -1886,6 +2429,10 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     // Typed in logical order; drawn left to right (right-to-left runs reversed).
     let shown = crate::bidi::to_visual(&indic_text);
     let reused = font.as_ref().filter(|m| source_encodes(m, &shown));
+    let spaced = expand_spacing_runs(doc, page, &lines, &runs, &single_line_block(&target, line), &text)?;
+    if spaced.is_some() && reused.is_none() {
+        return Err(EditError::Invalid("mixed text spacing requires a source font that can encode the replacement".into()));
+    }
     let mut substituted = None;
     let mut replacement: Vec<Op> = Vec::new();
     // ' and " also move to the next line; keep that.
@@ -1899,14 +2446,34 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
         _ => {}
     }
     match reused {
-        Some(metrics) => replacement.extend(source_show(
-            metrics,
-            &shown,
-            target.origin.state.font.as_ref().map_or(target.size, |(_, size)| *size),
-            source_space(doc, &fonts_res, metrics),
-            target.origin.state.char_spacing,
-            target.origin.state.word_spacing,
-        )?),
+        Some(metrics) => {
+            let size = target.origin.state.font.as_ref().map_or(target.size, |(_, size)| *size);
+            let space = source_space(doc, &fonts_res, metrics);
+            if let Some(SpacingExpansion { lines: private_lines, block, positioning }) = spaced {
+                drops.extend(positioning.drops.iter().copied());
+                for (range, index) in block.edited_spans(&text) {
+                    let source = private_lines.get(index).ok_or_else(|| EditError::Invalid("the text spacing source changed".into()))?;
+                    let byte = range.start;
+                    let chunk = text.get(range).ok_or_else(|| EditError::Invalid("the text spacing range is invalid".into()))?;
+                    replacement.extend(spacing_ops(&source.origin.state));
+                    let matrix = Matrix(source.origin.tm).then(&Matrix(source.origin.ctm));
+                    replacement.extend(positioned_show(
+                        metrics,
+                        chunk,
+                        byte,
+                        &source.origin.state,
+                        matrix.0[0].hypot(matrix.0[1]),
+                        space,
+                        &positioning,
+                    )?);
+                }
+                // A show does not change text state. Let the remaining original state operators
+                // run from the first show's state, while retaining the replacement's advance.
+                replacement.extend(spacing_ops(&target.origin.state));
+            } else {
+                replacement.extend(source_show(metrics, &shown, size, space, target.origin.state.char_spacing, target.origin.state.word_spacing)?);
+            }
+        }
         None => {
             let fallback_shown = crate::bidi::to_visual(&text);
             if needs_type3(&text) {
@@ -2189,20 +2756,21 @@ pub(crate) fn rewrite_block_with_limit(
     style: &BlockStyle,
     max_glyphs: usize,
 ) -> Result<LineEdit, EditError> {
-    let lines = text_lines(doc, page)?;
-    rewrite_block_from(doc, page, lines, block, text, style, max_glyphs)
+    let (lines, runs) = text_lines_with_runs(doc, page, true)?;
+    rewrite_block_from(doc, page, (lines, runs), block, text, style, max_glyphs)
 }
 
 /// [`rewrite_block_with_limit`] with the page's [`text_lines`], read from `doc` as it is now.
 fn rewrite_block_from(
     doc: &mut Document,
     page: usize,
-    lines: Vec<TextLine>,
+    source: (Vec<TextLine>, Vec<Vec<TextLine>>),
     block: usize,
     text: Option<&str>,
     style: &BlockStyle,
     max_glyphs: usize,
 ) -> Result<LineEdit, EditError> {
+    let (lines, runs) = source;
     let blocks = group_blocks(&lines);
     let b = blocks.get(block).cloned().ok_or_else(|| EditError::Invalid(format!("page {} has no paragraph {}", page + 1, block + 1)))?;
     let members: Vec<&TextLine> = b.lines.iter().map(|i| &lines[*i]).collect();
@@ -2210,6 +2778,21 @@ fn rewrite_block_from(
     let mut dropped = coincident_ops(&lines, &members);
     dropped.extend(members.iter().flat_map(|l| l.ops.iter().copied()));
     refuse_clipping_text(&lines, &dropped)?;
+    if let Some(SpacingExpansion { lines: private_lines, block: private_block, positioning }) =
+        expand_spacing_runs(doc, page, &lines, &runs, &b, text.unwrap_or(&b.editor_text))?
+    {
+        if positioning.source && *style != BlockStyle::default() {
+            return Err(EditError::Invalid("formatting positioned mixed-state text is not supported; the document was not changed".into()));
+        }
+        dropped.extend(positioning.drops.iter().copied());
+        refuse_dependent_following_text(doc, page, &dropped)?;
+        // Font fallback can allocate objects before a later glyph fails. The new exact path
+        // commits only a complete rewrite, so every refusal leaves the original untouched.
+        let mut draft = doc.clone();
+        let result = rewrite_styled_block(&mut draft, page, &private_block, &private_lines, text, style, Some((&dropped, &positioning)))?;
+        *doc = draft;
+        return Ok(result);
+    }
     let first = members.first().copied().ok_or_else(|| EditError::Invalid("the paragraph has no source runs".into()))?;
     let p = page_dict(doc, page)?;
     let mut res = p.dict.get(b"Resources").map(|r| doc.resolve(r)).and_then(|r| r.as_dict().cloned()).unwrap_or_default();
@@ -2246,7 +2829,7 @@ fn rewrite_block_from(
                 && style.family.is_none()
                 && style.bold.is_none())
     {
-        return rewrite_styled_block(doc, page, &b, &lines, text, style);
+        return rewrite_styled_block(doc, page, &b, &lines, text, style, None);
     }
     let streams = content_streams(doc, &p.dict);
     let pieces = Pieces::join(&streams.iter().map(|(_, d)| d.as_slice()).collect::<Vec<_>>());

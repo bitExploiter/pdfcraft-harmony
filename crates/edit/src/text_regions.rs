@@ -244,7 +244,33 @@ pub(super) fn rewrite_styled_block(
     lines: &[TextLine],
     text: Option<&str>,
     style: &BlockStyle,
+    exact: Option<(&std::collections::HashSet<usize>, &TextPositioning)>,
 ) -> Result<LineEdit, EditError> {
+    let semantic_drops = exact.map(|(drops, _)| drops);
+    let mut positioning = exact.map(|(_, positioning)| positioning.clone()).unwrap_or_default();
+    let exact_spacing = semantic_drops.is_some();
+    let state_ops = |state: &TextState| {
+        let mut ops = state.ops();
+        if exact_spacing {
+            ops.retain(|op| !matches!(op.op.as_slice(), b"Tc" | b"Tw" | b"Tz"));
+            ops.extend(spacing_ops(state));
+            for op in &mut ops {
+                match op.op.as_slice() {
+                    b"Tf" => {
+                        if let Some((_, size)) = &state.font
+                            && let Some(value) = op.operands.get_mut(1)
+                        {
+                            *value = Object::Real(*size);
+                        }
+                    }
+                    b"TL" => op.operands = vec![Object::Real(state.leading)],
+                    b"Ts" => op.operands = vec![Object::Real(state.rise)],
+                    _ => {}
+                }
+            }
+        }
+        ops
+    };
     let first = block.lines.first().and_then(|i| lines.get(*i)).ok_or_else(|| EditError::Invalid("the paragraph has no source runs".into()))?;
     let draft = match text {
         Some(t) if t != block.text => t,
@@ -391,9 +417,10 @@ pub(super) fn rewrite_styled_block(
     let mut programs: HashMap<String, Option<std::sync::Arc<Vec<u8>>>> = HashMap::new();
     for (range, index) in styled_spans {
         let source = lines.get(index).unwrap_or(first);
-        for ch in draft.get(range).unwrap_or_default().chars() {
+        for (offset, ch) in draft.get(range.clone()).unwrap_or_default().char_indices() {
+            let byte = range.start.saturating_add(offset);
             if ch == '\n' {
-                chars.push((ch, index, source.font.clone()));
+                chars.push((ch, index, source.font.clone(), byte));
                 continue;
             }
             let s = ch.to_string();
@@ -451,7 +478,7 @@ pub(super) fn rewrite_styled_block(
                 if needs_type3(&s) {
                     let key = (source.base_font.rsplit('+').next().unwrap_or(&source.base_font).to_owned(), ch);
                     if let Some(name) = fallback_names.get(&key) {
-                        chars.push((ch, index, name.clone()));
+                        chars.push((ch, index, name.clone(), byte));
                         continue;
                     }
                     if fallback_names.len() >= MAX_TYPE3_GLYPHS {
@@ -481,11 +508,24 @@ pub(super) fn rewrite_styled_block(
                     name
                 }
             };
-            chars.push((ch, index, name));
+            chars.push((ch, index, name, byte));
         }
     }
     let size_of = |source: &TextLine, index: usize| {
-        overrides.get(&index).and_then(|r| r.size).or(style.size).unwrap_or(source.size).max(0.1) / source.origin.k.max(1e-6)
+        let size = overrides.get(&index).and_then(|r| r.size).or(style.size);
+        if exact_spacing && size.is_none() {
+            source.origin.state.font.as_ref().map_or(source.size, |(_, size)| *size)
+        } else {
+            size.unwrap_or(source.size).max(0.1) / source.origin.k.max(1e-6)
+        }
+    };
+    let across_of = |source: &TextLine| {
+        if exact_spacing {
+            let matrix = Matrix(source.origin.tm).then(&Matrix(source.origin.ctm));
+            matrix.0[0].hypot(matrix.0[1])
+        } else {
+            across(source)
+        }
     };
     // A source run may carry TJ kerning/justification that is absent from its text state.
     // Keep its measured advance when rebuilding the run instead of making it wrap on entry.
@@ -514,13 +554,14 @@ pub(super) fn rewrite_styled_block(
                 source.origin.state.char_spacing,
                 source.origin.state.word_spacing,
             ) * source.origin.state.scale
-                * across(source);
+                * across_of(source);
             let changed_face = style.resource.is_some() || overrides.get(&index).is_some_and(|r| r.family.is_some() || r.resource.is_some());
-            let factor = if nominal > 0.0 && !changed_face { ((source.rect[2] - source.rect[0]) / nominal).clamp(0.5, 2.0) } else { 1.0 };
+            let factor =
+                if !exact_spacing && nominal > 0.0 && !changed_face { ((source.rect[2] - source.rect[0]) / nominal).clamp(0.5, 2.0) } else { 1.0 };
             calibration.insert(index, factor);
         }
     }
-    let advance = |item: &(char, usize, String)| -> f64 {
+    let advance = |item: &(char, usize, String, usize), positioning: &TextPositioning| -> f64 {
         let source = lines.get(item.1).unwrap_or(first);
         let Some(m) = metrics.get(&item.2) else { return 0.0 };
         source_width(
@@ -535,10 +576,11 @@ pub(super) fn rewrite_styled_block(
                 .map_or(source.origin.state.char_spacing, |c| c / source.origin.k.max(1e-6)),
             source.origin.state.word_spacing,
         ) * overrides.get(&item.1).and_then(|r| r.scale).or(style.scale).map_or(source.origin.state.scale, |s| (s / 100.0).clamp(0.1, 10.0))
-            * across(source)
+            * across_of(source)
             * calibration.get(&item.1).copied().unwrap_or(1.0)
+            + positioning.advance(item.3, item.0)
     };
-    let measure = |items: &[(char, usize, String)]| -> Result<f64, EditError> {
+    let measure = |items: &[(char, usize, String, usize)], positioning: &TextPositioning| -> Result<f64, EditError> {
         let mut width = 0.0;
         let mut at = 0;
         while let Some(item) = items.get(at) {
@@ -563,13 +605,16 @@ pub(super) fn rewrite_styled_block(
                     * scale
                     * source.origin.k;
             } else {
-                width += segment.iter().map(&advance).sum::<f64>();
+                width += segment.iter().map(|item| advance(item, positioning)).sum::<f64>();
             }
             at = end;
         }
+        if let Some(last) = items.last() {
+            width -= positioning.internal_after(last.3, last.0);
+        }
         Ok(width)
     };
-    let mut rows: Vec<Vec<(char, usize, String)>> = Vec::new();
+    let mut rows: Vec<Vec<(char, usize, String, usize)>> = Vec::new();
     // Each row's characters, as indexes into the draft's characters (`chars` holds all of them).
     let mut row_ranges = Vec::new();
     let mut row_start = 0;
@@ -598,23 +643,35 @@ pub(super) fn rewrite_styled_block(
             }
         }
         let word = chars.get(at..end).unwrap_or_default();
-        let w = measure(word)?;
-        if !row.is_empty() && !item.0.is_whitespace() && row_width + w > width + 0.5 {
-            while row.last().is_some_and(|c: &(char, usize, String)| c.0.is_whitespace()) {
+        let w = measure(word, &positioning)?;
+        let mut bridge = row.last().map_or(0.0, |last: &(char, usize, String, usize)| positioning.internal_after(last.3, last.0));
+        if !row.is_empty() && !item.0.is_whitespace() && row_width + bridge + w > width + 0.5 {
+            while row.last().is_some_and(|c: &(char, usize, String, usize)| c.0.is_whitespace()) {
                 row.pop();
             }
             row_ranges.push(row_start..row_start + row.len());
             rows.push(std::mem::take(&mut row));
             row_width = 0.0;
             row_start = at;
+            bridge = 0.0;
         }
         row.extend_from_slice(word);
-        row_width += w;
+        row_width += bridge + w;
         at = end;
     }
     if !row.is_empty() {
         row_ranges.push(row_start..row_start + row.len());
         rows.push(row);
+    }
+    // A retained pair separated by wrapping is no longer adjacent on the page. Drop its
+    // internal gap from both final measurement and emission, not just from the next row.
+    for row in &rows {
+        if let Some(last) = row.last() {
+            let end = last.3.saturating_add(last.0.len_utf8());
+            if !positioning.ends.contains(&end) {
+                positioning.after.remove(&end);
+            }
+        }
     }
     let streams = content_streams(doc, &p.dict);
     let pieces = Pieces::join(&streams.iter().map(|(_, d)| d.as_slice()).collect::<Vec<_>>());
@@ -622,7 +679,7 @@ pub(super) fn rewrite_styled_block(
     // A row the edit doesn't reach keeps its source operators, so its kerning, TJ word gaps and
     // glyph widths stay exactly as they were instead of being rebuilt from the text state.
     let plain = BlockStyle { ranges: Vec::new(), ..style.clone() } == BlockStyle::default();
-    let mut kept = if plain {
+    let mut kept = if plain && !exact_spacing {
         untouched_rows(block, draft, &row_ranges).into_iter().zip(&rows).map(|(same, row)| same && row.iter().all(|c| c.1 < source_count)).collect()
     } else {
         vec![false; rows.len()]
@@ -653,7 +710,7 @@ pub(super) fn rewrite_styled_block(
             ));
         }
     }
-    let measured: Vec<_> = rows.iter().map(|r| measure(r)).collect::<Result<_, _>>()?;
+    let measured: Vec<_> = rows.iter().map(|r| measure(r, &positioning)).collect::<Result<_, _>>()?;
     let mut shaped_runs = HashMap::new();
     let mut segment_advances = HashMap::new();
     for (row_index, row) in rows.iter().enumerate().filter(|(r, _)| !kept.get(*r).copied().unwrap_or(false)) {
@@ -663,7 +720,8 @@ pub(super) fn rewrite_styled_block(
             while row.get(end).is_some_and(|v| v.1 == item.1 && v.2 == item.2) {
                 end += 1;
             }
-            segment_advances.insert((row_index, at), row.get(at..end).unwrap_or_default().iter().map(&advance).sum::<f64>());
+            segment_advances
+                .insert((row_index, at), row.get(at..end).unwrap_or_default().iter().map(|item| advance(item, &positioning)).sum::<f64>());
             let string: String = row.get(at..end).unwrap_or_default().iter().map(|v| v.0).collect();
             if let Some((bytes, shaped, family)) = shape_source(doc, &fonts, &item.2, &string)? {
                 shaped_runs.insert((row_index, at), (bytes, shaped, family));
@@ -727,6 +785,12 @@ pub(super) fn rewrite_styled_block(
                 crate::added::Align::Right => available - w,
                 _ => 0.0,
             };
+        // Exact spacing refinements remain one text object per semantic row, so public
+        // line grouping does not fragment again after a paragraph is saved and reopened.
+        let mut row_underlines = Vec::new();
+        if exact_spacing {
+            block_ops.push(Op::new("BT", vec![]));
+        }
         let mut pos = 0;
         while pos < row.len() {
             let Some(item) = row.get(pos) else { break };
@@ -776,7 +840,7 @@ pub(super) fn rewrite_styled_block(
                     matrix[5] += matrix[1] * x + matrix[3] * y;
                     let code = u16::try_from(i + 1).map_err(|_| EditError::Invalid("shaped glyph limit".into()))?;
                     block_ops.push(Op::new("BT", vec![]));
-                    block_ops.extend(state.ops());
+                    block_ops.extend(state_ops(&state));
                     block_ops.push(Op::new("Tm", matrix.map(n).to_vec()));
                     block_ops.push(Op::new("Tj", vec![Object::String(PdfString::literal(code.to_be_bytes().to_vec()))]));
                     block_ops.push(Op::new("ET", vec![]));
@@ -785,32 +849,44 @@ pub(super) fn rewrite_styled_block(
                 block_ops.push(Op::new("EMC", vec![]));
                 segment_width = (shaped.advance * size + extra) * state.scale * source.origin.k;
             } else {
-                block_ops.push(Op::new("BT", vec![]));
-                block_ops.extend(state.ops());
-                block_ops.push(Op::new("Tm", tm.iter().map(|v| n(*v)).collect()));
-                block_ops.extend(source_show(
+                if !exact_spacing {
+                    block_ops.push(Op::new("BT", vec![]));
+                }
+                block_ops.extend(state_ops(&state));
+                if !exact_spacing || pos == 0 {
+                    block_ops.push(Op::new("Tm", tm.iter().map(|v| if exact_spacing { Object::Real(*v) } else { n(*v) }).collect()));
+                }
+                block_ops.extend(positioned_show(
                     m,
                     &string,
-                    size_of(source, item.1),
+                    item.3,
+                    &state,
+                    across_of(source),
                     spaces.borrow().get(&item.2).copied().unwrap_or_else(|| source_space(doc, &fonts, m)),
-                    state.char_spacing,
-                    state.word_spacing,
+                    &positioning,
                 )?);
-                block_ops.push(Op::new("ET", vec![]));
+                if !exact_spacing {
+                    block_ops.push(Op::new("ET", vec![]));
+                }
             }
             if underlines.get(&item.1).copied().or(style.underline) == Some(true) {
+                let out = if exact_spacing { &mut row_underlines } else { &mut block_ops };
                 let [r, g, b] = overrides.get(&item.1).and_then(|r| r.color).or(style.color).unwrap_or(source.color);
                 let underline_size = size_of(source, item.1) * source.origin.k;
                 let (x0, y0) = back.apply(x - o.ctm[4], baseline - o.ctm[5] - underline_size * 0.12);
                 let (x1, y1) = back.apply(x + segment_width - o.ctm[4], baseline - o.ctm[5] - underline_size * 0.12);
-                block_ops.push(Op::new("RG", vec![n(r), n(g), n(b)]));
-                block_ops.push(Op::new("w", vec![n(underline_size * 0.06 / o.ctm[2].hypot(o.ctm[3]).max(1e-6))]));
-                block_ops.push(Op::new("m", vec![n(x0), n(y0)]));
-                block_ops.push(Op::new("l", vec![n(x1), n(y1)]));
-                block_ops.push(Op::new("S", vec![]));
+                out.push(Op::new("RG", vec![n(r), n(g), n(b)]));
+                out.push(Op::new("w", vec![n(underline_size * 0.06 / o.ctm[2].hypot(o.ctm[3]).max(1e-6))]));
+                out.push(Op::new("m", vec![n(x0), n(y0)]));
+                out.push(Op::new("l", vec![n(x1), n(y1)]));
+                out.push(Op::new("S", vec![]));
             }
             x += segment_width;
             pos = end;
+        }
+        if exact_spacing {
+            block_ops.push(Op::new("ET", vec![]));
+            block_ops.extend(row_underlines);
         }
         baseline -= if style.line_spacing.is_none() && style.size.is_none() {
             source_leading
@@ -819,8 +895,15 @@ pub(super) fn rewrite_styled_block(
         };
     }
     block_ops.push(Op::new("Q", vec![]));
-    let mut drop = coincident_ops(lines, &members);
-    drop.extend(members.iter().flat_map(|l| l.ops.iter().copied()));
+    // Private fragments must neither miss a semantic duplicate nor newly match a partial
+    // neighbour. The public selection is authoritative for the exact-spacing rewrite.
+    let drop = if let Some(drop) = semantic_drops {
+        drop.clone()
+    } else {
+        let mut drop = coincident_ops(lines, &members);
+        drop.extend(members.iter().flat_map(|l| l.ops.iter().copied()));
+        drop
+    };
     let start = lead.ops.first().copied().unwrap_or(o.bt_op);
     let split = ops
         .get(o.bt_op..start)
@@ -829,11 +912,11 @@ pub(super) fn rewrite_styled_block(
         .enumerate()
         .any(|(i, op)| matches!(op.op.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"") && !drop.contains(&(o.bt_op + i)));
     let after = if split { &o.state } else { &o.bt_state };
-    block_ops.extend(after.ops());
+    block_ops.extend(state_ops(after));
     if split {
         block_ops.insert(0, Op::new("ET", vec![]));
         block_ops.push(Op::new("BT", vec![]));
-        block_ops.push(Op::new("Tm", o.tlm.iter().map(|v| n(*v)).collect()));
+        block_ops.push(Op::new("Tm", o.tlm.iter().map(|v| if exact_spacing { Object::Real(*v) } else { n(*v) }).collect()));
     }
     let at = if split { start } else { o.bt_op };
     let data = splice(&pieces, &ops, |i| (if i == at { std::mem::take(&mut block_ops) } else { Vec::new() }, !drop.contains(&i)));
