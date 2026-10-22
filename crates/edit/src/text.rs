@@ -27,6 +27,9 @@ mod session;
 use regions::{group_blocks, is_centred, rewrite_styled_block};
 pub use session::TextSession;
 
+#[path = "text_shaped.rs"]
+mod shaped;
+
 /// One line of existing text.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLine {
@@ -586,7 +589,7 @@ fn union(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
 /// What replacing a line did.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LineEdit {
-    /// `Some(font)` when the line's font couldn't show the new text and Helvetica was used.
+    /// `Some(font)` when the source face could not draw the new text and a fallback was used.
     pub substituted: Option<String>,
 }
 
@@ -795,15 +798,16 @@ impl Pen {
         Pen { bt: s.bt, dir, across, end, size: s.size.max(1.0), vertical: s.state.vertical.is_some() }
     }
 
-    /// Whether `s` could continue the same line on geometry alone: on the same baseline, starting
-    /// at most a word gap (`reach` sizes) after it. Also the gap along the baseline.
-    fn continues(&self, s: &Shown, reach: f64) -> (bool, f64) {
+    /// Whether `s` could continue the same line on geometry alone: on the same baseline (within
+    /// `drift` sizes), starting at most a word gap (`reach` sizes) after it. Also the gap along
+    /// the baseline.
+    fn continues(&self, s: &Shown, reach: f64, drift: f64) -> (bool, f64) {
         let (dir, start, _, across) = s.span();
         let gap = start - self.end;
         let same_dir = (dir.0 - self.dir.0).abs() < 1e-3 && (dir.1 - self.dir.1).abs() < 1e-3;
         // A column continues a column (along which the pen moves), a baseline a baseline.
         let same_dir = same_dir && self.vertical == s.state.vertical.is_some();
-        (same_dir && (across - self.across).abs() < self.size * 0.3 && gap > -self.size && gap < self.size * reach, gap)
+        (same_dir && (across - self.across).abs() < self.size * drift && gap > -self.size && gap < self.size * reach, gap)
     }
 }
 
@@ -854,7 +858,7 @@ fn positioned_tracking(shown: &mut [Shown]) {
                 || (prev.size - next.size).abs() > 0.01
                 || prev.state.char_spacing != next.state.char_spacing
                 || prev.state.scale != next.state.scale
-                || !Pen::after(prev).continues(next, 1.5).0
+                || !Pen::after(prev).continues(next, 1.5, 0.3).0
             {
                 break;
             }
@@ -865,7 +869,7 @@ fn positioned_tracking(shown: &mut [Shown]) {
                 .windows(2)
                 .filter_map(|pair| {
                     let [prev, next] = pair else { return None };
-                    (!prev.text.trim().is_empty() && !next.text.trim().is_empty()).then(|| Pen::after(prev).continues(next, 0.0).1)
+                    (!prev.text.trim().is_empty() && !next.text.trim().is_empty()).then(|| Pen::after(prev).continues(next, 0.0, 0.3).1)
                 })
                 .collect();
             let limit = run.first().map_or(0.0, |s| s.size * s.state.scale.abs() * 0.5);
@@ -1294,16 +1298,20 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
         // separate logical line. Put its letters into visual order before joining the
         // surrounding glyphs; the completed line is recovered to typing order below.
         // Multi-glyph and mixed-direction replacements keep their authoritative order.
-        if s.logical_order && s.glyph_count == 1 && s.text.chars().all(crate::bidi::is_rtl) {
+        // Browsers likewise wrap each letter carrying tanween or harakat in its own ActualText,
+        // drawing the raised mark first: the cluster starts above the baseline it belongs to.
+        let cluster = s.logical_order && s.glyph_count > 1 && crate::bidi::is_rtl_cluster(&s.text);
+        if s.logical_order && ((s.glyph_count == 1 && s.text.chars().all(crate::bidi::is_rtl)) || cluster) {
             s.text = crate::bidi::to_visual(&s.text);
             s.logical_order = false;
         }
+        let drift = if cluster { 0.6 } else { 0.3 };
         // A line belongs to one stream piece. Within it, PDF producers often put every word
         // in its own BT/ET: geometry and text state, not object boundaries, define a line.
         let si = ops.get(s.op).map_or(0, |op| pieces.pieces_of(op).0);
         let joins = last.is_some_and(|(piece, pen)| {
             let bt = pen.bt;
-            let (near, gap) = pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 });
+            let (near, gap) = pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 }, drift);
             piece == si
                 && lines.last().is_some_and(|l| l.scope == s.scope && l.paint == s.paint && l.logical_order == s.logical_order)
                 && (bt == s.bt || lines.last().is_some_and(|l| compatible_word(l, &s)))
@@ -1318,7 +1326,7 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 && (s.state.render_mode != 3 || gap < pen.size * 0.6)
         });
         if joins && let Some(l) = lines.last_mut() {
-            let gap = last.map_or(0.0, |(_, pen)| pen.continues(&s, 0.0).1);
+            let gap = last.map_or(0.0, |(_, pen)| pen.continues(&s, 0.0, drift).1);
             if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
                 l.text.push(' ');
             }
@@ -1372,7 +1380,15 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 },
             });
         }
-        last = Some((si, Pen::after(&s)));
+        // A joined cluster leaves the line on its own baseline, not on its raised mark.
+        let mut pen = Pen::after(&s);
+        if joins
+            && cluster
+            && let Some((_, before)) = last
+        {
+            pen.across = before.across;
+        }
+        last = Some((si, pen));
     }
     // Content streams draw right-to-left lines in visual order; the editor works in typing order.
     for l in lines.iter_mut().filter(|l| !l.logical_order) {
@@ -1382,8 +1398,9 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
         }
         l.text = crate::bidi::to_logical(&l.text);
     }
-    // Lines of only spaces aren't editable text.
-    lines.retain(|l| !l.text.trim().is_empty());
+    // ActualText is authoritative, including a wrapped row containing only trailing spaces.
+    // Dropping that row would lose the user's logical characters on the next edit.
+    lines.retain(|l| l.actual_text || !l.text.trim().is_empty());
     Ok(lines)
 }
 
@@ -1418,10 +1435,10 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
                 || lines.last().is_some_and(|l| {
                     (s.size - l.size).abs() < 0.01 && s.bold == l.bold && s.italic == l.italic && fill_color(&s.state.fill) == l.color
                 }))
-            && pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 }).0
+            && pen.continues(&s, if bt == s.bt { 3.0 } else { 1.5 }, 0.3).0
     });
     if joins && let Some(l) = lines.last_mut() {
-        let gap = last.map_or(0.0, |pen| pen.continues(&s, 0.0).1);
+        let gap = last.map_or(0.0, |pen| pen.continues(&s, 0.0, 0.3).1);
         if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
             l.text.push(' ');
         }
@@ -1628,7 +1645,7 @@ fn reading_lines(doc: &Document, page: usize) -> Result<(Vec<TextLine>, bool), E
     for l in lines.iter_mut().filter(|l| l.visual_order && !l.actual_text) {
         l.text = crate::indic::to_logical(&l.text);
     }
-    lines.retain(|l| !l.text.trim().is_empty());
+    lines.retain(|l| l.actual_text || !l.text.trim().is_empty());
     Ok((lines, w.budget.truncated))
 }
 
@@ -2606,7 +2623,47 @@ pub(crate) fn rewrite_block_with_limit(
 }
 
 /// [`rewrite_block_with_limit`] with the page's [`text_lines`], read from `doc` as it is now.
+///
+/// Arabic in a paragraph whose runs differ in size, colour, weight or font (a heading over its
+/// subtitle, a label beside its value) is first written with the source fonts, run by run. When
+/// they cannot draw it (a subset without the new letters or without contextual forms), the
+/// paragraph takes the shaped Arabic fallback, every run keeping its own look, rather than a
+/// face that has no Arabic at all.
 fn rewrite_block_from(
+    doc: &mut Document,
+    page: usize,
+    lines: Vec<TextLine>,
+    block: usize,
+    text: Option<&str>,
+    style: &BlockStyle,
+    max_glyphs: usize,
+) -> Result<LineEdit, EditError> {
+    let blocks = group_blocks(&lines);
+    let fallback = blocks.get(block).filter(|b| {
+        let members: Vec<&TextLine> = b.lines.iter().filter_map(|i| lines.get(*i)).collect();
+        shaped::eligible(&members, text.unwrap_or(&b.editor_text), style)
+    });
+    let Some(b) = fallback.cloned() else {
+        return rewrite_block_source(doc, page, lines, block, text, style, max_glyphs);
+    };
+    // The source path may write fonts before it finds a run it cannot draw.
+    let before = doc.clone();
+    match rewrite_block_source(doc, page, lines.clone(), block, text, style, max_glyphs) {
+        Err(source) => {
+            *doc = before;
+            shaped::rewrite(doc, page, &b, &lines, text.unwrap_or(&b.editor_text), style).map_err(|fallback| match fallback {
+                // The fallback's own refusal names what it cannot keep; otherwise say why the source fonts failed.
+                EditError::Invalid(_) => fallback,
+                _ => source,
+            })
+        }
+        done => done,
+    }
+}
+
+/// [`rewrite_block_from`] with the source fonts (or the up-front Arabic fallback for a uniform
+/// paragraph no complete source face can draw).
+fn rewrite_block_source(
     doc: &mut Document,
     page: usize,
     lines: Vec<TextLine>,
@@ -2641,6 +2698,10 @@ fn rewrite_block_from(
     let upright = members.iter().all(|line| line.upright());
     if !upright && (!style.ranges.is_empty() || style.resource.is_some()) {
         return Err(EditError::Invalid("formatting part of turned text, or choosing a document font for it, isn't supported yet".into()));
+    }
+    let draft = text.unwrap_or(&b.editor_text);
+    if shaped::needs_fallback(doc, &fonts_res, &members, draft, style) {
+        return shaped::rewrite(doc, page, &b, &lines, draft, style);
     }
     let visual_indic = members.iter().any(|line| line.visual_order);
     if upright

@@ -92,6 +92,19 @@ fn all_tools(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
 
 /// Draw a one-line row label without painting into the status chip or beyond the sidebar.
 /// Accessibility retains the complete name through the row's WidgetInfo.
+/// Where a tool item's label starts, after its icon.
+const LABEL_INSET: f32 = 34.0;
+/// How far left of the chip the centre of a menu item's caret is; the caret is 7 points wide.
+const CARET_GAP: f32 = 10.0;
+
+/// The width a tool item's label may take: up to 8 points before its chip, or before the caret
+/// of an item that opens a menu. Right-to-left labels end at that edge, so it must clear the
+/// caret, which otherwise covered the first letter of an Arabic label.
+fn item_label_width(body: Rect, chip: Rect, menu: bool) -> f32 {
+    let end = if menu { chip.left() - CARET_GAP - 3.5 } else { chip.left() };
+    end - 8.0 - body.left() - LABEL_INSET
+}
+
 fn row_label(ui: &mut egui::Ui, text: &str, font: egui::FontId, color: Color32, left_center: egui::Pos2, max_width: f32) -> bool {
     let mut job = egui::text::LayoutJob::simple_singleline(text.to_owned(), font, color);
     job.wrap = egui::text::TextWrapping { max_width: max_width.max(1.0), max_rows: 1, break_anywhere: true, ..Default::default() };
@@ -229,7 +242,8 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
                 let chip_label = tl!(chip).to_string();
                 let w = crate::widgets::text_width(ui, &chip_label, &font);
                 let r = Rect::from_center_size(body.right_center() - vec2(w / 2.0 + 10.0, 0.0), vec2(w + 10.0, 16.0));
-                row_label(ui, tl!(item.label), theme::regular(13.0), fg, body.left_center() + vec2(34.0, 0.0), r.left() - body.left() - 42.0);
+                let (at, width) = (body.left_center() + vec2(LABEL_INSET, 0.0), item_label_width(body, r, !item.actions.is_empty()));
+                row_label(ui, tl!(item.label), theme::regular(13.0), fg, at, width);
                 ui.painter().rect_filled(r, CornerRadius::same(4), fill);
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, chip_label, font, cfg);
                 let resp = theme::hand(resp).on_hover_text(format!("{} — {}", tl!(item.label), item.command));
@@ -238,7 +252,7 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
                     if resp.clicked() {
                         run = Some(item.command);
                     }
-                } else if let Some(cmd) = actions_menu(app, ui, &resp, item, r.left_center() - vec2(10.0, 0.0), fg) {
+                } else if let Some(cmd) = actions_menu(app, ui, &resp, item, r.left_center() - vec2(CARET_GAP, 0.0), fg) {
                     run = Some(cmd);
                 }
             }
@@ -342,7 +356,7 @@ fn edit_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static 
         ui.add_space(2.0);
         // Organize pages is a workspace of its own: its panel replaces this one, with the grid.
         if let Some(i) = item("page.organize")
-            && edit_row(ui, t, i.icon, tl!(i.label), i.availability).clicked()
+            && edit_row(ui, t, i.icon, tl!(i.label), i.availability, false).clicked()
         {
             // With no document there is no grid to open: the command asks for a file first.
             if app.active.is_some() {
@@ -359,13 +373,13 @@ fn edit_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static 
         let more = ui.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
         let shown = if more { content.len() } else { EDIT_CONTENT_SHOWN.min(content.len()) };
         for i in content.iter().take(shown) {
-            let resp = edit_row(ui, t, i.icon, tl!(i.label), i.availability);
+            let resp = edit_row(ui, t, i.icon, tl!(i.label), i.availability, !i.actions.is_empty());
             // Header and footer, Watermark and Background open their Add / Update / Remove menu.
             if i.actions.is_empty() {
                 if resp.clicked() {
                     run = Some(i.command);
                 }
-            } else if let Some(cmd) = actions_menu(app, ui, &resp, i, resp.rect.right_center() - vec2(14.0, 0.0), t.text) {
+            } else if let Some(cmd) = actions_menu(app, ui, &resp, i, resp.rect.right_center() - vec2(EDIT_CARET_INSET, 0.0), t.text) {
                 run = Some(cmd);
             }
         }
@@ -386,7 +400,7 @@ fn edit_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static 
 
         widgets::section_title(ui, tl!("Other options"));
         for other in EDIT_OTHER_TOOLS.iter().filter_map(|id| catalog::group(id)) {
-            if edit_row(ui, t, other.icon, tl!(other.label), other.availability).clicked() {
+            if edit_row(ui, t, other.icon, tl!(other.label), other.availability, false).clicked() {
                 tool = Some(other.id);
             }
         }
@@ -426,7 +440,18 @@ fn actions_menu(app: &PdfCraftApp, ui: &egui::Ui, resp: &egui::Response, item: &
 
 /// One row of the Edit panel: a monochrome icon and the label, as Acrobat draws them. A planned
 /// item is muted and says when it ships when hovered.
-fn edit_row(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str, availability: Availability) -> egui::Response {
+/// How far left of an Edit panel row's right end the centre of its menu caret is.
+const EDIT_CARET_INSET: f32 = 14.0;
+
+/// The width an Edit panel row's label may take: up to 8 points before the row's end, or before
+/// the caret of a row that opens a menu. A right-to-left label ends at that edge, so it must clear
+/// the caret, which otherwise covered the first letter of an Arabic label.
+fn edit_label_width(row_width: f32, menu: bool) -> f32 {
+    let caret = if menu { EDIT_CARET_INSET + 3.5 } else { 0.0 };
+    row_width - LABEL_INSET - 8.0 - caret
+}
+
+fn edit_row(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str, availability: Availability, menu: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
     let press = theme::Press::track(ui, &resp);
@@ -435,7 +460,7 @@ fn edit_row(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str, availability
     let ready = availability == Availability::Ready;
     let fg = if ready { t.text } else { t.text_muted };
     icons::paint(ui, Rect::from_min_size(body.min + vec2(6.0, 8.0), vec2(18.0, 18.0)), icon, 17.0, if ready { t.text } else { t.text_faint });
-    row_label(ui, label, theme::regular(13.5), fg, body.left_center() + vec2(34.0, 0.0), rect.width() - 42.0);
+    row_label(ui, label, theme::regular(13.5), fg, body.left_center() + vec2(LABEL_INSET, 0.0), edit_label_width(rect.width(), menu));
     let resp = theme::hand(resp);
     match availability {
         Availability::Ready => resp,
@@ -1668,6 +1693,36 @@ pub fn human_size(n: usize) -> String {
 /// An exact size in bytes, with the count's own plural form.
 pub fn byte_count(n: usize) -> String {
     crate::i18n::trn(crate::i18n::current(), n as u64, "{n} byte", "{n} bytes")
+}
+
+#[cfg(test)]
+mod tool_items {
+    use super::{CARET_GAP, EDIT_CARET_INSET, LABEL_INSET, edit_label_width, item_label_width};
+    use egui::{Rect, pos2};
+
+    /// A right-to-left label ends where its width does: for an item that opens a menu (Header
+    /// and footer, Watermark) that edge must clear the caret before the chip, which covered the
+    /// first letter of the Arabic label. Items without a menu keep the width they had.
+    #[test]
+    fn a_label_at_its_full_width_clears_the_menu_caret() {
+        let body = Rect::from_min_max(pos2(15.0, 0.0), pos2(257.0, 34.0));
+        let chip = Rect::from_min_max(pos2(215.0, 9.0), pos2(247.0, 25.0));
+        let label_end = |menu| body.left() + LABEL_INSET + item_label_width(body, chip, menu);
+        let caret_left = chip.left() - CARET_GAP - 3.5;
+        assert!(label_end(true) < caret_left, "the label reaches {} and the caret starts at {caret_left}", label_end(true));
+        assert_eq!(item_label_width(body, chip, false), chip.left() - body.left() - 42.0);
+    }
+
+    /// The Edit panel's rows (Header and footer, Watermark, Background) put the caret near the
+    /// row's end instead of before a chip; their label must clear it too.
+    #[test]
+    fn an_edit_panel_label_at_its_full_width_clears_the_menu_caret() {
+        let row = egui::Rect::from_min_max(pos2(15.0, 0.0), pos2(257.0, 34.0));
+        let label_end = |menu| row.left() + LABEL_INSET + edit_label_width(row.width(), menu);
+        let caret_left = row.right() - EDIT_CARET_INSET - 3.5;
+        assert!(label_end(true) < caret_left, "the label reaches {} and the caret starts at {caret_left}", label_end(true));
+        assert_eq!(edit_label_width(row.width(), false), row.width() - 42.0);
+    }
 }
 
 #[cfg(test)]
