@@ -279,7 +279,7 @@ impl Default for Settings {
 }
 
 /// Common paper sizes (points, portrait).
-pub const PAPERS: [(&str, (f64, f64)); 20] = [
+pub const PAPERS: [(&str, (f64, f64)); 21] = [
     ("US Letter", (612.0, 792.0)),
     ("US Legal", (612.0, 1008.0)),
     ("Tabloid", (792.0, 1224.0)),
@@ -300,6 +300,7 @@ pub const PAPERS: [(&str, (f64, f64)); 20] = [
     ("A1", (1683.78, 2383.94)),
     ("A0", (2383.94, 3370.39)),
     ("4 x 6 in label (101.6 x 152.4 mm)", (288.0, 432.0)),
+    ("US #10 envelope (104.8 x 241.3 mm)", (297.0, 684.0)),
 ];
 
 /// `PAPERS` index of the 4 × 6 in shipping label.

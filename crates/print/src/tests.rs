@@ -633,6 +633,15 @@ fn architectural_sheets_preserve_full_scale() {
 }
 
 #[test]
+fn number_ten_envelope_matches_the_us_size() {
+    // US #10 envelope: 4.125 x 9.5 in (104.8 x 241.3 mm), i.e. 297 x 684 pt.
+    let index = matching_paper((297.0, 684.0)).unwrap();
+    assert_eq!(PAPERS[index].0, "US #10 envelope (104.8 x 241.3 mm)");
+    assert_eq!(PAPERS[index].1, (297.0, 684.0));
+    assert_eq!(matching_paper((684.0, 297.0)), Some(index));
+}
+
+#[test]
 fn paper_matching_accepts_rounded_metric_sizes_but_not_custom_or_invalid_sizes() {
     for (i, (_, (w, h))) in PAPERS.iter().enumerate() {
         assert_eq!(matching_paper((*w, *h)), Some(i));
