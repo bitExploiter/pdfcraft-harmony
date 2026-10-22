@@ -171,3 +171,6 @@ pub fn render_into(doc: &mut Document) -> Result<Report, XfaError> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod zero_instances_tests;

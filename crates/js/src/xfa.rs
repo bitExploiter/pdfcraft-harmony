@@ -63,7 +63,11 @@ pub struct XfaNode {
     pub occur_max: Option<usize>,
     /// This instance's index among its same-named siblings.
     pub index: usize,
+    /// Position of the definition among its template siblings.
+    pub template_order: usize,
     pub children: Vec<XfaNode>,
+    /// Dormant child definitions, available to instance managers but absent from the live DOM.
+    pub instance_templates: Vec<XfaNode>,
     /// Fields: the value shown in the field's display picture, what `formattedValue` reads;
     /// `None` when the picture doesn't change it (the raw value is read then).
     pub formatted: Option<String>,
@@ -205,7 +209,13 @@ pub(crate) struct HNode {
     pub(crate) occur_max: Option<usize>,
     pub(crate) index: usize,
     pub(crate) parent: Option<usize>,
+    pub(crate) template_order: usize,
     pub(crate) children: Vec<usize>,
+    pub(crate) instance_templates: Vec<usize>,
+    /// This node belongs to a dormant definition, not the live form.
+    pub(crate) dormant: bool,
+    /// Immutable dormant source retained across cloning, without duplicating its subtree.
+    pub(crate) default_source: Option<usize>,
     /// Removed by `removeInstance`: skipped everywhere.
     pub(crate) gone: bool,
     /// See [`XfaNode::formatted`]; dropped when a script sets the value, which it no longer shows.
@@ -241,7 +251,8 @@ impl XHost {
         let form = XfaNode { name: "form".into(), kind: Some(XfaKind::Form), children: vec![root], ..Default::default() };
         let mut nodes = Vec::new();
         flatten(&form, None, &mut nodes, 0);
-        let current = nodes.iter().position(|n| n.som == target && n.kind != XfaKind::Form).unwrap_or(1.min(nodes.len().saturating_sub(1)));
+        let current =
+            nodes.iter().position(|n| n.som == target && n.kind != XfaKind::Form && !n.dormant).unwrap_or(1.min(nodes.len().saturating_sub(1)));
         XHost {
             nodes,
             effects: Vec::new(),
@@ -368,9 +379,15 @@ fn host(ctx: &Context) -> JsResult<&Shared> {
     ctx.get_data::<Shared>().ok_or_else(|| error("the XFA script host is not set up"))
 }
 
-/// The snapshot `n` and its descendants flattened into `out` under `parent` (to [`MAX_DEPTH`]
-/// and [`MAX_NODES`]): the index of `n`'s node, `None` past the limits.
+/// Flatten a live root into the host arena within [`MAX_DEPTH`] and [`MAX_NODES`], keeping
+/// dormant definitions separately addressable. Return the root index, or `None` past the limits.
 fn flatten(n: &XfaNode, parent: Option<usize>, out: &mut Vec<HNode>, depth: usize) -> Option<usize> {
+    flatten_definition(n, parent, out, depth, false)
+}
+
+/// Flatten a live node or a dormant default, propagating dormancy to descendants.
+/// Refuse nodes past depth or arena limits; earlier imported nodes remain in the arena.
+fn flatten_definition(n: &XfaNode, parent: Option<usize>, out: &mut Vec<HNode>, depth: usize, dormant: bool) -> Option<usize> {
     if depth > MAX_DEPTH || out.len() >= MAX_NODES {
         return None;
     }
@@ -387,19 +404,25 @@ fn flatten(n: &XfaNode, parent: Option<usize>, out: &mut Vec<HNode>, depth: usiz
         occur_min: n.occur_min,
         occur_max: n.occur_max,
         index: n.index,
+        template_order: n.template_order,
         parent,
         children: Vec::new(),
+        instance_templates: Vec::new(),
+        dormant,
+        default_source: None,
         gone: false,
         formatted: n.formatted.clone(),
     });
     let mut kids = Vec::new();
     for c in &n.children {
-        if let Some(ci) = flatten(c, Some(idx), out, depth + 1) {
+        if let Some(ci) = flatten_definition(c, Some(idx), out, depth + 1, dormant) {
             kids.push(ci);
         }
     }
+    let templates = n.instance_templates.iter().filter_map(|c| flatten_definition(c, Some(idx), out, depth + 1, true)).collect();
     if let Some(h) = out.get_mut(idx) {
         h.children = kids;
+        h.instance_templates = templates;
     }
     Some(idx)
 }
@@ -478,6 +501,38 @@ pub(crate) fn instances(h: &XHost, parent: usize, name: &str) -> Vec<usize> {
         .unwrap_or_default()
 }
 
+/// A retained definition, live instance, or removed instance from which the manager
+/// can create a new row. Dormant definitions never participate in normal node lookup.
+pub(crate) fn instance_source(h: &XHost, parent: usize, name: &str) -> Option<usize> {
+    let p = h.nodes.get(parent)?;
+    p.instance_templates
+        .iter()
+        .chain(p.children.iter().filter(|&&i| h.nodes.get(i).is_some_and(|n| !n.gone)))
+        .chain(&p.children)
+        .copied()
+        .find(|&i| h.nodes.get(i).is_some_and(|n| n.name == name && n.repeatable))
+        .map(|i| h.nodes.get(i).and_then(|n| n.default_source).unwrap_or(i))
+}
+
+/// Resolve a manager without exposing its dormant template as a live form node.
+pub(crate) fn resolve_manager(h: &XHost, from: usize, expr: &str) -> Option<(usize, String)> {
+    let (prefix, leaf) = expr.trim().rsplit_once('.').map_or((None, expr.trim()), |(p, l)| (Some(p), l));
+    let name = leaf.strip_prefix('_')?;
+    if let Some(prefix) = prefix {
+        let parent = *resolve_som(h, from, prefix).first()?;
+        return instance_source(h, parent, name).map(|_| (parent, name.to_string()));
+    }
+    let mut at = Some(from);
+    for _ in 0..MAX_DEPTH {
+        let parent = at?;
+        if instance_source(h, parent, name).is_some() {
+            return Some((parent, name.to_string()));
+        }
+        at = h.nodes.get(parent).and_then(|n| n.parent);
+    }
+    None
+}
+
 fn list_object(ctx: &mut Context, items: &[usize]) -> JsResult<JsValue> {
     let vals: Vec<JsValue> = items.iter().map(|i| JsValue::from(*i as f64)).collect();
     let arr = JsArray::from_iter(vals, ctx);
@@ -507,7 +562,7 @@ fn instance_manager(ctx: &mut Context, parent: usize, name: &str) -> JsResult<Js
     let (count, min, max) = {
         let h = host(ctx)?.borrow();
         let live = instances(&h, parent, name);
-        let first = live.first().and_then(|i| h.nodes.get(*i));
+        let first = instance_source(&h, parent, name).and_then(|i| h.nodes.get(i));
         (live.len(), first.map_or(0, |n| n.occur_min), first.and_then(|n| n.occur_max))
     };
     let key = ObjectInitializer::new(ctx)
@@ -588,7 +643,7 @@ fn renumber(h: &mut XHost, idx: usize, depth: usize) {
     let (parent_som, name, index, kids) = {
         let Some(n) = h.nodes.get(idx) else { return };
         let parent_som = n.parent.and_then(|p| h.nodes.get(p)).map(|p| p.som.clone()).unwrap_or_default();
-        (parent_som, n.name.clone(), n.index, n.children.clone())
+        (parent_som, n.name.clone(), n.index, n.children.iter().chain(&n.instance_templates).copied().collect::<Vec<_>>())
     };
     let som = if name.starts_with('#') || name.is_empty() {
         parent_som
@@ -605,19 +660,20 @@ fn renumber(h: &mut XHost, idx: usize, depth: usize) {
     }
 }
 
-/// A copy of `src`'s subtree (values cleared) under `parent`, returning the copy's index.
-fn clone_subtree(h: &mut XHost, src: usize, parent: Option<usize>, depth: usize) -> Option<usize> {
+/// Copy a subtree under `parent`. Dormant definitions keep template defaults; copies of
+/// live or removed instances clear user values. Dormant nested definitions stay separate.
+fn clone_subtree(h: &mut XHost, src: usize, parent: Option<usize>, depth: usize, preserve_values: bool, dormant: bool) -> Option<usize> {
     if depth > MAX_DEPTH || h.nodes.len() >= MAX_NODES {
         return None;
     }
-    let (template, kids) = {
+    let (template, kids, templates) = {
         let n = h.nodes.get(src)?;
         (
             HNode {
                 name: n.name.clone(),
                 som: String::new(),
                 kind: n.kind,
-                value: String::new(),
+                value: if preserve_values { n.value.clone() } else { String::new() },
                 numeric: n.numeric,
                 presence: n.presence.clone(),
                 access: n.access.clone(),
@@ -625,30 +681,37 @@ fn clone_subtree(h: &mut XHost, src: usize, parent: Option<usize>, depth: usize)
                 occur_min: n.occur_min,
                 occur_max: n.occur_max,
                 index: n.index,
+                template_order: n.template_order,
                 parent,
                 children: Vec::new(),
+                instance_templates: Vec::new(),
+                dormant,
+                default_source: if n.dormant { Some(src) } else { n.default_source },
                 gone: false,
-                // The copy holds no value, so nothing is shown in its picture either.
-                formatted: None,
+                // A template clone retains its default value and matching display together.
+                // A blank live-row clone must not retain its source's formatted value.
+                formatted: if preserve_values { n.formatted.clone() } else { None },
             },
             n.children.clone(),
+            n.instance_templates.clone(),
         )
     };
     let idx = h.nodes.len();
     h.nodes.push(template);
     let mut copied = Vec::new();
     for k in kids {
-        // Nested repeating subforms copy their first instance only.
-        let skip = h.nodes.get(k).is_some_and(|c| c.gone || c.repeatable && c.index > 0);
+        // Live rows retain the existing first-instance cloning policy; a dormant
+        // definition already contains precisely its initial nested instances.
+        let skip = h.nodes.get(k).is_some_and(|c| c.gone || !preserve_values && c.repeatable && c.index > 0);
         if skip {
             continue;
         }
-        if let Some(ci) = clone_subtree(h, k, Some(idx), depth + 1) {
-            copied.push(ci);
-        }
+        copied.push(clone_subtree(h, k, Some(idx), depth + 1, preserve_values, dormant)?);
     }
+    let copied_templates = templates.into_iter().map(|k| clone_subtree(h, k, Some(idx), depth + 1, true, true)).collect::<Option<Vec<_>>>()?;
     if let Some(n) = h.nodes.get_mut(idx) {
         n.children = copied;
+        n.instance_templates = copied_templates;
     }
     Some(idx)
 }
@@ -670,19 +733,32 @@ impl XHost {
     pub(crate) fn add_instance(&mut self, parent: usize, name: &str) -> Option<usize> {
         let h = self;
         let live = instances(h, parent, name);
-        let &first = live.first()?;
+        let first = instance_source(h, parent, name)?;
         let (repeatable, max) = h.nodes.get(first).map(|n| (n.repeatable, n.occur_max)).unwrap_or((false, Some(1)));
         if !repeatable || max.is_some_and(|m| live.len() >= m) || h.added >= MAX_ADDED {
             return None;
         }
-        let new = clone_subtree(h, first, Some(parent), 0)?;
-        let last = live.last().copied().unwrap_or(first);
+        let preserve_values = h.nodes.get(first).is_some_and(|n| n.dormant);
+        let original_len = h.nodes.len();
+        let Some(new) = clone_subtree(h, first, Some(parent), 0, preserve_values, false) else {
+            // No partial row and no unattached copied nodes survive a resource limit.
+            h.nodes.truncate(original_len);
+            return None;
+        };
+        let last = live.last().copied();
         if let Some(n) = h.nodes.get_mut(new) {
             n.index = live.len();
         }
-        // Keep instances together: right after the last one.
-        if let Some(p) = h.nodes.get_mut(parent) {
-            let pos = p.children.iter().position(|&c| c == last).map_or(p.children.len(), |i| i + 1);
+        // Keep instances together, or place a first instance at its definition's position.
+        let order = h.nodes.get(first).map_or(0, |n| n.template_order);
+        let pos = h.nodes.get(parent).map(|p| {
+            last.and_then(|last| p.children.iter().position(|&c| c == last).map(|i| i + 1))
+                .or_else(|| p.children.iter().position(|&c| h.nodes.get(c).is_some_and(|n| !n.gone && n.template_order > order)))
+                .unwrap_or(p.children.len())
+        });
+        if let Some(pos) = pos
+            && let Some(p) = h.nodes.get_mut(parent)
+        {
             p.children.insert(pos, new);
         }
         renumber(h, new, 0);
@@ -714,13 +790,12 @@ impl XHost {
         }
     }
 
-    /// Remove instance `i` of the subform `name` under `parent` (never below the minimum, or
-    /// below one).
+    /// Remove instance `i` of the subform `name` under `parent`, never below its minimum.
     pub(crate) fn remove_instance(&mut self, parent: usize, name: &str, i: usize) {
         let h = self;
         let live = instances(h, parent, name);
         let Some(&gone) = live.get(i) else { return };
-        let min = h.nodes.get(gone).map_or(0, |n| n.occur_min).max(1);
+        let min = h.nodes.get(gone).map_or(0, |n| n.occur_min);
         if live.len() <= min {
             return;
         }
@@ -851,6 +926,7 @@ pub(crate) fn descendants_named(h: &XHost, from: usize, name: &str, depth: usize
     out
 }
 
+/// Read an XFA property or live child; underscore managers can resolve even at zero instances.
 /// A property read on a form node's Proxy: its value (and `formattedValue` as its picture shows
 /// it), attributes, relatives, methods, instance managers and children by name.
 fn node_get(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
@@ -924,7 +1000,7 @@ fn node_get(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValu
         | "desc" => sink(ctx)?,
         other => {
             if let Some(child) = other.strip_prefix('_') {
-                let exists = child_named(&host(ctx)?.borrow(), idx, child).is_some();
+                let exists = instance_source(&host(ctx)?.borrow(), idx, child).is_some();
                 return if exists { instance_manager(ctx, idx, child) } else { Ok(JsValue::undefined()) };
             }
             let found = child_named(&host(ctx)?.borrow(), idx, other);
@@ -997,6 +1073,12 @@ fn resolver(ctx: &mut Context, from: usize, many: bool) -> JsResult<JsValue> {
         let from = key.get(js_string!("from"), ctx)?.to_number(ctx)? as usize;
         let many = key.get(js_string!("many"), ctx)?.to_boolean();
         let expr = text(&arg(args, 0), ctx)?;
+        if !many {
+            let manager = resolve_manager(&host(ctx)?.borrow(), from, &expr);
+            if let Some((parent, name)) = manager {
+                return instance_manager(ctx, parent, &name);
+            }
+        }
         let found = resolve_som(&host(ctx)?.borrow(), from, &expr);
         if many {
             return list_object(ctx, &found);
@@ -1114,6 +1196,7 @@ fn xfa_resolve(ctx: &mut Context, many: bool) -> JsResult<JsValue> {
     resolver(ctx, current, many)
 }
 
+/// Install document-local XFA objects and scoped globals; dormant definitions expose managers only.
 fn install(ctx: &mut Context, event: &XfaEvent, doc: &XfaDoc, current: usize) -> JsResult<()> {
     let rw = Attribute::CONFIGURABLE;
     let form = node_object(ctx, 0)?;
@@ -1299,24 +1382,38 @@ fn install(ctx: &mut Context, event: &XfaEvent, doc: &XfaDoc, current: usize) ->
     ];
     let mut defined: Vec<String> = RESERVED.iter().map(|s| s.to_string()).collect();
     for scope in scopes {
-        let kids: Vec<(usize, String, bool)> = {
+        let (kids, managers): (Vec<(usize, String)>, Vec<String>) = {
             let h = host(ctx)?.borrow();
             h.nodes
                 .get(scope)
-                .map(|n| n.children.iter().filter_map(|&c| h.nodes.get(c).map(|k| (c, k.name.clone(), k.repeatable && !k.gone))).collect())
+                .map(|n| {
+                    let kids = n.children.iter().filter_map(|&c| h.nodes.get(c).filter(|k| !k.gone).map(|k| (c, k.name.clone()))).collect();
+                    let managers = n
+                        .children
+                        .iter()
+                        .chain(&n.instance_templates)
+                        .filter_map(|&c| h.nodes.get(c).filter(|k| k.repeatable).map(|k| k.name.clone()))
+                        .collect();
+                    (kids, managers)
+                })
                 .unwrap_or_default()
         };
-        for (c, name, repeatable) in kids {
+        for (c, name) in kids {
             if !is_identifier(&name) || defined.contains(&name) {
                 continue;
             }
             let obj = node_object(ctx, c)?;
             ctx.register_global_property(JsString::from(name.as_str()), obj, rw)?;
-            if repeatable {
-                let im = instance_manager(ctx, scope, &name)?;
-                ctx.register_global_property(JsString::from(format!("_{name}").as_str()), im, rw)?;
-            }
             defined.push(name);
+        }
+        for name in managers {
+            let key = format!("_{name}");
+            if !is_identifier(&key) || defined.contains(&key) {
+                continue;
+            }
+            let im = instance_manager(ctx, scope, &name)?;
+            ctx.register_global_property(JsString::from(key.as_str()), im, rw)?;
+            defined.push(key);
         }
     }
     Ok(())
@@ -1513,4 +1610,25 @@ pub(crate) fn run_here(script: &str, event: &XfaEvent, doc: &XfaDoc, root: XfaNo
     }
     clip_result(&mut out);
     out
+}
+
+#[cfg(test)]
+mod zero_instance_limits {
+    use super::*;
+
+    /// A failed bounded clone must roll back arena allocations and emit no structural effect.
+    #[test]
+    fn zero_instance_clone_failure_leaves_no_partial_row_or_effect() {
+        let row = XfaNode { name: "row".into(), repeatable: true, occur_min: 0, ..Default::default() };
+        let root = XfaNode { name: "root".into(), instance_templates: vec![row], ..Default::default() };
+        let mut host = XHost::new(root, "", &XfaDoc::default());
+        let row = instance_source(&host, 1, "row").unwrap();
+        // Exercise the clone depth guard without allocating MAX_NODES test objects.
+        host.nodes[row].children.push(row);
+        let before = host.nodes.len();
+        assert_eq!(host.add_instance(1, "row"), None);
+        assert_eq!(host.nodes.len(), before);
+        assert!(instances(&host, 1, "row").is_empty());
+        assert!(host.effects.is_empty());
+    }
 }

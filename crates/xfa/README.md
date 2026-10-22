@@ -31,8 +31,14 @@ that warning and keeps the existing layout and accepted widget values.
   container without a width is as wide as its content; flow across content areas and pages with
   page masters chosen by occurrence; a table's header row repeats after a break; presence
   `hidden` takes no space, `invisible` takes space; repeating subforms get their initial
-  instances, in flowed content and in a top-to-bottom container inside positioned content (a
-  table in an area) alike; fields that compute the page number or count on layout show the numbers.
+  instances, including zero for optional subforms. Absent instances occupy no space and do not
+  trigger page breaks; absent table headers are not repeated on continuation pages.
+  Unnamed containers retain their initial occurrence counts even with populated datasets.
+  This applies in flowed content and in a top-to-bottom container inside positioned content (a table in an area) alike. Intrinsic horizontal flow can split across
+  pages after a row is removed; explicit `keep intact="contentArea"` or `keep intact="pageArea"`
+  keeps such a section together when it fits in a fresh area. Repeated containers measure each
+  instance in its own data scope, including optional children and growing text fields.
+  Fields that compute the page number or count on layout show the numbers.
 - **PDF** (`pdf::write_form`): pages with content streams in the standard 14 fonts (Arial and
   friends → Helvetica, Courier New → Courier, serif faces → Times; nothing is embedded), JPEG
   XObjects, and widgets: text (multi-line, max length, alignment), date (Acrobat's `AFDate`
@@ -55,7 +61,8 @@ that warning and keeps the existing layout and accepted widget values.
   filled there shows them here. The engine does both: values on open (recorded in the
   document's warnings), the packet after every form edit.
 
-Layout measures each container once per (node, width): width-less containers would otherwise
+Layout caches container measurements by node, width, inherited style and parent SOM scope:
+width-less containers would otherwise
 be measured exponentially often in their nesting. A measurement budget backs this up.
 
 - **Scripts** (`script`): the live form as scripts see it (`form_tree`: the instance tree with
@@ -105,8 +112,13 @@ let form = pdfcraft_xfa::layout_xml(template_xml)?;       // pages of items, for
   (reads give a sink that accepts writes), `execEvent`, or the change event per keystroke.
   Validate failures show their message and keep the value, as Acrobat does for scripts.
   A hidden instance of a repeating subform hides every instance (overrides apply to the template).
-  A repeating subform shows what its data holds once the data holds any instance, else its
-  `initial` count, and never fewer than one (`occur min="0"` still shows one row).
+  Occurrence counts follow XFA 3.3 chapter 7, “Repeating Elements using Occurrence Limits”:
+  blank forms use `initial`; data merges use the number of matching data nodes constrained by
+  `min` and `max`. With `min="0"`, no matching data means no instance. A detached template
+  keeps the instance manager available at zero without exposing phantom fields or running
+  their scripts. JavaScript and FormCalc can add the first instance, remove the last, and
+  re-add it; minimum and maximum constraints still apply. This covers the default binding
+  model; explicit/global/unbound binding semantics remain part of the data-binding gap above.
 - **Script limits.** Forms run their scripts on open without being asked, so the engine bounds
   each event: a script's effects (values set again on the same object merge, the last wins;
   10 000 effects, 100 message boxes, 1 000 console lines per script and per event), its loop
@@ -116,11 +128,29 @@ let form = pdfcraft_xfa::layout_xml(template_xml)?;       // pages of items, for
   print, save, open a link or move the focus; other events asking are noted in the console.
   All the scripts of one event (open, a change, a click) run on one thread, each in a fresh
   JavaScript context (or FormCalc interpreter) on a copy of the form as the engine holds it
-  then: scripts share nothing, a script that fails halfway leaves nothing behind, and what a
+  then: scripts share no JavaScript globals. An ordinary script exception retains its earlier
+  effects and reports the error; a fatal engine failure rejects the whole edit. What a
   script changed reaches the next one only through the engine, which applies the effects and
   keeps its live form up to date in place for values (rebuilding it only when the structure
   changed). A form with hundreds of calculations runs them all well within the open budget,
   where each used to pay for a thread of its own and a rebuild of the whole form.
+  Instance-effect replay caches counts and default descendant paths per manager within a
+  script batch. Removing a parent invalidates descendant managers (including shifted sibling
+  paths); writes creating data ancestors, resets and property changes invalidate cached
+  assumptions. Filling a field under an existing data parent keeps the cache. Repeated additions to one
+  unchanged manager do not rebuild unrelated form subtrees. Native replay checks the event
+  deadline, and native/WASM replay share a cumulative 2,000,000-unit work budget per event
+  (each snapshot construction once, actual manager-lookup node visits, invalidation scans,
+  and descendant data operations). Charges accumulate across script batches without charging
+  an already-built snapshot again.
+  Exceeding either limit returns an error: the engine discards the working edit/open-script
+  transaction and keeps the prior document, rather than publishing partial data or geometry.
+  Field changes and data imports propagate fatal replay/layout failures too, including after
+  earlier scripts or reset operations flushed changes. Ordinary validation warnings still
+  retain the entered value. If a script was abandoned before a later finalization failure,
+  scripting stays disabled for that open document and diagnostics remain available, without
+  committing PDF changes or an undo entry. Viewer requests from the rejected edit are discarded.
+  This bounds replay amplification; it is not a general JavaScript allocation budget.
   What open-time scripts change is noted in the document's XFA warnings. Known gaps: the
   engine's loop limit is per call frame, so loops inside nested calls can run far longer; such
   a script is abandoned after 1 s (3 s for a click) on its thread, which keeps running until the
@@ -151,7 +181,7 @@ let form = pdfcraft_xfa::layout_xml(template_xml)?;       // pages of items, for
   file's data is held as a tree and written with the packet's own namespace prefix, never as
   the file's markup, and every rewrite of the packet is parsed back before it is written; the
   engine then lays a dynamic form out again from it and runs its calculations.
-- Missing: `keep` constraints, `subformSet` relations, `rl-tb` is mirrored `lr-tb`, font
+- Missing: broader `keep` constraints (including `next`/`previous` and other layout modes), `subformSet` relations, `rl-tb` is mirrored `lr-tb`, font
   metrics are the approximate Helvetica ones, and line heights are 1.15 × size.
 - Acrobat cannot be an oracle here (clean-room rules): layout follows the specification, and
   fidelity has been checked by eye on real government forms, not pixel-compared.

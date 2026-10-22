@@ -190,9 +190,22 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- 2026-10-22: M12 / PR #3941 review: separate published evidence from build downloads in attribution; retain remote-asset policy checks and test exclusion from build fetching. XFA behavior and estimates unchanged.
+
+- 2026-10-22: M12 / PR #3941: verified #4112 against its exact attachment on upstream and PR builds; published an original synthetic zero-row fixture, before/after screenshots and lifecycle reproduction steps. Remote assets are attributed; no compatibility scope or estimates changed.
+- 2026-10-22 — M12 (#3941): integrate upstream-checked dynamic JavaScript compilation and consolidated integration tests; preserve zero-instance and fatal-error rollback coverage. Estimates unchanged.
+- 2026-10-22 — M12 (#3941): integrate upstream XFA date formatting, visibility, sizing and text reflow with zero-instance support; retain ordinary script-error effects while fatal finalization failures roll back. Estimates unchanged.
 - **2026-10-22 (M14, macOS association recovery candidate):** Successful desktop open/save/sign can queue recovery of an existing per-file binding to the running PDFCraft bundle through NSWorkspace. Metadata-only watcher changes retain undo and avoid false overwrite prompts; real same-length/same-mtime edits remain protected. Rebased on 0.12.0 and reuses #3042's shared atomic metadata preservation; the bounded recovery parser does not narrow save limits. Prior native Preview TEST-signature and Finder workflows passed on macOS 27.0.1; other versions remain unqualified. Estimates unchanged.
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
+- 2026-10-21 — M12 (#3941): retain scripts-off runtime state and diagnostics after an abandoned XFA script followed by finalization failure; discard rejected-edit viewer requests while preserving document bytes and history.
+
+- 2026-10-21 — M12 (#3941 edge cases): zero-instance overflow headers stay absent; unnamed containers retain initial occurrences in layout and runtime; fatal field-change/import replay errors roll back the entire edit, including flushed prefixes.
+- 2026-10-21 — M12 (#3941 follow-up): repeated flowing subforms and growing fields measure their own indexed data; replay charges actual lookup visits and each rebuilt snapshot once; keep-rule notes distinguish the supported horizontal subset.
+- 2026-10-21 — M12 (#3941 review): repeated table rows measure optional cells per instance; instance-effect batches cache counts/defaults with bounded replay and rollback regressions. Documented dormant templates, invalidation rules and occurrence tests.
+
+- 2026-10-21 — M12: optional XFA subforms can have zero instances; retained managers add the first row and remove the last, with occurrence limits, undo/redo and save/reopen regressions. Other XFA fidelity gaps remain.
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
 - **2026-10-20 (M3, #3535):** Escape with a menu open closes the menu and keeps the text selection; the next Escape clears it, as before. One keypress used to do both. A synthetic UI regression checks it. Estimates unchanged.
 - **2026-10-16 (M3, close prompt keyboard):** The "Save changes?" prompt opens with Save chosen (Enter saves, as before) and the arrow keys and Tab / Shift+Tab move the choice to Cancel or Don't save, shown with a focus ring; Enter or Space press the chosen button and Escape still cancels. Before, Enter always saved whatever was Tab-focused. Estimates unchanged.
