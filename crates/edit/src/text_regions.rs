@@ -575,6 +575,25 @@ pub(super) fn rewrite_styled_block(
     let mut row_start = 0;
     let mut row = Vec::new();
     let mut row_width = 0.0;
+    // Where a row may end inside a run of non-space characters (Chinese, Japanese and Thai),
+    // worked out once per run: Thai words need the whole run, not just two neighbours.
+    let mut break_before = vec![false; chars.len()];
+    let mut run_start = 0;
+    while run_start < chars.len() {
+        let mut run_end = run_start;
+        while chars.get(run_end).is_some_and(|c| !c.0.is_whitespace()) {
+            run_end += 1;
+        }
+        if run_end > run_start {
+            let run: String = chars.get(run_start..run_end).unwrap_or_default().iter().map(|c| c.0).collect();
+            for (i, cut) in crate::linebreak::breaks_before_chars(&run).into_iter().enumerate() {
+                if let Some(slot) = break_before.get_mut(run_start + i) {
+                    *slot = cut;
+                }
+            }
+        }
+        run_start = run_end.max(run_start + 1);
+    }
     // Wrap at word boundaries, retaining explicit source row breaks and whitespace.
     let mut at = 0;
     while at < chars.len() {
@@ -589,11 +608,8 @@ pub(super) fn rewrite_styled_block(
         }
         let mut end = at + 1;
         if !item.0.is_whitespace() {
-            // A word ends at a space, or where Chinese or Japanese text may break between characters.
-            while let (Some(before), Some(c)) = (chars.get(end - 1), chars.get(end))
-                && !c.0.is_whitespace()
-                && !crate::linebreak::between(before.0, c.0)
-            {
+            // A word ends at a space, or where Chinese, Japanese or Thai text may break inside it.
+            while chars.get(end).is_some_and(|c| !c.0.is_whitespace()) && !break_before.get(end).copied().unwrap_or(false) {
                 end += 1;
             }
         }
