@@ -712,7 +712,8 @@ impl crate::PdfCraftApp {
         }
     }
 
-    /// Copy Image: image `index` on `page`, at its own resolution, to the clipboard.
+    /// Copy Image: image `index` on `page`, at its own resolution, to the clipboard. Returns
+    /// whether it was copied (Cut deletes the image only then).
     pub(crate) fn copy_page_image(&mut self, page: usize, index: usize) -> bool {
         let Some((_, id)) = self.active_ids() else { return false };
         if !self.may_copy(id) {

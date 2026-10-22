@@ -2082,8 +2082,8 @@ milestone = "M7"
 status = "shipped"
 commands = ["edit.edit_text", "edit.image"]
 tools = ["image_edit"]
-evidence = ["crates/edit/src/tests.rs::page_images_move_turn_replace_and_delete", "crates/ui-egui/tests/editing.rs::editing_existing_images_on_the_page", "crates/automation/tests/automation.rs::editing_page_images_through_tools"]
-notes = "existing page images (right-click ▸ Replace Image) and added images: the new picture is drawn in the same place"
+evidence = ["crates/edit/src/tests.rs::page_images_move_turn_replace_and_delete", "crates/ui-egui/tests/editing.rs::editing_existing_images_on_the_page", "crates/automation/tests/automation.rs::editing_page_images_through_tools", "crates/ui-egui/tests/editing.rs::right_clicking_an_image_opens_its_menu_alone"]
+notes = "existing page images (right-click ▸ Replace Image…) and added images: the new picture is drawn in the same place. The right-click menu is the view's own popup, so it opens alone (the page's menu never opens over it) and on the first right-click: Add comment, Rotate, Flip, Crop Image, Remove Crop, Replace Image…, Save Image As…, Cut Image, Copy Image, Copy Image in Original Format, Draw freehand, Redact Image, Create Link…, Recognize Text… and Delete. Not yet in the menu, unlike Acrobat's: Paste, Arrange image and Edit image using."
 
 [[feature]]
 id = "edit.image-rotate-free"
