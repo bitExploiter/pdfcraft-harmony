@@ -1691,19 +1691,18 @@ const KOREAN_FONT_NAME: &str = "PCKorean";
 /// than one of them is split across several, which read back as one line (see [`same_font`]).
 fn is_type3_fallback(font: &Dict) -> bool {
     font.name(b"Subtype") == Some(b"Type3")
-        && font
-            .name(b"Name")
-            .is_some_and(|n| n == JAPANESE_FONT_NAME.as_bytes() || n == HEBREW_FONT_NAME.as_bytes() || n == KOREAN_FONT_NAME.as_bytes() || n == LATIN_FONT_NAME.as_bytes())
+        && font.name(b"Name").is_some_and(|n| {
+            n == JAPANESE_FONT_NAME.as_bytes()
+                || n == HEBREW_FONT_NAME.as_bytes()
+                || n == KOREAN_FONT_NAME.as_bytes()
+                || n == LATIN_FONT_NAME.as_bytes()
+        })
 }
 
 /// The generated font's `/Name` and its resource prefix: the bundled Latin face, or the script
 /// face's (`PCJp`/`PCHe`/`PCKo`).
 fn fallback_names(face: &CraftFont, script: Script) -> (&'static str, &'static str) {
-    if face.family == "Inter" {
-        (LATIN_FONT_NAME, "PCLat")
-    } else {
-        (script.font_name(), script.prefix())
-    }
+    if face.family == "Inter" { (LATIN_FONT_NAME, "PCLat") } else { (script.font_name(), script.prefix()) }
 }
 
 /// Drops the generated fallback fonts ([`is_type3_fallback`]) that nothing on `page` shows any more.
