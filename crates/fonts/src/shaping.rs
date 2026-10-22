@@ -131,13 +131,13 @@ pub fn shape_japanese(face: &crate::CraftFont, text: &str) -> Result<Vec<ShapedC
             return Err(GlyphError::Missing);
         }
         // A combining mark (U+3099/U+309A and the other mark blocks) hangs on the character before
-        // it; its glyph has no advance of its own.
+        // it: it is drawn at the base character's origin and adds no advance of its own, even when
+        // the face gives its glyph a width.
         if is_combining_mark(c)
             && let Some(cluster) = out.last_mut()
         {
             cluster.glyphs.push((gid.into(), [0.0, 0.0]));
             cluster.text.push(c);
-            cluster.advance += width;
             continue;
         }
         out.push(ShapedCluster { script: ShapedScript::Japanese, glyphs: vec![(gid.into(), [0.0, 0.0])], advance: width, text: c.to_string() });
@@ -422,6 +422,14 @@ mod japanese_tests {
         assert_eq!(voiced.len(), 1, "{voiced:?}");
         assert_eq!(voiced[0].text, "か\u{3099}");
         assert_eq!(voiced[0].glyphs.len(), 2);
+        let base = shape_japanese(face, "か").unwrap();
+        assert_eq!(voiced[0].advance, base[0].advance, "the mark adds no width to its base character");
+        // A variation selector picks a variant of the character before it; the face draws the
+        // base and the cluster keeps the selector, so neither is a missing glyph.
+        let ivs = shape_japanese(face, "日\u{E0100}").unwrap();
+        assert_eq!(ivs.len(), 1, "{ivs:?}");
+        assert_eq!(ivs[0].text, "日\u{E0100}");
+        assert_eq!(ivs[0].glyphs.len(), 1);
         assert!(glyph_outline_from(face, u32::MAX).is_err());
     }
 }

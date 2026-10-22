@@ -797,6 +797,17 @@ fn own_glyph_paths(doc: &Document, index: usize) -> Vec<Vec<u8>> {
     out
 }
 
+/// The `FontName` of the Type 3 descriptor of the font `own` names for added item `index` on page 0.
+fn own_type3_font_name(doc: &Document, index: usize) -> Option<String> {
+    let name = own(doc, index).into_iter().next()?;
+    let p = &pdfcraft_model::pages(doc)[0];
+    let fonts = doc.resolve(p.dict.get(b"Resources").unwrap()).as_dict().unwrap().get(b"Font").cloned().unwrap();
+    let fonts = doc.resolve(&fonts).as_dict().unwrap().clone();
+    let font = doc.resolve(fonts.get(name.as_bytes())?).as_dict()?.clone();
+    let descriptor = doc.resolve(font.get(b"FontDescriptor")?).as_dict()?.clone();
+    descriptor.name(b"FontName").map(|n| String::from_utf8_lossy(n).into_owned())
+}
+
 #[test]
 fn added_japanese_text_uses_the_style_face_and_stays_searchable() {
     let mut doc = fixture();
@@ -826,13 +837,29 @@ fn added_japanese_text_uses_the_style_face_and_stays_searchable() {
         let mut d = fixture();
         add_content(&mut d, 0, &Content::Text(style)).unwrap();
         let d = reopen(&d);
-        (streams(&d, 0), own_glyph_paths(&d, 0))
+        (streams(&d, 0), own_glyph_paths(&d, 0), own_type3_font_name(&d, 0))
     };
     let regular = drawn(text.clone());
     let bold = drawn(AddedText { bold: true, ..text.clone() });
     let serif = drawn(AddedText { family: Family::Times, ..text.clone() });
     assert_ne!(regular.1, bold.1, "bold must change the fallback glyph outlines");
     assert_ne!(regular.1, serif.1, "a serif item must change the fallback glyph outlines");
+    // The Type 3 descriptor names the face the item drew with, not the serif document face.
+    // `FontName` is a PDF name, so the family's spaces are gone; `FontFamily` keeps them.
+    let sans_face = pdfcraft_fonts::document_japanese_font_for_style(false, false).unwrap();
+    let serif_face = pdfcraft_fonts::document_japanese_font_for_style(true, false).unwrap();
+    let (sans_name, serif_name) = (sans_face.family.replace(' ', ""), serif_face.family.replace(' ', ""));
+    assert_eq!(regular.2.as_deref(), Some(sans_name.as_str()), "a Gothic item is named after its face");
+    assert_eq!(serif.2.as_deref(), Some(serif_name.as_str()), "a Times item is named after its Mincho face");
+    // A variation selector picks a variant of the character before it; the face draws the base and
+    // the selector stays in the logical text, so it does not make the item undrawable.
+    let mut d = fixture();
+    let ivs = AddedText { text: "日\u{E0100}".into(), ..text.clone() };
+    assert_eq!(first_undrawable(&ivs), None);
+    add_content(&mut d, 0, &Content::Text(ivs.clone())).unwrap();
+    let d = reopen(&d);
+    let Content::Text(t) = &list_added(&d)[0].content else { panic!() };
+    assert_eq!(t.text, ivs.text);
 }
 
 #[test]
