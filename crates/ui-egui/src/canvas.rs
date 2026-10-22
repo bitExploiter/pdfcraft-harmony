@@ -2509,10 +2509,13 @@ pub fn shortcuts(view: &mut DocView, ctx: &egui::Context, speed: crate::scroll_s
         view.fit = Fit::Width;
         view.goto = Some((view.current, 0.0));
     }
-    if pressed(cmd(Key::OpenBracket)) {
+    // Alt+← / Alt+→ (⌥ on macOS) too, as in Acrobat and browsers, back to where a link was
+    // followed from (#3632). Consumed here, before ← / → turn the page.
+    let alt = |k| KeyboardShortcut::new(Modifiers::ALT, k);
+    if pressed(cmd(Key::OpenBracket)) || pressed(alt(Key::ArrowLeft)) {
         view.view_history(false);
     }
-    if pressed(cmd(Key::CloseBracket)) {
+    if pressed(cmd(Key::CloseBracket)) || pressed(alt(Key::ArrowRight)) {
         view.view_history(true);
     }
     let key = |k| (arrows || !matches!(k, Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown)) && ctx.input(|i| i.key_pressed(k));
