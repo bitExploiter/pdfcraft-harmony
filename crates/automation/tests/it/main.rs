@@ -1,0 +1,11 @@
+//! The crate's integration tests, linked into one test binary.
+
+mod automation;
+mod automation_roots;
+mod batch;
+mod button_caption;
+mod form_bulk;
+mod hostile_args;
+mod optimize_content_boundaries;
+mod protect_certificate_command;
+mod protect_certificate_schema;
