@@ -3321,6 +3321,22 @@ fn hebrew_letters_the_page_font_lacks_use_the_hebrew_face() {
     assert_eq!(text::text_blocks(&reopen(&doc), 0).unwrap()[0].text, "עברית מלאה");
 }
 
+/// A replacement mixing Hebrew and Hangul draws both scripts' faces, rather than refusing the
+/// Hangul because the Japanese faces lack it (CodeRabbit review on the Korean branch).
+#[test]
+fn mixed_hebrew_korean_replacement_uses_both_faces() {
+    if pdfcraft_fonts::document_hebrew_font(false).is_none() || pdfcraft_fonts::document_korean_font().is_none() {
+        eprintln!("skipping mixed_hebrew_korean_replacement_uses_both_faces: needs craft-fonts Hebrew and Kore faces (set CRAFT_FONTS_DIR)");
+        return;
+    }
+    let mut doc = hebrew_page("BT /F1 12 Tf 300 700 Td (EDCBA) Tj ET");
+    let typed = "שלום 한글 12";
+    let r = text::replace_line(&mut doc, 0, 0, typed).unwrap();
+    assert_eq!(r.substituted.as_deref(), Some("Noto Sans Hebrew Type3"), "the Hebrew face still leads the line");
+    assert!(String::from_utf8_lossy(&page_content_bytes(&doc, 0)).contains("/PCHe"), "one PCHe Type 3 font carries the line");
+    assert_eq!(text::text_lines(&reopen(&doc), 0).unwrap()[0].text, typed, "Hebrew and Hangul both round-trip");
+}
+
 /// #2013: the dialog asks `first_undrawable` before offering OK, so it must refuse exactly what
 /// applying refuses: a Cyrillic footer was previewed (in the interface font) and then failed.
 #[test]

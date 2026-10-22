@@ -1989,11 +1989,11 @@ fn no_korean_font() -> EditError {
 }
 
 /// The faces a Type 3 replacement may draw `text` with, best first. Text with Hebrew takes the
-/// Hebrew face first (its Latin and digits too, so a line keeps one look), then the Japanese faces
-/// and the bundled Latin one for anything it lacks; Korean text does the same with the Korean
-/// face; other text takes the Japanese faces, and the bundled Latin face behind them, which covers
-/// the Latin, Greek and Cyrillic letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә,
-/// ө, ү, ұ or һ).
+/// Hebrew face first (its Latin and digits too, so a line keeps one look), then the Korean face
+/// for mixed Hebrew–Hangul lines, then the Japanese faces and the bundled Latin one for anything
+/// still lacking; Korean text does the same with the Korean face; other text takes the Japanese
+/// faces, and the bundled Latin face behind them, which covers the Latin, Greek and Cyrillic
+/// letters they lack (#2593: the Japanese faces have no қ, ғ, ҳ, ә, ө, ү, ұ or һ).
 fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(Vec<&'static CraftFont>, Script), EditError> {
     let japanese = pdfcraft_fonts::document_japanese_fonts_for_style(family == crate::added::Family::Times, bold);
     let latin = pdfcraft_fonts::document_latin_fonts(bold);
@@ -2013,7 +2013,10 @@ fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(
         return Err(EditError::Invalid("Hebrew points (niqqud) can't be written into a PDF yet; type the text without them".into()));
     }
     let hebrew = pdfcraft_fonts::document_hebrew_font(bold).ok_or_else(no_hebrew_font)?;
-    Ok((std::iter::once(hebrew).chain(japanese).chain(latin).collect(), Script::Hebrew))
+    // A line mixing Hebrew and Hangul gets the Korean face after the Hebrew one, so the Hangul
+    // draws from it instead of failing on the Japanese faces, which lack Hangul coverage.
+    let korean = if text.chars().any(is_korean) { pdfcraft_fonts::document_korean_font() } else { None };
+    Ok((std::iter::once(hebrew).chain(korean).chain(japanese).chain(latin).collect(), Script::Hebrew))
 }
 
 fn type3_font(
