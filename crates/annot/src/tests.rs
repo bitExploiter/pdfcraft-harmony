@@ -570,11 +570,22 @@ fn stamps_are_drawn_in_their_language() {
     )
     .unwrap();
     assert!(ap_content(&doc, &list(&doc, 0)[i]).contains("(CONFIDENTIEL) Tj"));
+    let shape = Shape::Stamp { rect: [100.0, 200.0, 300.0, 242.0], stamp: StampKind::PreliminaryResults, lang: StampLang::Cs, by: None };
+    let i = add_annotation(
+        &mut doc,
+        &NewAnnotation { page: 0, style: Style::default_for(&shape), shape, contents: String::new(), author: "Ada".into() },
+        &Meta::default(),
+    )
+    .unwrap();
+    let ap = ap_content(&doc, &list(&doc, 0)[i]);
+    assert!(!ap.contains('?'), "every Czech letter has a glyph: {ap}");
     assert_eq!(StampLang::from_code("pt-br"), StampLang::Pt);
+    assert_eq!(StampLang::from_code("pt-pt"), StampLang::PtPt);
     assert_eq!(StampLang::from_code("ja"), StampLang::En, "no translation falls back to English");
     for lang in StampLang::ALL {
         assert_eq!(StampLang::from_code(lang.code()), lang);
         assert!(StampKind::ALL.iter().all(|k| k.size_in(lang).0 >= 80.0 && !k.label_in(lang).is_empty()));
+        assert!(StampKind::ALL.iter().all(|k| pdfcraft_fonts::first_undrawable(&appearance::fold_extra(k.label_in(lang))).is_none()), "{lang:?}");
     }
 }
 
