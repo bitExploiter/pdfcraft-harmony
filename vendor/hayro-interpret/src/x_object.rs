@@ -1,4 +1,5 @@
 use crate::cache::{Cache, DecodedImageCache, DecodedImageKey};
+use crate::cmyk_group::{CmykGroup, blends_in_device_cmyk, names_a_blending_space};
 use crate::color::{ColorComponents, ColorSpace, ToRgb};
 use crate::context::Context;
 use crate::device::Device;
@@ -135,8 +136,6 @@ pub(crate) fn draw_form_xobject<'a, 'b>(
         return;
     }
 
-    let iter = TypedIter::new(x_object.decoded.as_ref());
-
     context.path_mut().truncate(0);
     context.save_state();
     context.pre_concat_affine(x_object.matrix);
@@ -172,6 +171,57 @@ pub(crate) fn draw_form_xobject<'a, 'b>(
         context.get_mut().graphics_state.stroke_alpha = 1.0;
     }
 
+    let resources = Resources::from_parent(x_object.resources.clone(), resources.clone());
+
+    // PdfCraft patch (45): an isolated group blending in DeviceCMYK starts from a backdrop of
+    // its own, so a device able to blend in CMYK computes its interior apart and composites the
+    // result through the layer pushed above (see `cmyk_group`). Knockout groups are left out:
+    // their elements composite with the group's initial backdrop, not with each other.
+    // An isolated group that names another blending space blends in that space (§11.3.4); a
+    // device drawing an enclosing group in CMYK is told, so it can decline that group. A
+    // non-isolated group's /CS is ignored: it blends in its parent's space (ISO 32000-2
+    // Table 145, CS), so it stays in the enclosing group's CMYK.
+    if x_object.is_transparency_group
+        && x_object.is_isolated
+        && names_a_blending_space(&x_object.dict)
+        && !blends_in_device_cmyk(&x_object.dict)
+    {
+        device.group_blends_outside_device_cmyk();
+    }
+
+    let blended_in_cmyk = own_layer
+        && x_object.is_isolated
+        && !x_object.is_knockout
+        && blends_in_device_cmyk(&x_object.dict)
+        && device.draw_isolated_cmyk_group(&CmykGroup::new(x_object, &resources, context));
+
+    if !blended_in_cmyk {
+        interpret_form_contents(&resources, x_object, context, device);
+    }
+
+    if own_layer {
+        device.pop_transparency_group();
+    }
+
+    context.pop_root_transform();
+    context.restore_state(device);
+
+    if has_oc {
+        context.ocg_state.end_marked_content();
+    }
+
+    context.end_nested_interpretation();
+}
+
+/// The contents of form `x_object`, in `context` as prepared for them (the form's `/Matrix`
+/// applied, its root transform pushed), clipped to its `/BBox`. PdfCraft patch (45): shared by
+/// [`draw_form_xobject`] and [`CmykGroup::interpret`].
+pub(crate) fn interpret_form_contents<'a>(
+    resources: &Resources<'a>,
+    x_object: &FormXObject<'a>,
+    context: &mut Context<'a>,
+    device: &mut impl Device<'a>,
+) {
     device.set_soft_mask(context.get().graphics_state.soft_mask.clone());
     device.set_blend_mode(context.get().graphics_state.blend_mode);
 
@@ -188,26 +238,13 @@ pub(crate) fn draw_form_xobject<'a, 'b>(
     });
 
     interpret(
-        iter,
-        &Resources::from_parent(x_object.resources.clone(), resources.clone()),
+        TypedIter::new(x_object.decoded.as_ref()),
+        resources,
         context,
         device,
     );
 
     device.pop_clip_path();
-
-    if own_layer {
-        device.pop_transparency_group();
-    }
-
-    context.pop_root_transform();
-    context.restore_state(device);
-
-    if has_oc {
-        context.ocg_state.end_marked_content();
-    }
-
-    context.end_nested_interpretation();
 }
 
 pub(crate) fn draw_image_xobject<'a, 'b>(
