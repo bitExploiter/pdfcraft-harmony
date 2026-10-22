@@ -33,7 +33,7 @@ pub fn modal(ctx: &egui::Context, id: impl std::hash::Hash + std::fmt::Debug) ->
 /// The tallest a modal's contents may be: the window's height less the card's padding and a
 /// margin above and below, so the card never runs off the top or bottom of a short window.
 pub fn modal_max_height(ctx: &egui::Context) -> f32 {
-    (ctx.content_rect().height() - 2.0 * (f32::from(DIALOG_PAD_Y) + DIALOG_SCREEN_MARGIN)).max(120.0)
+    (ctx.content_rect().height() - 2.0 * (f32::from(DIALOG_PAD_Y) + DIALOG_SCREEN_MARGIN)).max(0.0)
 }
 
 /// Show [`modal`], outline its controls, and remember the card rect for layout checks.

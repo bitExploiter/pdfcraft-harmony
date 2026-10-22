@@ -942,7 +942,7 @@ pub(crate) fn body(
     // In a short window the settings and preview scroll, and Print and Cancel stay in view: the
     // title above takes what is used so far, the buttons below a 12-point gap and their row.
     let footer = 12.0 + FOOTER_H + 2.0 * ui.spacing().item_spacing.y;
-    let max = (most - ui.min_rect().height() - footer).max(120.0);
+    let max = (most - ui.min_rect().height() - footer).max(0.0);
     egui::ScrollArea::vertical().id_salt("print-settings").max_height(max).show(ui, |ui| ui.horizontal_top(|ui| {
         // Settings.
         ui.vertical(|ui| {
