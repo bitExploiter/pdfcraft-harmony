@@ -2014,8 +2014,10 @@ fn type3_faces(text: &str, family: crate::added::Family, bold: bool) -> Result<(
     }
     let hebrew = pdfcraft_fonts::document_hebrew_font(bold).ok_or_else(no_hebrew_font)?;
     // A line mixing Hebrew and Hangul gets the Korean face after the Hebrew one, so the Hangul
-    // draws from it instead of failing on the Japanese faces, which lack Hangul coverage.
-    let korean = if text.chars().any(is_korean) { pdfcraft_fonts::document_korean_font() } else { None };
+    // draws from it instead of failing on the Japanese faces, which lack Hangul coverage. With
+    // Hangul and no Korean face, the refusal names the Korean face rather than reporting the
+    // Hebrew face's missing glyph (same guidance the Korean-only branch gives).
+    let korean = if text.chars().any(is_korean) { Some(pdfcraft_fonts::document_korean_font().ok_or_else(no_korean_font)?) } else { None };
     Ok((std::iter::once(hebrew).chain(korean).chain(japanese).chain(latin).collect(), Script::Hebrew))
 }
 

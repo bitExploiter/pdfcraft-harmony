@@ -3337,6 +3337,21 @@ fn mixed_hebrew_korean_replacement_uses_both_faces() {
     assert_eq!(text::text_lines(&reopen(&doc), 0).unwrap()[0].text, typed, "Hebrew and Hangul both round-trip");
 }
 
+/// The same mixed line without a Korean face must ask for the Korean face, not just report the
+/// missing Hangul glyph: runs only in a checkout that has Hebrew but no `Kore` face.
+#[test]
+fn mixed_hebrew_korean_without_the_korean_face_names_korean() {
+    if pdfcraft_fonts::document_hebrew_font(false).is_none() || pdfcraft_fonts::document_korean_font().is_some() {
+        eprintln!(
+            "skipping mixed_hebrew_korean_without_the_korean_face_names_korean: needs a craft-fonts checkout with a Hebrew face but no Kore face"
+        );
+        return;
+    }
+    let mut doc = hebrew_page("BT /F1 12 Tf 300 700 Td (EDCBA) Tj ET");
+    let err = text::replace_line(&mut doc, 0, 0, "שלום 한글").unwrap_err().to_string();
+    assert!(err.contains("Korean") && err.contains("CRAFT_FONTS_DIR"), "{err}");
+}
+
 /// #2013: the dialog asks `first_undrawable` before offering OK, so it must refuse exactly what
 /// applying refuses: a Cyrillic footer was previewed (in the interface font) and then failed.
 #[test]
