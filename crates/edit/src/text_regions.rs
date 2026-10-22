@@ -237,7 +237,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
             // A bullet of its own opens a list item (#2564): such a row is a new paragraph, and
             // letting it join is what made an edit of the row above delete this item and the ones
             // after it.
-            if starts_list_item(&row, lines) {
+            if starts_list_item(row, lines) {
                 return false;
             }
             let Some(prev_row) = block.rows.last() else { return false };

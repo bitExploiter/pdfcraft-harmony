@@ -3284,6 +3284,7 @@ mod tests {
             lines: Vec::new(),
             rows: Vec::new(),
             editor_text: text.into(),
+            reflow_text: text.into(),
             spans: Vec::new(),
             invisible: false,
         }
