@@ -397,14 +397,24 @@ mod tests {
         let me = current_user_sid().unwrap();
         let file = dir.join("ctl.json");
         std::fs::write(&file, b"{}").unwrap();
-        let rights = std::process::Command::new("icacls")
-            .arg(&file)
-            .args(["/inheritance:r", "/grant:r"])
-            .arg(format!("*{me}:(R)"))
-            .arg("*S-1-3-4:(WO)")
+        // The whole list is written, as `restrict_to_owner` does: `icacls /inheritance:r` leaves
+        // the Administrators entry the windows-latest runner gives a new file, and with it an
+        // elevated administrator could replace the list after all.
+        let rights = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$s = New-Object Security.AccessControl.FileSecurity; $s.SetSecurityDescriptorSddlForm('D:P(A;;FR;;;' + $env:PDFCRAFT_OW_USER + ')(A;;WO;;;OW)', 'Access'); [IO.File]::SetAccessControl($env:PDFCRAFT_OW_PATH, $s)",
+            ])
+            .env("PDFCRAFT_OW_PATH", &file)
+            .env("PDFCRAFT_OW_USER", &me)
             .output()
             .unwrap();
         assert!(rights.status.success(), "{}", String::from_utf8_lossy(&rights.stderr));
+        // Nothing but the two entries: no Administrators entry for the elevated runner to use.
+        let sddl = sddl_of(&file).unwrap();
+        assert_eq!(section(&sddl, "D:"), Some(format!("(A;;524288;;;S-1-3-4)(A;;1179785;;;{me})").as_str()), "{sddl}");
         assert!(restrict_to_owner(&file).is_err(), "the access list could not be replaced");
         let _ = std::fs::remove_dir_all(&dir);
     }
