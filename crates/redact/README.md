@@ -21,7 +21,8 @@ clear_marks(&mut doc, None)?;                        // remove marks without app
   (8/16-bit and 1/2/4-bit images, image masks; Flate/LZW/RL/A85/AHx). Grey and RGB JPEGs
   (scans, camera photos) are decoded, cleared and written as a new JPEG from the cleared pixels,
   so the rest of the page keeps its picture. Codecs PdfCraft can't re-encode (CMYK JPEG, JPX,
-  JBIG2, CCITT) are removed whole (fail-closed); inline images under an area are removed.
+  JBIG2, CCITT), and RGB JPEGs whose `/ColorTransform 0` stores RGB rather than YCbCr samples,
+  are removed whole (fail-closed); inline images under an area are removed.
   Images with separate `/SMask` or `/Mask` data, and images whose data decodes to more than
   twice their declared raster (plus a byte per row and 4 KiB), are removed whole; cleared copies
   drop `/Alternates` so alternate pixels cannot survive, and `/Metadata` (an XMP packet can hold

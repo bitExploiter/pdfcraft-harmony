@@ -312,20 +312,29 @@ fn a_scanned_jpeg_page_keeps_its_picture_around_the_redaction() {
 #[test]
 fn a_jpeg_that_can_not_be_cleared_safely_is_still_removed() {
     // The colour space says grey but the JPEG is RGB: reading it would be guesswork, so the image
-    // goes whole (fail-closed), as do bytes that aren't a JPEG at all.
-    for (cs, data) in [("/DeviceGray", white_jpeg(16, 16, 3)), ("/DeviceRGB", b"not a jpeg".to_vec())] {
-        let dict = format!("/Type /XObject /Subtype /Image /Width 16 /Height 16 /ColorSpace {cs} /BitsPerComponent 8 /Filter /DCTDecode");
-        let mut doc = one_page(b"q 100 0 0 100 0 0 cm /Im Do Q", "/XObject << /Im 7 0 R >>", vec![stream(&dict, &data)]);
-        mark(&mut doc, 0, &[[0.0, 0.0, 50.0, 100.0]], "");
-        let r = apply(&mut doc, None).unwrap();
-        assert_eq!((r.images_removed, r.images_cleared), (1, 0), "{cs}: {r:?}");
+    // goes whole (fail-closed), as do bytes that aren't a JPEG at all, and an RGB JPEG whose
+    // `/ColorTransform 0` says it holds RGB rather than YCbCr samples, which the decoder can't be
+    // told and would convert anyway.
+    let removed = [
+        ("/ColorSpace /DeviceGray /Filter /DCTDecode", white_jpeg(16, 16, 3)),
+        ("/ColorSpace /DeviceRGB /Filter /DCTDecode", b"not a jpeg".to_vec()),
+        ("/ColorSpace /DeviceRGB /Filter /DCTDecode /DecodeParms << /ColorTransform 0 >>", white_jpeg(16, 16, 3)),
+        ("/ColorSpace /DeviceRGB /Filter [/DCTDecode] /DecodeParms [<< /ColorTransform 0 >>]", white_jpeg(16, 16, 3)),
+    ];
+    // A grey JPEG is cleared like an RGB one, and so is an RGB JPEG that states the usual YCbCr.
+    let cleared = [
+        ("/ColorSpace /DeviceGray /Filter [/DCTDecode]", white_jpeg(16, 16, 1)),
+        ("/ColorSpace /DeviceRGB /Filter /DCTDecode /DecodeParms << /ColorTransform 1 >>", white_jpeg(16, 16, 3)),
+    ];
+    for (expected, cases) in [((1, 0), &removed[..]), ((0, 1), &cleared[..])] {
+        for (rest, data) in cases {
+            let dict = format!("/Type /XObject /Subtype /Image /Width 16 /Height 16 /BitsPerComponent 8 {rest}");
+            let mut doc = one_page(b"q 100 0 0 100 0 0 cm /Im Do Q", "/XObject << /Im 7 0 R >>", vec![stream(&dict, data)]);
+            mark(&mut doc, 0, &[[0.0, 0.0, 50.0, 100.0]], "");
+            let r = apply(&mut doc, None).unwrap();
+            assert_eq!((r.images_removed, r.images_cleared), expected, "{rest}: {r:?}");
+        }
     }
-    // A grey JPEG is cleared like an RGB one.
-    let dict = "/Type /XObject /Subtype /Image /Width 16 /Height 16 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter [/DCTDecode]";
-    let mut doc = one_page(b"q 100 0 0 100 0 0 cm /Im Do Q", "/XObject << /Im 7 0 R >>", vec![stream(dict, white_jpeg(16, 16, 1))]);
-    mark(&mut doc, 0, &[[0.0, 0.0, 50.0, 100.0]], "");
-    let r = apply(&mut doc, None).unwrap();
-    assert_eq!((r.images_removed, r.images_cleared), (0, 1), "{r:?}");
 }
 
 #[test]

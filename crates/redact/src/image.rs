@@ -137,6 +137,11 @@ fn clear_jpeg(doc: &Document, s: &Stream, ctm: &Matrix, rects: &[[f64; 4]]) -> O
     if ncomp != expected {
         return None;
     }
+    // `/ColorTransform 0` says three components hold RGB, not YCbCr. The decoder goes by the
+    // JPEG's own markers and can't be told, so it would convert them anyway and shift every colour.
+    if expected == 3 && color_transform(doc, s) == Some(0) {
+        return None;
+    }
     let mut data = vec![0; usize::try_from(decoder.total_bytes()).ok()?];
     decoder.read_image(&mut data).ok()?;
     let (wu, hu) = (w as usize, h as usize);
@@ -154,6 +159,14 @@ fn clear_jpeg(doc: &Document, s: &Stream, ctm: &Matrix, rects: &[[f64; 4]]) -> O
     dict.set(b"Height".to_vec(), Object::Int(i64::from(h)));
     dict.set(b"BitsPerComponent".to_vec(), Object::Int(8));
     Some(Some(Stream::from_raw(dict, jpeg)))
+}
+
+/// The `/ColorTransform` a JPEG's `/DecodeParms` states (a dictionary, or an array holding one for
+/// the single filter).
+fn color_transform(doc: &Document, s: &Stream) -> Option<i64> {
+    let params = doc.resolve(s.dict.get(b"DecodeParms")?);
+    let first = params.as_array().and_then(|a| a.first()).map(|p| doc.resolve(p));
+    first.unwrap_or(params).as_dict()?.int(b"ColorTransform")
 }
 
 /// Set every pixel whose footprint intersects one of `rects` to zero bits (or one bits when
