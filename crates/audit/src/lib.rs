@@ -15,7 +15,8 @@
 //! four corners form an axis-aligned rectangle in user space (#1510), filled opaquely, and a
 //! thick opaque stroke along one axis (a "marker" line) — and from the annotations: an opaque
 //! `/Highlight` dark enough to hide the text under it (#2385), and an opaque filled `/Square`
-//! likewise (#2854).
+//! likewise, or white (#2854). A `/Redact` mark is reported whatever its flags: Hidden or NoView
+//! hides the mark, not the text.
 //!
 //! Detection limits (documented, not hidden): other filled paths, slanted or bent strokes,
 //! shadings and patterns are not considered; a cover drawn with a translucent ExtGState
@@ -48,8 +49,9 @@ pub enum FindingKind {
     CoveredText,
     /// A `/Redact` annotation was placed but never applied: the text is untouched.
     UnappliedMark,
-    /// A white (or nearly white) opaque rectangle painted after text hides it: the text is
-    /// invisible on the page and still extractable (a "whited out" form).
+    /// A white (or nearly white) opaque rectangle painted after text, or a white filled square
+    /// annotation over it, hides it: the text is invisible on the page and still extractable (a
+    /// "whited out" form).
     HiddenUnderWhite,
 }
 
@@ -125,11 +127,13 @@ pub fn audit_redactions(doc: &Document) -> Result<Vec<AuditFinding>, AuditError>
                 }
             }
         }
-        // 2. Redact annotations that were never applied, and highlights and filled squares dark
-        // enough to hide the text under them (annotations are drawn over the page's content).
+        // 2. Redact annotations that were never applied, and highlights and filled squares that
+        // hide the text under them (annotations are drawn over the page's content): dark enough
+        // against it, or, for a square, white, like a white rectangle in the content.
         for mark in annots(doc, &page.dict)? {
             let (kind, hides) = match mark.kind {
                 Mark::Redact => (FindingKind::UnappliedMark, None),
+                Mark::Square(rgb) if luminance(rgb) >= WHITE_LUMINANCE => (FindingKind::HiddenUnderWhite, None),
                 Mark::Highlight(rgb) | Mark::Square(rgb) => (FindingKind::CoveredText, Some(rgb)),
             };
             let covered = joined(
@@ -269,11 +273,10 @@ fn annots(doc: &Document, page: &Dict) -> Result<Vec<Annot>, AuditError> {
                 .and_then(|r| r.as_array().map(|arr| arr.iter().filter_map(|o| doc.resolve(o).as_f64()).collect()))
                 .unwrap_or_default()
         };
-        // Hidden or NoView: not drawn, so hiding nothing.
+        // Hidden or NoView: not drawn, so a cover hides nothing. A `/Redact` mark is audited
+        // whatever its flags: hiding the mark does not apply the redaction.
         let flags = dict.get(b"F").and_then(|f| doc.resolve(f).as_int()).unwrap_or(0);
-        if flags & (2 | 32) != 0 {
-            continue;
-        }
+        let drawn = flags & (2 | 32) == 0;
         // The color the annotation paints opaquely: a highlight's `/C`, a square's interior `/IC`.
         // `None`: no color (drawn transparent), or `/CA` below 1.
         let opaque = |key: &[u8]| -> Option<[f64; 3]> {
@@ -292,12 +295,12 @@ fn annots(doc: &Document, page: &Dict) -> Result<Vec<Annot>, AuditError> {
         let kind = match dict.name(b"Subtype") {
             Some(b"Redact") => Mark::Redact,
             Some(b"Highlight") => match opaque(b"C") {
-                Some(rgb) => Mark::Highlight(rgb),
-                None => continue,
+                Some(rgb) if drawn => Mark::Highlight(rgb),
+                _ => continue,
             },
             Some(b"Square") => match opaque(b"IC") {
-                Some(rgb) => Mark::Square(rgb),
-                None => continue,
+                Some(rgb) if drawn => Mark::Square(rgb),
+                _ => continue,
             },
             _ => continue,
         };

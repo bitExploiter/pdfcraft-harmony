@@ -279,6 +279,44 @@ fn print_flag_square_annotation_is_still_a_finding() {
     assert_eq!(findings[0].kind, FindingKind::CoveredText);
 }
 
+/// A white filled Square annotation hides dark text as a white rectangle in the content does:
+/// reported as hidden under white, not passed over by the contrast test.
+#[test]
+fn white_square_annotation_over_text_is_hidden_under_white() {
+    let content = b"BT /F1 24 Tf 100 700 Td (SECRET DATA 123) Tj ET\n";
+    let mut b = Builder::new();
+    b.add("<< /Type /Catalog /Pages 2 0 R >>");
+    b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+    b.add("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>");
+    b.add_stream(content);
+    b.add(FONT);
+    b.add("<< /Type /Annot /Subtype /Square /Rect [95 685 325 725] /C [0 0 0] /IC [1 1 1] >>");
+    let findings = audit_redactions(&open(b.build())).expect("audit must run");
+    assert_eq!(findings.len(), 1, "{findings:?}");
+    assert_eq!((findings[0].kind.clone(), findings[0].rect), (FindingKind::HiddenUnderWhite, [95.0, 685.0, 325.0, 725.0]));
+    assert_eq!(findings[0].covered_text, "SECRET DATA 123");
+}
+
+/// A Hidden or NoView `/Redact` mark is still an unapplied one: the flag hides the mark, the
+/// text is untouched and extractable.
+#[test]
+fn hidden_redact_mark_is_still_unapplied() {
+    for flags in ["/F 2", "/F 32"] {
+        let content = b"BT /F1 24 Tf 100 700 Td (SECRET DATA 123) Tj ET\n";
+        let mut b = Builder::new();
+        b.add("<< /Type /Catalog /Pages 2 0 R >>");
+        b.add("<< /Type /Pages /Kids [3 0 R] /Count 1 >>");
+        b.add("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> /Annots [6 0 R] >>");
+        b.add_stream(content);
+        b.add(FONT);
+        b.add(&format!("<< /Type /Annot /Subtype /Redact /Rect [95 685 325 725] {flags} >>"));
+        let findings = audit_redactions(&open(b.build())).expect("audit must run");
+        assert_eq!(findings.len(), 1, "{flags}: {findings:?}");
+        assert_eq!(findings[0].kind, FindingKind::UnappliedMark, "{flags}");
+        assert_eq!(findings[0].covered_text, "SECRET DATA 123");
+    }
+}
+
 #[test]
 fn background_before_text_is_not_flagged() {
     // An opaque dark rectangle painted *before* the text is a background, not a cover.
