@@ -54,7 +54,7 @@ pub use pdfcraft_organize::Standard;
 pub use pdfcraft_organize::view::{InitialView, Layout as InitialLayout, Magnification, Navigation};
 
 pub use pdfcraft_cos::Algorithm;
-pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImageResolution, SourceKind, decode_text, source_kind};
+pub use pdfcraft_create::{CONVERTIBLE, CreateError, ImagePage, ImageResolution, SourceKind, decode_text, source_kind};
 pub use pdfcraft_edit::added::{text_rect as added_text_rect, text_width as added_text_width};
 pub use pdfcraft_edit::{
     Added, AddedImage, AddedText, Align as TextAlign, Background, Content as AddedContent, Family as FontFamily, HeaderFooter, MarkKind, Watermark,
@@ -4429,6 +4429,30 @@ impl Session {
         self.write_new(&pdfcraft_create::from_images_with_resolution(images, resolution)?)
     }
 
+    /// Create image pages on `page`: one page per image as before, or every image on a page of one
+    /// size, scaled to fit and centred.
+    pub fn create_from_images_on_pages(
+        &self,
+        images: &[(String, Vec<u8>)],
+        resolution: ImageResolution,
+        page: ImagePage,
+    ) -> Result<Arc<Vec<u8>>, EditError> {
+        self.write_new(&pdfcraft_create::from_images_on_pages(images, resolution, page)?)
+    }
+
+    /// A paper size by name, in points (portrait): the names `pdfcraft_print::PAPERS` lists, and
+    /// the short spellings people use for them ("a4", "letter", "legal", "tabloid"). Case and
+    /// surrounding spaces don't matter. `None` for a name that isn't one of them.
+    pub fn paper_size(name: &str) -> Option<(f64, f64)> {
+        let want = name.trim().to_ascii_lowercase();
+        let short = match want.as_str() {
+            "letter" => "us letter",
+            "legal" => "us legal",
+            other => other,
+        };
+        pdfcraft_print::PAPERS.iter().find(|(paper, _)| paper.to_ascii_lowercase() == short).map(|(_, size)| *size)
+    }
+
     /// A new document from plain text (US Letter, 11 pt Helvetica). Text Helvetica can't draw is
     /// refused, naming the line and the character (never set as `?`).
     pub fn create_from_text(&self, title: &str, text: &str) -> Result<Arc<Vec<u8>>, EditError> {
@@ -4446,6 +4470,12 @@ impl Session {
     /// Convert a file Create understands (an image or plain text) to PDF bytes; a PDF is checked
     /// (it must open and allow copying pages) and returned as it is.
     pub fn convert_to_pdf(&self, name: &str, bytes: &Arc<Vec<u8>>) -> Result<(SourceKind, Arc<Vec<u8>>), EditError> {
+        self.convert_to_pdf_on_pages(name, bytes, ImagePage::Image)
+    }
+
+    /// [`Self::convert_to_pdf`], placing an image source on `page`. A PDF or text source is
+    /// unaffected: only an image has a page size of its own to replace.
+    pub fn convert_to_pdf_on_pages(&self, name: &str, bytes: &Arc<Vec<u8>>, page: ImagePage) -> Result<(SourceKind, Arc<Vec<u8>>), EditError> {
         let Some(kind) = source_kind(name, bytes) else {
             return Err(EditError::Source(format!("{name}: this file type can't be converted; use a PDF, an image or a .txt file")));
         };
@@ -4453,7 +4483,7 @@ impl Session {
         // Image decoders read untrusted bytes: a panic in one must not take the app down.
         let created = guard(|| match kind {
             SourceKind::Pdf => open_source(name, bytes).map(|_| bytes.clone()),
-            SourceKind::Image => self.create_from_images(&[(name.to_string(), bytes.to_vec())]),
+            SourceKind::Image => self.create_from_images_on_pages(&[(name.to_string(), bytes.to_vec())], ImageResolution::Embedded, page),
             SourceKind::Text => self.create_from_text(title, &decode_text(bytes)),
         })
         .map_err(|_| EditError::Source(format!("{name}: the file could not be read")))?;
@@ -4464,12 +4494,17 @@ impl Session {
     /// it is, unchecked (Combine reads it itself, with its password), as is a file named .pdf
     /// without a `%PDF-` header, which the reader may still open.
     pub fn as_pdf(&self, name: &str, bytes: &Arc<Vec<u8>>) -> Result<Arc<Vec<u8>>, EditError> {
+        self.as_pdf_on_pages(name, bytes, ImagePage::Image)
+    }
+
+    /// [`Self::as_pdf`], placing an image source on `page`.
+    pub fn as_pdf_on_pages(&self, name: &str, bytes: &Arc<Vec<u8>>, page: ImagePage) -> Result<Arc<Vec<u8>>, EditError> {
         let pdf = match source_kind(name, bytes) {
             Some(SourceKind::Pdf) => true,
             Some(SourceKind::Image | SourceKind::Text) => false,
             None => name.to_ascii_lowercase().ends_with(".pdf"),
         };
-        if pdf { Ok(bytes.clone()) } else { self.convert_to_pdf(name, bytes).map(|(_, pdf)| pdf) }
+        if pdf { Ok(bytes.clone()) } else { self.convert_to_pdf_on_pages(name, bytes, page).map(|(_, pdf)| pdf) }
     }
 
     /// Reduce File Size: Acrobat's defaults (images above 225 ppi to 150 ppi, JPEG medium

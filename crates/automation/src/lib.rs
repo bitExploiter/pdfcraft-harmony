@@ -78,6 +78,27 @@ impl std::error::Error for ToolError {}
 
 type Result<T> = std::result::Result<T, ToolError>;
 
+/// `pageSize` (a paper name such as "a4" or "letter") or `pageWidth` and `pageHeight` in points:
+/// every image goes on a page of that size, scaled to fit and centred. Without them each page is
+/// the size of its own image, as before (#3273).
+fn image_page(a: &Args) -> Result<pdfcraft_engine::ImagePage> {
+    let named = match a.opt_str("pageSize")? {
+        Some(name) => Some(pdfcraft_engine::Session::paper_size(name).ok_or_else(|| {
+            let names = pdfcraft_print::PAPERS.iter().map(|(paper, _)| *paper).collect::<Vec<_>>().join(", ");
+            failed(format!("unknown pageSize `{name}`: expected one of {names}, or pageWidth and pageHeight in points"))
+        })?),
+        None => None,
+    };
+    let (width, height) = (a.opt_num("pageWidth")?, a.opt_num("pageHeight")?);
+    match (named, width, height) {
+        (Some(_), Some(_), _) | (Some(_), _, Some(_)) => Err(failed("pageSize and pageWidth/pageHeight can't both be given")),
+        (Some((width, height)), None, None) => Ok(pdfcraft_engine::ImagePage::Fixed { width, height }),
+        (None, Some(width), Some(height)) => Ok(pdfcraft_engine::ImagePage::Fixed { width, height }),
+        (None, None, None) => Ok(pdfcraft_engine::ImagePage::Image),
+        (None, _, _) => Err(failed("pageWidth and pageHeight must be given together")),
+    }
+}
+
 fn failed(e: impl std::fmt::Display) -> ToolError {
     ToolError::Failed(e.to_string())
 }
@@ -1441,6 +1462,7 @@ impl Automation {
             }
             "images" => {
                 let resolution = a.opt_num("dpi")?.map_or(pdfcraft_engine::ImageResolution::Embedded, pdfcraft_engine::ImageResolution::Dpi);
+                let page = image_page(a)?;
                 let mut images = Vec::new();
                 for p in a.strs("paths")? {
                     let path = self.resolve(p, false)?;
@@ -1452,7 +1474,7 @@ impl Automation {
                 } else {
                     "Images.pdf".into()
                 };
-                (name, self.session.create_from_images_with_resolution(&images, resolution).map_err(failed)?)
+                (name, self.session.create_from_images_on_pages(&images, resolution, page).map_err(failed)?)
             }
             "text" => {
                 let (title, text) = match (a.opt_str("text")?, a.opt_str("path")?) {
@@ -1674,12 +1696,13 @@ impl Automation {
             Some(Value::Array(v)) if v.len() == paths.len() => v.iter().map(|x| x.as_str().map(str::to_owned)).collect(),
             Some(_) => return Err(ToolError::InvalidArgs("pages must list a range (or null) for each path".into())),
         };
+        let page = image_page(a)?;
         // Each file is read, converted and copied in turn, so a long list holds one file at a time.
         let sources = paths.into_iter().zip(ranges).map(|(p, range)| -> std::result::Result<pdfcraft_engine::CombineSource, ToolError> {
             let path = self.resolve(p, false)?;
             let bytes = std::fs::read(&path).map_err(|e| failed(format!("{}: {e}", path.display())))?;
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            let (_, pdf) = self.session.convert_to_pdf(&name, &Arc::new(bytes)).map_err(failed)?;
+            let (_, pdf) = self.session.convert_to_pdf_on_pages(&name, &Arc::new(bytes), page).map_err(failed)?;
             let title = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             Ok((title, pdf, range))
         });
@@ -1689,6 +1712,7 @@ impl Automation {
 
     /// One PDF per file, written into `out_dir`; a file that fails doesn't stop the others.
     fn create_separate(&mut self, a: &Args, paths: &[&str]) -> Result<Value> {
+        let page = image_page(a)?;
         let dir = self.resolve(a.str("out_dir").map_err(|_| ToolError::InvalidArgs("mode \"separate\" needs out_dir".into()))?, true)?;
         std::fs::create_dir_all(&dir).map_err(|e| failed(format!("{}: {e}", dir.display())))?;
         let mut out = Vec::new();
@@ -1697,7 +1721,7 @@ impl Automation {
                 let bytes = std::fs::read(&src).map_err(|e| format!("{}: {e}", src.display()))?;
                 let name = src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
                 let stem = src.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "document".into());
-                let (kind, pdf) = self.session.convert_to_pdf(&name, &Arc::new(bytes)).map_err(|e| e.to_string())?;
+                let (kind, pdf) = self.session.convert_to_pdf_on_pages(&name, &Arc::new(bytes), page).map_err(|e| e.to_string())?;
                 Ok((kind, stem, pdf))
             });
             out.push(match converted {
@@ -1746,6 +1770,7 @@ impl Automation {
         if paths.len() < 2 {
             return Err(ToolError::InvalidArgs("combine needs at least two files".into()));
         }
+        let page = image_page(a)?;
         let ranges: Vec<Option<String>> = match a.get("pages") {
             None | Some(Value::Null) => vec![None; paths.len()],
             Some(Value::Array(v)) if v.len() == paths.len() => v
@@ -1801,7 +1826,7 @@ impl Automation {
                     let bytes = Arc::new(std::fs::read(&path).map_err(|e| failed(format!("{}: {e}", path.display())))?);
                     // Images and text files are made into PDFs first (#569), as in the Combine files tab.
                     let file_name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                    self.session.as_pdf(&file_name, &bytes).map_err(failed)?
+                    self.session.as_pdf_on_pages(&file_name, &bytes, page).map_err(failed)?
                 }
             };
             let name = path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
