@@ -39,8 +39,27 @@ pub fn read_zone(path: &Path) -> Option<Vec<u8>> {
     let mut zone = Vec::new();
     file.take(MAX_ZONE_STREAM.saturating_add(1)).read_to_end(&mut zone).ok()?;
     let fits = u64::try_from(zone.len()).is_ok_and(|n| n <= MAX_ZONE_STREAM);
-    let has = |needle: &[u8]| zone.windows(needle.len()).any(|w| w.eq_ignore_ascii_case(needle));
-    (fits && has(b"[ZoneTransfer]") && has(b"ZoneId=")).then_some(zone)
+    (fits && has_zone_id(&zone)).then_some(zone)
+}
+
+/// Whether `stream` has a `ZoneId=<number>` entry inside its `[ZoneTransfer]` section. Text that
+/// only mentions those words elsewhere (say a `HostUrl` ending in `?ZoneId=3`) is not a zone.
+#[cfg(windows)]
+fn has_zone_id(stream: &[u8]) -> bool {
+    let mut in_section = false;
+    for line in stream.split(|&b| b == b'\n').map(<[u8]>::trim_ascii) {
+        if line.starts_with(b"[") {
+            in_section = line.eq_ignore_ascii_case(b"[ZoneTransfer]");
+            continue;
+        }
+        let Some(eq) = line.iter().position(|&b| b == b'=') else { continue };
+        let (key, value) = line.split_at(eq);
+        let value = value.get(1..).unwrap_or_default().trim_ascii();
+        if in_section && key.trim_ascii().eq_ignore_ascii_case(b"ZoneId") && (1..=10).contains(&value.len()) && value.iter().all(u8::is_ascii_digit) {
+            return true;
+        }
+    }
+    false
 }
 
 /// The path of `path`'s `Zone.Identifier` alternate data stream.
@@ -113,6 +132,16 @@ mod tests {
         std::fs::write(&target, b"hello").unwrap();
         mark_from(&target, Some(&source)).unwrap();
         assert_eq!(read_zone(&target).unwrap(), INTERNET_ZONE.as_bytes());
+        for odd in [
+            "[ZoneTransfer]\r\nHostUrl=https://example.test/?ZoneId=3\r\n",
+            "[Other]\r\nZoneId=3\r\n[ZoneTransfer]\r\nReferrerUrl=x\r\n",
+            "[ZoneTransfer]\r\nZoneId=\r\n",
+            "[ZoneTransfer]\r\nZoneId=three\r\n",
+        ] {
+            std::fs::write(zone_stream(&source), odd).unwrap();
+            mark_from(&target, Some(&source)).unwrap();
+            assert_eq!(read_zone(&target).unwrap(), INTERNET_ZONE.as_bytes(), "{odd:?}");
+        }
         let huge = [INTERNET_ZONE.as_bytes(), &vec![b'x'; 70 * 1024]].concat();
         std::fs::write(zone_stream(&source), huge).unwrap();
         mark_from(&target, Some(&source)).unwrap();
