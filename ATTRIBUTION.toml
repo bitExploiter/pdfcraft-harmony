@@ -292,7 +292,7 @@ licence = "MIT OR Apache-2.0"
 licence_file = "LICENSE-MIT"
 kind = "translation"
 usage = "Romanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
-sha256 = "5fccfe0cbc034214ec0fc4940458bc556e3895d0e689b7c71d768ae5c8f81d8f"
+sha256 = "1ee3dca009b286c61522549634729757b1c4a459439c2127fefc2a75942d4c2c"
 
 
 [[asset]]

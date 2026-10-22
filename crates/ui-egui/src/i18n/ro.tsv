@@ -310,7 +310,7 @@
 	Black and white	Alb-negru
 	Bold	Aldin
 	Booklet	Broșură
-	Booklet subset:	Subset broșură:
+	Booklet subset:	Selecție broșură:
 	Bookmark options	Opțiuni semne de carte
 	Bookmarks Panel and Page	Panoul Semne de carte și pagina
 	Border Color:	Culoare chenar:
@@ -1109,7 +1109,7 @@
 	Strength: {s}	Putere: {s}
 	Style	Stil
 	Subject	Subiect
-	Subset	Filtru
+	Subset	Selecție
 	Summarize Options	Opțiuni rezumat
 	Summary	Rezumat
 	Switch to List view to change the pages it takes.	Treceți la vizualizarea Listă pentru a schimba paginile pe care le ia.
@@ -2746,7 +2746,7 @@ theme	Appearance	Aspect
 	The signature's signed attributes have no content type, which CMS requires; it was read anyway.	Atributele semnate ale semnăturii nu au tipul de conținut cerut de CMS; au fost citite oricum.
 	This signature uses an RSA key shorter than 2048 bits, which is no longer considered strong enough for signatures. It still validates, but it should not be relied on.	Această semnătură folosește o cheie RSA mai scurtă de 2048 de biți, care nu mai este considerată suficient de puternică pentru semnături. Se validează în continuare, dar nu ar trebui să vă bazați pe ea.
 	The signature's signed attributes have no message digest, so the signature does not cover the document.	Atributele semnate ale semnăturii nu au rezumatul mesajului, deci semnătura nu acoperă documentul.
-	The signature's signed attributes name a content type other than data, so it is not a signature of the document.	Atributele semnate ale semnăturii indică alt tip de conținut decât data, deci nu este o semnătură a documentului.
+	The signature's signed attributes name a content type other than data, so it is not a signature of the document.	Atributele semnate ale semnăturii indică alt tip de conținut decât „data”, deci nu este o semnătură a documentului.
 	Remove {standard} identification	Eliminare identificare {standard}
 
 # Prepare a form ▸ Text field table (AI-assisted, not separately native-reviewed)
