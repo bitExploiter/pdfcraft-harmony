@@ -418,7 +418,7 @@ fn source_kind_tells_pdfs_images_and_text_apart() {
     // Text that merely starts like a BMP stays text; a truncated BMP header is not an image.
     assert_eq!(source_kind("b.txt", b"BMW drivers"), Some(SourceKind::Text));
     assert_eq!(source_kind("b.bmp", b"BM"), None);
-    assert_eq!(source_kind("a.docx", b"PK\x03\x04"), None);
+    assert_eq!(source_kind("a.docx", b"PK\x03\x04"), Some(SourceKind::Office), "Office documents convert through LibreOffice");
     assert_eq!(source_kind("", b""), None);
     // Only the GIF versions Create decodes count as images, so detection never promises a
     // conversion that then fails.
@@ -1196,4 +1196,20 @@ fn a_cyclic_indexed_colour_space_is_refused() {
     let out = extract_images(&doc, &[0], 0);
     assert!(out.images.is_empty());
     assert_eq!(out.skipped.len(), 1, "{:?}", out.skipped);
+}
+
+#[test]
+fn convertible_is_the_image_and_text_extensions() {
+    let both: Vec<&str> = IMAGE_EXTENSIONS.iter().chain(TEXT_EXTENSIONS.iter()).copied().collect();
+    assert_eq!(both, CONVERTIBLE.to_vec());
+    assert!(OFFICE_EXTENSIONS.iter().all(|e| !CONVERTIBLE.contains(e) && *e != "pdf"));
+}
+
+#[test]
+fn office_documents_are_their_own_kind() {
+    assert_eq!(source_kind("Report.docx", b"PK\x03\x04\x14\x00"), Some(SourceKind::Office));
+    assert_eq!(source_kind("Budget.xls", &[0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]), Some(SourceKind::Office));
+    // A PDF saved with a Word name is still a PDF; a ZIP that isn't named like Office is nothing.
+    assert_eq!(source_kind("Report.docx", b"%PDF-1.7\n"), Some(SourceKind::Pdf));
+    assert_eq!(source_kind("photos.zip", b"PK\x03\x04\x14\x00"), None);
 }
