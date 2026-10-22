@@ -1046,16 +1046,16 @@ impl DocView {
         self.pages.get(&page).map(|p| p.tex.id())
     }
 
-    /// Whether `page` is still drawn, somewhere, as it was before its last change: its whole-page
-    /// raster (a tiled page's backdrop too) or any of its tiles waits for a replacement.
     /// Whether `page`'s whole-page raster (a tiled page's backdrop too) is still the one from
     /// before its last change, whatever its tiles are.
     pub(crate) fn page_raster_out_of_date(&self, page: usize) -> bool {
         self.pages.get(&page).is_some_and(|p| p.tag == STALE_TAG)
     }
 
+    /// Whether `page` is still drawn, somewhere, as it was before its last change: its whole-page
+    /// raster (a tiled page's backdrop too) or any of its tiles waits for a replacement.
     pub(crate) fn page_out_of_date(&self, page: usize) -> bool {
-        self.pages.get(&page).is_some_and(|p| p.tag == STALE_TAG) || self.stale_tiles.iter().any(|k| k.0 == page)
+        self.page_raster_out_of_date(page) || self.stale_tiles.iter().any(|k| k.0 == page)
     }
 
     /// The print preview's picture of `page`: the sheet raster when it has arrived, otherwise the
