@@ -12,11 +12,13 @@
 
 /// Why the file whose security descriptor is `sddl` (`O:` owner and `D:` access list, in SDDL or
 /// as [`read_with_sddl`] writes it) can't be trusted as user `me`'s own: it is owned by someone else, it has no
-/// access list (everyone may use it), or it lets an account other than `me`, SYSTEM or the
-/// Administrators group use it. Accounts are compared by SID; `None` means it is `me`'s alone.
+/// access list (everyone may use it), or it lets an account other than `me` or SYSTEM use it.
+/// Accounts are compared by SID; `None` means it is `me`'s alone.
 ///
-/// The rule is OpenSSH's for private keys on Windows: other users and groups such as Users or
-/// Authenticated Users must have no access, while SYSTEM and Administrators may.
+/// Stricter than OpenSSH's rule for private keys, which also lets Administrators in: an entry for
+/// the Administrators group would let another administrator read the token without taking the
+/// file over. [`restrict_to_owner`] never grants it, so the app's own file always passes; a file
+/// that inherited it from a user's folder is refused.
 pub fn foreign_access(sddl: &str, me: &str) -> Option<String> {
     let me = me.trim();
     let owner = section(sddl, "O:");
@@ -45,7 +47,7 @@ pub fn foreign_access(sddl: &str, me: &str) -> Option<String> {
         let Some(sid) = parts.get(5).filter(|s| !s.is_empty()) else {
             return Some(format!("its access list has an entry that can't be read ({ace})"));
         };
-        if !(same_account(sid, me) || matches!(*sid, "SY" | "S-1-5-18" | "BA" | "S-1-5-32-544" | "OW" | "S-1-3-4")) {
+        if !(same_account(sid, me) || matches!(*sid, "SY" | "S-1-5-18" | "OW" | "S-1-3-4")) {
             return Some(format!("another account ({sid}) has access to it"));
         }
     }
@@ -196,9 +198,14 @@ mod tests {
     const ME: &str = "S-1-5-21-1-2-3-1001";
 
     #[test]
-    fn the_users_own_file_with_system_and_administrators_is_trusted() {
+    fn the_users_own_file_with_system_is_trusted_and_administrators_are_not() {
         assert_eq!(foreign_access(&format!("O:{ME}G:{ME}D:P(A;;FA;;;{ME})(A;;FA;;;SY)"), ME), None);
-        assert_eq!(foreign_access(&format!("O:{ME}D:PAI(A;;FA;;;SY)(A;;FA;;;BA)(A;;FA;;;{ME})"), ME), None);
+        assert_eq!(foreign_access(&format!("O:{ME}D:(A;;2032127;;;S-1-5-18)(A;;2032127;;;{ME})"), ME), None);
+        // Another administrator could read it through the Administrators group, by alias or by SID.
+        for admins in ["BA", "S-1-5-32-544"] {
+            let sddl = format!("O:{ME}D:PAI(A;;FA;;;SY)(A;;FR;;;{admins})(A;;FA;;;{ME})");
+            assert!(foreign_access(&sddl, ME).is_some_and(|p| p.contains(admins)), "{sddl}");
+        }
         // Inherit-only entries and deny entries don't grant access to the file itself.
         assert_eq!(foreign_access(&format!("O:{ME}D:(A;OICIIO;GA;;;CO)(D;;FA;;;BU)(A;;FA;;;{ME})"), ME), None);
     }
