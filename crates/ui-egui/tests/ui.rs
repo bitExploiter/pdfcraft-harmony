@@ -534,9 +534,11 @@ fn narrow_tab_strips_accept_vertical_wheel_scrolling() {
             });
             h.run_steps(8);
         }
-        let last = h.get_by_label("narrow-11.pdf").rect();
+        // The tab itself: the pointer can rest on it after scrolling, and a shortened name's
+        // tooltip carries the same label.
+        let last = h.get_by_role_and_label(egui::accesskit::Role::Tab, "narrow-11.pdf").rect();
         assert!(last.center().x > 28.0 && last.right() < width - 100.0, "scrolled tab: {last:?}");
-        h.get_by_label("narrow-11.pdf").click();
+        h.get_by_role_and_label(egui::accesskit::Role::Tab, "narrow-11.pdf").click();
         h.run_steps(4);
         assert_eq!(h.state().active, Some(11));
         assert!(h.get_by_label_contains("Display theme:").rect().right() <= width);

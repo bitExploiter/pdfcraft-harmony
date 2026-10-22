@@ -39,3 +39,15 @@ fn a_click_cycles_the_theme_and_a_right_click_opens_the_menu() {
     h.run_steps(10);
     assert!(h.query_by_label("Light theme").is_some(), "Preferences opens on Appearance");
 }
+
+#[test]
+fn the_gear_opens_preferences() {
+    let mut h = harness();
+    assert!(h.query_by_label("Light theme").is_none());
+    let gear = h.get_by_label("Preferences").rect();
+    let theme = h.get_by_label_contains("Display theme:").rect();
+    assert!(gear.left() >= theme.right(), "the gear {gear:?} sits right of the theme button {theme:?}");
+    h.get_by_label("Preferences").click();
+    h.run_steps(10);
+    assert!(h.query_by_label("Light theme").is_some(), "Preferences is open");
+}
