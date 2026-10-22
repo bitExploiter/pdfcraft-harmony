@@ -5944,6 +5944,7 @@ trailer << /Root 1 0 R >>
                 }],
                 line_of: vec![0],
                 space_before: vec![false],
+                truncated: false,
             }
             .into(),
         );
@@ -6030,6 +6031,7 @@ trailer << /Root 1 0 R >>
             glyphs: vec![pdfcraft_render::TextGlyph { text: "x".into(), rect: [0.0, 0.0, 10.0, 10.0], quad: [[0.0, 0.0]; 4], direction: [1.0, 0.0] }],
             line_of: vec![0],
             space_before: vec![false],
+            truncated: false,
         };
         for p in 0..100 {
             v.texts.insert(p, Arc::new(text.clone()));
