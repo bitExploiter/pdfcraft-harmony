@@ -80,6 +80,10 @@ pub struct TextLine {
     /// Why the line can't be edited: its font's writing mode (its CMap's `WMode`) couldn't be read,
     /// so which way its glyphs advance is unknown. The line is listed as horizontal text.
     unreadable_mode: Option<String>,
+    /// This line continues the previous one because a rewrite wrapped it (`/PCSoft`).
+    soft_break: bool,
+    /// This line starts after a break a rewrite kept on purpose (`/PCHard`).
+    hard_break: bool,
 }
 
 impl TextLine {
@@ -352,6 +356,9 @@ pub struct TextBlock {
     pub rows: Vec<Vec<usize>>,
     /// Text for the inline editor, with a newline only between visual rows.
     pub editor_text: String,
+    /// What a width change reflows. A wrap rejoins with a space; a break that was typed, or a
+    /// short line that still had room for the next word, stays a newline.
+    pub reflow_text: String,
     /// Byte ranges in `editor_text` and their source line indexes.
     pub spans: Vec<(std::ops::Range<usize>, usize)>,
     /// Every line is invisible text (rendering mode 3): an OCR layer over a scanned image, whose
@@ -759,6 +766,9 @@ struct Shown {
     paint: Paint,
     logical_order: bool,
     actual_text: bool,
+    /// Set when a `/PCSoft` or `/PCHard` marker was seen since the previous text line.
+    soft_break: bool,
+    hard_break: bool,
 }
 
 impl Shown {
@@ -939,6 +949,10 @@ fn interpret(
     let mut marked = std::mem::take(&mut carry.marked);
     let mut layers = std::mem::take(&mut carry.layers);
     let mut actual: Vec<Option<(usize, usize, String)>> = Vec::new();
+    // A rewrite names a wrap (`/PCSoft`) or a break it kept (`/PCHard`) in an empty marker
+    // before the next line. Neither name is a paragraph region, so it does not change scope.
+    let mut soft_break = false;
+    let mut hard_break = false;
     for (i, op) in ops.iter().enumerate() {
         match op.op.as_slice() {
             // No depth cap: every `EMC` pops, so a capped push would pair it with the enclosing
@@ -947,6 +961,13 @@ fn interpret(
                 // Marked text paragraphs/headings are authoritative boundaries. Ignore
                 // artifacts and inner spans, which inherit their enclosing region.
                 let region = matches!(op.name(0), Some(b"P" | b"H" | b"H1" | b"H2" | b"H3" | b"H4" | b"H5" | b"H6" | b"LI" | b"TD" | b"TH"));
+                if op.name(0) == Some(b"PCSoft") {
+                    soft_break = true;
+                    hard_break = false;
+                } else if op.name(0) == Some(b"PCHard") {
+                    hard_break = true;
+                    soft_break = false;
+                }
                 marked.push(if region { Some(i) } else { marked.last().copied().flatten() });
                 // A layer named in the resources is told apart by its name, an inline one by where it opens.
                 let layer = op.is("BDC") && op.name(0) == Some(b"OC".as_slice());
@@ -1262,7 +1283,11 @@ fn interpret(
                     paint: Paint { layers: layers.iter().flatten().cloned().collect(), gs: ts.gs.clone() },
                     logical_order: false,
                     actual_text: false,
+                    soft_break,
+                    hard_break,
                 });
+                soft_break = false;
+                hard_break = false;
             }
             _ => {}
         }
@@ -1358,6 +1383,8 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 actual_text: s.actual_text,
                 clips: s.state.render_mode >= 4,
                 unreadable_mode: s.state.unreadable.as_deref().map(str::to_owned),
+                soft_break: s.soft_break,
+                hard_break: s.hard_break,
                 ops: std::iter::once(s.op).chain(s.extra_ops.iter().copied()).collect(),
                 origin: Origin {
                     tm: s.tm.0,
@@ -1460,6 +1487,8 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
             actual_text: s.actual_text,
             clips: s.state.render_mode >= 4,
             unreadable_mode: s.state.unreadable.as_deref().map(str::to_owned),
+            soft_break: s.soft_break,
+            hard_break: s.hard_break,
             ops: std::iter::once(s.op).chain(s.extra_ops.iter().copied()).collect(),
             origin: Origin {
                 tm: s.tm.0,
@@ -2337,9 +2366,14 @@ fn coincident_ops(lines: &[TextLine], targets: &[&TextLine]) -> std::collections
     let area = |r: [f64; 4]| ((r[2] - r[0]) * (r[3] - r[1])).max(0.0);
     let mut drop = std::collections::HashSet::new();
     for line in lines {
+        // Same words: a second drawing of this line (fake bold, a duplicate text object). A
+        // different paragraph that a grown row has landed on is not a copy (#2517). An invisible
+        // OCR layer over the visible line is still that line's other drawing, even when the
+        // extracted strings differ.
         let copy = targets.iter().any(|target| {
-            let same_text = line.text.trim() == target.text.trim() || (line.origin.state.render_mode == 3) != (target.origin.state.render_mode == 3);
-            same_text && overlaps_half(line.rect, target.rect, area) && on_same_baseline(line, target)
+            let same_text = line.text.trim() == target.text.trim();
+            let ocr_pair = (line.origin.state.render_mode == 3) != (target.origin.state.render_mode == 3);
+            (same_text || ocr_pair) && overlaps_half(line.rect, target.rect, area) && on_same_baseline(line, target)
         });
         if copy {
             drop.extend(line.ops.iter().copied());
@@ -2507,11 +2541,13 @@ fn paragraph_separator(c: char) -> bool {
 
 /// Greedy word wrapping to `width` with `advance` giving a string's width. Each `\n` starts a
 /// new line. A row may also end inside a word of Chinese or Japanese text ([`crate::linebreak`]);
-/// those pieces join without a space.
-fn wrap(text: &str, width: f64, advance: impl Fn(&str) -> f64) -> Vec<String> {
+/// those pieces join without a space. The bool is true when the line continues the previous one
+/// because the next word did not fit, rather than because of a newline.
+fn wrap(text: &str, width: f64, advance: impl Fn(&str) -> f64) -> Vec<(String, bool)> {
     let mut out = Vec::new();
     for row in text.split('\n') {
         let mut line = String::new();
+        let mut soft = false;
         let start = out.len();
         for word in row.split(paragraph_separator).filter(|word| !word.is_empty()) {
             for (i, piece) in crate::linebreak::pieces(word).into_iter().enumerate() {
@@ -2521,7 +2557,8 @@ fn wrap(text: &str, width: f64, advance: impl Fn(&str) -> f64) -> Vec<String> {
                     (false, _) => format!("{line}{piece}"),
                 };
                 if !line.is_empty() && advance(&candidate) > width {
-                    out.push(std::mem::take(&mut line));
+                    out.push((std::mem::take(&mut line), soft));
+                    soft = true;
                     line = piece.to_string();
                 } else {
                     line = candidate;
@@ -2529,7 +2566,7 @@ fn wrap(text: &str, width: f64, advance: impl Fn(&str) -> f64) -> Vec<String> {
             }
         }
         if !line.is_empty() || out.len() == start {
-            out.push(line);
+            out.push((line, soft));
         }
     }
     out
@@ -2892,12 +2929,19 @@ fn rewrite_block_from(
     let mut x = 0.0;
     let mut tw_set = 0.0;
     let mut underlines: Vec<(f64, f64, f64)> = Vec::new(); // (x0, x1, y) in text space
-    for (i, line) in wrapped.iter().enumerate() {
+    for (i, (line, soft)) in wrapped.iter().enumerate() {
         let spaces = line.matches(' ').count();
         let tw =
             if justify && i + 1 < wrapped.len() && spaces > 0 { (width - advance(line)).max(0.0) / k / o_state.scale / spaces as f64 } else { 0.0 };
         // A stretched line fills the width from the left edge.
         let dx = if tw > 0.0 { 0.0 } else { offset(line) };
+        if i > 0 {
+            // Inside this text object, so the marker starts and ends here. `/PCSoft` rejoins
+            // when the box widens. `/PCHard` is a newline that was already in the text.
+            let name = if *soft { "PCSoft" } else { "PCHard" };
+            block_ops.push(Op::new("BMC", vec![Object::name(name)]));
+            block_ops.push(Op::new("EMC", vec![]));
+        }
         if i > 0 || dx != 0.0 {
             block_ops.push(Op::new("Td", vec![n(dx - x), n(if i > 0 { -lead } else { 0.0 })]));
         }
@@ -3240,6 +3284,7 @@ mod tests {
             lines: Vec::new(),
             rows: Vec::new(),
             editor_text: text.into(),
+            reflow_text: text.into(),
             spans: Vec::new(),
             invisible: false,
         }
@@ -3290,24 +3335,33 @@ mod tests {
         assert!(!same_base_font("Arial", ""));
     }
 
+    fn wrapped(text: &str, width: f64) -> Vec<String> {
+        wrap(text, width, |s| s.chars().count() as f64).into_iter().map(|(line, _)| line).collect()
+    }
+
     #[test]
     fn paragraph_wrapping_keeps_ideographic_spaces() {
+        assert_eq!(wrapped("A　　B C", 4.0), ["A　　B", "C"]);
+        assert_eq!(wrapped("A\u{a0}B C", 3.0), ["A B", "C"]);
+        assert_eq!(wrapped("A\u{2028}B C", 3.0), ["A B", "C"]);
+        assert_eq!(wrapped(" \tA  B\r\nC ", 3.0), ["A B", "C"]);
+    }
+
+    #[test]
+    fn a_wrap_is_marked_soft_and_a_newline_is_not() {
         let width = |s: &str| s.chars().count() as f64;
-        assert_eq!(wrap("A　　B C", 4.0, width), ["A　　B", "C"]);
-        assert_eq!(wrap("A\u{a0}B C", 3.0, width), ["A B", "C"]);
-        assert_eq!(wrap("A\u{2028}B C", 3.0, width), ["A B", "C"]);
-        assert_eq!(wrap(" \tA  B\r\nC ", 3.0, width), ["A B", "C"]);
+        assert_eq!(wrap("Page 1", 5.0, width), [("Page".into(), false), ("1".into(), true)]);
+        assert_eq!(wrap("One\nTwo", 10.0, width), [("One".into(), false), ("Two".into(), false)]);
     }
 
     #[test]
     fn japanese_text_wraps_between_characters_but_not_before_closing_marks() {
-        let width = |s: &str| s.chars().count() as f64;
-        assert_eq!(wrap("日本語の文章です。", 3.0, width), ["日本語", "の文章", "です。"]);
+        assert_eq!(wrapped("日本語の文章です。", 3.0), ["日本語", "の文章", "です。"]);
         // The comma can't begin a row, so the character before it moves down with it.
-        assert_eq!(wrap("あいう、えお", 3.0, width), ["あい", "う、え", "お"]);
+        assert_eq!(wrapped("あいう、えお", 3.0), ["あい", "う、え", "お"]);
         // Pieces of one word join without a space; separate words keep theirs.
-        assert_eq!(wrap("Edit PDFを編集", 6.0, width), ["Edit", "PDFを編集"]);
-        assert_eq!(wrap("一行目　二行目", 4.0, width), ["一行目　", "二行目"]);
+        assert_eq!(wrapped("Edit PDFを編集", 6.0), ["Edit", "PDFを編集"]);
+        assert_eq!(wrapped("一行目　二行目", 4.0), ["一行目　", "二行目"]);
     }
 
     #[test]

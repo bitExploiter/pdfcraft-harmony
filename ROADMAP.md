@@ -13,6 +13,7 @@
 > **Last reviewed:** 2026-10-20 | **Last updated:** 2026-10-20 | **Change:** minor (M2, #3574: named form properties retain page origin and own dictionary boundaries; estimates unchanged)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M4: initial-view options resolve indirect boolean preferences; estimates unchanged)
 > **Last reviewed:** 2026-10-16; **Last updated:** 2026-10-16; **Change:** minor (M5 #2669, item 5: reply groups and page root counts per frame; estimates unchanged)
+> **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M7 #2517: a partial rewrite keeps its marker around a kept row, and off the next marked region; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7: the Edit text caret is as tall as the row it is on; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M6: CSV tab-containing headers; estimates unchanged)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M3, #3149: discard render demand after page geometry changes and check the GPU texture limit before upload; estimates unchanged)
@@ -189,6 +190,10 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-22 (M7, #2517):** A partial rewrite of the last paragraph closes its marker after that paragraph's last `ET`, so a row left in the source stays in the paragraph. When the next paragraph shares the text object, the marker closes before that neighbour instead of after the shared `ET`. The extra marker is not added across two marked-content regions. Estimates unchanged.
+- **2026-10-15 (M7, #2517):** A blank line between paragraphs stays a paragraph break. An explicit `TL` is the measured baseline gap. Without one, three or more rows at a repeated step stay one paragraph, and a single wider gap stays a break. Adding a row, even when an earlier row is left in the source, does not absorb the next paragraph on a later edit. Estimates unchanged.
+
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
