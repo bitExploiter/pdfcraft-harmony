@@ -46,9 +46,12 @@ pub fn kind_label(a: &Annotation) -> &str {
     }
 }
 
-pub fn subtype_icon(s: &str) -> &'static str {
-    match s {
+/// The card's glyph, from the subtype and `/IT`. A Highlight with `/IT /HighlightNote` is a
+/// comment on text, so it takes the comment icon rather than the highlighter.
+fn kind_icon(subtype: &str, intent: Option<&str>) -> &'static str {
+    match subtype {
         "Text" => "message-square-text",
+        "Highlight" if intent == Some("HighlightNote") => "message-square-text",
         "Highlight" => "highlighter",
         "Underline" => "underline",
         "StrikeOut" => "strikethrough",
@@ -302,7 +305,7 @@ fn card(
             ui.set_width(ui.available_width());
             let mut buttons_left = f32::INFINITY;
             let head = ui.horizontal(|ui| {
-                avatar(ui, t, Some(subtype_icon(&a.subtype)), None, color);
+                avatar(ui, t, Some(kind_icon(&a.subtype, a.intent.as_deref())), None, color);
                 let author = a.author.as_deref().map_or_else(|| tl!("Unknown author").into(), crate::bidi::visual_auto);
                 ui.label(egui::RichText::new(author).font(theme::semibold(12.5)).color(t.text));
                 if let Some(m) = &a.modified {
@@ -661,5 +664,20 @@ mod filter {
         assert!(any_contains(["IRMAK"], "ırmak"));
         assert!(any_contains(["Note"], "NOTE"));
         assert!(!any_contains(["Ayşe Yılmaz"], "mehmet"));
+    }
+}
+
+#[cfg(test)]
+mod icon {
+    use super::kind_icon;
+
+    #[test]
+    fn a_highlight_note_takes_the_comment_icon() {
+        assert_eq!(kind_icon("Highlight", None), "highlighter");
+        assert_eq!(kind_icon("Highlight", Some("HighlightNote")), "message-square-text");
+        assert_eq!(kind_icon("Highlight", Some("Other")), "highlighter");
+        // Only a Highlight reads the intent: other kinds keep their subtype's icon.
+        assert_eq!(kind_icon("FreeText", Some("FreeTextTypeWriter")), "type");
+        assert_eq!(kind_icon("Underline", Some("HighlightNote")), "underline");
     }
 }

@@ -2230,6 +2230,52 @@ fn text_box_properties_change_the_font_size() {
     assert_eq!(doc.can_undo(), Some("Change comment properties"));
 }
 
+/// The names of the textures painted inside `area` (icons are `bytes://icons/<name>…`).
+fn textures_in(h: &Harness<'static, PdfCraftApp>, area: egui::Rect) -> Vec<String> {
+    fn walk(s: &egui::Shape, area: egui::Rect, ids: &mut Vec<egui::TextureId>) {
+        if let egui::Shape::Vec(v) = s {
+            v.iter().for_each(|s| walk(s, area, ids));
+        } else if s.texture_id() != egui::TextureId::default() && area.contains_rect(s.visual_bounding_rect()) {
+            ids.push(s.texture_id());
+        }
+    }
+    let mut ids = Vec::new();
+    h.output().shapes.iter().for_each(|c| walk(&c.shape, area, &mut ids));
+    let tex = h.ctx.tex_manager();
+    let tex = tex.read();
+    ids.iter().filter_map(|id| tex.meta(*id).map(|m| m.name.clone())).collect()
+}
+
+#[test]
+fn a_highlight_note_shows_the_comment_icon_in_the_panel() {
+    // A comment on text (a Highlight whose intent is HighlightNote) beside a plain highlight.
+    let pdf = String::from_utf8_lossy(TEXT_FIXTURE).replace("/Contents 5 0 R /Resources", "/Contents 5 0 R /Annots [8 0 R 9 0 R] /Resources").replace(
+        "trailer",
+        "8 0 obj << /Type /Annot /Subtype /Highlight /IT /HighlightNote /Rect [20 145 120 165] /C [1 1 0] /T (Ada) /Contents (Is this right?) /QuadPoints [20 165 120 165 20 145 120 145] >> endobj
+9 0 obj << /Type /Annot /Subtype /Highlight /Rect [20 145 120 165] /C [1 1 0] /T (Bob) /QuadPoints [20 165 120 165 20 145 120 145] >> endobj\ntrailer",
+    );
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("highlight_note.pdf", None, pdf.into_bytes()).expect("opens");
+        app.set_option("left", "closed").unwrap();
+        app.set_option("panel", "comments").unwrap();
+        app
+    });
+    h.run_steps(4);
+    settle(&mut h);
+    // The card's avatar sits just left of its author's name, on the same row.
+    let avatar = |h: &Harness<'static, PdfCraftApp>, author: &str| {
+        let name = h.get_by_label(author).rect();
+        textures_in(h, egui::Rect::from_min_max(egui::pos2(name.left() - 40.0, name.top() - 8.0), egui::pos2(name.left(), name.bottom() + 8.0)))
+    };
+    let ada = avatar(&h, "Ada");
+    assert!(ada.iter().any(|n| n.contains("message-square-text")), "the comment on text shows the comment icon: {ada:?}");
+    assert!(!ada.iter().any(|n| n.contains("highlighter")), "{ada:?}");
+    let bob = avatar(&h, "Bob");
+    assert!(bob.iter().any(|n| n.contains("highlighter")), "a plain highlight keeps the highlighter: {bob:?}");
+}
+
 #[test]
 fn text_box_and_callout_properties_include_fill_and_thickness() {
     use pdfcraft_engine::{Edit, LineEnding, NewAnnotation, Shape};
