@@ -813,7 +813,7 @@ impl Metrics {
                 let b = (!matches!(f, crate::Std14::Symbol | crate::Std14::ZapfDingbats))
                     .then(|| self.unicode.encoding.get(&code).and_then(|t| only_char(t)).and_then(crate::win_ansi_byte))
                     .flatten()
-                    .or_else(|| u8::try_from(code).ok());
+                    .or_else(|| u8::try_from(code).ok().filter(|b| !crate::has_turkish_bytes(&[*b])));
                 match b.map(|c| f.width(c)).unwrap_or(0.0) {
                     0.0 => self.default * self.scale,
                     w => w / 1000.0,

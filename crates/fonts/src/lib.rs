@@ -492,5 +492,15 @@ mod tests {
             assert!(Std14::Helvetica.width(b) > 0.0, "{ch:?} has width in Helvetica");
             assert!((m.width(u32::from(b)) * 1000.0 - Std14::Helvetica.width(b)).abs() < 1e-9);
         }
+        // In plain /WinAnsiEncoding (without Turkish /Differences), the six unassigned codes stay undefined (width 0).
+        let mut plain_font = pdfcraft_cos::Dict::new();
+        plain_font.set(b"Type".to_vec(), pdfcraft_cos::Object::name("Font"));
+        plain_font.set(b"Subtype".to_vec(), pdfcraft_cos::Object::name("Type1"));
+        plain_font.set(b"BaseFont".to_vec(), pdfcraft_cos::Object::name("Helvetica"));
+        plain_font.set(b"Encoding".to_vec(), pdfcraft_cos::Object::name("WinAnsiEncoding"));
+        let plain_m = pdf::Metrics::from_dict(&doc, &plain_font);
+        for b in [0x7f_u32, 0x81, 0x8d, 0x8f, 0x90, 0x9d] {
+            assert_eq!(plain_m.width(b), 0.0, "unassigned WinAnsi code {b:#x} must stay 0 wide without /Differences");
+        }
     }
 }

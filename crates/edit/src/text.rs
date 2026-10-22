@@ -1936,18 +1936,17 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
                 replacement.push(Op::new("Tj", vec![Object::String(PdfString::literal(win))]));
                 replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
                 substituted = Some(base.to_string());
-                let keep_turkish = fonts_res
+                let encoding = fonts_res
                     .get(substitute_name.as_bytes())
-                    .and_then(|f| doc.resolve(f).as_dict().and_then(|d| d.get(b"Encoding")).map(|e| doc.resolve(e).as_dict().is_some()))
-                    .unwrap_or(false);
+                    .and_then(|f| {
+                        doc.resolve(f).as_dict().and_then(|d| d.get(b"Encoding")).and_then(|e| doc.resolve(e).as_dict().cloned().map(Object::Dict))
+                    })
+                    .unwrap_or_else(|| pdfcraft_fonts::standard_encoding(&fallback_shown));
                 let mut f = Dict::new();
                 f.set(b"Type".to_vec(), Object::name("Font"));
                 f.set(b"Subtype".to_vec(), Object::name("Type1"));
                 f.set(b"BaseFont".to_vec(), Object::name(base));
-                f.set(
-                    b"Encoding".to_vec(),
-                    if keep_turkish { pdfcraft_fonts::turkish_encoding() } else { pdfcraft_fonts::standard_encoding(&fallback_shown) },
-                );
+                f.set(b"Encoding".to_vec(), encoding);
                 fonts_res.set(substitute_name.into_bytes(), Object::Dict(f));
             }
         }
@@ -2408,15 +2407,15 @@ fn rewrite_block_from(
             return Err(EditError::Invalid(format!("\"{flat}\" has characters neither {} nor {base} can show", b.base_font)));
         }
         let name = if style.family.is_none() { String::from_utf8_lossy(SUBSTITUTE).into_owned() } else { format!("PCEd{}", base.replace('-', "")) };
-        let keep_turkish = fonts_res
+        let encoding = fonts_res
             .get(name.as_bytes())
-            .and_then(|f| doc.resolve(f).as_dict().and_then(|d| d.get(b"Encoding")).map(|e| doc.resolve(e).as_dict().is_some()))
-            .unwrap_or(false);
+            .and_then(|f| doc.resolve(f).as_dict().and_then(|d| d.get(b"Encoding")).and_then(|e| doc.resolve(e).as_dict().cloned().map(Object::Dict)))
+            .unwrap_or_else(|| pdfcraft_fonts::standard_encoding(&flat));
         let mut f = Dict::new();
         f.set(b"Type".to_vec(), Object::name("Font"));
         f.set(b"Subtype".to_vec(), Object::name("Type1"));
         f.set(b"BaseFont".to_vec(), Object::name(base));
-        f.set(b"Encoding".to_vec(), if keep_turkish { pdfcraft_fonts::turkish_encoding() } else { pdfcraft_fonts::standard_encoding(&flat) });
+        f.set(b"Encoding".to_vec(), encoding);
         fonts_res.set(name.clone().into_bytes(), Object::Dict(f));
         if style.family.is_none() {
             substituted = Some(base.to_string());

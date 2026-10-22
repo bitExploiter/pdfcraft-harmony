@@ -258,8 +258,10 @@ pub fn installed_font_definitions(cjk: CjkPreference) -> FontDefinitions {
         };
         let extra = match need {
             Need::Other if pdfcraft_fonts::ui_japanese_fonts().is_empty() => {
-                fallback(Need::Hans).or_else(|| fallback(Need::Hant)).or_else(|| fallback(Need::Japanese))
+                fallback(Need::Japanese).or_else(|| fallback(Need::Hans)).or_else(|| fallback(Need::Hant))
             }
+            // In Chinese mode without craft-fonts (where no embedded Arabic face is present),
+            // SYSTEM_FALLBACK is taken by the Chinese face, so keep the general fallback here too.
             Need::Hans | Need::Hant if pdfcraft_fonts::ui_arabic_fonts().is_empty() => fallback(Need::Other),
             _ => None,
         };

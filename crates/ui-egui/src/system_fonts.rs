@@ -247,7 +247,7 @@ fn japanese_candidates() -> Vec<PathBuf> {
     if cfg!(windows) {
         ["YuGothR.ttc", "YuGothM.ttc", "meiryo.ttc", "msgothic.ttc"].iter().map(|f| windows_fonts().join(f)).collect()
     } else if cfg!(target_os = "macos") {
-        ["ヒラギノ角ゴシック W3.ttc", "Hiragino Sans GB.ttc", "AquaKana.ttc", "AppleSDGothicNeo.ttc"]
+        ["Hiragino Sans GB.ttc", "ヒラギノ角ゴシック W3.ttc", "AquaKana.ttc", "AppleSDGothicNeo.ttc"]
             .iter()
             .map(|f| Path::new("/System/Library/Fonts").join(f))
             .collect()
