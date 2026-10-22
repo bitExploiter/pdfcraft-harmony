@@ -152,9 +152,9 @@ pub const fn status_rgb(status: Status) -> [u8; 3] {
 // triangle-alert's `d` is split into ≤90° cubics per SVG 1.1 §F.6.5. Stroke width 2, round caps
 // and joins, no fill, as in the SVGs.
 
-/// `circle-check.svg`: `<circle cx="12" cy="12" r="10"/>`, `<path d="m16 9-5.5 5.5L8 12"/>`.
-const CIRCLE_CHECK: &str =
-    "22 12 m 22 17.523 17.523 22 12 22 c 6.477 22 2 17.523 2 12 c 2 6.477 6.477 2 12 2 c 17.523 2 22 6.477 22 12 c h S 16 9 m 10.5 14.5 l 8 12 l S";
+/// Acrobat-style validated tick: a filled, outlined check ribbon rather than PR #2808's
+/// green circle-check. The proportions match the signature panel's robust tick treatment.
+const ACROBAT_CHECK: &str = "3.6 10.08 m 5.52 12.72 l 9.6 8.16 l 17.76 20.64 l 20.4 18.72 l 10.08 3.84 h f";
 
 /// `triangle-alert.svg`: `<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/>`,
 /// `<path d="M12 9v4"/>`, `<path d="M12 17h.01"/>`.
@@ -480,7 +480,7 @@ fn regenerate(doc: &mut Document, layout: Layout, status: Status, copies: &mut C
 fn regenerate_form(doc: &mut Document, layout: &Layout, status: Status, face: &mut Face) -> Option<ObjRef> {
     let icon = |path: &str, layer: &Layer| icon_ops(path, status_rgb(status), &layer.bbox);
     let (n1, n3) = match status {
-        Status::Valid => (icon(CIRCLE_CHECK, &layout.n1)?, Vec::new()),
+        Status::Valid => (icon(ACROBAT_CHECK, &layout.n1)?, Vec::new()),
         Status::Unknown => (icon(TRIANGLE_ALERT, &layout.n1)?, Vec::new()),
         Status::Invalid => (Vec::new(), icon(CIRCLE_X, &layout.n3)?),
     };
