@@ -405,6 +405,10 @@ pub struct Annotation {
     /// The points that shape a line (its two ends, `/L`) or connected lines, a polygon or a
     /// cloud (their corners, `/Vertices`), in user space; empty for other comments.
     pub points: Vec<[f32; 2]>,
+    /// A turned rectangle, oval, text box or typewriter text (PdfCraft's `/PCAngle` and
+    /// `/PCBox`): degrees counterclockwise, and its own box before turning, about whose centre it
+    /// turned. `None` when it is upright.
+    pub turn: Option<(f32, [f32; 4])>,
 }
 
 impl Annotation {
@@ -1209,6 +1213,19 @@ impl<'a> Inspector<'a> {
                     }
                     _ => Vec::new(),
                 };
+                // Keep in step with `pdfcraft_annot::appearance::turned_box`.
+                let angle = d.get(b"PCAngle").ok().and_then(|a| self.resolve(a).as_float().ok()).filter(|a| a.is_finite() && *a != 0.0);
+                let own = match d.get(b"PCBox").map(|o| self.resolve(o)) {
+                    Ok(Object::Array(v)) if v.len() == 4 => {
+                        let v: Vec<f32> = v.iter().filter_map(|o| o.as_float().ok()).filter(|x| x.is_finite()).collect();
+                        (v.len() == 4).then(|| [v[0].min(v[2]), v[1].min(v[3]), v[0].max(v[2]), v[1].max(v[3])])
+                    }
+                    _ => None,
+                };
+                let turn = match (angle, own) {
+                    (Some(a), Some(b)) if matches!(subtype.as_str(), "Square" | "Circle" | "FreeText") && d.get(b"CL").is_err() => Some((a, b)),
+                    _ => None,
+                };
                 info.annotations.push(Annotation {
                     page,
                     subtype,
@@ -1228,6 +1245,7 @@ impl<'a> Inspector<'a> {
                     intent: self.name(d, b"IT"),
                     fill_sign,
                     points,
+                    turn,
                 });
             }
         }
