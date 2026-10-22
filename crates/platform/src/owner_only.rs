@@ -77,8 +77,15 @@ fn section<'a>(sddl: &'a str, tag: &str) -> Option<&'a str> {
 }
 
 /// Whether SDDL account `a` names user SID `me`. `OW` (owner rights) and `CO` are not users.
+///
+/// SDDL writes the machine's built-in Administrator and Guest accounts (RIDs 500 and 501) as
+/// `LA` and `LG`, not by SID, and CI runners run as that Administrator. `me` is taken to be one
+/// of them by its RID alone; the machine's SID isn't to hand. A domain account with RID 500
+/// would so also accept the local Administrator, which is already trusted as a member of
+/// Administrators.
 fn same_account(a: &str, me: &str) -> bool {
-    a.eq_ignore_ascii_case(me)
+    let local = |rid: &str| me.starts_with("S-1-5-21-") && me.strip_suffix(rid).is_some_and(|r| r.ends_with('-'));
+    a.eq_ignore_ascii_case(me) || (a == "LA" && local("500")) || (a == "LG" && local("501"))
 }
 
 /// The current user's SID (`whoami /user`).
@@ -371,6 +378,23 @@ mod tests {
         assert!(deny.status.success(), "{}", String::from_utf8_lossy(&deny.stderr));
         assert!(restrict_to_owner(&file).is_err(), "setting the owner failed");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SDDL names the built-in Administrator `LA` and Guest `LG` (RIDs 500 and 501); a CI runner's
+    /// own restricted file reads `O:LAD:PAI(A;;FA;;;SY)(A;;FA;;;LA)`.
+    #[test]
+    fn the_built_in_administrator_and_guest_are_named_by_alias() {
+        let admin = "S-1-5-21-1-2-3-500";
+        let ci = "O:LAD:PAI(A;;FA;;;SY)(A;;FA;;;LA)";
+        assert_eq!(foreign_access(ci, admin), None);
+        assert_eq!(foreign_access("O:LGD:P(A;;FA;;;LG)", "S-1-5-21-1-2-3-501"), None);
+        // Anyone else: another user, a RID that only ends in 500, a non-domain SID, the wrong alias.
+        for me in [ME, "S-1-5-21-1-2-3-1500", "S-1-5-32-500", "S-1-5-21-1-2-3-501"] {
+            assert!(foreign_access(ci, me).is_some_and(|p| p.contains("owned by another account (LA)")), "{me}");
+        }
+        assert!(foreign_access("O:LGD:P(A;;FA;;;LG)", admin).is_some());
+        // The alias is matched on the trustee too: the user's own file shared with `LA` is refused.
+        assert!(foreign_access(&format!("O:{ME}D:P(A;;FA;;;{ME})(A;;FR;;;LA)"), ME).is_some_and(|p| p.contains("LA")));
     }
 
     #[test]
