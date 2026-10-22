@@ -104,6 +104,8 @@ pub struct Settings {
     pub remove_invalid_links: bool,
     /// Clean Up: remove named destinations nothing refers to.
     pub remove_unreferenced_dests: bool,
+    /// Clean Up ▸ Optimize for fast web view: the engine writes the copy linearized.
+    pub fast_web_view: bool,
 }
 
 impl Default for Settings {
@@ -120,6 +122,8 @@ impl Default for Settings {
             flate_unencoded: true,
             remove_invalid_links: true,
             remove_unreferenced_dests: true,
+            // Acrobat's preset turns it on; here Reduce File Size would then write larger, classic-table files.
+            fast_web_view: false,
         }
     }
 }
