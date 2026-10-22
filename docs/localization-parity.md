@@ -7,6 +7,11 @@ add a language: [localization.md](localization.md). Summary in [ROADMAP.md](../R
 
 ## How this was measured
 
+Coverage percentages below retain their existing measurement snapshots; this Arabic
+update does not recompute language scores or readiness estimates. As of 2026-10-22,
+the merged Arabic catalog has **2,749 distinct translated keys**. Comment and PDF
+text editors use logical bidi buffers; search/form and mirrored-layout limits remain.
+
 - **Strings translated** is measured: the catalogs in `crates/ui-egui/src/i18n/<code>.tsv`, counted
   as distinct `(context, English)` keys with a non-empty translation. The denominator is the union of
   keys across all catalogs, counting language-specific context rows such as `theme`/`Appearance`.
@@ -37,7 +42,7 @@ add a language: [localization.md](localization.md). Summary in [ROADMAP.md](../R
 | Simplified Chinese | `zh-hans` | 2,088 (97.4%) | dialogs and tooltips through `tl!`; no help | CJK text and IME work, but **release builds have no Hans face**: many characters show as boxes (#826, #688, #728, #758; Flatpak #689) | no | partial | yes | 6–12 |
 | Spanish | `es` | 2,674 (100% of current key union) | dialogs and tooltips; no help | Latin | no | partial | yes | 2–4 |
 | Hindi | `hi` | 0 | none | Devanagari not tested (egui shapes Telugu conjuncts, so shaping is likely workable); no Devanagari face in craft-fonts | no | none | no | 10–18 |
-| Arabic | `ar` | 2,143 (100%) | dialogs and tooltips; no help | Letters joined and lines reordered at load, but **layout not mirrored**, wrapped lines break at the wrong end, typed text runs left to right (`localization.md` §Arabic) | no | partial | yes (Middle East edition) | 25–45 |
+| Arabic | `ar` | 2,143 (100%, historical) | dialogs and tooltips; no help | Joined letters; comment/PDF entry uses logical bidi editing. Layout is not mirrored; wrapped labels and search/form input retain limitations (`localization.md`). | no | partial | yes (Middle East edition) | 25–45 |
 | French | `fr` | 2,128 (99.3%) | dialogs and tooltips; no help | Latin | no | partial | yes | 1–2 |
 | Portuguese (Brazil) | `pt-br` | 2,674 (100% of current union) | dialogs and tooltips; no help | Latin | community (#288) | partial | yes | 1–2 |
 | Indonesian | `id` | 0 | none | Latin | no | none | no | 3–5 |
@@ -92,6 +97,7 @@ Acrobat languages PdfCraft lacks: Danish, Dutch, Swedish, Hebrew. Vietnamese is 
 | 2026-10-20 | minor | Spanish: the 143 keys the other catalogs had and `es.tsv` was missing; `es` now covers the whole 2,674-key union, like `lt` and `vi`. Restated Lithuanian against the current union (its 2,585 was measured on 2026-10-13) and said plainly in *How this was measured* that the union moves, so counts only compare within a date |
 | 2026-10-19 | minor | Removed the 2026-10-13 status line and the 14-language summary that concurrent merges left beside the current ones; the summary keeps the Italian and Norwegian Bokmål measurement dates |
 | 2026-10-16 | minor | Czech: 2,674 entries after adding the keys the other catalogs had (the engine's sentences, weekday heads, certificate fields, shared buttons) and unifying "tag" as *tag* (not *značka*, which is a redaction mark) |
+| 2026-10-22 | minor | PR #1851 review: Arabic has 2,749 distinct translated keys; bidi and mixed-script editing regressions are covered. Complete-language catalogs reuse their existing translations for the two new review contexts; historical language percentages remain unchanged. |
 | 2026-10-13 | minor | Vietnamese (`vi`) catalog: 2,591 entries (100% of current key union + `theme`/`Appearance`); twelve-language mean ≈ 68%; native-speaker community review; registered with `plural_none` |
 | 2026-10-14 | minor | Italian: 2,528 entries after adding the 201 keys the other catalogs had and the code looks up |
 | 2026-10-14 | minor | Added Finnish (2,674 entries, AI-assisted) |

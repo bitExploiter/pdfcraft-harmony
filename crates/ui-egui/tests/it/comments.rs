@@ -2304,3 +2304,26 @@ fn text_comments_can_save_a_zero_width_default() {
     assert_eq!(restored.comment_prefs.style(CommentTool::TextBox).width, 0.0);
     assert_eq!(restored.comment_prefs.style(CommentTool::Callout).width, 0.0);
 }
+
+#[test]
+fn selected_text_edit_action_replaces_the_source_word_and_undo_restores_it() {
+    let mut h = harness(|_| {});
+    h.state_mut().views[0].select_text(0, 4, 8);
+    h.run_steps(3);
+    assert_eq!(h.state().views[0].selected_text().as_deref(), Some("quick"));
+    h.get_by_label("Edit text").click();
+    h.run_steps(3);
+    let editor = h.state().views[0].line_editor.as_ref().expect("the selection opens its paragraph");
+    assert_eq!(editor.text, "The quick brown fox");
+    assert_eq!(editor.selection, Some(4..9));
+    h.event(egui::Event::Text("slow".into()));
+    h.run_steps(2);
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Enter);
+    h.run_steps(4);
+    let id = h.state().views[0].id;
+    assert_eq!(h.state().session.get(id).unwrap().text_blocks(0)[0].editor_text, "The slow brown fox");
+    assert!(comments(&h).is_empty(), "direct editing changes page content");
+    assert!(h.state_mut().execute("edit.undo"));
+    h.run_steps(3);
+    assert_eq!(h.state().session.get(id).unwrap().text_blocks(0)[0].editor_text, "The quick brown fox");
+}
