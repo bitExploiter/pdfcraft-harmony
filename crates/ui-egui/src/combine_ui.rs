@@ -1641,41 +1641,11 @@ fn title_of(name: &str) -> &str {
     }
 }
 
-/// File names in the order people expect: case-insensitive, with numbers by value
-/// ("scan2" before "scan10").
+/// File names in the order people expect: case-insensitive, with numbers by value ("scan2" before
+/// "scan10"), canonically equivalent names equal (NFC = NFD), and letters in the interface
+/// language's order (Vietnamese when the interface is).
 fn natural(a: &str, b: &str) -> Ordering {
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
-    loop {
-        match (a.peek().copied(), b.peek().copied()) {
-            (None, None) => return Ordering::Equal,
-            (None, Some(_)) => return Ordering::Less,
-            (Some(_), None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let take = |it: &mut std::iter::Peekable<std::str::Chars>| {
-                    let mut digits = String::new();
-                    while let Some(c) = it.peek().copied().filter(char::is_ascii_digit) {
-                        digits.push(c);
-                        it.next();
-                    }
-                    digits.trim_start_matches('0').to_owned()
-                };
-                let (x, y) = (take(&mut a), take(&mut b));
-                // Without leading zeros, a longer run of digits is a larger number.
-                match x.len().cmp(&y.len()).then_with(|| x.cmp(&y)) {
-                    Ordering::Equal => {}
-                    other => return other,
-                }
-            }
-            (Some(x), Some(y)) => {
-                match x.to_lowercase().cmp(y.to_lowercase()) {
-                    Ordering::Equal => {}
-                    other => return other,
-                }
-                a.next();
-                b.next();
-            }
-        }
-    }
+    pdfcraft_collate::natural(a, b, crate::i18n::collation())
 }
 
 /// Where an arrow key goes from `at` among `n` files, `by` at a time (1 in the list; a grid
@@ -2630,6 +2600,14 @@ mod tests {
         }
         // Years past 9999 keep the plain zero-padded year (no `+`).
         assert_eq!(at(253_402_300_800), "10000-01-01 00:00 UTC");
+    }
+
+    /// File names order by the interface language's collation, NFC and NFD alike.
+    #[test]
+    fn combine_natural_uses_collation() {
+        let mut names = ["Ba\u{301}o ca\u{301}o 10.pdf", "Báo cáo 2.pdf"];
+        names.sort_by(|a, b| natural(a, b));
+        assert_eq!(names, ["Báo cáo 2.pdf", "Ba\u{301}o ca\u{301}o 10.pdf"]);
     }
 
     /// A one-page PDF that opens with "pw".

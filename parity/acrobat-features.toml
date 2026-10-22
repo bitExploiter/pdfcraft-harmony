@@ -1287,7 +1287,7 @@ status = "shipped"
 commands = []
 tools = ["doc_info"]
 evidence = ["crates/ui-egui/tests/it/ui.rs::opening_a_pdf_shows_comments_and_bookmarks", "crates/ui-egui/tests/it/control.rs::state_and_view_options", "crates/ui-egui/tests/it/view.rs::bookmark_destinations_scroll_to_their_position"]
-notes = "A bookmark goes to its destination's position and zoom, not just its page. The panel shows the first 10,000 bookmarks, nested 33 levels deep at most, and says so; bookmark_list pages through every bookmark in the file (up to 33 levels deep)."
+notes = "A bookmark goes to its destination's position and zoom, not just its page. The panel shows the first 10,000 bookmarks, nested 33 levels deep at most, and says so; bookmark_list pages through every bookmark in the file (up to 33 levels deep). The filter box matches whole letters, with NFC and NFD titles and queries equal. Not yet: titles in scripts other than Latin are not unified, and Find (in the document) keeps the plain case-fold, so it does not match NFC against NFD."
 
 [[feature]]
 id = "view.highlight-current-bookmark"
@@ -3017,7 +3017,7 @@ status = "shipped"
 commands = ["page.combine"]
 tools = ["doc_combine"]
 evidence = ["crates/ui-egui/tests/it/editing.rs::column_headings_sort_the_list_and_flip_on_the_second_click", "crates/ui-egui/tests/it/editing.rs::ctrl_and_shift_clicks_select_several_files_that_move_and_go_together", "crates/ui-egui/tests/it/editing.rs::undo_and_redo_restore_the_combine_list", "crates/automation/tests/it/automation.rs::combine_extract_and_split"]
-notes = "Sort by any column (name in natural order, pages, size, modified, warnings), ascending or descending; multi-select (Ctrl/Shift) and move up/down, Alt+arrows or drag (rows in the list, cards in the grid); every change undoable. doc_combine combines in the order its paths are given."
+notes = "Sort by any column (name in natural order, pages, size, modified, warnings), ascending or descending; multi-select (Ctrl/Shift) and move up/down, Alt+arrows or drag (rows in the list, cards in the grid); every change undoable. doc_combine combines in the order its paths are given. File names sort with pdfcraft-collate: digit runs by value, letters in the order of the interface language (CLDR Vietnamese for a vi interface, Root otherwise), and an NFC and an NFD spelling of the same name are equal. Not yet: scripts other than Latin are not unified."
 
 [[feature]]
 id = "organize.combine-thumbnails"
@@ -4017,7 +4017,7 @@ status = "shipped"
 commands = ["comment.list"]
 tools = ["comment_list"]
 evidence = ["crates/ui-egui/tests/it/comments.rs::the_panel_filters_and_sorts", "crates/ui-egui/tests/it/comments.rs::the_panel_filters_by_colour_and_checkmark"]
-notes = "type, author, status, colour and checkmark"
+notes = "type, author, status, colour and checkmark. The author list has one entry per author as a person would read it: spellings that differ only in case or in NFC against NFD are one entry, labelled with the first spelling met, and switching it off hides all of them. Not yet: scripts other than Latin are not unified, so authors written in another script that differ only in NFC against NFD stay separate entries."
 
 [[feature]]
 id = "comment.sort-comments"
@@ -4029,7 +4029,7 @@ status = "shipped"
 commands = ["comment.list"]
 tools = ["comment_list"]
 evidence = ["crates/ui-egui/tests/it/comments.rs::the_panel_filters_and_sorts"]
-notes = "page, author, date, type, colour, with group headers"
+notes = "page, author, date, type, colour, with group headers. Author and type sort with pdfcraft-collate in the order of the interface language (CLDR Vietnamese for a vi interface, Root otherwise); authors that differ only in case or in NFC against NFD fall in one group. Not yet: scripts other than Latin are not unified."
 
 [[feature]]
 id = "comment.search-comments"
@@ -4041,7 +4041,7 @@ status = "partial"
 commands = ["comment.list"]
 tools = ["comment_list"]
 evidence = ["crates/ui-egui/tests/it/comments.rs::the_panel_posts_comments_and_replies"]
-notes = "search by author, text and type in the panel; not yet in the Find bar"
+notes = "search by author, text and type in the panel; not yet in the Find bar. The panel and the bookmark filter match whole letters, so e does not match inside Nguyễn, and a query typed as NFD finds an NFC title and the other way round (precomposed Latin letters; other scripts are not unified); Turkish i (dotted capital I in NFC or NFD) and Greek sigma still fold as before. Find and Search & Redact keep the case-fold only (no NFC yet: they map matches back to glyph positions)."
 
 [[feature]]
 id = "comment.show-hide-comments"
@@ -4221,7 +4221,7 @@ status = "partial"
 commands = ["comment.summarize"]
 tools = ["comments_summarize"]
 evidence = ["crates/engine/src/tests.rs::comments_lock_take_checkmarks_hide_and_summarize", "crates/ui-egui/tests/it/comments.rs::comments_take_checkmarks_lock_hide_and_summarize", "crates/automation/tests/it/automation.rs::comment_checkmarks_locks_hiding_and_summaries_through_tools"]
-notes = "Comments only layout, sorted by page, author, date or type; the layouts with the document and connector lines not yet"
+notes = "Comments only layout, sorted by page, author, date or type; the layouts with the document and connector lines not yet. Authors sort in the session language (the interface language in the app, Root in headless runs and automation), with NFC and NFD spellings equal (Latin letters; other scripts are not unified). The report font does not draw every Vietnamese letter yet."
 
 [[feature]]
 id = "comment.flatten"
@@ -4945,7 +4945,7 @@ status = "shipped"
 commands = ["form.field.properties"]
 tools = ["form_set_props"]
 evidence = ["crates/forms/src/tests.rs::button_caption_preserves_other_widgets_and_shared_dictionaries", "crates/forms/src/tests.rs::a_button_caption_is_drawn_in_its_fields_font_size_and_color", "crates/ui-egui/tests/it/prepare.rs::button_label_is_editable_without_renaming_the_field", "crates/automation/tests/it/button_caption.rs::button_caption_can_be_changed_after_creation", "crates/forms/src/tests.rs::properties_rename_and_delete", "crates/automation/tests/it/automation.rs::preparing_a_form_through_tools", "crates/forms/src/tests.rs::options_tab_flags_alignment_and_defaults", "crates/ui-egui/tests/it/prepare.rs::options_tab_sets_flags_alignment_and_defaults", "crates/automation/tests/it/form_bulk.rs::bulk_options_apply_per_field_and_refuse_an_invalid_comb_atomically"]
-notes = "push buttons: per-widget normal label independent of the field name, including clearing and save/reopen, drawn in the font, size and color of the button's /DA (the form's /DR font, else Helvetica; an automatic size fits the button) and centered by Helvetica's widths; icon-only layout retained, rollover/down labels and icon layout editing remain unavailable; text: alignment, default, multi-line, scroll, rich text flag, limit, password, file selection, spell check, comb; choices: items, default, sort, custom text, multiple selection, commit immediately; check boxes and radios: checked by default, radios in unison. Shared GUI offers applicable text/choice flags, alignment, text limits and check styles; choices/defaults remain individual GUI edits"
+notes = "push buttons: per-widget normal label independent of the field name, including clearing and save/reopen, drawn in the font, size and color of the button's /DA (the form's /DR font, else Helvetica; an automatic size fits the button) and centered by Helvetica's widths; icon-only layout retained, rollover/down labels and icon layout editing remain unavailable; text: alignment, default, multi-line, scroll, rich text flag, limit, password, file selection, spell check, comb; choices: items, default, sort (Sort items orders by the document /Lang when it names a language, then by the sort language the caller gives, then by the session language the app fills in, else Root; Vietnamese follows CLDR vi and NFC equals NFD; the order is stable; item text and export values are kept as they are, never normalised, and only their order changes, while the list is re-encoded as before; other scripts are not unified), custom text, multiple selection, commit immediately; check boxes and radios: checked by default, radios in unison. Shared GUI offers applicable text/choice flags, alignment, text limits and check styles; choices/defaults remain individual GUI edits"
 
 [[feature]]
 id = "form.props-actions"

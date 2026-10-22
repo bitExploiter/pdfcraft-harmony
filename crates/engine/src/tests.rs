@@ -3263,7 +3263,7 @@ fn comments_lock_take_checkmarks_hide_and_summarize() {
     assert!(s.set_hide_comments(id, false));
     assert!(pixel(&s, id, 1, 105, 100)[1] < 40);
 
-    let text = comment_summary("doc.pdf", &s.get(id).unwrap().info.annotations, SummarySort::Page);
+    let text = comment_summary("doc.pdf", &s.get(id).unwrap().info.annotations, SummarySort::Page, Collation::Root);
     assert!(text.starts_with("Summary of Comments on doc.pdf"));
     assert!(text.contains("Page: 2\nNumber: 1  Author: Reviewer  Subject: Rectangle"), "{text}");
     assert!(text.contains("Still editable") && text.contains("    Agreed"), "{text}");
@@ -3271,7 +3271,7 @@ fn comments_lock_take_checkmarks_hide_and_summarize() {
     let pdf = s.summarize_comments(id, SummarySort::Author).unwrap();
     let n = s.open_new("summary.pdf", pdf).unwrap();
     assert!(!s.get(n).unwrap().info.pages.is_empty());
-    assert_eq!(comment_summary("x", &[], SummarySort::Page), "Summary of Comments on x\n\nThis document has no comments.\n");
+    assert_eq!(comment_summary("x", &[], SummarySort::Page, Collation::Root), "Summary of Comments on x\n\nThis document has no comments.\n");
 }
 
 /// #820: the generated summary includes replies to replies, indented one level deeper.
@@ -3281,10 +3281,240 @@ fn comment_summary_includes_replies_to_replies() {
     s.apply(id, rect_comment(0, [40.0, 40.0, 90.0, 90.0])).unwrap();
     s.apply(id, Edit::ReplyToAnnotation { page: 0, index: 0, text: "FIRST_REPLY".into(), author: "A".into() }).unwrap();
     s.apply(id, Edit::ReplyToAnnotation { page: 0, index: 1, text: "NESTED_REPLY".into(), author: "B".into() }).unwrap();
-    let text = comment_summary("doc.pdf", &s.get(id).unwrap().info.annotations, SummarySort::Page);
+    let text = comment_summary("doc.pdf", &s.get(id).unwrap().info.annotations, SummarySort::Page, Collation::Root);
     assert!(text.contains("FIRST_REPLY"), "{text}");
     assert!(text.contains("NESTED_REPLY"), "replies to replies are summarized: {text}");
     assert!(text.contains("        NESTED_REPLY"), "the nested reply is indented under its parent: {text}");
+}
+
+/// A rectangle comment on the first page by `author`.
+fn comment_by(author: &str, rect: [f64; 4]) -> Edit {
+    Edit::AddAnnotation(NewAnnotation {
+        page: 0,
+        shape: Shape::Rectangle { rect },
+        style: Style { color: [1.0, 0.0, 0.0], opacity: 1.0, width: 2.0, fill: None },
+        contents: "Look here".into(),
+        author: author.into(),
+    })
+}
+
+const AUTHORS: [&str; 5] = ["Võ Thị Sáu", "Đặng Văn Lâm", "anh Tuấn", "Bình", "Dương Hà"];
+
+/// A session whose first page holds one comment per author in [`AUTHORS`].
+fn session_with_authors() -> (Session, DocId) {
+    let (mut s, id) = session_with(1);
+    for (i, author) in AUTHORS.iter().enumerate() {
+        let y = 20.0 + 30.0 * i as f64;
+        s.apply(id, comment_by(author, [20.0, y, 40.0, y + 20.0])).unwrap();
+    }
+    (s, id)
+}
+
+/// The authors of a summary's comment lines, in the order they appear.
+fn summary_authors(text: &str) -> Vec<String> {
+    text.lines()
+        .filter(|l| l.starts_with("Number:"))
+        .filter_map(|l| l.split_once("Author: ")?.1.split_once("  Subject:").map(|(a, _)| a.to_string()))
+        .collect()
+}
+
+#[test]
+fn summary_sorts_authors_by_session_language() {
+    const ROOT: [&str; 5] = ["anh Tuấn", "Bình", "Đặng Văn Lâm", "Dương Hà", "Võ Thị Sáu"];
+    const VI: [&str; 5] = ["anh Tuấn", "Bình", "Dương Hà", "Đặng Văn Lâm", "Võ Thị Sáu"];
+    let (mut s, id) = session_with_authors();
+    let annotations = s.get(id).unwrap().info.annotations.clone();
+    assert_eq!(summary_authors(&comment_summary("d", &annotations, SummarySort::Author, Collation::Root)), ROOT);
+    assert_eq!(summary_authors(&comment_summary("d", &annotations, SummarySort::Author, Collation::Vi)), VI);
+
+    // The session decides which one Summarize Comments uses. Root is the default. The report's
+    // font may not draw every Vietnamese letter (the text then shows `[U+XXXX]`), so each author
+    // is found by either spelling and only the order of the lines is compared.
+    assert_eq!(s.sort_language(), Collation::Root);
+    let order = |s: &mut Session| {
+        let pdf = s.summarize_comments(id, SummarySort::Author).unwrap();
+        let n = s.open_new("summary.pdf", pdf).unwrap();
+        let text = page_texts(s, n).join("\n");
+        let forms: [(&str, &[&str]); 5] = [
+            ("anh Tuấn", &["anh Tu"]),
+            ("Bình", &["Bình", "B[U+00EC]nh"]),
+            ("Đặng Văn Lâm", &["Đặng", "[U+0110]"]),
+            ("Dương Hà", &["Dương", "D[U+01B0]"]),
+            ("Võ Thị Sáu", &["Võ", "V[U+00F5]"]),
+        ];
+        let mut at: Vec<(usize, &str)> =
+            forms.iter().map(|(name, spellings)| (spellings.iter().filter_map(|f| text.find(f)).min().expect(name), *name)).collect();
+        at.sort();
+        at.into_iter().map(|(_, name)| name).collect::<Vec<_>>()
+    };
+    assert_eq!(order(&mut s), ROOT);
+    s.set_sort_language("vi-VN");
+    assert_eq!(s.sort_language(), Collation::Vi);
+    assert_eq!(order(&mut s), VI);
+}
+
+#[test]
+fn summary_author_sort_is_stable_for_equal_authors() {
+    // NFC and NFD spellings of one name are equal under the key, so they keep the order they have
+    // in the page-ordered summary, whichever of them was added first.
+    for names in [["Lê Ánh", "Bình", "Le\u{302} A\u{301}nh"], ["Le\u{302} A\u{301}nh", "Bình", "Lê Ánh"]] {
+        let (mut s, id) = session_with(1);
+        for (i, author) in names.iter().enumerate() {
+            let y = 20.0 + 30.0 * i as f64;
+            s.apply(id, comment_by(author, [20.0, y, 40.0, y + 20.0])).unwrap();
+        }
+        let annotations = s.get(id).unwrap().info.annotations.clone();
+        let by_page = summary_authors(&comment_summary("d", &annotations, SummarySort::Page, Collation::Vi));
+        let by_author = summary_authors(&comment_summary("d", &annotations, SummarySort::Author, Collation::Vi));
+        let mut expected = vec!["Bình".to_string()];
+        expected.extend(by_page.into_iter().filter(|a| a != "Bình"));
+        assert_eq!(by_author, expected, "{names:?}");
+    }
+}
+
+#[test]
+fn set_field_props_gets_session_language() {
+    const PLACES: [&str; 5] = ["Hà Nội", "Đà Nẵng", "Đắk Lắk", "Huế", "Dung Quất"];
+    const VI_ORDER: [&str; 5] = ["Dung Quất", "Đà Nẵng", "Đắk Lắk", "Hà Nội", "Huế"];
+    let (mut s, id) = session_with(1);
+    s.set_sort_language("vi");
+    let kind = NewField::Combo { options: PLACES.iter().map(|p| p.to_string()).collect(), editable: false };
+    s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 180.0, 42.0], kind, name: Some("city".into()) }).unwrap();
+    let opts =
+        |s: &Session| s.get(id).unwrap().form.iter().find(|f| f.name == "city").unwrap().options.iter().map(|(_, d)| d.clone()).collect::<Vec<_>>();
+    assert_eq!(opts(&s), PLACES);
+    let sort = || FieldProps { flags: vec![(pdfcraft_forms::flags::SORT, true)], ..FieldProps::default() };
+    s.apply(id, Edit::SetFieldProps { name: "city".into(), props: Box::new(sort()) }).unwrap();
+    assert_eq!(opts(&s), VI_ORDER, "the session language orders the items");
+    s.undo(id).unwrap();
+    assert_eq!(opts(&s), PLACES, "undo restores the old /Opt");
+
+    // An explicit language in the props wins over the session's, and a Batch reaches the same code.
+    let props = FieldProps { sort_language: Some("root".into()), ..sort() };
+    s.apply(id, Edit::Batch { label: "Sort".into(), edits: vec![Edit::SetFieldProps { name: "city".into(), props: Box::new(props) }] }).unwrap();
+    assert_eq!(opts(&s), ["Đà Nẵng", "Đắk Lắk", "Dung Quất", "Hà Nội", "Huế"]);
+    s.undo(id).unwrap();
+    s.apply(id, Edit::Batch { label: "Sort".into(), edits: vec![Edit::SetFieldProps { name: "city".into(), props: Box::new(sort()) }] }).unwrap();
+    assert_eq!(opts(&s), VI_ORDER, "inside a Batch the session language is filled too");
+
+    // A headless session (Root) sorts the same fields in Root order.
+    let (mut r, rid) = session_with(1);
+    let kind = NewField::Combo { options: PLACES.iter().map(|p| p.to_string()).collect(), editable: false };
+    r.apply(rid, Edit::AddField { page: 0, rect: [20.0, 20.0, 180.0, 42.0], kind, name: Some("city".into()) }).unwrap();
+    r.apply(rid, Edit::SetFieldProps { name: "city".into(), props: Box::new(sort()) }).unwrap();
+    let root: Vec<String> = r.get(rid).unwrap().form[0].options.iter().map(|(_, d)| d.clone()).collect();
+    assert_eq!(root, ["Đà Nẵng", "Đắk Lắk", "Dung Quất", "Hà Nội", "Huế"]);
+}
+
+/// The session language that `SetFieldProps` fills in (the path of the Field Properties dialog and
+/// `form_set_props`) is only a hint for "Sort items": a caption-only or lock-only edit with it is
+/// still that edit, as it was before the session language existed.
+mod set_field_props_sort_hint {
+    use pdfcraft_cos::{Dict, ObjRef, Object, Stream};
+
+    use super::*;
+
+    fn cos(s: &Session, id: DocId) -> &pdfcraft_cos::Document {
+        &s.get(id).unwrap().editor.as_ref().unwrap().cos
+    }
+
+    fn widgets(s: &Session, id: DocId, name: &str) -> Vec<ObjRef> {
+        pdfcraft_forms::fields(cos(s, id)).into_iter().find(|f| f.name == name).unwrap().widgets.iter().map(|w| w.obj).collect()
+    }
+
+    /// Give `widget` a hand-made normal appearance that a redraw would replace.
+    fn custom_appearance(s: &mut Session, id: DocId, widget: ObjRef) -> ObjRef {
+        let cos = &mut s.doc_mut(id).unwrap().editor.as_mut().unwrap().cos;
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::name("XObject"));
+        d.set(b"Subtype".to_vec(), Object::name("Form"));
+        d.set(b"BBox".to_vec(), Object::Array(vec![Object::Int(0), Object::Int(0), Object::Int(100), Object::Int(30)]));
+        let n = cos.add(Object::Stream(Stream::from_raw(d, b"% custom\n0 0 100 30 re f\n".to_vec())));
+        let mut ap = Dict::new();
+        ap.set(b"N".to_vec(), Object::Ref(n));
+        cos.update_dict(widget, |w| w.set(b"AP".to_vec(), Object::Dict(ap))).unwrap();
+        n
+    }
+
+    fn normal_ap(s: &Session, id: DocId, widget: ObjRef) -> Option<ObjRef> {
+        cos(s, id).get(widget).as_dict()?.get(b"AP")?.as_dict()?.reference(b"N")
+    }
+
+    fn set(s: &mut Session, id: DocId, name: &str, props: FieldProps) -> Result<(), EditError> {
+        s.apply(id, Edit::SetFieldProps { name: name.into(), props: Box::new(props) })
+    }
+
+    #[test]
+    fn caption_only_edit_keeps_other_widgets_appearances() {
+        for lang in ["root", "vi"] {
+            let (mut s, id) = session_with(2);
+            s.set_sort_language(lang);
+            let kind = NewField::Button { caption: "Go".into() };
+            s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 50.0], kind, name: Some("go".into()) }).unwrap();
+            s.apply(id, Edit::DuplicateField { name: "go".into(), pages: vec![1] }).unwrap();
+            let w = widgets(&s, id, "go");
+            assert_eq!(w.len(), 2);
+            let custom = custom_appearance(&mut s, id, w[0]);
+            let untouched = cos(&s, id).get(w[0]).clone();
+            set(&mut s, id, "go", FieldProps { caption: Some((1, "Stop".into())), ..FieldProps::default() }).unwrap();
+            assert_eq!(cos(&s, id).get(w[0]), untouched, "{lang}: the other widget is untouched");
+            assert_eq!(normal_ap(&s, id, w[0]), Some(custom), "{lang}: its custom appearance is kept");
+            let f = pdfcraft_forms::fields(cos(&s, id)).into_iter().find(|f| f.name == "go").unwrap();
+            assert_eq!(f.widgets.iter().map(|w| w.caption.as_deref()).collect::<Vec<_>>(), [Some("Go"), Some("Stop")]);
+        }
+    }
+
+    #[test]
+    fn lock_only_edit_sets_the_lock_bit_and_nothing_else() {
+        let (mut s, id) = session_with(1);
+        s.set_sort_language("vi");
+        let kind = NewField::Text { multiline: false };
+        s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 42.0], kind, name: Some("who".into()) }).unwrap();
+        let w = widgets(&s, id, "who");
+        assert_eq!(w.len(), 1);
+        let custom = custom_appearance(&mut s, id, w[0]);
+        let before = cos(&s, id).get(w[0]).as_dict().unwrap().clone();
+        let flags = before.get(b"F").and_then(|v| v.as_int()).unwrap_or(0);
+        set(&mut s, id, "who", FieldProps { locked: Some(true), ..FieldProps::default() }).unwrap();
+        // As before the session language: only the widget's /F gains Locked (128); /Ff and the
+        // appearance are not rewritten.
+        let mut expected = before;
+        expected.set(b"F".to_vec(), Object::Int(flags | 128));
+        assert_eq!(*cos(&s, id).get(w[0]), Object::Dict(expected));
+        assert_eq!(normal_ap(&s, id, w[0]), Some(custom));
+        assert!(pdfcraft_forms::fields(cos(&s, id)).iter().find(|f| f.name == "who").unwrap().locked());
+    }
+
+    #[test]
+    fn locking_a_locked_field_succeeds() {
+        let (mut s, id) = session_with(1);
+        s.set_sort_language("vi");
+        let kind = NewField::Text { multiline: false };
+        s.apply(id, Edit::AddField { page: 0, rect: [20.0, 20.0, 120.0, 42.0], kind, name: Some("who".into()) }).unwrap();
+        let lock = || FieldProps { locked: Some(true), ..FieldProps::default() };
+        set(&mut s, id, "who", lock()).unwrap();
+        set(&mut s, id, "who", lock()).expect("locking a locked field is a no-op, not an error");
+        assert!(pdfcraft_forms::fields(cos(&s, id)).iter().find(|f| f.name == "who").unwrap().locked());
+        // Locked still means locked: other properties wait for unlocking, with or without a language.
+        assert!(set(&mut s, id, "who", FieldProps { required: Some(true), ..FieldProps::default() }).is_err());
+        let explicit = FieldProps { required: Some(true), sort_language: Some("vi".into()), ..FieldProps::default() };
+        assert!(set(&mut s, id, "who", explicit).is_err());
+        set(&mut s, id, "who", FieldProps { locked: Some(false), required: Some(true), ..FieldProps::default() }).unwrap();
+    }
+}
+
+#[test]
+fn sort_language_tags_never_panic() {
+    let mut s = Session::new();
+    for tag in ["", "-", "\u{10FFFF}", "vi", "zz", "VI_vn"] {
+        s.set_sort_language(tag);
+    }
+    assert_eq!(s.sort_language(), Collation::Vi, "the last one, VI_vn, is Vietnamese");
+    s.set_sort_language(&"\u{10FFFF}".repeat(250_000));
+    assert_eq!(s.sort_language(), Collation::Root);
+    s.set_sort_language(&"vi-".repeat(400_000));
+    s.set_sort_language("");
+    assert_eq!(s.sort_language(), Collation::Root);
 }
 
 #[test]

@@ -2981,3 +2981,150 @@ fn page_walk_skips_repeated_and_cyclic_kids_without_queueing_them() {
     assert_eq!(walk.next(), None);
     assert_eq!(page_refs(&doc), [page]);
 }
+
+/// "Sort items" orders choices by the document's `/Lang`, then `FieldProps::sort_language`,
+/// then Root; only the order changes, never an item's text (nothing is normalised) or its export
+/// value. The list is re-encoded as before, so the bytes of an entry may differ.
+mod sort_items {
+    use super::*;
+
+    const PLACES: [&str; 5] = ["Hà Nội", "Đà Nẵng", "Đắk Lắk", "Huế", "Dung Quất"];
+    const VI_ORDER: [&str; 5] = ["Dung Quất", "Đà Nẵng", "Đắk Lắk", "Hà Nội", "Huế"];
+    // Root treats Đ as D plus a secondary difference, and a space sorts before a letter: "Đà Nẵng"
+    // (Đa·space) precedes "Đắk Lắk" (Đa·k) and both precede "Dung" (a < u).
+    const ROOT_ORDER: [&str; 5] = ["Đà Nẵng", "Đắk Lắk", "Dung Quất", "Hà Nội", "Huế"];
+
+    fn hex16(s: &str) -> String {
+        let units: Vec<u8> = std::iter::once(0xFEFFu16).chain(s.encode_utf16()).flat_map(u16::to_be_bytes).collect();
+        format!("<{}>", units.iter().map(|b| format!("{b:02X}")).collect::<String>())
+    }
+
+    /// A document with one combo `c` whose `/Opt` holds `opt` (a PDF array body), the catalog
+    /// carrying `lang` as `/Lang` when given.
+    fn doc_with(lang: Option<Object>, opt: &str) -> Document {
+        let lang = match lang {
+            Some(Object::String(s)) => format!("/Lang {}", hex16(&s.to_text())),
+            Some(Object::Int(n)) => format!("/Lang {n}"),
+            _ => String::new(),
+        };
+        document(&[
+            format!("<< /Type /Catalog /Pages 2 0 R /AcroForm 4 0 R {lang} >>"),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 600 800] >>".into(),
+            "<< /Type /Page /Parent 2 0 R /Annots [5 0 R] >>".into(),
+            "<< /Fields [5 0 R] /DA (/Helv 0 Tf 0 g) >>".into(),
+            format!("<< /Type /Annot /Subtype /Widget /FT /Ch /T (c) /Ff 131072 /Opt [{opt}] /Rect [10 10 200 30] /P 3 0 R >>"),
+        ])
+    }
+
+    fn lang(s: &str) -> Option<Object> {
+        Some(Object::String(PdfString::text(s)))
+    }
+
+    fn places_opt() -> String {
+        PLACES.iter().map(|p| hex16(p)).collect::<Vec<_>>().join(" ")
+    }
+
+    fn sort(doc: &mut Document, sort_language: Option<&str>) -> Vec<String> {
+        let props = FieldProps { flags: vec![(flags::SORT, true)], sort_language: sort_language.map(String::from), ..FieldProps::default() };
+        set_props(doc, "c", &props).unwrap();
+        fields(doc).into_iter().find(|f| f.name == "c").unwrap().options.into_iter().map(|(_, d)| d).collect()
+    }
+
+    fn raw_opt(doc: &Document) -> Vec<Object> {
+        let f = fields(doc).into_iter().find(|f| f.name == "c").unwrap();
+        let d = doc.get(f.obj);
+        match d.as_dict().and_then(|d| d.get(b"Opt")).map(|o| doc.resolve(o)) {
+            Some(o) => match &*o {
+                Object::Array(a) => a.clone(),
+                _ => Vec::new(),
+            },
+            None => Vec::new(),
+        }
+    }
+
+    #[test]
+    fn sort_items_follow_document_lang_vi() {
+        let mut doc = doc_with(lang("vi-VN"), &places_opt());
+        assert_eq!(sort(&mut doc, None), VI_ORDER);
+    }
+
+    #[test]
+    fn sort_items_fall_back_to_props_language() {
+        let mut doc = doc_with(None, &places_opt());
+        assert_eq!(sort(&mut doc, Some("vi")), VI_ORDER);
+    }
+
+    #[test]
+    fn document_lang_wins_over_props_language() {
+        let mut doc = doc_with(lang("en-US"), &places_opt());
+        assert_eq!(sort(&mut doc, Some("vi")), ROOT_ORDER);
+    }
+
+    #[test]
+    fn sort_items_default_root() {
+        let mut doc = doc_with(None, &places_opt());
+        assert_eq!(sort(&mut doc, None), ROOT_ORDER);
+    }
+
+    #[test]
+    fn sort_items_ignore_an_empty_or_unreadable_document_lang() {
+        // Empty and non-string /Lang count as "no /Lang": the given language applies.
+        for l in [lang(""), Some(Object::Int(7))] {
+            let mut doc = doc_with(l, &places_opt());
+            assert_eq!(sort(&mut doc, Some("vi")), VI_ORDER);
+        }
+    }
+
+    #[test]
+    fn sort_items_unknown_language_tags_mean_root() {
+        for tag in ["", "-", "zz"] {
+            let mut doc = doc_with(None, &places_opt());
+            assert_eq!(sort(&mut doc, Some(tag)), ROOT_ORDER, "{tag:?}");
+        }
+        for tag in ["VI_vn", "vi-VN", "vi"] {
+            let mut doc = doc_with(None, &places_opt());
+            assert_eq!(sort(&mut doc, Some(tag)), VI_ORDER, "{tag:?}");
+        }
+    }
+
+    #[test]
+    fn sort_items_keep_export_values_and_unnormalised_text() {
+        let nfd = "Ha\u{300}";
+        let (ánh_nfc, ánh_nfd) = ("\u{c1}nh", "A\u{301}nh");
+        let opt = format!("[{} {}] {} {} {} {}", hex16("HN"), hex16("Hà Nội"), hex16(nfd), hex16(ánh_nfc), hex16(ánh_nfd), hex16("Dung Quất"));
+        let mut doc = doc_with(lang("vi"), &opt);
+        sort(&mut doc, None);
+        let opt = raw_opt(&doc);
+        let text = |o: &Object| match o {
+            Object::String(s) => s.to_text(),
+            other => panic!("expected a string, got {other:?}"),
+        };
+        let shown: Vec<String> = opt
+            .iter()
+            .map(|o| match o {
+                Object::Array(p) => {
+                    assert_eq!(text(&p[0]), "HN");
+                    text(&p[1])
+                }
+                o => text(o),
+            })
+            .collect();
+        // "Ánh" NFC and NFD are equal: they keep their entry order. NFD text stays NFD (not normalised).
+        assert_eq!(shown, vec![ánh_nfc, ánh_nfd, "Dung Quất", nfd, "Hà Nội"]);
+        assert!(shown.iter().any(|s| s == nfd) && shown.iter().any(|s| s == ánh_nfd) && shown.iter().any(|s| s == ánh_nfc));
+        // The pair keeps its export value with its item.
+        assert!(matches!(&opt[4], Object::Array(p) if text(&p[0]) == "HN"));
+    }
+
+    #[test]
+    fn sort_items_hostile_options_never_panic() {
+        let long = format!("a{}", "\u{301}".repeat(10_000));
+        let opt = [hex16(&long), hex16("\u{301}"), hex16(""), hex16("b")].join(" ");
+        for l in [None, lang("vi")] {
+            let mut doc = doc_with(l, &opt);
+            let shown = sort(&mut doc, Some("vi"));
+            assert_eq!(shown.len(), 4);
+            assert!(shown.contains(&long) && shown.contains(&String::new()));
+        }
+    }
+}

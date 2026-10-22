@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+pdfcraft-collate = { workspace = true }
 pdfcraft-cos = { workspace = true }
 pdfcraft-fonts = { workspace = true }
 pdfcraft-content = { workspace = true }

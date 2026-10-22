@@ -973,6 +973,7 @@ impl FieldDraft {
             locked: ch(self.locked, o.locked),
             actions: (self.actions != o.actions).then(|| self.actions.clone()),
             default_value: (self.default != o.default).then(|| (!self.default.is_empty()).then(|| self.default.clone())),
+            sort_language: None,
         };
         (p != FieldProps::default()).then_some(p)
     }

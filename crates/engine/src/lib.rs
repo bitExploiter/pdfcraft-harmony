@@ -222,6 +222,7 @@ fn record_link_scan() {
     });
 }
 
+use pdfcraft_collate::{Collation, text_key};
 use pdfcraft_cos::{SaveOptions, write_full, write_incremental};
 use pdfcraft_render::{DocInfo, Layer, LayerOp, OpenError, ReadingColors, RenderConfig, RenderPool, inspect};
 
@@ -2356,6 +2357,9 @@ struct EditCtx {
     /// Fields the edit renamed to keep imported names separate (old → new), for the repair
     /// log and the undo label.
     renamed_fields: Vec<(String, String)>,
+    /// The session's sort language: what "Sort items" uses when neither the document (`/Lang`)
+    /// nor the edit names one.
+    sort_language: Collation,
 }
 
 impl EditCtx {
@@ -2382,6 +2386,7 @@ impl EditCtx {
             seed,
             count: 0,
             renamed_fields: Vec::new(),
+            sort_language: Collation::Root,
         }
     }
 
@@ -2583,7 +2588,15 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_forms::add_field(doc, *page, *rect, kind, name.as_deref())?;
         }
         Edit::SetFieldProps { name, props } => {
-            pdfcraft_forms::set_props(doc, name, props)?;
+            // "Sort items" orders by the document's /Lang, then the props' language, so the
+            // session's language is only the last resort and never overrides either.
+            if props.sort_language.is_none() {
+                let mut filled = (**props).clone();
+                filled.sort_language = Some(cx.sort_language.tag().into());
+                pdfcraft_forms::set_props(doc, name, &filled)?;
+            } else {
+                pdfcraft_forms::set_props(doc, name, props)?;
+            }
         }
         Edit::DuplicateField { name, pages } => {
             if pdfcraft_forms::duplicate_field(doc, name, pages)? == 0 {
@@ -3047,6 +3060,9 @@ pub struct Session {
     date_format: Option<String>,
     /// Preferences ▸ Date format ▸ Language, when not following the interface language.
     date_language: Option<String>,
+    /// The order text is sorted in (Summarize Comments, "Sort items"). Headless sessions are Root;
+    /// an interface that knows the user's language sets it. Not part of any document.
+    sort_language: Collation,
 }
 
 /// Immutable session state needed while a document is prepared away from its owning thread.
@@ -3755,6 +3771,7 @@ impl Session {
         let now = self.now();
         let today = self.today();
         let js_off = self.js_off;
+        let sort_language = self.sort_language;
         let doc = self.doc_mut(id)?;
         doc.edit_notices.clear();
         let name = doc.name.clone();
@@ -3766,6 +3783,7 @@ impl Session {
         }
         cx.pages = doc.info.pages.len();
         cx.today = today;
+        cx.sort_language = sort_language;
         let reason = doc.read_only_reason.clone().unwrap_or_default();
         let signed = doc.is_signed();
         let editor = doc.editor.as_mut().ok_or(EditError::ReadOnly(reason))?;
@@ -5018,11 +5036,23 @@ impl Session {
         Some(self.get(id)?.config.clone())
     }
 
+    /// Set the order text is sorted in from a language tag (`vi`, `vi-VN`, `VI_vn` are Vietnamese;
+    /// anything else, including an empty or unknown tag, is the Root order, ours and not CLDR root). It is a session
+    /// setting: not an undo step and not written to any file.
+    pub fn set_sort_language(&mut self, tag: &str) {
+        self.sort_language = Collation::from_tag(tag);
+    }
+
+    /// The order text is sorted in (see [`Session::set_sort_language`]).
+    pub fn sort_language(&self) -> Collation {
+        self.sort_language
+    }
+
     /// Acrobat's Summarize Comments ("Comments only" layout): a new PDF listing every comment
     /// with its number, author, type, date, text and replies, grouped by page.
     pub fn summarize_comments(&self, id: DocId, sort: SummarySort) -> Result<Arc<Vec<u8>>, EditError> {
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
-        let text = comment_summary(&doc.name, &doc.info.annotations, sort);
+        let text = comment_summary(&doc.name, &doc.info.annotations, sort, self.sort_language);
         self.create_report(&format!("Summary of Comments on {}", doc.name), &text)
     }
 
@@ -5252,7 +5282,7 @@ pub fn comment_kind(a: &pdfcraft_render::Annotation) -> &str {
 /// The text of a comment summary: one block per comment (replies indented under it), with a
 /// "Page N" heading when sorted by page. Checkmarks and status replies are left out, as are
 /// pop-ups; the number is the comment's position on its page.
-pub fn comment_summary(name: &str, all: &[pdfcraft_render::Annotation], sort: SummarySort) -> String {
+pub fn comment_summary(name: &str, all: &[pdfcraft_render::Annotation], sort: SummarySort, c: Collation) -> String {
     use std::fmt::Write;
     let top: Vec<&pdfcraft_render::Annotation> = all.iter().filter(|a| a.in_reply_to.is_none() && a.state.is_none()).collect();
     // Write a comment's replies, indenting each level. A reply to a reply keeps its `/IRT` on the
@@ -5287,7 +5317,9 @@ pub fn comment_summary(name: &str, all: &[pdfcraft_render::Annotation], sort: Su
     }
     match sort {
         SummarySort::Page => {}
-        SummarySort::Author => numbered.sort_by(|x, y| x.1.author.cmp(&y.1.author)),
+        // Stable, with an author-less comment ahead of every named one; the key makes NFC and NFD
+        // spellings of a name equal, so they keep the order they have on the page.
+        SummarySort::Author => numbered.sort_by_cached_key(|x| text_key(x.1.author.as_deref().unwrap_or(""), c)),
         SummarySort::Date => numbered.sort_by(|x, y| x.1.modified.cmp(&y.1.modified)),
         SummarySort::Type => numbered.sort_by(|x, y| comment_kind(x.1).cmp(comment_kind(y.1))),
     }
