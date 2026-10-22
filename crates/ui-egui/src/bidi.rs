@@ -84,22 +84,27 @@ pub struct Line {
     pub rtl: bool,
 }
 
+/// One wrapped line slice with its logical byte range and display text.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineSlice {
+    /// The safe byte range in the logical text corresponding to this line.
+    pub logical_range: Range<usize>,
+    /// The line in display order.
+    pub display_text: String,
+    /// Whether this line is right-to-left.
+    pub rtl: bool,
+}
+
 /// Whether `text` holds any right-to-left script, so [`wrap`] or [`visual_auto`] is needed.
 pub fn has_rtl(text: &str) -> bool {
     text.chars().any(is_rtl_script)
 }
 
-/// Multi-line text with right-to-left script (a comment in Persian, Arabic, Hebrew), broken
-/// into lines that `fits` accepts (it measures a line in logical order) and each put in display
-/// order by the Unicode bidirectional algorithm (UAX #9).
-///
-/// Every paragraph takes its direction from its first strong character, as `dir="auto"` does,
-/// so a Persian comment reads right to left with its Latin words and numbers left to right
-/// inside it. Lines break between words, in reading order, and a word wider than a line
-/// between characters. Use it for painting; copying and accessibility keep the logical text.
-pub fn wrap(text: &str, mut fits: impl FnMut(&str) -> bool) -> Vec<Line> {
+/// Multi-line text with right-to-left script, broken into lines that `fits` accepts
+/// and each put in display order, returning the logical byte range and display text for each line.
+pub fn wrap_slices(text: &str, mut fits: impl FnMut(&str) -> bool) -> Vec<LineSlice> {
     let info = BidiInfo::new(text, None);
-    let mut lines = Vec::new();
+    let mut slices = Vec::new();
     for para in &info.paragraphs {
         let whole = text.get(para.range.clone()).unwrap_or_default();
         // unicode-bidi ends a paragraph at the `\r` of `\r\n`; the `\n` is no new paragraph.
@@ -112,12 +117,34 @@ pub fn wrap(text: &str, mut fits: impl FnMut(&str) -> bool) -> Vec<Line> {
             let mut out = String::new();
             // unicode-bidi indexes the first level of a line, so an empty one would panic.
             if !line.is_empty() {
-                push_line(&mut out, text, &info, para, line);
+                push_line(&mut out, text, &info, para, line.clone());
             }
-            lines.push(Line { text: out, rtl });
+            slices.push(LineSlice {
+                logical_range: line,
+                display_text: out,
+                rtl,
+            });
         }
     }
-    lines
+    slices
+}
+
+/// Multi-line text with right-to-left script (a comment in Persian, Arabic, Hebrew), broken
+/// into lines that `fits` accepts (it measures a line in logical order) and each put in display
+/// order by the Unicode bidirectional algorithm (UAX #9).
+///
+/// Every paragraph takes its direction from its first strong character, as `dir="auto"` does,
+/// so a Persian comment reads right to left with its Latin words and numbers left to right
+/// inside it. Lines break between words, in reading order, and a word wider than a line
+/// between characters. Use it for painting; copying and accessibility keep the logical text.
+pub fn wrap(text: &str, fits: impl FnMut(&str) -> bool) -> Vec<Line> {
+    wrap_slices(text, fits)
+        .into_iter()
+        .map(|s| Line {
+            text: s.display_text,
+            rtl: s.rtl,
+        })
+        .collect()
 }
 
 /// One line of `text` in display order, its direction from its first strong character (an
@@ -127,6 +154,16 @@ pub fn visual_auto(text: &str) -> Cow<'_, str> {
         return Cow::Borrowed(text);
     }
     let lines: Vec<String> = wrap(text, |_| true).into_iter().map(|l| l.text).collect();
+    Cow::Owned(lines.join("\n"))
+}
+
+/// Multi-line or single-line `text` in display order, broken into lines that `fits` accepts
+/// and each put in display order.
+pub fn visual_auto_wrap<'a>(text: &'a str, fits: impl FnMut(&str) -> bool) -> Cow<'a, str> {
+    if !has_rtl(text) {
+        return Cow::Borrowed(text);
+    }
+    let lines: Vec<String> = wrap(text, fits).into_iter().map(|l| l.text).collect();
     Cow::Owned(lines.join("\n"))
 }
 
@@ -377,65 +414,66 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
     }
 
     let is_rtl = has_rtl(content) || is_rtl_ui;
-    let mut visual_lines = Vec::new();
-    let logical_lines: Vec<&str> = content.split('\n').collect();
-    for line in &logical_lines {
-        visual_lines.push(visual_auto(line).into_owned());
-    }
-    let visual_text = visual_lines.join("\n");
 
-    let mut job = egui::text::LayoutJob::simple(visual_text, font_id, text_color, wrap_width);
+    // Pre-layout measurement and wrapping: break text into fitting visual line slices.
+    let (slices_per_line, visual_text) = if wrap_width.is_finite() && wrap_width > 0.0 {
+        ui.fonts_mut(|f| {
+            let mut measure = |s: &str| f.layout_no_wrap(s.to_owned(), font_id.clone(), text_color).size().x <= wrap_width;
+            let mut all_slices = Vec::new();
+            let mut display_lines = Vec::new();
+            for logical_line in content.split('\n') {
+                let slices = wrap_slices(logical_line, &mut measure);
+                for s in &slices {
+                    display_lines.push(s.display_text.clone());
+                }
+                all_slices.push(slices);
+            }
+            (all_slices, display_lines.join("\n"))
+        })
+    } else {
+        let mut all_slices = Vec::new();
+        let mut display_lines = Vec::new();
+        for logical_line in content.split('\n') {
+            let slices = wrap_slices(logical_line, |_| true);
+            for s in &slices {
+                display_lines.push(s.display_text.clone());
+            }
+            all_slices.push(slices);
+        }
+        (all_slices, display_lines.join("\n"))
+    };
+
+    let mut job = egui::text::LayoutJob::simple(visual_text, font_id, text_color, f32::INFINITY);
     if is_rtl {
         job.halign = egui::Align::RIGHT;
     }
-    job.wrap.max_width = wrap_width;
     let mut galley = ui.fonts_mut(|f| f.layout_job(job));
 
     let g = std::sync::Arc::make_mut(&mut galley);
-    let mut row_idx = 0;
-    for logical_line in &logical_lines {
-        let char_count = logical_line.chars().count();
-        if char_count == 0 {
-            if row_idx < g.rows.len() {
-                row_idx += 1;
+    let mut global_row_idx = 0;
+    let logical_lines: Vec<&str> = content.split('\n').collect();
+    let num_logical_lines = logical_lines.len();
+
+    for (line_idx, (logical_line, slices)) in logical_lines.iter().zip(&slices_per_line).enumerate() {
+        if slices.is_empty() {
+            if global_row_idx < g.rows.len() {
+                global_row_idx += 1;
             }
             continue;
         }
 
-        let mut line_rows = Vec::new();
-        let mut covered_glyphs = 0;
-        while row_idx < g.rows.len() {
-            let r = row_idx;
-            row_idx += 1;
-            let placed_row = &g.rows[r];
-            let vis_count = placed_row.row.glyphs.iter().filter(|g| g.advance_width > 0.0).count();
-            covered_glyphs += vis_count;
-            line_rows.push(r);
-            if placed_row.ends_with_newline || covered_glyphs >= char_count {
+        let is_last_logical_line = line_idx + 1 == num_logical_lines;
+
+        for (slice_idx, slice) in slices.iter().enumerate() {
+            if global_row_idx >= g.rows.len() {
                 break;
             }
-        }
+            let placed_row = &mut g.rows[global_row_idx];
+            global_row_idx += 1;
 
-        let bidi = unicode_bidi::BidiInfo::new(logical_line, None);
-        let base_level = bidi.paragraphs.first().map_or(if is_rtl { Level::rtl() } else { Level::ltr() }, |p| p.level);
-        let levels = if let Some(para) = bidi.paragraphs.first() {
-            bidi.reordered_levels_per_char(para, para.range.clone())
-        } else {
-            vec![base_level; char_count]
-        };
-        let visual_map = unicode_bidi::BidiInfo::reorder_visual(&levels);
-        let mut log_to_vis = vec![0; char_count];
-        for (v, &log) in visual_map.iter().enumerate() {
-            if log < char_count {
-                log_to_vis[log] = v;
-            }
-        }
+            let is_last_slice_in_para = slice_idx + 1 == slices.len();
+            placed_row.ends_with_newline = is_last_slice_in_para && !is_last_logical_line;
 
-        let is_multi_row = line_rows.len() > 1;
-        let mut vis_offset = 0;
-        let mut char_offset = 0;
-        for &r in &line_rows {
-            let placed_row = &mut g.rows[r];
             let row = std::sync::Arc::make_mut(&mut placed_row.row);
             let orig_glyphs = row.glyphs.clone();
             let vis_glyphs: Vec<_> = orig_glyphs.iter().filter(|g| g.advance_width > 0.0).copied().collect();
@@ -444,28 +482,44 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
                 continue;
             }
 
-            let row_start_char = char_offset;
-            char_offset += row_vis_count;
-            let row_width = row.size.x;
+            // Safe slice of the logical line on character boundaries.
+            let logical_slice = logical_line.get(slice.logical_range.clone()).unwrap_or_default();
+            let slice_char_count = logical_slice.chars().count();
 
-            let mut cursor_offsets = vec![0.0f32; row_vis_count.saturating_add(1)];
-            for col in 0..row_vis_count {
-                let log_i = if is_multi_row { row_start_char + col } else { col };
-                let is_char_rtl = levels.get(log_i).is_some_and(Level::is_rtl);
-                let v = log_to_vis.get(log_i).copied().unwrap_or(0);
-                let (x_left, x_right) = if is_multi_row {
-                    if v >= vis_offset && v < vis_offset + row_vis_count {
-                        let g = vis_glyphs[v - vis_offset];
-                        (g.pos.x.clamp(0.0, row_width), (g.pos.x + g.advance_width).clamp(0.0, row_width))
-                    } else if v < vis_glyphs.len() {
-                        let g = vis_glyphs[v];
-                        (g.pos.x.clamp(0.0, row_width), (g.pos.x + g.advance_width).clamp(0.0, row_width))
-                    } else {
-                        (0.0, row_width)
-                    }
-                } else if v < vis_glyphs.len() {
+            // Account for any trailing or collapsed whitespace at the wrap boundary.
+            let next_start = if !is_last_slice_in_para {
+                slices[slice_idx + 1].logical_range.start
+            } else {
+                logical_line.len()
+            };
+            let wrap_ws = logical_line.get(slice.logical_range.end..next_start).unwrap_or_default();
+            let ws_char_count = wrap_ws.chars().count();
+            let total_row_chars = slice_char_count + ws_char_count;
+
+            let bidi = unicode_bidi::BidiInfo::new(logical_slice, None);
+            let para = bidi.paragraphs.first();
+            let base_level = para.map_or(if slice.rtl { Level::rtl() } else { Level::ltr() }, |p| p.level);
+            let levels = if let Some(para) = para {
+                bidi.reordered_levels_per_char(para, para.range.clone())
+            } else {
+                vec![base_level; slice_char_count]
+            };
+            let visual_map = unicode_bidi::BidiInfo::reorder_visual(&levels);
+            let mut log_to_vis = vec![0; slice_char_count];
+            for (v, &log) in visual_map.iter().enumerate() {
+                if log < slice_char_count {
+                    log_to_vis[log] = v;
+                }
+            }
+
+            let row_width = row.size.x;
+            let mut cursor_offsets = vec![0.0f32; total_row_chars.saturating_add(1)];
+            for col in 0..slice_char_count {
+                let is_char_rtl = levels.get(col).is_some_and(Level::is_rtl);
+                let v = log_to_vis.get(col).copied().unwrap_or(0);
+                let (x_left, x_right) = if v < vis_glyphs.len() {
                     let g = vis_glyphs[v];
-                    (g.pos.x, g.pos.x + g.advance_width)
+                    (g.pos.x.clamp(0.0, row_width), (g.pos.x + g.advance_width).clamp(0.0, row_width))
                 } else {
                     (0.0, row_width)
                 };
@@ -477,16 +531,22 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
                     cursor_offsets[col + 1] = x_right;
                 }
             }
-            vis_offset += row_vis_count;
+
+            // Pin any trailing or collapsed whitespace at the wrap boundary to the row end
+            // so whitespace never distorts the cursor position at row ends.
+            let row_end_offset = cursor_offsets[slice_char_count];
+            for w in slice_char_count..total_row_chars {
+                cursor_offsets[w + 1] = row_end_offset;
+            }
 
             let Some(sample) = orig_glyphs.first().copied() else { continue };
             row.glyphs.clear();
-            for &x in &cursor_offsets[..row_vis_count] {
+            for &x in &cursor_offsets[..total_row_chars] {
                 let mut glyph = sample;
                 glyph.pos.x = x;
                 row.glyphs.push(glyph);
             }
-            row.size.x = cursor_offsets[row_vis_count];
+            row.size.x = cursor_offsets[total_row_chars];
         }
     }
 

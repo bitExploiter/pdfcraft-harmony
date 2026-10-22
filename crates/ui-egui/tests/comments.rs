@@ -1113,7 +1113,20 @@ fn multi_row_rtl_cursor_offsets_stay_within_bounds() {
             );
         }
 
-        // 2. Boundary checks between paragraphs:
+        // 2. All glyph positions match visual bounds without clipping or overflowing.
+        for (ri, placed_row) in galley.rows.iter().enumerate() {
+            let min_x = placed_row.pos.x.min(0.0);
+            let max_x = placed_row.pos.x.max(0.0);
+            for (gi, g) in placed_row.row.glyphs.iter().enumerate() {
+                let gx = placed_row.pos.x + g.pos.x;
+                assert!(
+                    gx >= min_x - 1.0 && gx <= max_x + 1.0,
+                    "glyph {gi} on row {ri} x={gx:.1} outside row bounds [{min_x:.1}..{max_x:.1}]"
+                );
+            }
+        }
+
+        // 3. Boundary checks between paragraphs:
         let lc_p1_start = galley.layout_from_cursor(egui::text::CCursor::new(0));
         let lc_p1_end = galley.layout_from_cursor(egui::text::CCursor::new(p1_len));
         assert_eq!(lc_p1_start.row, 0, "p1 start must be on row 0");
@@ -1128,6 +1141,54 @@ fn multi_row_rtl_cursor_offsets_stay_within_bounds() {
             c_p2_start.min.y >= row_p2_start.min_y() - 0.5 && c_p2_start.max.y <= row_p2_start.max_y() + 0.5,
             "p2 start cursor must be inside row {} vertical bounds", lc_p2_start.row
         );
+    });
+    output.drop_without_applying_deltas();
+}
+
+#[test]
+fn multi_row_rtl_with_intermediate_spaces_and_newlines() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(pdfcraft_ui_egui::theme::font_definitions());
+    let text = "واحد   اثنين  ثلاثة\n\nأربعة   خمسة  ستة";
+    let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let wrap_width = 80.0;
+        let galley = pdfcraft_ui_egui::bidi::text_edit_layout(ui, text, wrap_width);
+        let total_len = text.chars().count();
+
+        // Cursor offsets at every character boundary stay within row bounds
+        for ci in 0..=total_len {
+            let cursor = egui::text::CCursor::new(ci);
+            let layout_c = galley.layout_from_cursor(cursor);
+            let rect = galley.pos_from_cursor(cursor);
+            let row = &galley.rows[layout_c.row];
+
+            assert!(
+                rect.min.y >= row.min_y() - 0.5 && rect.max.y <= row.max_y() + 0.5,
+                "ci={ci} on row {} vertical bounds [{:.1}..{:.1}] outside row bounds [{:.1}..{:.1}]",
+                layout_c.row, rect.min.y, rect.max.y, row.min_y(), row.max_y()
+            );
+
+            let min_x = row.pos.x.min(0.0);
+            let max_x = row.pos.x.max(0.0);
+            assert!(
+                rect.min.x >= min_x - 1.0 && rect.min.x <= max_x + 1.0,
+                "ci={ci} on row {} horizontal pos {:.1} outside row bounds [{:.1}..{:.1}]",
+                layout_c.row, rect.min.x, min_x, max_x
+            );
+        }
+
+        // Glyph positions match visual bounds without clipping or overflowing
+        for (ri, placed_row) in galley.rows.iter().enumerate() {
+            let min_x = placed_row.pos.x.min(0.0);
+            let max_x = placed_row.pos.x.max(0.0);
+            for (gi, g) in placed_row.row.glyphs.iter().enumerate() {
+                let gx = placed_row.pos.x + g.pos.x;
+                assert!(
+                    gx >= min_x - 1.0 && gx <= max_x + 1.0,
+                    "glyph {gi} on row {ri} x={gx:.1} outside row bounds [{min_x:.1}..{max_x:.1}]"
+                );
+            }
+        }
     });
     output.drop_without_applying_deltas();
 }
