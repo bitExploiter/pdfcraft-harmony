@@ -2213,7 +2213,7 @@ impl Interp<'_> {
             "len" => Val::Num(self.arg_str(args, 0)?.chars().count() as f64),
             "lower" => {
                 let s = self.arg_str(args, 0)?;
-                let turkish = s.chars().any(|c| matches!(c, 'Ğ' | 'ğ' | 'İ' | 'ı' | 'Ş' | 'ş'));
+                let turkish = s.chars().any(crate::is_turkish_char);
                 Val::Str(
                     s.chars()
                         .flat_map(|c| match c {
@@ -2226,7 +2226,7 @@ impl Interp<'_> {
             }
             "upper" => {
                 let s = self.arg_str(args, 0)?;
-                let turkish = s.chars().any(|c| matches!(c, 'Ğ' | 'ğ' | 'İ' | 'ı' | 'Ş' | 'ş'));
+                let turkish = s.chars().any(crate::is_turkish_char);
                 Val::Str(
                     s.chars()
                         .flat_map(|c| match c {
