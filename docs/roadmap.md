@@ -1,7 +1,7 @@
 # PdfCraft roadmap: milestones and what's next
 
 
-> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** patch (PR #3544: Refresh against upstream 80b7d215; adapt text transforms to resource-aware fallible interpretation and retain both upstream and transform regression tests. Fill the feature labels in all 33 current catalogs. Estimates unchanged.)
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** patch (PR #3544: Refresh against upstream d5047aa4; adapt text transforms to resource-aware fallible interpretation and retain both upstream and transform regression tests. Fill the feature labels in all 33 current catalogs. Estimates unchanged.)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M12 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections; estimates unchanged)
 
 > **Last reviewed:** 2026-10-20 | **Last updated:** 2026-10-20 | **Change:** minor (M10, #3532 partial: vector printing retains existing appearances with absent Subtype; estimates unchanged)
