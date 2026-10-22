@@ -2429,3 +2429,6 @@ animation effects	Off	ປິດ
 	Make properties default	ກຳນົດຄຸນສົມບັດເປັນຄ່າເລີ່ມຕົ້ນ
 	Pages selected	ໜ້າທີ່ເລືອກ
 	Page properties	ຄຸນສົມບັດໜ້າ
+
+# Turning a comment by its rotate handle: the undo label (M5).
+	Rotate comment	ໝູນຄວາມເຫັນ
