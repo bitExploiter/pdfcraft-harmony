@@ -7,7 +7,6 @@
 //! immediately so every viewer shows the empty field.
 
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
-use pdfcraft_fonts::{helvetica_width, literal, win_ansi};
 
 use crate::{Field, FieldKind, FormError, Widget, appearance, fields, flags, page_refs};
 
@@ -662,6 +661,7 @@ pub fn add_field(doc: &mut Document, page: usize, rect: [f64; 4], kind: &NewFiel
                 tab: usize::MAX,
                 locked: false,
                 hidden: false,
+                read_only: false,
                 rotation: 0,
                 caption: None,
                 list: None,
@@ -687,6 +687,9 @@ pub fn redraw_field(doc: &mut Document, name: &str) -> Result<(), FormError> {
     redraw_widgets(doc, name, None)
 }
 
+/// `redraw_field` for the widget at index `only` alone (so a caption-only edit leaves the field's
+/// other widgets' appearances as they are), or for every widget when `only` is `None`. Fails with
+/// `FormError::NoSuchField` when no field is named `name`.
 fn redraw_widgets(doc: &mut Document, name: &str, only: Option<usize>) -> Result<(), FormError> {
     let f = fields(doc).into_iter().find(|f| f.name == name).ok_or_else(|| FormError::NoSuchField(name.into()))?;
     let mut undrawn = false;
@@ -709,7 +712,7 @@ fn redraw_widgets(doc: &mut Document, name: &str, only: Option<usize>) -> Result
                 appearance::check_box_states(doc, w, f.kind, &on)
             }
             FieldKind::PushButton => {
-                let (s, m) = button_appearance(doc, w);
+                let (s, m) = button_appearance(doc, w, &f.da);
                 missing = m;
                 let r = doc.add(Object::Stream(s));
                 let mut d = Dict::new();
@@ -768,9 +771,11 @@ fn form_stream(place: crate::appearance::Placement, content: Vec<u8>, resources:
 }
 
 /// A push button: background, border, its icon (`/MK /I`, scaled to fit and centred) and its
-/// centred caption (unless the layout is icon only, `/TP 1`). The caption is drawn in Helvetica,
-/// with the first character it can't draw (drawn as `?`), for the caller to mark and report.
-fn button_appearance(doc: &Document, w: &Widget) -> (Stream, Option<char>) {
+/// centred caption (unless the layout is icon only, `/TP 1`). The caption uses the font, size and
+/// color its `/DA` asks for (the widget's, else `field_da`, the field's own or inherited one).
+/// Also returns the first caption character the font can't draw (drawn as `?`), for the caller to
+/// mark and report.
+fn button_appearance(doc: &Document, w: &Widget, field_da: &str) -> (Stream, Option<char>) {
     let (mut c, place) = frame_only(doc, w);
     let (width, height) = (place.layout_w, place.layout_h);
     let wobj = doc.get(w.obj);
@@ -795,21 +800,15 @@ fn button_appearance(doc: &Document, w: &Widget) -> (Stream, Option<char>) {
         }
     }
     let mut missing = None;
-    if !icon_only && !caption.is_empty() {
-        missing = pdfcraft_fonts::first_undrawable(&caption);
-        let size = ((height - 4.0) * 0.6).clamp(4.0, 14.0);
-        let tw = helvetica_width(&caption, size);
-        content.extend(format!("BT /Helv {size:.2} Tf 0 g 1 0 0 1 {:.3} {:.3} Tm ", (width - tw) / 2.0, (height - size * 0.7) / 2.0).bytes());
-        content.extend(literal(&win_ansi(&caption)));
-        content.extend_from_slice(b" Tj ET\n");
-    }
-    let mut font = Dict::new();
-    font.set(b"Type".to_vec(), Object::name("Font"));
-    font.set(b"Subtype".to_vec(), Object::name("Type1"));
-    font.set(b"BaseFont".to_vec(), Object::name("Helvetica"));
-    font.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
     let mut fonts = Dict::new();
-    fonts.set(b"Helv".to_vec(), Object::Dict(font));
+    if !icon_only && !caption.is_empty() {
+        let da = wobj.as_dict().and_then(|d| d.get(b"DA")).and_then(|o| doc.resolve(o).as_string().map(|s| s.to_text()));
+        let auto = ((height - 4.0) * 0.6).clamp(4.0, 14.0);
+        let (ops, name, font, m) = appearance::button_caption(doc, da.as_deref().unwrap_or(field_da), &caption, width, height, auto);
+        content.extend(ops);
+        fonts.set(name.into_bytes(), font);
+        missing = m;
+    }
     let mut res = Dict::new();
     res.set(b"Font".to_vec(), Object::Dict(fonts));
     if !xobjects.is_empty() {
@@ -923,12 +922,14 @@ pub fn set_props(doc: &mut Document, name: &str, props: &FieldProps) -> Result<S
         if n.is_empty() || n.contains('.') {
             return invalid("field names can't be empty or contain a period");
         }
-        if all.iter().any(|x| x.name == n) {
-            return invalid(format!("a field named {n:?} already exists"));
-        }
-        // Rename the terminal part (the field's own /T).
+        // Rename the terminal part (the field's own /T). The parents' part stays, so the name that
+        // must be free is the full one: `MASTER.a` renamed to `b` takes `MASTER.b` (ISO 32000-2
+        // §12.7.4.2). The field itself is no clash when it keeps its own name.
         let prefix = f.name.rsplit_once('.').map(|(p, _)| format!("{p}.")).unwrap_or_default();
         new_name = format!("{prefix}{n}");
+        if all.iter().any(|x| x.obj != f.obj && x.name == new_name) {
+            return invalid(format!("a field named {new_name:?} already exists"));
+        }
         doc.update_dict(f.obj, |d| d.set(b"T".to_vec(), PdfString::text(n)))?;
         // Calculations read the field by its new name, unless another field keeps the old one.
         if all.iter().filter(|x| x.name == f.name).count() == 1 {
@@ -1277,6 +1278,31 @@ pub fn delete_field(doc: &mut Document, name: &str) -> Result<(), FormError> {
                 }
                 _ => {}
             }
+        }
+    }
+    // Out of the calculation order too: a `/CO` entry would keep the field, its value and its
+    // widgets reachable for a full save.
+    drop_from_calculation_order(doc, |r| r == f.obj || widgets.contains(&r))
+}
+
+/// Remove the `/CO` entries `gone` matches, whether the form and the array are held directly or
+/// by reference.
+fn drop_from_calculation_order(doc: &mut Document, gone: impl Fn(ObjRef) -> bool) -> Result<(), FormError> {
+    let Some(root) = doc.root() else { return Ok(()) };
+    let Some(af_obj) = doc.get(root).as_dict().and_then(|d| d.get(b"AcroForm").cloned()) else { return Ok(()) };
+    let Some(mut af) = doc.resolve(&af_obj).as_dict().cloned() else { return Ok(()) };
+    let Some(co_obj) = af.get(b"CO").cloned() else { return Ok(()) };
+    let co = doc.resolve(&co_obj).as_array().cloned().unwrap_or_default();
+    let kept: Vec<Object> = co.iter().filter(|o| !o.as_ref().is_some_and(&gone)).cloned().collect();
+    if kept.len() == co.len() {
+        return Ok(());
+    }
+    match (co_obj.as_ref(), af_obj.as_ref()) {
+        (Some(r), _) if doc.get(r).as_array().is_some() => doc.set(r, Object::Array(kept)),
+        (_, Some(af_ref)) => doc.update_dict(af_ref, |d| d.set(b"CO".to_vec(), Object::Array(kept)))?,
+        (_, None) => {
+            af.set(b"CO".to_vec(), Object::Array(kept));
+            doc.update_dict(root, |d| d.set(b"AcroForm".to_vec(), Object::Dict(af)))?;
         }
     }
     Ok(())
