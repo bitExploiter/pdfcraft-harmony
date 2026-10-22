@@ -3246,6 +3246,52 @@ trailer << /Root 1 0 R >>
         }
     }
 
+    /// Line weights off reaches strokes painted inside a tiling pattern cell (rasterized on its own
+    /// canvas, then tiled) and inside a Type 3 glyph's content stream: a 10 pt vertical stroke in
+    /// each, left and right of the page, is one device pixel wide at 1x and 4x.
+    #[test]
+    fn thin_lines_reach_tiling_pattern_cells_and_type3_glyphs() {
+        let cell = "0 0 0 RG 10 w 20 0 m 20 100 l S";
+        let glyph = "0 0 d0 0 0 0 RG 10 w 5 0 m 5 100 l S";
+        let content = "/Pattern cs /P1 scn 0 0 40 100 re f BT /F1 10 Tf 70 0 Td (a) Tj ET";
+        let pdf = Arc::new(
+            format!(
+                "%PDF-1.4\n\
+                 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n\
+                 2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n\
+                 3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R \
+                 /Resources << /Pattern << /P1 5 0 R >> /Font << /F1 6 0 R >> >> >> endobj\n\
+                 4 0 obj << /Length {} >> stream\n{content}\nendstream endobj\n\
+                 5 0 obj << /Type /Pattern /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 40 100] \
+                 /XStep 40 /YStep 100 /Resources << >> /Length {} >> stream\n{cell}\nendstream endobj\n\
+                 6 0 obj << /Type /Font /Subtype /Type3 /FontBBox [0 0 10 100] /FontMatrix [0.1 0 0 0.1 0 0] \
+                 /CharProcs << /a 7 0 R >> /Encoding << /Type /Encoding /Differences [97 /a] >> \
+                 /FirstChar 97 /LastChar 97 /Widths [10] /Resources << >> >> endobj\n\
+                 7 0 obj << /Length {} >> stream\n{glyph}\nendstream endobj\n\
+                 trailer << /Root 1 0 R >>\n%%EOF",
+                content.len(),
+                cell.len(),
+                glyph.len()
+            )
+            .into_bytes(),
+        );
+        // Darkness summed over the row through the middle of the page, between x0 and x1 (points).
+        let coverage = |thin_lines: bool, scale: f32, x0: f32, x1: f32| {
+            let mut r = PageRenderer::new(pdf.clone(), RenderConfig { thin_lines, ..Default::default() });
+            let page = r.render(RenderRequest { page: 0, kind: RequestKind::Pixels, tile: None, scale, tag: 0, preview: false });
+            assert!(page.error.is_none(), "{:?}", page.error);
+            let y = (50.0 * scale) as u32;
+            ((x0 * scale) as u32..(x1 * scale) as u32).map(|x| f32::from(255 - page.rgba[((y * page.width + x) * 4) as usize]) / 255.0).sum::<f32>()
+        };
+        for scale in [1.0, 4.0] {
+            let (pattern, type3) = (|t| coverage(t, scale, 5.0, 35.0), |t| coverage(t, scale, 60.0, 90.0));
+            assert!((pattern(false) - 10.0 * scale).abs() < 1.5, "pattern stroke, line weights on: {} px", pattern(false));
+            assert!((type3(false) - 10.0 * scale).abs() < 1.5, "Type 3 stroke, line weights on: {} px", type3(false));
+            assert!((0.5..=1.5).contains(&pattern(true)), "thin pattern stroke at {scale}x: {} px", pattern(true));
+            assert!((0.5..=1.5).contains(&type3(true)), "thin Type 3 stroke at {scale}x: {} px", type3(true));
+        }
+    }
+
     #[test]
     fn inline_pool_renders_in_priority_order() {
         let pool = RenderPool::new_inline(Arc::new(ONE_PAGE.to_vec()), RenderConfig::default());
