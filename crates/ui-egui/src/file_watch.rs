@@ -280,10 +280,11 @@ impl FileWatch {
     /// that is missing or can't be looked at, or a document whose version was never recorded,
     /// is not a difference, and neither is a file that still holds `saved`, the bytes the
     /// document came from: macOS rewrites a saved file's extended attributes a moment after the
-    /// save, which moves its change time and nothing else (#3443).
+    /// save, which moves its change time and nothing else (#3443, #3755). A file whose stamp
+    /// moved but which can't be read is a difference, so Save asks first.
     pub fn disk_differs(&self, doc: DocId, path: &str, saved: &[u8]) -> bool {
         match (Stamp::at(path), self.basis.get(&doc)) {
-            (Some(now), Some(basis)) if now != *basis => now.len != saved.len() as u64 || std::fs::read(path).is_ok_and(|b| b != saved),
+            (Some(now), Some(basis)) if now != *basis => now.len != saved.len() as u64 || !holds(path, saved),
             _ => false,
         }
     }
@@ -296,6 +297,17 @@ impl FileWatch {
     fn epoch(&self, doc: DocId) -> u64 {
         self.epoch.get(&doc).copied().unwrap_or(0)
     }
+}
+
+/// Whether the file at `path` holds exactly `saved`. It is read no further than one byte past
+/// `saved`'s length, so a file that grew after its length was checked can't make this read the
+/// whole of it; a file that can't be opened or read doesn't hold it.
+fn holds(path: &str, saved: &[u8]) -> bool {
+    use std::io::Read;
+    let Ok(file) = std::fs::File::open(path) else { return false };
+    let limit = u64::try_from(saved.len()).unwrap_or(u64::MAX).saturating_add(1);
+    let mut bytes = Vec::new();
+    file.take(limit).read_to_end(&mut bytes).is_ok() && bytes == saved
 }
 
 impl PdfCraftApp {
@@ -620,6 +632,57 @@ mod tests {
         let epoch = app.watch.epoch(id);
         app.file_changed(Changed { doc: id, path: watched_path(app, id), epoch, stamp: later, bytes: Arc::new(fixture(3)) });
         assert_eq!(doc(&h).info.pages.len(), 3, "the other bytes were applied");
+    }
+
+    /// #3443, #3755 (review on #3468): a metadata-only change while the document has unsaved
+    /// edits is not a conflict either: no notice, and Save doesn't ask.
+    #[test]
+    fn a_metadata_change_with_unsaved_changes_is_not_a_conflict() {
+        let (_dir, path) = TempDir::new("metadata-dirty", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        let id = app.views[0].id;
+        app.views[0].select_pages(&[0]);
+        app.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        let later = ctime_moved(Stamp::at(&path).unwrap());
+        let bytes = Arc::new(std::fs::read(&path).unwrap());
+        let epoch = app.watch.epoch(id);
+        app.file_changed(Changed { doc: id, path: watched_path(app, id), epoch, stamp: later, bytes });
+        assert!(!app.views[0].disk_changed, "no changed-on-disk notice");
+        assert!(doc(&h).can_undo().is_some(), "the unsaved edit stays");
+        let app = h.state_mut();
+        app.reload_changed_files = false;
+        assert!(app.save_active(SaveTarget::InPlace), "saved without asking");
+        assert!(app.dialog.is_none());
+    }
+
+    /// Review on #3468: a file whose stamp moved but which can't be read is treated as changed,
+    /// so Save asks rather than writing over a version nobody could compare. Windows holds the
+    /// file open without sharing it, which leaves its metadata readable and its bytes not.
+    #[cfg(windows)]
+    #[test]
+    fn a_file_that_cant_be_read_counts_as_changed() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (_dir, path) = TempDir::new("metadata-unreadable", &fixture(2));
+        let mut h = harness(&path);
+        let app = h.state_mut();
+        let id = app.views[0].id;
+        let saved = std::fs::read(&path).unwrap();
+        app.watch.basis.insert(id, ctime_moved(Stamp::at(&path).unwrap()));
+        assert!(!app.watch.disk_differs(id, &path, &saved), "readable and the same: no difference");
+        let _lock = std::fs::OpenOptions::new().read(true).share_mode(0).open(&path).unwrap();
+        assert!(Stamp::at(&path).is_some(), "the stamp can still be read");
+        assert!(app.watch.disk_differs(id, &path, &saved), "unreadable: a difference");
+    }
+
+    /// The comparison reads at most one byte past the saved length.
+    #[test]
+    fn holds_compares_the_saved_bytes_only() {
+        let (_dir, path) = TempDir::new("holds", b"abc");
+        assert!(super::holds(&path, b"abc"));
+        assert!(!super::holds(&path, b"ab"), "a longer file");
+        assert!(!super::holds(&path, b"abcd"), "a shorter file");
+        assert!(!super::holds(&format!("{path}.missing"), b"abc"), "no file");
     }
 
     /// #3443: with reloading off, Save asks before writing over a file that changed since the
