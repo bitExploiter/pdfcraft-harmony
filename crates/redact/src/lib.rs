@@ -386,7 +386,7 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
         // 1. Content.
         let (list, data) = page_streams(doc, &page.dict, pi)?;
         let resources = page.dict.get(b"Resources").and_then(|r| doc.resolve(r).as_dict().cloned()).unwrap_or_default();
-        let out = {
+        let mut out = {
             let mut scope = Scope::new(&rects, Mode::Apply, &mut report);
             process(doc, &mut scope, &data, &resources, pdfcraft_content::Matrix::IDENTITY)
         };
@@ -402,10 +402,10 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
             return Err(RedactError::VerticalText(pi + 1));
         }
         doomed_xobjects.extend_from_slice(&out.doomed);
-        retired_properties.extend(out.retired_properties);
+        retired_properties.extend(std::mem::take(&mut out.retired_properties));
         let mut new_list = list.clone();
         let mut changed = false;
-        for (i, new) in out.streams.into_iter().enumerate() {
+        for (i, new) in std::mem::take(&mut out.streams).into_iter().enumerate() {
             let Some(bytes) = new else { continue };
             let mut dict = match &*doc.resolve(&list[i]) {
                 Object::Stream(s) => s.dict.clone(),
@@ -420,10 +420,15 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
             new_list[i] = Object::Ref(doc.add(Object::Stream(Stream::flate(dict, &bytes))));
             changed = true;
         }
-        if changed || !out.xobjects.is_empty() || !out.replaced.is_empty() {
+        if let Some(tr) = page.dict.get(b"Thumb").and_then(Object::as_ref) {
+            doomed_xobjects.push(tr);
+        }
+        if let Some(pr) = page.dict.get(b"PieceInfo").and_then(Object::as_ref) {
+            doomed_xobjects.push(pr);
+        }
+        if changed || out.has_resource_changes() {
             let mut res = resources.clone();
-            if !out.xobjects.is_empty() || !out.replaced.is_empty() {
-                let mut xo = res.get(b"XObject").and_then(|x| doc.resolve(x).as_dict().cloned()).unwrap_or_default();
+            if out.has_resource_changes() {
                 // A full save keeps whatever is still referenced: unlink the originals this page no
                 // longer draws so the removed image or form bytes cannot survive in the saved file.
                 let page_content: Vec<Vec<u8>> = new_list
@@ -433,11 +438,7 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
                         _ => Vec::new(),
                     })
                     .collect();
-                interp::prune(&mut xo, &out.replaced, &page_content);
-                for (n, r) in &out.xobjects {
-                    xo.set(n.clone(), Object::Ref(*r));
-                }
-                res.set(b"XObject".to_vec(), Object::Dict(xo));
+                out.apply_resources(doc, &mut res, &page_content);
             }
             let (_, cleaned_data) = page_streams(
                 doc,
@@ -521,11 +522,13 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
                 break;
             }
         }
+        let popups: Vec<ObjRef> =
+            removed.iter().filter_map(|&r| doc.get(r).as_dict().and_then(|d| d.get(b"Popup")).and_then(Object::as_ref)).collect();
         let kept: Vec<Object> = annots
             .into_iter()
             .filter(|a| {
                 let Some(r) = a.as_ref() else { return true };
-                if removed.contains(&r) {
+                if removed.contains(&r) || popups.contains(&r) {
                     return false;
                 }
                 // Pop-ups of removed annotations go too.
@@ -534,6 +537,8 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
             })
             .collect();
         doc.update_dict(page.obj, |d| {
+            d.remove(b"Thumb");
+            d.remove(b"PieceInfo");
             if kept.is_empty() {
                 d.remove(b"Annots");
             } else {
@@ -541,6 +546,27 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
             }
         })?;
     }
+
+    if let Some(root) = doc.root() {
+        if let Some(pr) = doc.get(root).as_dict().and_then(|d| d.get(b"PieceInfo")).and_then(Object::as_ref) {
+            doomed_xobjects.push(pr);
+        }
+        doc.update_dict(root, |d| {
+            d.remove(b"PieceInfo");
+        })?;
+    }
+
+    let mut pre_gone: HashSet<ObjRef> = doomed_xobjects.iter().copied().collect();
+    for f in pdfcraft_forms::fields(doc) {
+        if doomed_fields.contains(&f.name) {
+            pre_gone.insert(f.obj);
+            for w in &f.widgets {
+                pre_gone.insert(w.obj);
+            }
+        }
+    }
+    pre_gone.extend(listed_before.difference(&listed_annotations(doc)).copied());
+    report.tags += tags::drop_object_refs(doc, &pre_gone)?;
 
     // 3. Form fields with a widget under a mark (all their widgets go).
     for name in &doomed_fields {
@@ -553,8 +579,50 @@ pub fn apply(doc: &mut Document, pages: Option<&[usize]>) -> Result<Report, Reda
     // 3a. A tagged PDF's structure tree still points at the removed comments and widgets
     // (`/OBJR`, #2874): drop those references, or a full rewrite keeps them reachable, the
     // comment text and the field value included. Widgets of a removed field on other pages count.
-    let gone: HashSet<ObjRef> = listed_before.difference(&listed_annotations(doc)).copied().collect();
+    let mut gone: HashSet<ObjRef> = listed_before.difference(&listed_annotations(doc)).copied().collect();
+    gone.extend(pre_gone);
     report.tags += tags::drop_object_refs(doc, &gone)?;
+    if let Some(root) = doc.root() {
+        let clean_af = |doc: &mut Document, mut af: Dict| -> Dict {
+            if let Some(fields_obj) = af.get(b"Fields").cloned() {
+                let list = doc.resolve(&fields_obj).as_array().cloned().unwrap_or_default();
+                let kept: Vec<Object> = list.into_iter().filter(|o| !o.as_ref().is_some_and(|r| gone.contains(&r))).collect();
+                if let Some(r) = fields_obj.as_ref()
+                    && doc.get(r).as_array().is_some()
+                {
+                    doc.set(r, Object::Array(kept.clone()));
+                }
+                af.set(b"Fields".to_vec(), Object::Array(kept));
+            }
+            if let Some(co_obj) = af.get(b"CO").cloned() {
+                let list = doc.resolve(&co_obj).as_array().cloned().unwrap_or_default();
+                let kept: Vec<Object> = list.into_iter().filter(|o| !o.as_ref().is_some_and(|r| gone.contains(&r))).collect();
+                if let Some(r) = co_obj.as_ref()
+                    && doc.get(r).as_array().is_some()
+                {
+                    doc.set(r, Object::Array(kept.clone()));
+                }
+                if kept.is_empty() {
+                    af.remove(b"CO");
+                } else {
+                    af.set(b"CO".to_vec(), Object::Array(kept));
+                }
+            }
+            af
+        };
+        match doc.get(root).as_dict().and_then(|d| d.get(b"AcroForm").cloned()) {
+            Some(Object::Ref(af_ref)) => {
+                let af = doc.get(af_ref).as_dict().cloned().unwrap_or_default();
+                let cleaned = clean_af(doc, af);
+                doc.set(af_ref, Object::Dict(cleaned));
+            }
+            Some(Object::Dict(af)) => {
+                let cleaned = clean_af(doc, af);
+                doc.update_dict(root, |d| d.set(b"AcroForm".to_vec(), Object::Dict(cleaned)))?;
+            }
+            _ => {}
+        }
+    }
 
     // 3b. An XFA form mirrors its field values in the /XFA datasets packet, and a relayout
     // rebuilds fields and pages from that packet, so deleting the AcroForm field alone leaves the
