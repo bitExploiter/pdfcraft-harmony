@@ -44,7 +44,13 @@ impl JsOutput {
         self.alerts.extend(other.alerts);
         self.console.extend(other.console);
         self.requests.extend(other.requests);
-        self.errors.extend(other.errors);
+        // As in `absorb`: a document script's error, already reported, is not repeated; a field
+        // script's errors are each their own.
+        for e in other.errors {
+            if !(pdfcraft_js::is_doc_error(&e) && self.errors.contains(&e)) {
+                self.errors.push(e);
+            }
+        }
     }
 }
 
@@ -415,6 +421,25 @@ impl Session {
 #[cfg(test)]
 mod review_tests {
     use super::*;
+
+    /// Review on #3985: merging two outputs reports a failing document script once, as one run
+    /// does, while each field script error stays.
+    #[test]
+    fn merged_output_reports_a_document_script_error_once() {
+        let run = |errors: &[&str]| JsOutput { errors: errors.iter().map(|e| e.to_string()).collect(), ..JsOutput::default() };
+        let mut out = run(&["document script 2: TypeError: not a callable function", "ReferenceError: x is not defined"]);
+        out.append(run(&["document script 2: TypeError: not a callable function", "ReferenceError: x is not defined"]));
+        assert_eq!(
+            out.errors,
+            ["document script 2: TypeError: not a callable function", "ReferenceError: x is not defined", "ReferenceError: x is not defined"]
+        );
+        // A field script's message that only looks like one (no script number) is still its own.
+        for look_alike in ["document script x: thrown by a field", "document script : thrown by a field"] {
+            out.append(run(&[look_alike]));
+            out.append(run(&[look_alike]));
+            assert_eq!(out.errors.iter().filter(|e| *e == look_alike).count(), 2, "{look_alike}");
+        }
+    }
 
     #[test]
     fn duplicate_field_names_diff_against_first_original() {
