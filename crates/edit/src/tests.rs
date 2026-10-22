@@ -2582,6 +2582,37 @@ fn a_partial_rewrite_of_the_last_paragraph_in_one_text_object_keeps_the_one_befo
     }
 }
 
+/// Three paragraphs share one text object. Rewriting the middle one must leave the paragraph
+/// before it and the paragraph after it outside the marker.
+#[test]
+fn a_partial_rewrite_of_the_middle_paragraph_in_one_text_object_keeps_both_neighbours() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj \
+               T* T* (Mid stays.) Tj T* (Mid next.) Tj T* T* (End stays.) Tj T* (End next.) Tj ET";
+    let mut doc = text_page(src);
+    let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    assert_eq!(
+        texts(&doc),
+        ["Alpha first row. Alpha next row.", "Mid stays. Mid next.", "End stays. End next."],
+        "each blank line is a paragraph break"
+    );
+    text::replace_block(&mut doc, 0, 1, "Mid stays.\nChanged.").unwrap();
+    let content = page_content(&doc);
+    assert_eq!(texts(&doc), ["Alpha first row. Alpha next row.", "Mid stays. Changed.", "End stays. End next."], "{content}");
+    let alpha = content.find("(Alpha first row.)").expect("the preceding paragraph");
+    let open = content.find("/P BMC").expect("marker");
+    let end = content.find("(End stays.)").expect("the following paragraph");
+    assert!(alpha < open, "the marker swallowed the preceding paragraph: {content}");
+    assert!(open < end, "the following paragraph is inside the marker: {content}");
+    let close = content[open..].find("EMC").map(|at| open + at).expect("close");
+    assert!(close < end, "the marker closed after the following paragraph: {content}");
+    for saved in [reopen(&doc), Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap()] {
+        assert_eq!(texts(&saved), ["Alpha first row. Alpha next row.", "Mid stays. Changed.", "End stays. End next."]);
+        let mut again = saved;
+        text::replace_block(&mut again, 0, 1, "Mid stays.\nEdited.").unwrap();
+        assert_eq!(texts(&reopen(&again)), ["Alpha first row. Alpha next row.", "Mid stays. Edited.", "End stays. End next."]);
+    }
+}
+
 /// #2516's published steps: adding a row must not make the next edit-by-number rewrite Charlie.
 /// The issue also asks for a stable paragraph id. That is #2508, and this test does not add one.
 #[test]

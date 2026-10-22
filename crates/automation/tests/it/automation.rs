@@ -8351,3 +8351,43 @@ fn a_partial_rewrite_of_the_last_paragraph_stays_one_through_tools() {
     ok(&mut a, "text_edit", json!({ "doc": reopened, "page": 1, "paragraph": 1, "text": "One.\nTwo." }));
     assert_eq!(paragraph_texts(&mut a, reopened), ["One. Two.", "Neighbor stays."]);
 }
+
+/// Both ends of one text object, through open / text_edit / save / reopen / text_extract.
+/// Editing the last paragraph must not take the one before it, and editing the first must
+/// not take the one after it. Incremental and full saves.
+#[test]
+fn a_shared_text_object_keeps_both_paragraphs_through_tools() {
+    let dir = workdir("shared-text-object");
+    let mut a = auto(&dir);
+    let body =
+        "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj T* T* (Neighbor stays.) Tj T* (Neighbor next.) Tj ET";
+    std::fs::write(dir.join("last.pdf"), helvetica_page(body)).unwrap();
+    let doc = ok(&mut a, "doc_open", json!({ "path": "last.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(paragraph_texts(&mut a, doc), ["Alpha first row. Alpha next row.", "Neighbor stays. Neighbor next."]);
+    ok(&mut a, "text_edit", json!({ "doc": doc, "page": 1, "paragraph": 2, "text": "Neighbor stays.\nChanged." }));
+    assert_eq!(paragraph_texts(&mut a, doc), ["Alpha first row. Alpha next row.", "Neighbor stays. Changed."]);
+    let incremental = ok(&mut a, "doc_save", json!({ "doc": doc, "path": "last.pdf" }));
+    assert_eq!(incremental["incremental"], true, "{incremental}");
+    let reopened = ok(&mut a, "doc_open", json!({ "path": "last.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(paragraph_texts(&mut a, reopened), ["Alpha first row. Alpha next row.", "Neighbor stays. Changed."]);
+    ok(&mut a, "text_edit", json!({ "doc": reopened, "page": 1, "paragraph": 2, "text": "Neighbor stays.\nEdited." }));
+    let full = ok(&mut a, "doc_save", json!({ "doc": reopened, "path": "last-full.pdf", "full": true }));
+    assert_eq!(full["incremental"], false, "{full}");
+    let again = ok(&mut a, "doc_open", json!({ "path": "last-full.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(paragraph_texts(&mut a, again), ["Alpha first row. Alpha next row.", "Neighbor stays. Edited."]);
+    let extracted = page_text(&mut a, again);
+    assert!(extracted[0].contains("Alpha first row.") && extracted[0].contains("Edited."), "{extracted:?}");
+
+    std::fs::write(dir.join("first.pdf"), helvetica_page(body)).unwrap();
+    let doc = ok(&mut a, "doc_open", json!({ "path": "first.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "text_edit", json!({ "doc": doc, "page": 1, "paragraph": 1, "text": "Alpha first row.\nTwo\nThree" }));
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "first.pdf" }));
+    let reopened = ok(&mut a, "doc_open", json!({ "path": "first.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(paragraph_texts(&mut a, reopened), ["Alpha first row. Two Three", "Neighbor stays. Neighbor next."]);
+    ok(&mut a, "text_edit", json!({ "doc": reopened, "page": 1, "paragraph": 1, "text": "Alpha first row.\nTwo\nFour" }));
+    ok(&mut a, "doc_save", json!({ "doc": reopened, "path": "first-full.pdf", "full": true }));
+    let again = ok(&mut a, "doc_open", json!({ "path": "first-full.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(paragraph_texts(&mut a, again), ["Alpha first row. Two Four", "Neighbor stays. Neighbor next."]);
+    let extracted = page_text(&mut a, again);
+    assert!(extracted[0].contains("Four") && extracted[0].contains("Neighbor stays."), "{extracted:?}");
+}
