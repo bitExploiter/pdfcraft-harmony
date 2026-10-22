@@ -299,15 +299,23 @@ impl FileWatch {
     }
 }
 
-/// Whether the file at `path` holds exactly `saved`. It is read no further than one byte past
-/// `saved`'s length, so a file that grew after its length was checked can't make this read the
-/// whole of it; a file that can't be opened or read doesn't hold it.
+/// Whether the file at `path` holds exactly `saved`. It is compared a fixed-size piece at a time
+/// (no copy of the file in memory) and read no further than one byte past `saved`'s length, so a
+/// file that grew after its length was checked can't make this read the whole of it; a file that
+/// can't be opened or read doesn't hold it.
 fn holds(path: &str, saved: &[u8]) -> bool {
     use std::io::Read;
-    let Ok(file) = std::fs::File::open(path) else { return false };
-    let limit = u64::try_from(saved.len()).unwrap_or(u64::MAX).saturating_add(1);
-    let mut bytes = Vec::new();
-    file.take(limit).read_to_end(&mut bytes).is_ok() && bytes == saved
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let mut piece = [0u8; 64 * 1024];
+    for want in saved.chunks(piece.len()) {
+        let Some(got) = piece.get_mut(..want.len()) else { return false };
+        // A shorter file or a read error ends it here.
+        if file.read_exact(got).is_err() || got != want {
+            return false;
+        }
+    }
+    // One more byte would mean the file is longer.
+    matches!(file.read(&mut [0u8; 1]), Ok(0))
 }
 
 impl PdfCraftApp {
@@ -683,6 +691,16 @@ mod tests {
         assert!(!super::holds(&path, b"ab"), "a longer file");
         assert!(!super::holds(&path, b"abcd"), "a shorter file");
         assert!(!super::holds(&format!("{path}.missing"), b"abc"), "no file");
+        // Past one piece: equal, and a difference in the second piece and in the last byte.
+        let big: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+        let (_dir2, big_path) = TempDir::new("holds-big", &big);
+        assert!(super::holds(&big_path, &big));
+        for at in [70_000, big.len() - 1] {
+            let mut other = big.clone();
+            other[at] ^= 1;
+            assert!(!super::holds(&big_path, &other), "differs at {at}");
+        }
+        assert!(!super::holds(&big_path, &big[..big.len() - 1]), "one byte longer on disk");
     }
 
     /// #3443: with reloading off, Save asks before writing over a file that changed since the
