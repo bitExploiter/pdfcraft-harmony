@@ -189,6 +189,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+
+- **2026-10-22 (M10, #3659):** Tagged Word/HTML export retains separate optional-content paint states within one heading. The text reader reports parsing errors while keeping inherited form heading levels; the synthetic layer-boundary regression covers the combined behavior. Estimates unchanged.
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
@@ -224,6 +226,12 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 - **2026-10-20 (M3, #3541/#3620):** Comment hover follows the individual marked lines instead of the enclosing multiline rectangle, and overlapping comments follow paint order. Synthetic UI regressions cover all four text-markup kinds, page/view rotations, neighboring highlights, legacy rectangle fallback and unchanged PDF bytes. Estimates unchanged.
 - **2026-10-20 (M10, #3532 partial):** Vector printing retains existing widget artwork when its appearance lacks Subtype. A print-owned copy adds Form dispatch metadata. The source stream and all explicit subtypes stay unchanged. Synthetic source/output raster checks cover resources, selected/shared appearances, placement, flags and content modes. Appearance regeneration and physical printer validation remain outside this fix. Estimates unchanged.
+
+- **2026-10-21 (M10, #3659):** Structure-role lookup no longer copies malformed direct RoleMap payloads on every export visit. Direct names are borrowed and indirect names share their cached object; alias limits, inherited heading levels and Office fidelity estimates are unchanged.
+
+- **2026-10-21 (M10, #3659):** Text drawn by nested Form XObjects inherits the enclosing heading or paragraph level during Word/HTML export; a form's own tagged level takes precedence. The inherited context survives local EMC, and literal paragraph boundaries stay separate between page and form streams. Estimates unchanged.
+
+- **2026-10-20 (M10, #3659):** Word and HTML export preserve explicit H1–H6 structure levels and keep tagged P as body text, using page/form MCIDs rather than matching titles. RoleMap and nested spans are covered; untagged or unnumbered H retains size inference. Structure traversal is bounded; general Office layout fidelity and estimates are unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 

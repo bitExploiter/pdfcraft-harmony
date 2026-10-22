@@ -4,6 +4,58 @@ use pdfcraft_cos::{Document, SaveOptions, write_full, write_incremental};
 
 use super::*;
 
+#[test]
+fn tagged_heading_runs_keep_optional_content_boundaries() {
+    let read = |second_layer: &str| {
+        let doc = text_page(&format!(
+            "/Span <</MCID 0>> BDC /OC /First BDC BT /F1 12 Tf 1 0 0 1 72 700 Tm (A) Tj ET EMC \
+             /OC /{second_layer} BDC BT /F1 12 Tf 1 0 0 1 80.004 700 Tm (B) Tj ET EMC EMC"
+        ));
+        let levels = |_, mcid| (mcid == 0).then_some((0, 3));
+        reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap().blocks.into_iter().map(|b| (b.text, b.heading_level)).collect::<Vec<_>>()
+    };
+    assert_eq!(read("First"), [("AB".to_owned(), Some(3))]);
+    assert_eq!(read("Second"), [("A".to_owned(), Some(3)), ("B".to_owned(), Some(3))]);
+}
+
+#[test]
+fn export_levels_keep_nested_marks_of_one_paragraph_together() {
+    let doc = text_page(
+        "/Span <</MCID 0>> BDC BT /F1 12 Tf 20 700 Td (Head) Tj \
+        /Span <</MCID 1>> BDC (ing) Tj EMC ET EMC \
+        /Span <</MCID 2>> BDC BT /F1 24 Tf 20 650 Td (Body) Tj ET EMC \
+        /Span <</MCID 3>> BDC BT /F1 12 Tf 20 600 Td (Unknown) Tj ET EMC",
+    );
+    let before = write_incremental(&doc, &SaveOptions::default()).unwrap();
+    let levels = |stream, mcid| {
+        assert_eq!(stream, None);
+        match mcid {
+            0 | 1 => Some((42, 4)),
+            2 => Some((43, 0)),
+            3 => Some((44, 99)),
+            _ => None,
+        }
+    };
+    let reading = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    let blocks: Vec<_> = reading.blocks.iter().map(|b| (b.text.as_str(), b.heading_level)).collect();
+    assert_eq!(blocks, [("Heading", Some(4)), ("Body", Some(0)), ("Unknown", None)]);
+    assert!(!reading.truncated);
+    assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), before);
+    assert!(reading_blocks_checked(&doc, 0).unwrap().blocks.iter().all(|b| b.heading_level.is_none()));
+}
+
+#[test]
+fn distinct_structure_paragraphs_with_the_same_level_do_not_merge() {
+    let doc = text_page(
+        "/Span <</MCID 0>> BDC BT /F1 12 Tf 20 700 Td (First) Tj ET EMC \
+        /Span <</MCID 1>> BDC BT /F1 12 Tf 20 686 Td (Second) Tj ET EMC",
+    );
+    let levels = |_, mcid| Some((usize::try_from(mcid).unwrap(), 2));
+    let reading = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    assert_eq!(reading.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["First", "Second"]);
+    assert!(reading.blocks.iter().all(|b| b.heading_level == Some(2)));
+}
+
 /// Three pages: an upright page with content that leaves the graphics state changed (an
 /// unbalanced `cm`), a page rotated 90° and one with inherited, shared resources.
 fn fixture() -> Document {
@@ -3567,6 +3619,104 @@ fn page_with_forms(content: &str, forms: &[(String, String)]) -> Document {
     ];
     objs.extend(forms.iter().map(|(_, body)| stream(&format!("/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources {resources}"), body)));
     build(&objs.iter().map(String::as_str).collect::<Vec<_>>())
+}
+
+/// #3727: each Do keeps the marked context active at that operator, even after EMC.
+#[test]
+fn form_heading_scope_is_captured_at_each_invocation() {
+    let doc = page_with_forms(
+        "/Span <</MCID 0>> BDC /A Do EMC q 1 0 0 1 0 -40 cm /Span <</MCID 1>> BDC /A Do EMC Q \
+         BT /F1 12 Tf 72 500 Td (After) Tj ET",
+        &[("A".into(), "BT /F1 12 Tf 72 650 Td (Child) Tj ET".into())],
+    );
+    let before = write_incremental(&doc, &SaveOptions::default()).unwrap();
+    let levels = |stream, mcid| match (stream, mcid) {
+        (None, 0) => Some((10, 1)),
+        (None, 1) => Some((11, 0)),
+        _ => None,
+    };
+    let read = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    assert_eq!(
+        read.blocks.iter().map(|b| (b.text.as_str(), b.heading_level)).collect::<Vec<_>>(),
+        [("Secret", None), ("Child", Some(1)), ("Child", Some(0)), ("After", None)]
+    );
+    assert!(!read.truncated);
+    assert_eq!(write_incremental(&doc, &SaveOptions::default()).unwrap(), before);
+}
+
+#[test]
+fn form_heading_scope_reaches_nested_forms_and_returns_to_the_page() {
+    let doc = page_with_forms(
+        "/Span <</MCID 0>> BDC /A Do EMC BT /F1 12 Tf 72 450 Td (After) Tj ET",
+        &[
+            ("A".into(), "/B Do BT /F1 12 Tf 72 550 Td (Outer) Tj ET".into()),
+            ("B".into(), "/C Do".into()),
+            ("C".into(), "/Span BMC BT /F1 12 Tf 72 650 Td (Inner) Tj ET EMC".into()),
+        ],
+    );
+    let levels = |stream: Option<pdfcraft_cos::ObjRef>, mcid| (stream.is_none() && mcid == 0).then_some((10, 2));
+    let read = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    assert_eq!(
+        read.blocks.iter().map(|b| (b.text.as_str(), b.heading_level)).collect::<Vec<_>>(),
+        [("Secret", None), ("Inner", Some(2)), ("Outer", Some(2)), ("After", None)]
+    );
+}
+
+#[test]
+fn form_heading_scope_yields_to_own_marks_and_resumes_after_them() {
+    let doc = page_with_forms(
+        "/Span <</MCID 0>> BDC /A Do EMC",
+        &[
+            (
+                "A".into(),
+                "BT /F1 12 Tf 72 650 Td (Parent) Tj ET \
+             /Span <</MCID 0>> BDC /B Do EMC \
+             /Span <</MCID 1>> BDC BT /F1 12 Tf 72 550 Td (Own heading) Tj ET EMC \
+             BT /F1 12 Tf 72 500 Td (Parent again) Tj ET"
+                    .into(),
+            ),
+            ("B".into(), "BT /F1 24 Tf 72 600 Td (Body) Tj ET".into()),
+        ],
+    );
+    let form = pdfcraft_cos::ObjRef::new(7, 0);
+    let levels = |stream, mcid| match (stream, mcid) {
+        (None, 0) => Some((10, 1)),
+        (Some(r), 0) if r == form => Some((11, 0)),
+        (Some(r), 1) if r == form => Some((12, 3)),
+        _ => None,
+    };
+    let read = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    assert_eq!(
+        read.blocks.iter().map(|b| (b.text.as_str(), b.heading_level)).collect::<Vec<_>>(),
+        [("Secret", None), ("Parent", Some(1)), ("Body", Some(0)), ("Own heading", Some(3)), ("Parent again", Some(1))]
+    );
+}
+
+#[test]
+fn form_heading_scope_survives_an_unmatched_local_emc() {
+    let doc = page_with_forms("/Span <</MCID 0>> BDC /A Do EMC", &[("A".into(), "EMC BT /F1 12 Tf 72 650 Td (Child) Tj ET".into())]);
+    let levels = |stream: Option<pdfcraft_cos::ObjRef>, mcid| (stream.is_none() && mcid == 0).then_some((10, 1));
+    let read = reading_blocks_with_heading_levels(&doc, 0, &levels).unwrap();
+    assert_eq!(read.blocks.iter().map(|b| (b.text.as_str(), b.heading_level)).collect::<Vec<_>>(), [("Secret", None), ("Child", Some(1))]);
+}
+
+#[test]
+fn form_heading_scope_distinguishes_local_boundaries_from_the_parent() {
+    let doc = page_with_forms(
+        "/P BMC /A Do EMC",
+        &[(
+            "A".into(),
+            "BT /F1 12 Tf 72 650 Td (First) Tj ET \
+            /P BMC BT /F1 12 Tf 72 636 Td (Second) Tj ET EMC"
+                .into(),
+        )],
+    );
+    let read = reading_blocks_checked(&doc, 0).unwrap();
+    assert_eq!(
+        read.blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(),
+        ["Secret", "First", "Second"],
+        "equal operator indexes in a page and a form do not identify the same paragraph"
+    );
 }
 
 /// #3120: export reads text from forms as deep and as often as the renderer draws them, and says

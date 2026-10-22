@@ -2,7 +2,7 @@
 //!
 //! The engine reduces each page to [`Page`]: paragraphs (text, box, size, bold/italic) and
 //! images (encoded bytes and box), in reading order. The writers turn that into a flowing
-//! document: headings are the paragraphs set larger than the body text. Word keeps pages with
+//! document: explicit H1–H6/P structure levels take precedence over font-size inference. Word keeps pages with
 //! rotated text, or text overlapped by artwork or watermark-sized text, as positioned, editable
 //! shapes to avoid reflowing overlays; other pages flow with images inline.
 
@@ -28,6 +28,8 @@ pub struct Block {
     pub color: [f64; 3],
     /// Counterclockwise baseline angle in user space (degrees).
     pub rotation: f64,
+    /// Explicit structure level: Some(0) is body, Some(1..=6) is a heading; None infers from size.
+    pub heading_level: Option<u8>,
 }
 
 /// An image of a page.
@@ -98,8 +100,11 @@ fn body_size(pages: &[Page]) -> f64 {
     by.into_iter().max_by_key(|e| e.1).map_or(11.0, |e| e.0 as f64 / 2.0)
 }
 
-/// Heading level for a block: 1 for ≥ 1.6× the body size, 2 for ≥ 1.25×, 0 for body text.
+/// Explicit structure level, or size-based inference (1/2/0) for untagged content.
 fn level(b: &Block, body: f64) -> u8 {
+    if let Some(level) = b.heading_level.filter(|level| *level <= 6) {
+        return level;
+    }
     let short = b.text.len() < 200;
     if short && b.size >= body * 1.6 {
         1
@@ -614,8 +619,10 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
         let style = format!(
             "position:absolute;margin-left:{x:.3}pt;margin-top:{y:.3}pt;width:{w:.3}pt;height:{h:.3}pt;rotation:{rotation:.3};z-index:{z};mso-position-horizontal-relative:page;mso-position-vertical-relative:page"
         );
+        let heading =
+            b.heading_level.filter(|level| (1..=6).contains(level)).map_or(String::new(), |level| format!("<w:pStyle w:val=\"Heading{level}\"/>"));
         s.push_str(&format!(
-            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent><w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p></w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
+            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent><w:p><w:pPr>{heading}<w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p></w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
             shape_id, run_xml(&b.text, b.size, b.bold, b.italic, b.color)
         ));
     }
@@ -692,11 +699,7 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
             for it in items(std::slice::from_ref(page)) {
                 match &it {
                     Item::Para(b, lvl) => {
-                        let style = match lvl {
-                            1 => "<w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr>",
-                            2 => "<w:pPr><w:pStyle w:val=\"Heading2\"/></w:pPr>",
-                            _ => "",
-                        };
+                        let style = if (1..=6).contains(lvl) { format!("<w:pPr><w:pStyle w:val=\"Heading{lvl}\"/></w:pPr>") } else { String::new() };
                         body.push_str(&format!("<w:p>{style}{}</w:p>", run(b)));
                     }
                     Item::Table(t) => {
@@ -783,7 +786,12 @@ xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawin
 <w:style w:type=\"paragraph\" w:default=\"1\" w:styleId=\"Normal\"><w:name w:val=\"Normal\"/><w:pPr><w:spacing w:after=\"120\"/></w:pPr></w:style>\
 <w:style w:type=\"paragraph\" w:styleId=\"Heading1\"><w:name w:val=\"heading 1\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:pPr><w:keepNext/><w:spacing w:before=\"240\"/><w:outlineLvl w:val=\"0\"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>\
 <w:style w:type=\"paragraph\" w:styleId=\"Heading2\"><w:name w:val=\"heading 2\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:pPr><w:keepNext/><w:spacing w:before=\"200\"/><w:outlineLvl w:val=\"1\"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>\
-</w:styles>";
+";
+    let mut styles = styles.to_owned();
+    for level in 3..=6 {
+        styles.push_str(&format!("<w:style w:type=\"paragraph\" w:styleId=\"Heading{level}\"><w:name w:val=\"heading {level}\"/><w:basedOn w:val=\"Normal\"/><w:next w:val=\"Normal\"/><w:pPr><w:keepNext/><w:spacing w:before=\"200\"/><w:outlineLvl w:val=\"{}\"/></w:pPr><w:rPr><w:b/></w:rPr></w:style>", level - 1));
+    }
+    styles.push_str("</w:styles>");
     let core = format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"><dc:title>{}</dc:title></cp:coreProperties>",
         esc(title)
@@ -920,6 +928,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            heading_level: None,
         };
         Page {
             width: 612.0,
@@ -1002,6 +1011,7 @@ mod tests {
             italic: false,
             color: [0.8; 3],
             rotation: 0.0,
+            heading_level: None,
         });
         p.images = page().images;
         let xml = part(&docx(&[p], "Invoice"), "word/document.xml");
@@ -1031,6 +1041,17 @@ mod tests {
         assert!(xml.contains("<w:pgSz w:w=\"8000\" w:h=\"10000\"/>"));
         assert_eq!(xml.matches("id=\"Text1\"").count(), 1);
         assert_eq!(xml.matches(">Meter</w:t>").count(), 2);
+    }
+
+    #[test]
+    fn positioned_word_text_keeps_explicit_heading_levels() {
+        let mut heading = block("Small heading", 72.0, 650.0, 180.0, 662.0);
+        heading.rotation = 45.0;
+        heading.heading_level = Some(5);
+        let page = Page { width: 612.0, height: 792.0, blocks: vec![heading], images: Vec::new(), background: None };
+        let xml = part(&docx(&[page], "Tagged"), "word/document.xml");
+        assert!(xml.contains("<w:txbxContent>"), "{xml}");
+        assert!(xml.contains("<w:pStyle w:val=\"Heading5\"/>"), "{xml}");
     }
 
     /// #2992: pages that share a background colour get it as the Word document's page colour
@@ -1088,6 +1109,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            heading_level: None,
         });
         let xml = part(&docx(&[p.clone()], "Receipt\u{1}"), "word/document.xml");
         assert!(xml.contains(">Total 4.50\tGBP</w:t>"), "{xml}");
@@ -1141,6 +1163,7 @@ mod tests {
             italic: true,
             color: [0.0; 3],
             rotation: 0.0,
+            heading_level: None,
         });
         let r = rtf(&[p]);
         assert!(r.starts_with("{\\rtf1") && r.ends_with('}'));
@@ -1158,6 +1181,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            heading_level: None,
         };
         Page {
             width: 612.0,
@@ -1181,6 +1205,7 @@ mod tests {
                     italic: false,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    heading_level: None,
                 },
             ],
             images: Vec::new(),
@@ -1233,7 +1258,16 @@ mod tests {
             .map(|i| {
                 let (row, col) = (i / 2, i / 2 + i % 2);
                 let (x, y) = (10.0 + col as f64 * 20.0, 10_000.0 - row as f64 * 14.0);
-                Block { text: "x".into(), rect: [x, y, x + 8.0, y + 12.0], size: 11.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+                Block {
+                    text: "x".into(),
+                    rect: [x, y, x + 8.0, y + 12.0],
+                    size: 11.0,
+                    bold: false,
+                    italic: false,
+                    color: [0.0; 3],
+                    rotation: 0.0,
+                    heading_level: None,
+                }
             })
             .collect();
         let started = std::time::Instant::now();
@@ -1260,6 +1294,7 @@ mod tests {
                             italic: false,
                             color: [0.0; 3],
                             rotation: 0.0,
+                            heading_level: None,
                         }
                     })
                 })
@@ -1274,7 +1309,7 @@ mod tests {
     }
 
     fn block(t: &str, x0: f64, y0: f64, x1: f64, y1: f64) -> Block {
-        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0, heading_level: None }
     }
 
     /// #2806: a sentence whose link is set in another colour or font runs on as separate blocks
@@ -1353,6 +1388,7 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            heading_level: None,
         };
         let p = Page {
             width: 612.0,

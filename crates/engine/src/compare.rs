@@ -177,6 +177,8 @@ impl crate::Document {
     fn export_pages_checked(&self) -> (Vec<pdfcraft_export::Page>, Vec<usize>) {
         let Some(cos) = self.editor.as_ref().map(|e| &e.cos) else { return (Vec::new(), Vec::new()) };
         let mut truncated = Vec::new();
+        let heading_levels = pdfcraft_a11y::heading_levels(cos);
+        let source_pages = pdfcraft_model::pages(cos);
         let pages = self
             .info
             .pages
@@ -193,7 +195,8 @@ impl crate::Document {
                 let crop_width = f64::from(info.crop[2] - info.crop[0]);
                 let display_width = f64::from(if info.rotation % 180 == 0 { info.width } else { info.height });
                 let unit = if crop_width > 0.0 && crop_width.is_finite() && display_width.is_finite() { display_width / crop_width } else { 1.0 };
-                let reading = pdfcraft_edit::reading_blocks_checked(cos, i).unwrap_or_default();
+                let levels = |stream, mcid| source_pages.get(i).and_then(|page| heading_levels.get_with_scope(page.obj, stream, mcid));
+                let reading = pdfcraft_edit::reading_blocks_with_heading_levels(cos, i, &levels).unwrap_or_default();
                 if reading.truncated {
                     truncated.push(i);
                 }
@@ -211,6 +214,7 @@ impl crate::Document {
                             italic: f.contains("italic") || f.contains("oblique"),
                             color: b.color,
                             rotation: b.rotation - f64::from(info.rotation),
+                            heading_level: b.heading_level,
                         }
                     })
                     .collect();
