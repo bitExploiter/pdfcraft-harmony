@@ -284,7 +284,7 @@ impl Default for Settings {
 /// 257 × 364 mm and JIS B5 182 × 257 mm are not the ISO 216 B sheets (250 × 353 mm and
 /// 176 × 250 mm), which are listed next to them unqualified. はがき and 往復はがき, the 長形 and
 /// 角形 envelopes and 四六判 are the sizes of Japanese office and book printing.
-pub const PAPERS: [(&str, (f64, f64)); 32] = [
+pub const PAPERS: [(&str, (f64, f64)); 33] = [
     ("US Letter", (612.0, 792.0)),
     ("US Legal", (612.0, 1008.0)),
     ("Tabloid", (792.0, 1224.0)),
@@ -317,6 +317,7 @@ pub const PAPERS: [(&str, (f64, f64)); 32] = [
     ("A1", (1683.78, 2383.94)),
     ("A0", (2383.94, 3370.39)),
     ("4 x 6 in label (101.6 x 152.4 mm)", (288.0, 432.0)),
+    ("US #10 Envelope (4.125 x 9.5 in)", (297.0, 684.0)),
 ];
 
 /// `PAPERS` index of the 4 × 6 in shipping label.
@@ -327,6 +328,7 @@ pub const LABEL_PAPER: usize = 31;
 /// ISO B4/B5 and the Japanese papers without a PPD name are asked for as custom sizes,
 /// `Custom.<width>x<height>mm` (the form CUPS documents, and the one the system's media lookup
 /// recognises; the older `w<h>` PPD keywords only work on a queue that advertises them).
+/// `Env10` is the US #10 envelope.
 pub fn cups_media(index: usize) -> Option<&'static str> {
     match PAPERS.get(index)?.0 {
         "US Letter" => Some("Letter"),
@@ -348,6 +350,7 @@ pub fn cups_media(index: usize) -> Option<&'static str> {
         "Kaku #2" => Some("Custom.240x332mm"),
         "Kaku #3" => Some("Custom.216x277mm"),
         "Yonroku-ban" => Some("Custom.127x188mm"),
+        "US #10 Envelope (4.125 x 9.5 in)" => Some("Env10"),
         _ if index == LABEL_PAPER => Some("Custom.101.6x152.4mm"),
         _ => None,
     }
@@ -807,7 +810,12 @@ fn appearance_matrix(doc: &Document, form: &Dict, rect: [f64; 4]) -> Option<Matr
 }
 
 /// A Form XObject holding page `index` as it prints (user space; BBox = crop box).
-fn page_form(doc: &mut Document, index: usize, content: Content) -> Result<ObjRef, PrintError> {
+fn page_form(
+    doc: &mut Document,
+    index: usize,
+    content: Content,
+    promoted: &mut std::collections::HashMap<ObjRef, ObjRef>,
+) -> Result<ObjRef, PrintError> {
     let page = pdfcraft_model::pages(doc).swap_remove(index);
     let crop = page.crop(doc);
     let mut res = page.dict.get(b"Resources").and_then(|r| doc.resolve(r).as_dict().cloned()).unwrap_or_default();
@@ -836,6 +844,23 @@ fn page_form(doc: &mut Document, index: usize, content: Content) -> Result<ObjRe
         let Some(ap) = appearance(doc, &d) else { continue };
         let form = doc.get(ap).as_dict().cloned().unwrap_or_default();
         let Some(m) = appearance_matrix(doc, &form, rect) else { continue };
+        let ap = if !form.contains(b"Subtype")
+            && let Object::Stream(stream) = &*doc.get(ap)
+        {
+            // Some existing annotation appearances omit Subtype, but Do dispatch needs a Form XObject.
+            // Keep the original intact: other document objects can share this appearance.
+            if let Some(&cached) = promoted.get(&ap) {
+                cached
+            } else {
+                let mut stream = stream.clone();
+                stream.dict.set(b"Subtype".to_vec(), Object::name("Form"));
+                let copy = doc.add(Object::Stream(stream));
+                promoted.insert(ap, copy);
+                copy
+            }
+        } else {
+            ap
+        };
         let name = format!("PCPrA{k}");
         k += 1;
         let [a0, b0, c0, d0, e0, f0] = m.0;
@@ -865,6 +890,7 @@ pub fn impose(src: &Document, settings: &Settings) -> Result<Vec<u8>, PrintError
     let mut doc = src.clone();
     // One form per source page used (a page may appear on several sheets: posters).
     let mut forms: std::collections::HashMap<usize, ObjRef> = std::collections::HashMap::new();
+    let mut promoted = std::collections::HashMap::new();
     let views: Vec<[f64; 6]> = pages.iter().map(|p| p.view_matrix(src)).collect();
     let pages_root = doc.add(Object::Null);
     let mut kids = Vec::new();
@@ -875,7 +901,7 @@ pub fn impose(src: &Document, settings: &Settings) -> Result<Vec<u8>, PrintError
             let form = match forms.get(&pl.page) {
                 Some(f) => *f,
                 None => {
-                    let f = page_form(&mut doc, pl.page, settings.content)?;
+                    let f = page_form(&mut doc, pl.page, settings.content, &mut promoted)?;
                     forms.insert(pl.page, f);
                     f
                 }
