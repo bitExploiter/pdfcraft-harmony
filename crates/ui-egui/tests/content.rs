@@ -183,6 +183,39 @@ fn text_tool_deleting_a_draft_hides_the_old_added_glyphs_and_cancel_restores_the
     assert!(h.state().views[0].content.draft.is_none());
 }
 
+/// The text tool's pointer is an I-beam whose middle is the click: the new box's first line is
+/// centred there, not hung below it. A click at the page's top edge keeps the box on the page.
+#[test]
+fn new_text_is_centred_on_the_click() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(2);
+    let (ph, size) = {
+        let s = h.state();
+        (s.session.get(s.views[0].id).unwrap().info.pages[0].height as f64, s.text_style.size)
+    };
+    // Display space (points, y up from the page's bottom) of a screen point on page 1.
+    let display = |h: &Harness<'static, PdfCraftApp>, p: Pos2| {
+        let r = h.state().views[0].page_screen_rect(0).expect("on screen");
+        let k = f64::from(r.height()) / ph;
+        [f64::from(p.x - r.left()) / k, ph - f64::from(p.y - r.top()) / k]
+    };
+    let p = at(&h, 40.0, 300.0);
+    click(&mut h, p);
+    let rect = h.state().views[0].content.draft.as_ref().expect("a box opened").rect;
+    let [x, y] = display(&h, p);
+    assert!((rect[0] - x).abs() < 0.5, "the box starts at the click ({} vs {x})", rect[0]);
+    let middle = rect[3] - size * 0.6;
+    assert!((middle - y).abs() < 0.5, "the first line's middle ({middle}) is at the click ({y})");
+    // At the very top of the page the box stays on it.
+    h.get_by_label("Discard this text (Esc)").click();
+    h.run_steps(3);
+    let p = at(&h, 40.0, 0.5);
+    click(&mut h, p);
+    let rect = h.state().views[0].content.draft.as_ref().expect("a box opened").rect;
+    assert!(rect[3] <= ph, "the box's top ({}) is on the page ({ph})", rect[3]);
+}
+
 #[test]
 fn clicking_elsewhere_keeps_the_text_and_starts_a_new_box() {
     // #74: a click elsewhere on the page threw away the text being typed and opened a new box.

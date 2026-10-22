@@ -372,8 +372,11 @@ pub(crate) fn page_input(
             let at = to_display(xf, info, page, p);
             let mut style = style.clone();
             style.text.clear();
-            let page_width = info.pages.get(page).map_or(f64::INFINITY, |p| p.width as f64);
-            let rect = [at[0], at[1] - style.size * 1.2, (at[0] + 200.0).min(page_width), at[1]];
+            let (page_width, page_height) = info.pages.get(page).map_or((f64::INFINITY, f64::INFINITY), |p| (p.width as f64, p.height as f64));
+            // The first line (1.2 em tall) is centred on the click, as the I-beam pointer is; its
+            // top was at the click, so the text appeared below where it was placed.
+            let top = (at[1] + style.size * 0.6).min(page_height);
+            let rect = [at[0], top - style.size * 1.2, (at[0] + 200.0).min(page_width), top];
             style.rect = rect;
             cv.draft = Some(TextDraft { page, index: None, rect, text: String::new(), style, focus: true });
             consumed = true;
