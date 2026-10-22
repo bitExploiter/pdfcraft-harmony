@@ -2185,6 +2185,43 @@ fn redacting_every_inheriting_page_retires_the_parent_resources() {
     }
 }
 
+/// Issue #2246: applying a redaction to a scanned page (one JPEG image) removed the whole image
+/// and blanked the page. A DCT image must be decoded so only the covered pixels are cleared.
+#[test]
+fn a_jpeg_scan_is_cleared_not_removed() {
+    // A 16×16 grey JPEG: flat 200 with a dark one-pixel border.
+    let mut gray = vec![200u8; 16 * 16];
+    for k in 0..16 {
+        gray[k] = 20;
+        gray[15 * 16 + k] = 20;
+        gray[k * 16] = 20;
+        gray[k * 16 + 15] = 20;
+    }
+    let mut jpeg = Vec::new();
+    ::image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 95).encode(&gray, 16, 16, ::image::ExtendedColorType::L8).unwrap();
+    let img = stream("/Type /XObject /Subtype /Image /Width 16 /Height 16 /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /DCTDecode", &jpeg);
+    let mut doc = one_page(b"q 300 0 0 300 0 0 cm /Im0 Do Q", "/XObject << /Im0 7 0 R >>", vec![img]);
+    // The mark covers image pixels 7 and 8 on both axes; the border stays.
+    mark(&mut doc, 0, &[[125.0, 125.0, 175.0, 175.0]], "");
+    let r = apply(&mut doc, None).unwrap();
+    assert_eq!((r.images_removed, r.images_cleared), (0, 1), "{r:?}");
+
+    let c = content(&doc, 0);
+    let p = pdfcraft_model::pages(&doc).swap_remove(0);
+    let res = doc.resolve(p.dict.get(b"Resources").unwrap()).as_dict().cloned().unwrap();
+    let xo = doc.resolve(res.get(b"XObject").unwrap()).as_dict().cloned().unwrap();
+    let (name, new) = xo.iter().find(|(k, _)| k.starts_with(b"PCRedacted")).map(|(k, v)| (k.clone(), v.clone())).expect("a cleared copy");
+    assert!(c.contains(&format!("{} Do", String::from_utf8_lossy(&name))), "{c}");
+    let Object::Stream(s) = &*doc.resolve(&new) else { panic!() };
+    assert_eq!(s.dict.name(b"Filter"), Some(&b"FlateDecode"[..]));
+    let samples = s.decoded().unwrap();
+    assert_eq!(samples.len(), 16 * 16);
+    let at = |x: usize, y: usize| samples[y * 16 + x];
+    assert_eq!((at(7, 7), at(8, 8), at(7, 8), at(8, 7)), (0, 0, 0, 0), "marked pixels are cleared");
+    assert!(at(4, 4) > 100 && at(11, 11) > 100, "unmarked pixels keep the scan: {} {}", at(4, 4), at(11, 11));
+    assert!(at(0, 0) < 100 && at(15, 15) < 100, "the dark border stays: {} {}", at(0, 0), at(15, 15));
+}
+
 #[test]
 fn replacement_text_and_property_resources_do_not_survive_redaction() {
     let mut doc = one_page(

@@ -1,7 +1,8 @@
 //! Clearing the pixels of an image under redaction regions. The image is decoded, every pixel
 //! whose footprint intersects a region is set to zero (no ink for image masks), and the result is
 //! written as a new Flate image; the original object is untouched (other pages may use it).
-//! Images whose codec PdfCraft can't decode (DCT, JPX, JBIG2, CCITT) return `None`, and the
+//! A DCT (JPEG) image is decoded with the `image` crate so a scan keeps everything outside the
+//! mark; images whose codec PdfCraft can't decode (JPX, JBIG2, CCITT) return `None`, and the
 //! caller removes the whole image instead; that is fail-closed.
 
 use pdfcraft_content::{Matrix, overlaps};
@@ -9,6 +10,21 @@ use pdfcraft_cos::{Document, Object, Stream};
 
 /// Most pixels an image may have to be cleared in place (larger ones are removed).
 const MAX_PIXELS: u64 = 64 << 20;
+
+/// Decode a DCT (JPEG) image's samples for clearing. `None` when the JPEG does not decode to the
+/// size and component count its dictionary declares (the caller then removes the image, as for
+/// any other undecodable codec).
+fn jpeg_samples(raw: &[u8], ncomp: usize, w: usize, h: usize) -> Option<Vec<u8>> {
+    let img = ::image::load_from_memory_with_format(raw, ::image::ImageFormat::Jpeg).ok()?;
+    if (img.width() as usize, img.height() as usize) != (w, h) {
+        return None;
+    }
+    Some(match (ncomp, img.color()) {
+        (1, ::image::ColorType::L8) => img.into_luma8().into_raw(),
+        (3, ::image::ColorType::Rgb8) => img.into_rgb8().into_raw(),
+        _ => return None,
+    })
+}
 
 fn components(doc: &Document, s: &Stream) -> Option<usize> {
     let cs = doc.resolve(s.dict.get(b"ColorSpace")?);
@@ -51,13 +67,16 @@ fn decode_and_clear(doc: &Document, s: &Stream, ctm: &Matrix, rects: &[[f64; 4]]
             b"FlateDecode" | b"Fl" | b"LZWDecode" | b"LZW" | b"ASCII85Decode" | b"A85" | b"ASCIIHexDecode" | b"AHx" | b"RunLengthDecode" | b"RL"
         )
     };
-    let ok = match s.dict.get(b"Filter") {
-        None => true,
-        Some(Object::Name(n)) => supported(n),
-        Some(Object::Array(a)) => a.iter().all(|f| f.as_name().is_some_and(supported)),
-        _ => false,
+    let filters: Vec<&[u8]> = match s.dict.get(b"Filter") {
+        None => Vec::new(),
+        Some(Object::Name(n)) => vec![n],
+        Some(Object::Array(a)) => a.iter().map(|f| f.as_name()).collect::<Option<_>>()?,
+        _ => return None,
     };
-    if !ok {
+    // PdfCraft patch (#2246): a DCT image (a scan) is decoded so only the covered pixels are
+    // cleared. Removing the whole image blanks the page, so DCT is handled rather than refused.
+    let dct = matches!(filters.as_slice(), [b"DCTDecode"] | [b"DCT"]);
+    if !dct && !filters.iter().all(|n| supported(n)) {
         return None;
     }
     let (w, h) = (s.dict.int(b"Width")?, s.dict.int(b"Height")?);
@@ -77,7 +96,17 @@ fn decode_and_clear(doc: &Document, s: &Stream, ctm: &Matrix, rects: &[[f64; 4]]
     let bytes = row.checked_mul(h)?;
     let row_bits = row.checked_mul(8)?;
     bytes.checked_mul(8)?;
-    let mut data = s.decoded().ok()?;
+    // PdfCraft patch (#2246): a DCT image (a scan) is decoded so only the covered pixels are
+    // cleared; `jpeg_samples` returns `w * h * ncomp` bytes for the 8-bit layouts it handles, which
+    // is exactly `bytes` below. Any other DCT layout is refused, and the caller removes the image.
+    let mut data = if dct {
+        if bpc != 8 {
+            return None;
+        }
+        jpeg_samples(&s.raw, ncomp, w, h)?
+    } else {
+        s.decoded().ok()?
+    };
     if data.len() < bytes {
         return None;
     }
