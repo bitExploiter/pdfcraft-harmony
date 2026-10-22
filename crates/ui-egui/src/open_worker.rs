@@ -175,7 +175,29 @@ fn prepare(job: Job) -> ResultKind {
         },
         Input::Bytes(bytes) => bytes.clone(),
     };
-    if matches!(pdfcraft_engine::source_kind(&job.name, &bytes), Some(SourceKind::Image | SourceKind::Text)) {
+    #[cfg(not(target_arch = "wasm32"))]
+    if pdfcraft_engine::is_office_name(&job.name) {
+        let converted = match &job.input {
+            Input::Path(p) if p.is_file() => pdfcraft_engine::converter::convert_to_temp_pdf(p),
+            _ => pdfcraft_engine::converter::convert_bytes_to_pdf(&job.name, &bytes),
+        };
+        match converted {
+            Ok(temp_pdf) => match temp_pdf.read_bytes() {
+                Ok(pdf_bytes) => {
+                    let pdf_bytes = Arc::new(pdf_bytes);
+                    let stem = job.name.rsplit_once('.').map_or(&job.name[..], |(s, _)| s);
+                    let pdf_name = format!("{stem}.pdf");
+                    let result = job.context.prepare_open(pdf_name, None, pdf_bytes.clone(), None);
+                    return ResultKind::Prepared { bytes: pdf_bytes, result: Box::new(result) };
+                }
+                Err(e) => return ResultKind::Failed(format!("{}: {e}", job.name)),
+            },
+            Err(e) => return ResultKind::Failed(format!("{}: {e}", job.name)),
+        }
+    }
+    if matches!(pdfcraft_engine::source_kind(&job.name, &bytes), Some(SourceKind::Image | SourceKind::Text))
+        || pdfcraft_engine::is_office_name(&job.name)
+    {
         return ResultKind::Conversion(bytes);
     }
     let result = job.context.prepare_open(job.name, job.path, bytes.clone(), job.password.as_deref());

@@ -622,6 +622,8 @@ pub struct PdfCraftApp {
     pub full_screen: bool,
     /// Files delivered asynchronously (web drag-and-drop, web file picker).
     pub inbox: Inbox,
+    /// Active background Office conversion for Combine.
+    pub(crate) combine_converting: Option<crate::combine_ui::CombineConverting>,
     /// The browser's startup `?file=` download. Unlike a deliberate Open or drop, a late
     /// arrival opens in the background once the user has started working (#171).
     pub startup_inbox: Inbox,
@@ -1007,6 +1009,7 @@ impl PdfCraftApp {
             unlock_prompt: None,
             full_screen: false,
             inbox: Default::default(),
+            combine_converting: None,
             startup_inbox: Default::default(),
             startup_superseded: false,
             failed_inbox: Default::default(),
@@ -1960,20 +1963,20 @@ impl PdfCraftApp {
         }
     }
 
-    /// The File ▸ Open picker: PDFs, and images and text that become PDFs.
+    /// The File ▸ Open picker: PDFs, and images, text and Office documents that become PDFs.
     #[cfg(not(target_arch = "wasm32"))]
     fn open_picker() -> rfd::AsyncFileDialog {
-        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE)
+        let all: Vec<&str> = std::iter::once("pdf").chain(create_ui::CONVERTIBLE).chain(pdfcraft_engine::OFFICE_EXTENSIONS).collect();
+        rfd::AsyncFileDialog::new()
+            .add_filter(tl!("PDF, images and text"), &all)
+            .add_filter("PDF", &["pdf"])
+            .add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE)
     }
 
     pub fn open_dialog(&mut self) {
         self.startup_superseded = true;
         #[cfg(not(target_arch = "wasm32"))]
-        self.pick(
-            pickers::PickFor::Open,
-            rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).add_filter(tl!("Images and text (converted to PDF)"), &create_ui::CONVERTIBLE),
-            true,
-        );
+        self.pick(pickers::PickFor::Open, Self::open_picker(), true);
         // Browsers pick files asynchronously; the bytes arrive through `inbox`.
         #[cfg(target_arch = "wasm32")]
         {
@@ -1996,6 +1999,21 @@ impl PdfCraftApp {
                     }
                 }
             });
+        }
+    }
+
+    /// Create a PDF from a chosen file (PDF, Office, image, text), converted and opened in a new tab.
+    pub fn create_file_dialog(&mut self) {
+        self.startup_superseded = true;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let title = if crate::i18n::current().code() == "tr" { "PDF oluştur" } else { crate::i18n::t("Create a PDF") };
+            let picker = Self::open_picker().set_title(title);
+            self.pick(pickers::PickFor::Open, picker, false);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.open_dialog();
         }
     }
 
@@ -3196,11 +3214,17 @@ impl eframe::App for PdfCraftApp {
         let dropped = self.drop_on_signature_pad(dropped);
         #[cfg(not(target_arch = "wasm32"))]
         let dropped = self.drop_on_grid(dropped, ctx);
-        for f in dropped {
-            // Files dropped on the Combine files tab join its list instead of opening.
-            if self.combine_showing() {
+        if self.combine_showing() {
+            #[cfg(not(target_arch = "wasm32"))]
+            if !dropped.is_empty() {
+                self.drop_all_into_combine(dropped, ctx);
+            }
+            #[cfg(target_arch = "wasm32")]
+            for f in dropped {
                 self.drop_into_combine(f, ctx);
-            } else {
+            }
+        } else {
+            for f in dropped {
                 self.open_dropped(f, ctx);
             }
         }
@@ -3210,6 +3234,7 @@ impl eframe::App for PdfCraftApp {
                 self.notify_fmt("Couldn't open {name}: {e}", &[("name", &name), ("e", &e.to_string())]);
             }
         }
+        self.poll_combine_converting();
         // Don't replace a pending prompt or import. A startup file may need its own password
         // prompt, so its bytes stay queued until the current interaction finishes.
         #[cfg(not(target_arch = "wasm32"))]
