@@ -621,6 +621,8 @@ pub struct PdfCraftApp {
     pub host_save: Option<HostSaveFn>,
     /// Reports unsaved work to the embedding page (web, see [`HostDirtyFn`]).
     pub host_dirty: Option<HostDirtyFn>,
+    /// Embedded mode (web iframe with `?embedded`): hides external links (#2490).
+    pub embedded: bool,
     /// A pending "save changes?" question (closing a dirty tab or quitting).
     pub close_request: Option<CloseRequest>,
     /// A save waiting behind [`Dialog::OverwriteChanged`] (the web build has no files to check).
@@ -971,6 +973,7 @@ impl PdfCraftApp {
             os_events: None,
             host_save: None,
             host_dirty: None,
+            embedded: false,
             close_request: None,
             #[cfg(not(target_arch = "wasm32"))]
             pending_overwrite: None,
@@ -2547,6 +2550,7 @@ impl PdfCraftApp {
             }
             ("left", _) => self.left_open = value != "closed",
             ("home", _) => self.active = None,
+            ("embedded", _) => self.embedded = value == "true" || value == "on" || value == "1",
             ("dialog", _) => {
                 self.dialog = match value {
                     "properties" => Some(Dialog::Properties(PropsTab::Description)),

@@ -75,20 +75,21 @@ Local test: `python3 -m http.server 8765` inside the folder, then open http://lo
 - **Sandboxed iframes** need at least
   `sandbox="allow-scripts allow-same-origin allow-downloads allow-popups"`. Without
   `allow-same-origin` there's no storage. Without `allow-downloads`, Save and Export (browser
-  downloads) are blocked.
+  downloads) are blocked. Without `allow-popups`, external links (community, documentation) cannot
+  open; pass `?embedded` on the iframe `src` to hide external community links cleanly.
 - Don't send `X-Frame-Options: DENY` or a `frame-ancestors` CSP that excludes the embedding page.
 
-## Renderer selection and fallback flags
+## URL query flags
 
-PdfCraft renders with wgpu. It uses **WebGPU** when the browser has it and falls back to
-**WebGL2** on its own. URL query flags override this, and they work on the iframe `src` too:
+URL query flags configure startup behavior and renderer selection. They work on the iframe `src` too:
 
 | Flag | Effect |
 |---|---|
 | *(none)* | WebGPU if available, otherwise WebGL2 |
 | `?webgl` | Force the WebGL2 backend (useful when a WebGPU driver misbehaves) |
 | `?cpu` | Force the CPU canvas path (slowest, most compatible) |
+| `?embedded` | Hide external community links (welcome screen card and header bar Discord button) |
 
-For example: `<iframe src="https://example.com/pdfcraft/?webgl" ...>`.
+For example: `<iframe src="https://example.com/pdfcraft/?embedded" ...>`.
 
 A browser with neither WebGPU nor WebGL2 gets a message in place of the app.
