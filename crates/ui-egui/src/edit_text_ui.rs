@@ -420,7 +420,7 @@ fn look_of(b: &pdfcraft_engine::TextBlock) -> pdfcraft_engine::AddedText {
 /// draws the text with the page's shapes and widths and breaks its lines where the page will.
 /// It is added to egui on first use and is there from the next frame; `None` until then, and
 /// when the paragraph isn't set in an installed font.
-fn document_family(ctx: &egui::Context, look: &pdfcraft_engine::AddedText) -> Option<FontFamily> {
+pub(crate) fn document_family(ctx: &egui::Context, look: &pdfcraft_engine::AddedText) -> Option<FontFamily> {
     use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
     let wanted = look.arabic_font.as_deref()?;
     let face = pdfcraft_fonts::arabic_candidates(Some(wanted), &[], false, look.bold).into_iter().next().filter(|f| f.family == wanted)?;

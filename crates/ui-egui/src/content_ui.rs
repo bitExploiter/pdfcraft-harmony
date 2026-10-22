@@ -512,7 +512,13 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
     let Some(xf) = view.page_xform(page) else { return (None, false) };
     let zoom = xf.rect.width() / xf.pw.max(1.0);
     let Some(draft) = view.content.draft.as_mut() else { return (None, false) };
-    let font = crate::edit_text_ui::editor_font(&draft.style, (draft.style.size as f32 * zoom).clamp(1.0, 300.0));
+    let size = (draft.style.size as f32 * zoom).clamp(1.0, 300.0);
+    // An item set in an installed font (Arabic picked in the font list) is typed in that font, at
+    // the size the page shows it: the interface font draws such text far larger than, say, Andalus.
+    let font = match crate::edit_text_ui::document_family(ctx, &draft.style) {
+        Some(family) => egui::FontId::new(size, family),
+        None => crate::edit_text_ui::editor_font(&draft.style, size),
+    };
     let text = AddedText { text: draft.text.clone(), ..draft.style.clone() };
     let Some(page_width) = info.pages.get(page).map(|p| p.width as f64) else { return (None, false) };
     if let Some((key, z, width, rect)) = &view.content.layout
