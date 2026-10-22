@@ -292,9 +292,12 @@ pub fn delete_pages(doc: &mut Document, indices: &[usize]) -> Result<(), Organiz
 
 /// Bookmarks, and links on the `keep` pages, that go to one of the `gone` pages lose that
 /// destination (/Dest, or a GoTo /A), rather than pointing at nothing; so does the catalog's /OpenAction.
+/// A bookmark left with no destination and no children is removed from the outline; one with
+/// children stays as a heading for them.
 fn drop_destinations_to(doc: &mut Document, gone: &[ObjRef], keep: &[(ObjRef, Dict)]) -> Result<(), OrganizeError> {
     let dead_names = drop_named_destinations(doc, gone)?;
     let mut holders = outline::items(doc);
+    let outline_items: std::collections::HashSet<ObjRef> = holders.iter().copied().collect();
     for (p, _) in keep {
         let annots = doc.get(*p).as_dict().and_then(|d| d.get(b"Annots").cloned()).map(|a| doc.resolve(&a).as_array().cloned().unwrap_or_default());
         holders.extend(
@@ -336,11 +339,18 @@ fn drop_destinations_to(doc: &mut Document, gone: &[ObjRef], keep: &[(ObjRef, Di
             dead.push((root, b"OpenAction"));
         }
     }
+    let mut orphans: Vec<ObjRef> = Vec::new();
     for (h, key) in dead {
         doc.update_dict(h, |d| {
             d.remove(key);
         })?;
+        // Only once both keys are checked: an item may lose /Dest and still have a live /A.
+        let goes_nowhere = doc.get(h).as_dict().is_some_and(|d| !d.contains(b"Dest") && !d.contains(b"A"));
+        if goes_nowhere && outline_items.contains(&h) && !orphans.contains(&h) && outline::children(doc, h).is_empty() {
+            orphans.push(h);
+        }
     }
+    outline::unlink_items(doc, &orphans)?;
     Ok(())
 }
 
