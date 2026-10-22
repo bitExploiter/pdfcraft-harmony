@@ -8,6 +8,7 @@
 //! Workers discard its caches/results and fall back to private parsers. There is no shared
 //! rebuild loop, and a timed-out shared initialization is never started again in that pool.
 
+use std::collections::HashSet;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::SyncSender;
@@ -23,9 +24,10 @@ use work_queue::{ResultReceiver, WorkQueue};
 
 use hayro::hayro_interpret::font::{FontData, FontQuery, Glyph};
 use hayro::hayro_interpret::hayro_cmap::CidFamily;
+use hayro::hayro_interpret::pattern::Pattern;
 use hayro::hayro_interpret::{
-    BlendMode, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, InterpreterWarning, Paint, PathDrawMode,
-    SoftMask, TransformExt, interpret_page,
+    BlendMode, CacheKey, ClipPath, Context, Device, GlyphDrawMode, Image, InterpreterCache, InterpreterSettings, InterpreterWarning, Paint,
+    PathDrawMode, SoftMask, TransformExt, interpret_page,
 };
 use hayro::hayro_syntax::Pdf;
 use hayro::hayro_syntax::page::Page;
@@ -401,12 +403,28 @@ fn drawable_page(pdf: &Pdf, page: usize) -> Result<(&Page<'_>, f32, f32), String
 /// form millions of times would otherwise grow the SVG until memory runs out.
 const MAX_SVG_BYTES: u64 = 256 << 20;
 
+/// [`SvgSize`]'s estimate of the SVG `page` becomes, stopping soon after it passes
+/// [`MAX_SVG_BYTES`].
+fn svg_size(page: &Page<'_>, w: f32, h: f32, settings: &InterpreterSettings) -> u64 {
+    let stop = Arc::new(AtomicBool::new(false));
+    let settings = InterpreterSettings { cancelled: Some(stop.clone()), ..settings.clone() };
+    let cache = InterpreterCache::new();
+    let mut ctx =
+        Context::new(page.initial_transform(true).to_kurbo(), kurbo::Rect::new(0.0, 0.0, w.into(), h.into()), &cache, page.xref(), settings);
+    let mut size = SvgSize { bytes: 0, stop, seen: HashSet::new() };
+    interpret_page(page, &mut ctx, &mut size);
+    size.bytes
+}
+
 /// A device that only adds up about how much SVG each draw becomes: an element with its paint
 /// and transform about 128 bytes, each path segment at most 64, each image pixel 4 (its PNG in
-/// base64). Past [`MAX_SVG_BYTES`] it sets `stop`, the interpreter's cancel flag.
+/// base64). A shading fill adds the raster hayro-svg draws of its whole box, unclipped. Tiling
+/// cells, Type 3 glyphs and soft masks are visited once per key hayro-svg writes them under,
+/// as it does. Past [`MAX_SVG_BYTES`] it sets `stop`, the interpreter's cancel flag.
 struct SvgSize {
     bytes: u64,
     stop: Arc<AtomicBool>,
+    seen: HashSet<u128>,
 }
 
 impl SvgSize {
@@ -420,22 +438,86 @@ impl SvgSize {
     fn add_path(&mut self, path: &kurbo::BezPath) {
         self.element(64u64.saturating_mul(path.elements().len() as u64));
     }
+
+    /// Whether `key` is new, so what hayro-svg writes once for it is still to count.
+    fn first(&mut self, key: u128) -> bool {
+        !self.stop.load(Ordering::Relaxed) && self.seen.insert(key)
+    }
+
+    /// A pattern paint of `path` drawn with `transform`, keyed and sized as hayro-svg's
+    /// `write_paint` and `render_shading_texture` do.
+    fn paint<'a>(&mut self, paint: &Paint<'a>, path: &kurbo::BezPath, transform: kurbo::Affine, line_width: Option<f32>) {
+        use kurbo::Shape as _;
+        let Paint::Pattern(pattern) = paint else { return };
+        match pattern.as_ref() {
+            Pattern::Shading(s) => {
+                let mut b = path.bounding_box();
+                if let Some(w) = line_width {
+                    b = b.inflate(f64::from(w), f64::from(w));
+                }
+                let b = (transform * b.to_path(0.0)).bounding_box();
+                let bits = |lo: f64, hi: f64| (u128::from(lo.to_bits()) << 64) | u128::from(hi.to_bits());
+                if self.first((s.cache_key(), (bits(b.x0, b.x1), bits(b.y0, b.y1))).cache_key()) {
+                    // A side that is not finite is past any budget (the cast saturates).
+                    let side = |v: f64| if v.is_finite() { v.max(1.0).ceil() } else { f64::MAX };
+                    self.element((side(b.width()) * side(b.height()) * 4.0) as u64);
+                }
+            }
+            Pattern::Tiling(t) => {
+                if self.first((t.cache_key(), transform.inverse().cache_key()).cache_key()) {
+                    let _ = t.interpret(self, kurbo::Affine::translate((-t.bbox.x0, -t.bbox.y0)), false);
+                }
+            }
+        }
+    }
+
+    fn mask(&mut self, mask: Option<SoftMask<'_>>) {
+        if let Some(mask) = mask
+            && self.first(mask.cache_key())
+        {
+            mask.interpret(self);
+        }
+    }
 }
 
 impl<'a> Device<'a> for SvgSize {
-    fn set_soft_mask(&mut self, _: Option<SoftMask<'a>>) {}
+    fn set_soft_mask(&mut self, mask: Option<SoftMask<'a>>) {
+        self.mask(mask);
+    }
     fn set_blend_mode(&mut self, _: BlendMode) {}
-    fn draw_path(&mut self, path: &kurbo::BezPath, _: kurbo::Affine, _: &Paint<'a>, _: &PathDrawMode) {
+    fn draw_path(&mut self, path: &kurbo::BezPath, transform: kurbo::Affine, paint: &Paint<'a>, mode: &PathDrawMode) {
         self.add_path(path);
+        let line_width = match mode {
+            PathDrawMode::Stroke(s) => Some(s.line_width),
+            PathDrawMode::Fill(_) => None,
+        };
+        self.paint(paint, path, transform, line_width);
     }
     fn push_clip_path(&mut self, clip: &ClipPath) {
         self.add_path(&clip.path);
     }
-    fn push_transparency_group(&mut self, _: f32, _: Option<SoftMask<'a>>, _: BlendMode) {
+    fn push_transparency_group(&mut self, _: f32, mask: Option<SoftMask<'a>>, _: BlendMode) {
         self.element(0);
+        self.mask(mask);
     }
-    fn draw_glyph(&mut self, _: &Glyph<'a>, _: kurbo::Affine, _: kurbo::Affine, _: &Paint<'a>, _: &GlyphDrawMode) {
+    fn draw_glyph(&mut self, glyph: &Glyph<'a>, transform: kurbo::Affine, glyph_transform: kurbo::Affine, paint: &Paint<'a>, mode: &GlyphDrawMode) {
         self.element(0);
+        let line_width = match mode {
+            GlyphDrawMode::Invisible | GlyphDrawMode::Clip => return,
+            GlyphDrawMode::Stroke(s) => Some(s.line_width),
+            GlyphDrawMode::Fill => None,
+        };
+        match glyph {
+            // hayro-svg sizes a glyph's paint from its outline before the glyph transform.
+            Glyph::Outline(o) if matches!(paint, Paint::Pattern(_)) => self.paint(paint, &o.outline(), transform, line_width),
+            Glyph::Outline(_) => {}
+            Glyph::Type3(t) => {
+                let key = ((t.cache_key(), transform.cache_key()), (glyph_transform.cache_key(), paint.cache_key())).cache_key();
+                if self.first(key) {
+                    t.interpret(self, transform, glyph_transform, paint);
+                }
+            }
+        }
     }
     fn draw_image(&mut self, image: Image<'a, '_>, _: kurbo::Affine) {
         self.element(u64::from(image.width()).saturating_mul(u64::from(image.height())).saturating_mul(4));
@@ -515,13 +597,7 @@ impl PageRenderer {
         let r = catch_unwind(AssertUnwindSafe(|| {
             let (p, w, h) = drawable_page(pdf, page)?;
             // hayro-svg holds the whole document in one String, so size it before writing it.
-            let stop = Arc::new(AtomicBool::new(false));
-            let settings = InterpreterSettings { cancelled: Some(stop.clone()), ..self.settings.clone() };
-            let cache = InterpreterCache::new();
-            let mut ctx =
-                Context::new(p.initial_transform(true).to_kurbo(), kurbo::Rect::new(0.0, 0.0, w.into(), h.into()), &cache, p.xref(), settings);
-            interpret_page(p, &mut ctx, &mut SvgSize { bytes: 0, stop: stop.clone() });
-            if stop.load(Ordering::Relaxed) {
+            if svg_size(p, w, h, &self.settings) > MAX_SVG_BYTES {
                 return Err(format!("too complex to export as SVG (over {} MiB); export it as PNG or JPEG instead", MAX_SVG_BYTES >> 20));
             }
             self.stats.page_interpretations = self.stats.page_interpretations.saturating_add(1);
@@ -2916,6 +2992,80 @@ trailer << /Root 1 0 R >>
         let svg = svg_page("/MediaBox [0 0 200 100]", "BT /F1 48 Tf 7 Tr 20 30 Td (Hi) Tj ET 0 0 1 rg 0 0 200 100 re f").svg(0).expect("an SVG");
         assert!(!svg.contains("<use "), "no glyph is painted: {svg}");
         assert!(svg.contains("fill=\"#0000ff\"") && svg.contains("clip-path=\"url(#"), "the fill is clipped by the text: {svg}");
+    }
+
+    /// A 200×100 page drawing `content`, with a tiling pattern `/P1` whose cell (its BBox from
+    /// 10,10) fills with the axial shading pattern `/S1`, `/S1` itself, a Type 3 font `/T3` whose
+    /// `a` is a filled square, and `/GS1`, a luminosity soft mask that fills the page.
+    fn paint_page(content: &str) -> PageRenderer {
+        let stream = |dict: &str, data: &str| format!("<< {dict} /Length {} >> stream\n{data}\nendstream", data.len());
+        let objects = [
+            "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Contents 4 0 R /Resources << /Pattern << /P1 5 0 R /S1 6 0 R >> \
+             /Font << /T3 7 0 R >> /ExtGState << /GS1 << /SMask << /S /Luminosity /G 9 0 R >> >> >> >> >>"
+                .to_string(),
+            stream("", content),
+            stream(
+                "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [10 10 30 30] /XStep 20 /YStep 20 /Resources << /Pattern << /S1 6 0 R >> >>",
+                "/Pattern cs /S1 scn 10 10 20 20 re f",
+            ),
+            "<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [0 0 30 0] \
+             /Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >>"
+                .to_string(),
+            "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /a 8 0 R >> \
+             /Encoding << /Type /Encoding /Differences [97 /a] >> /FirstChar 97 /LastChar 97 /Widths [1000] >>"
+                .to_string(),
+            stream("", "1000 0 0 0 1000 1000 d1 0 0 1000 1000 re f"),
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 200 100] /Group << /S /Transparency /CS /DeviceRGB >>", "1 g 0 0 200 100 re f"),
+        ];
+        let mut pdf = String::from("%PDF-1.7\n");
+        for (i, o) in objects.iter().enumerate() {
+            pdf += &format!("{} 0 obj {o} endobj\n", i + 1);
+        }
+        pdf += "trailer << /Root 1 0 R >>\n%%EOF";
+        PageRenderer::new(Arc::new(pdf.into_bytes()), RenderConfig::default())
+    }
+
+    #[test]
+    fn svg_export_defines_every_paint_a_tiling_cell_uses() {
+        // The cell's shading is keyed by its box where the cell is drawn (the vendored hayro-svg
+        // patch): registered elsewhere, the cell's fill named a definition that was never written.
+        let svg = paint_page("/Pattern cs /P1 scn 0 0 200 100 re f").svg(0).expect("an SVG");
+        let ids = |open: &str, close: char| -> Vec<String> {
+            svg.split(open).skip(1).map(|s| s.split(close).next().unwrap_or_default().to_string()).collect()
+        };
+        let refs = [ids("url(#", ')'), ids("href=\"#", '"')].concat();
+        assert!(refs.len() >= 3, "the page's pattern, the cell's shading pattern and its raster: {svg}");
+        for id in refs {
+            assert!(svg.contains(&format!("id=\"{id}\"")), "#{id} has no definition: {svg}");
+        }
+    }
+
+    #[test]
+    fn svg_size_counts_what_hayro_svg_writes_beyond_the_page_draws() {
+        let size = |content: &str| {
+            let r = paint_page(content);
+            let (p, w, h) = drawable_page(r.pdf.as_ref().expect("parsed"), 0).expect("a page");
+            svg_size(p, w, h, &r.settings)
+        };
+        let square = 128 + 5 * 64; // `re f`: one element, its m, three l and the close
+        // A shading fill adds its unclipped raster, 100 × 50 pixels of 4 bytes, once per box.
+        let shaded = size("/Pattern cs /S1 scn 0 0 100 50 re f");
+        assert!(shaded >= square + 128 + 100 * 50 * 4, "{shaded}");
+        assert_eq!(size("/Pattern cs /S1 scn 0 0 100 50 re f 0 0 100 50 re f") - shaded, square);
+        // A tiling cell is written once for each transform it is drawn under.
+        let same = size("/Pattern cs /P1 scn 0 0 10 10 re f 20 0 10 10 re f 40 0 10 10 re f");
+        let moved = size("/Pattern cs /P1 scn 0 0 10 10 re f 1 0 0 1 20 0 cm 0 0 10 10 re f 1 0 0 1 20 0 cm 0 0 10 10 re f");
+        assert!(moved >= same + 2 * square, "{same} {moved}");
+        // So is each Type 3 glyph, with its procedure, and each soft mask with its content.
+        let (one, three) = (size("BT /T3 10 Tf (a) Tj ET"), size("BT /T3 10 Tf (aaa) Tj ET"));
+        assert!(three >= one + 2 * (128 + square), "{one} {three}");
+        let (plain, masked) = (size("0 0 10 10 re f"), size("/GS1 gs 0 0 10 10 re f"));
+        assert!(masked >= plain + square, "{plain} {masked}");
+        // A shading over a box 10 000 pt square would be a 400 MB raster: refused before it's made.
+        let huge = paint_page("100 0 0 100 0 0 cm /Pattern cs /S1 scn 0 0 100 100 re f").svg(0);
+        assert!(huge.is_err_and(|e| e.contains("too complex")));
     }
 
     #[test]

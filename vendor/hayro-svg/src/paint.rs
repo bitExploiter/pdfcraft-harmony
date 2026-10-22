@@ -100,8 +100,12 @@ impl<'a> SvgRenderer<'a> {
                         let cache_key = (pattern.clone(), inverse_transform).cache_key();
 
                         if !self.tiling_patterns.contains(cache_key) {
+                            // PdfCraft patch: register the cell's resources with the transform
+                            // `write_tiling_pattern_defs` draws it with. A shading's key includes
+                            // its box, so under IDENTITY a cell whose BBox doesn't start at 0,0
+                            // referred to a shading whose definition was never written.
                             self.with_dummy(|r| {
-                                t.interpret(r, Affine::IDENTITY, false);
+                                t.interpret(r, Affine::translate((-t.bbox.x0, -t.bbox.y0)), false);
                             });
                         }
 
