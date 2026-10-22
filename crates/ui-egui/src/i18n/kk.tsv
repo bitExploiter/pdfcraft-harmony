@@ -2516,3 +2516,6 @@ animation effects	Off	Өшірулі
 
 # Turning a comment by its rotate handle: the undo label (M5).
 	Rotate comment	Түсініктемені бұру
+
+# The rotate handle's tooltip (M5).
+	Drag to rotate · Shift: 15° steps · Tab while dragging: quarter turns	Бұру үшін сүйреңіз · Shift: 15° қадам · Сүйреу кезінде Tab: ширек айналым

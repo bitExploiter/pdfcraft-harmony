@@ -2482,3 +2482,6 @@ animation effects	Off	关
 
 # Turning a comment by its rotate handle: the undo label (M5).
 	Rotate comment	旋转注释
+
+# The rotate handle's tooltip (M5).
+	Drag to rotate · Shift: 15° steps · Tab while dragging: quarter turns	拖动以旋转 · Shift：以 15° 为步长 · 拖动时按 Tab：每次 90°

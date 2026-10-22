@@ -2432,3 +2432,6 @@ animation effects	Off	ປິດ
 
 # Turning a comment by its rotate handle: the undo label (M5).
 	Rotate comment	ໝູນຄວາມເຫັນ
+
+# The rotate handle's tooltip (M5).
+	Drag to rotate · Shift: 15° steps · Tab while dragging: quarter turns	ລາກເພື່ອໝູນ · Shift: ເທື່ອລະ 15° · Tab ຂະນະລາກ: ເທື່ອລະ 90°
