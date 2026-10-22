@@ -90,6 +90,11 @@ pub struct ContentView {
 }
 
 impl ContentView {
+    /// Whether the existing added-content handler owns a drag on this page.
+    pub(crate) fn dragging(&self, page: usize) -> bool {
+        self.grab.is_some_and(|(p, _, _)| p == page)
+    }
+
     pub(crate) fn finish_draft(&mut self, added: &[Added]) -> Option<Edit> {
         self.draft.take().and_then(|d| finish(self, d, added))
     }
@@ -267,7 +272,7 @@ fn on_page(added: &[Added], page: usize) -> Vec<(usize, &Added)> {
 }
 
 pub(crate) fn hits_added(xf: &PageXform, info: &DocInfo, page: usize, added: &[Added], point: Pos2) -> bool {
-    on_page(added, page).iter().any(|(_, a)| screen_rect(xf, info, page, a.content.rect()).expand(2.0).contains(point))
+    on_page(added, page).iter().any(|(_, a)| screen_rect(xf, info, page, a.display_rect()).expand(2.0).contains(point))
 }
 
 fn handles(r: Rect) -> [(Pos2, bool, bool); 4] {
@@ -311,7 +316,7 @@ pub(crate) fn select_grabs(ui: &egui::Ui, xf: &PageXform, page: usize, info: &Do
         return false;
     };
     on_page(added, page).into_iter().any(|(index, item)| {
-        let rect = screen_rect(xf, info, page, item.content.rect());
+        let rect = screen_rect(xf, info, page, item.display_rect());
         rect.expand(2.0).contains(p)
             || cv.selected == Some((page, index)) && handles(rect).into_iter().any(|(corner, _, _)| corner.distance(p) <= 6.0)
     })
@@ -348,9 +353,19 @@ pub(crate) fn page_input(
                 && (end - start).length() >= 1.0
             {
                 let keep = matches!(a.content, AddedContent::Image(_));
-                let r = dragged(screen_rect(xf, info, page, a.content.rect()), grab, end - start, keep);
+                let r = dragged(screen_rect(xf, info, page, a.display_rect()), grab, end - start, keep);
                 let (p0, p1) = (to_display(xf, info, page, r.left_bottom()), to_display(xf, info, page, r.right_top()));
                 let mut rect = [p0[0], p0[1], p1[0], p1[1]];
+                if a.rotation != 0.0 {
+                    let from = a.display_rect();
+                    let base = a.content.rect();
+                    let dx = (rect[0] + rect[2] - from[0] - from[2]) / 2.0;
+                    let dy = (rect[1] + rect[3] - from[1] - from[3]) / 2.0;
+                    let scale = if grab == Grab::Move { 1.0 } else { ((rect[2] - rect[0]) / (from[2] - from[0]).max(0.01)).max(0.05) };
+                    let (cx, cy) = ((base[0] + base[2]) / 2.0 + dx, (base[1] + base[3]) / 2.0 + dy);
+                    let (w, h) = ((base[2] - base[0]) * scale / 2.0, (base[3] - base[1]) * scale / 2.0);
+                    rect = [cx - w, cy - h, cx + w, cy + h];
+                }
                 if let AddedContent::Text(t) = &a.content
                     && grab == Grab::Move
                 {
@@ -364,12 +379,12 @@ pub(crate) fn page_input(
     }
     let Some(p) = pointer.filter(|p| xf.rect.contains(*p)) else { return consumed };
     let items = on_page(added, page);
-    let hit = items.iter().rev().find(|(_, a)| screen_rect(xf, info, page, a.content.rect()).expand(2.0).contains(p)).map(|(i, a)| (*i, *a));
+    let hit = items.iter().rev().find(|(_, a)| screen_rect(xf, info, page, a.display_rect()).expand(2.0).contains(p)).map(|(i, a)| (*i, *a));
     let selected_rect = cv
         .selected
         .filter(|s| s.0 == page)
         .and_then(|(_, si)| items.iter().find(|(i, _)| *i == si))
-        .map(|(_, a)| screen_rect(xf, info, page, a.content.rect()));
+        .map(|(_, a)| screen_rect(xf, info, page, a.display_rect()));
     let corner = selected_rect.and_then(|r| handles(r).into_iter().find(|(c, ..)| c.distance(p) <= 6.0));
     // Cursors only where the page shows: the mode bar and side panels over a page scrolled under
     // them keep their own (#2755).
@@ -412,7 +427,7 @@ pub(crate) fn page_input(
         if let Some((_, left, top)) = selected_rect.and_then(|r| handles(r).into_iter().find(|(c, ..)| c.distance(origin) <= 6.0)) {
             cv.grab = Some((page, Grab::Corner(left, top), origin));
             consumed = true;
-        } else if let Some((i, _)) = items.iter().rev().find(|(_, a)| screen_rect(xf, info, page, a.content.rect()).expand(2.0).contains(origin)) {
+        } else if let Some((i, _)) = items.iter().rev().find(|(_, a)| screen_rect(xf, info, page, a.display_rect()).expand(2.0).contains(origin)) {
             cv.selected = Some((page, *i));
             cv.grab = Some((page, Grab::Move, origin));
             consumed = true;
@@ -452,13 +467,16 @@ pub(crate) fn page_input(
 
 /// Outlines of added items (hover and selection with handles) and the box being dragged.
 pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, xf: &PageXform, page: usize, info: &DocInfo, added: &[Added], view: &DocView) {
+    if view.object_rotation.dragging(page) {
+        return;
+    }
     let cv = &view.content;
     let pointer = ui.input(|i| i.pointer.hover_pos());
     for (i, a) in on_page(added, page) {
         if cv.draft.as_ref().is_some_and(|d| d.page == page && d.index == Some(i)) {
             continue;
         }
-        let mut r = screen_rect(xf, info, page, a.content.rect());
+        let mut r = screen_rect(xf, info, page, a.display_rect());
         let selected = cv.selected == Some((page, i));
         if selected
             && let (Some((gp, g, start)), Some(p)) = (cv.grab, pointer)

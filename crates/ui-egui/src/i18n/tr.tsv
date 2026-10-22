@@ -2511,3 +2511,8 @@ animation effects	Off	Kapalı
 	field names can't contain a period: {name}	alan adları nokta içeremez: {name}
 	two cells would both be named {name}	iki hücrenin de adı {name} olurdu
 	a field named {name} already exists	{name} adlı bir alan zaten var
+	Rotate object	Nesneyi döndür
+	Rotate corner {n}	{n}. köşeden döndür
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Döndürmek için sürükleyin. Shift: 15° adımlar; Esc: iptal.
+	Scale object	Nesneyi ölçeklendir
+	Scale corner {n}	{n}. köşeden ölçeklendir

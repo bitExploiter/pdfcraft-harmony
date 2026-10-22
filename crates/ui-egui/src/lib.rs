@@ -73,6 +73,7 @@ pub mod marks {
 mod content_ui;
 mod link_ui;
 mod object_ui;
+mod rotation_ui;
 pub use create_ui::Clip;
 pub use link_ui::LinkDraft;
 pub use optimize_ui::{OptimizeDraft, OptimizeTab};
@@ -3287,6 +3288,9 @@ impl eframe::App for PdfCraftApp {
         let blocked = self.modal_open() || self.palette_open || !ctx.input(|i| i.focused);
         for (index, view) in self.views.iter_mut().enumerate() {
             view.objects.set_input_blocked(blocked || self.active != Some(index));
+            if blocked || self.active != Some(index) || view.organize {
+                view.object_rotation.cancel();
+            }
             if blocked || self.active != Some(index) {
                 view.auto_scroll.cancel();
             }

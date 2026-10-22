@@ -2783,3 +2783,8 @@ theme	Appearance	Teema
 	field names can't contain a period: {name}	kenttien nimissä ei voi olla pistettä: {name}
 	two cells would both be named {name}	kahdella solulla olisi sama nimi {name}
 	a field named {name} already exists	kenttä nimeltä {name} on jo olemassa
+	Rotate object	Kierrä objektia
+	Rotate corner {n}	Kierrä kulmaa {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Kierrä vetämällä. Pidä Vaihto painettuna kiertääksesi 15° askelin; Esc peruuttaa.
+	Scale object	Muuta objektin kokoa
+	Scale corner {n}	Muuta kokoa kulmasta {n}

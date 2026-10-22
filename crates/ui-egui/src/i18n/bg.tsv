@@ -2478,3 +2478,8 @@ animation effects	Off	Изключени
 	field names can't contain a period: {name}	имената на полетата не може да съдържат точка: {name}
 	two cells would both be named {name}	две клетки биха имали едно и също име {name}
 	a field named {name} already exists	вече съществува поле с име {name}
+	Rotate object	Завъртане на обект
+	Rotate corner {n}	Завъртане от ъгъл {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Плъзнете за завъртане. Shift: стъпки от 15°; Esc: отказ.
+	Scale object	Мащабиране на обект
+	Scale corner {n}	Мащабиране от ъгъл {n}

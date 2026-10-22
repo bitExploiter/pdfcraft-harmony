@@ -2516,3 +2516,8 @@ animation effects	Off	Aus
 	field names can't contain a period: {name}	Feldnamen dürfen keinen Punkt enthalten: {name}
 	two cells would both be named {name}	zwei Zellen hätten beide den Namen {name}
 	a field named {name} already exists	ein Feld namens {name} ist bereits vorhanden
+	Rotate object	Objekt drehen
+	Rotate corner {n}	Drehen an Ecke {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Zum Drehen ziehen. Umschalt: 15°-Schritte; Esc: abbrechen.
+	Scale object	Objekt skalieren
+	Scale corner {n}	Ecke {n} skalieren

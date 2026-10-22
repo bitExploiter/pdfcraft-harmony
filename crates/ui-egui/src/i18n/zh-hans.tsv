@@ -2479,3 +2479,8 @@ animation effects	Off	关
 	field names can't contain a period: {name}	字段名称不能包含句点：{name}
 	two cells would both be named {name}	两个单元格的名称都会是 {name}
 	a field named {name} already exists	已存在名为 {name} 的字段
+	Rotate object	旋转对象
+	Rotate corner {n}	从角 {n} 旋转
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	拖动以旋转。按住 Shift 以 15° 为步长；按 Esc 取消。
+	Scale object	缩放对象
+	Scale corner {n}	从角 {n} 缩放

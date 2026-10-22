@@ -2774,3 +2774,8 @@ theme	Appearance	Aspect
 	field names can't contain a period: {name}	numele câmpurilor nu pot conține punct: {name}
 	two cells would both be named {name}	două celule s-ar numi amândouă {name}
 	a field named {name} already exists	există deja un câmp numit {name}
+	Rotate object	Rotește obiectul
+	Rotate corner {n}	Rotește colțul {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Trage pentru a roti. Ține Shift apăsat pentru pași de 15°; Esc anulează.
+	Scale object	Redimensionează obiectul
+	Scale corner {n}	Redimensionează din colțul {n}

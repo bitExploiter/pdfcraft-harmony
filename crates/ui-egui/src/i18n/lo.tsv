@@ -2429,3 +2429,8 @@ animation effects	Off	ປິດ
 	Make properties default	ກຳນົດຄຸນສົມບັດເປັນຄ່າເລີ່ມຕົ້ນ
 	Pages selected	ໜ້າທີ່ເລືອກ
 	Page properties	ຄຸນສົມບັດໜ້າ
+	Rotate object	ໝຸນວັດຖຸ
+	Rotate corner {n}	ໝຸນມຸມ {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	ລາກເພື່ອໝຸນ. ກົດ Shift ຄ້າງໄວ້ເພື່ອໝຸນເທື່ອລະ 15°; Esc ເພື່ອຍົກເລີກ.
+	Scale object	ປັບຂະໜາດວັດຖຸ
+	Scale corner {n}	ປັບຂະໜາດຈາກມຸມ {n}

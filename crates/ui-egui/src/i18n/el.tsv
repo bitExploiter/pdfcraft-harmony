@@ -2521,3 +2521,8 @@ animation effects	Off	Ανενεργά
 	field names can't contain a period: {name}	τα ονόματα πεδίων δεν μπορούν να περιέχουν τελεία: {name}
 	two cells would both be named {name}	δύο κελιά θα είχαν το ίδιο όνομα {name}
 	a field named {name} already exists	υπάρχει ήδη πεδίο με όνομα {name}
+	Rotate object	Περιστροφή αντικειμένου
+	Rotate corner {n}	Περιστροφή από γωνία {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Σύρετε για περιστροφή. Shift: βήματα 15°· Esc: ακύρωση.
+	Scale object	Κλιμάκωση αντικειμένου
+	Scale corner {n}	Κλιμάκωση γωνίας {n}

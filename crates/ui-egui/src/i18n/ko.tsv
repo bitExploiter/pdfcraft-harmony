@@ -2750,3 +2750,8 @@ theme	Appearance	모양
 	field names can't contain a period: {name}	필드 이름에는 마침표를 쓸 수 없습니다: {name}
 	two cells would both be named {name}	두 셀의 이름이 모두 {name}이(가) 됩니다
 	a field named {name} already exists	{name}(이)라는 필드가 이미 있습니다
+	Rotate object	개체 회전
+	Rotate corner {n}	모서리 {n} 회전
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	드래그하여 회전합니다. Shift 키를 누르면 15° 단위로 회전하고, Esc 키로 취소합니다.
+	Scale object	개체 크기 조절
+	Scale corner {n}	모서리 {n}에서 크기 조절

@@ -2611,3 +2611,8 @@ animation effects	Off	Wyłączone
 	field names can't contain a period: {name}	nazwy pól nie mogą zawierać kropki: {name}
 	two cells would both be named {name}	dwie komórki miałyby nazwę {name}
 	a field named {name} already exists	pole o nazwie {name} już istnieje
+	Rotate object	Obróć obiekt
+	Rotate corner {n}	Obróć od narożnika {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Przeciągnij, aby obrócić. Shift: kroki co 15°; Esc: anuluj.
+	Scale object	Skaluj obiekt
+	Scale corner {n}	Skaluj od narożnika {n}

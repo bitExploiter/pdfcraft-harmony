@@ -2513,3 +2513,8 @@ animation effects	Off	Өшірулі
 	field names can't contain a period: {name}	өріс атауларында нүкте болмауы керек: {name}
 	two cells would both be named {name}	екі ұяшықтың да атауы {name} болар еді
 	a field named {name} already exists	{name} атты өріс бар
+	Rotate object	Нысанды бұру
+	Rotate corner {n}	{n} бұрышынан бұру
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Бұру үшін сүйреңіз. Shift: 15° қадам; Esc: бас тарту.
+	Scale object	Нысанды масштабтау
+	Scale corner {n}	{n} бұрышынан масштабтау

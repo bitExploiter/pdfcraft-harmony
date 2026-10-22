@@ -2465,3 +2465,8 @@ animation effects	Off	關
 	field names can't contain a period: {name}	欄位名稱不能包含句點：{name}
 	two cells would both be named {name}	兩個儲存格的名稱都會是 {name}
 	a field named {name} already exists	已有名為 {name} 的欄位
+	Rotate object	旋轉物件
+	Rotate corner {n}	從角 {n} 旋轉
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	拖曳以旋轉。按住 Shift 以 15° 為步長；按 Esc 取消。
+	Scale object	縮放物件
+	Scale corner {n}	從角 {n} 縮放

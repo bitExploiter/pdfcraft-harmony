@@ -296,7 +296,9 @@ fn scope_of(edit: &Edit) -> Scope {
         Edit::SetFieldValue { .. } | Edit::ResetForm { .. } | Edit::SetFieldImage { .. } | Edit::ApplyScriptChanges { .. } => Scope::Form,
         // Page content, resources and added content/marks only: the page tree, annotations,
         // fields, links and document metadata are untouched (see `refresh_content`).
-        Edit::MoveObjects { .. }
+        Edit::ScaleObject { .. }
+        | Edit::RotateObject { .. }
+        | Edit::MoveObjects { .. }
         | Edit::EditTextLine { .. }
         | Edit::EditTextBlock { .. }
         | Edit::EditPageImage { .. }
@@ -1667,6 +1669,19 @@ pub enum Edit {
         index: usize,
         change: ImageEdit,
     },
+    /// Clockwise rotation about an object's centre. One undo step; source text stays text.
+    RotateObject {
+        page: usize,
+        object: ObjectTarget,
+        degrees: f64,
+    },
+    /// Uniform scale about a user-space pivot, retaining editable content and rotation.
+    ScaleObject {
+        page: usize,
+        object: ObjectTarget,
+        factor: f64,
+        pivot: [f64; 2],
+    },
     /// Move mixed existing and added objects together. References resolve before any change;
     /// offset is a user-space vector. No retyping, reflow or font substitution is involved.
     MoveObjects {
@@ -1883,6 +1898,8 @@ impl std::fmt::Display for Label {
 /// here: its wording is only the hole, because a batch carries its name as text (see
 /// [`BATCH_LABELS`]).
 pub const EDIT_LABELS: &[&str] = &[
+    "Scale object",
+    "Rotate object",
     "Rotate page",
     "Change tag properties",
     "Rotate pages",
@@ -2118,6 +2135,8 @@ impl Edit {
             Edit::SetDocumentScript { .. } => Label::of("Edit document JavaScript"),
             Edit::EditTextLine { .. } | Edit::EditTextBlock { .. } => Label::of("Edit text"),
             Edit::RegisterTextFont { .. } => Label::of("Load document font"),
+            Edit::ScaleObject { .. } => Label::of("Scale object"),
+            Edit::RotateObject { .. } => Label::of("Rotate object"),
             Edit::MoveObjects { objects, .. } => plural("Move object", "Move objects", objects.len()),
             Edit::EditPageImage { change, .. } => Label::of(match change {
                 ImageEdit::Move(_) => "Move image",
@@ -2281,6 +2300,8 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::AddImage { .. }
         | Edit::UpdateContent { .. }
         | Edit::MoveObjects { .. }
+        | Edit::ScaleObject { .. }
+        | Edit::RotateObject { .. }
         | Edit::DeleteContent { .. }
         | Edit::ReplaceImage { .. }
         | Edit::ClearRedactions
@@ -2666,6 +2687,8 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             };
             pdfcraft_edit::change_image(doc, *page, *index, &c)?;
         }
+        Edit::ScaleObject { page, object, factor, pivot } => pdfcraft_edit::scale_object(doc, *page, *object, *factor, *pivot)?,
+        Edit::RotateObject { page, object, degrees } => pdfcraft_edit::rotate_object(doc, *page, *object, *degrees)?,
         Edit::MoveObjects { page, objects, offset } => pdfcraft_edit::move_objects(doc, *page, objects, *offset)?,
         Edit::EditTextBlock { page, block, text, style } => {
             pdfcraft_edit::rewrite_block(doc, *page, *block, Some(text), style)?;
@@ -4127,7 +4150,8 @@ impl Session {
             matches!(
                 e,
                 Edit::AddText { .. } | Edit::AddImage { .. } | Edit::UpdateContent { .. } | Edit::DeleteContent { .. } | Edit::ReplaceImage { .. }
-            ) || matches!(e, Edit::MoveObjects { objects, .. } if objects.iter().any(|o| o.kind == ObjectKind::Added))
+            ) || matches!(e, Edit::RotateObject { object, .. } | Edit::ScaleObject { object, .. } if object.kind == ObjectKind::Added)
+                || matches!(e, Edit::MoveObjects { objects, .. } if objects.iter().any(|o| o.kind == ObjectKind::Added))
         });
         let touches_marks = edit.is_none_or(|e| {
             matches!(e, Edit::AddHeaderFooter { .. } | Edit::AddWatermark { .. } | Edit::AddBackground { .. } | Edit::RemoveMarks { .. })

@@ -225,6 +225,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 - **2026-10-20 (M3, #3541/#3620):** Comment hover follows the individual marked lines instead of the enclosing multiline rectangle, and overlapping comments follow paint order. Synthetic UI regressions cover all four text-markup kinds, page/view rotations, neighboring highlights, legacy rectangle fallback and unchanged PDF bytes. Estimates unchanged.
 - **2026-10-20 (M10, #3532 partial):** Vector printing retains existing widget artwork when its appearance lacks Subtype. A print-owned copy adds Form dispatch metadata. The source stream and all explicit subtypes stay unchanged. Synthetic source/output raster checks cover resources, selected/shared appearances, placement, flags and content modes. Appearance regeneration and physical printer validation remain outside this fix. Estimates unchanged.
 
+- **2026-10-19 (M7, local candidate):** Four corner rotation handles for text and images, centre pivot, Shift snapping and release-only undo; existing right-click menus retained. See `docs/object-rotation.md`. Estimates unchanged.
+
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 
 - **2026-10-19 (M3, #3387):** Save-prompt shortcuts yield to later consent and utility dialogs; a synthetic UI regression checks that an edited document stays open. Estimates unchanged.
@@ -679,8 +681,16 @@ Newest first: the date, what moved, and the new overall estimate.
 - **2026-10-13 (M7):** Edit a PDF ▸ Add content: Header and footer, Watermark and Background open an Add / Update / Remove menu (Update and Remove enabled only when the document has that mark), as Acrobat's Watermark control does. The catalogue gains `ToolItem::actions`, so any tool can list more commands (#1192).
 
 - **2026-10-18 (M8, #1350):** Published the history-preserving integration; simplified the inherited-form resource guard for Rust 1.96 Clippy. Formatting, 64 redaction tests, scoped Clippy, layering, assets and the scoped wasm check pass locally. CI remains pending; estimates unchanged.
+
+- 2026-10-19 (local M7 candidate): orient each rotation dial to its corner; add proportional glyph/image scaling and Select-tool translation, with shared engine/automation operations and transform-sequence regressions. Right-click menus unchanged.
+
+- 2026-10-19 (M7, PR #3544 review): correct scale-label catalog rows; preserve indirect added-object rotation; emit source-text transforms outside text objects and restore both text matrices. Add save/reopen, operator-context and shared-clipping refusal regressions. Estimates unchanged.
+
+- 2026-10-19 (M7, PR #3544 follow-up): restore live added-content dragging, use current retyped text bounds for the rotation pivot, and preserve ActualText markup during transforms. Add regressions and document gesture helpers. Estimates unchanged.
 - **2026-10-12 (i18n):** Albanian (`sq`, Shqip) added: 2,343-entry catalog, month and weekday names, Preferences entry; not yet reviewed by a native speaker.
 
 - **2026-10-21 (M4, #3865):** A new bookmark records where the reader is: the top-left of the selected text, or the top of the window, as `/XYZ left top null` (zoom kept), instead of the page top (`Edit::AddBookmark` takes `left` and `top`; `bookmark_add` takes `top` and `left`; `PageInfo::xyz_for_view`).
 
 - **2026-10-18 (renderer, hayro patches 19/35):** A mesh shading (types 4–7) is sampled over its own triangles instead of the whole path: a BricsCAD plan with 310 one-triangle `sh` fills took 2 s per 1024 px tile at every zoom (and hit the 20 s watchdog on a busy machine); now about 70 ms, so zooming into dense topology drawings stays fluid. Estimates unchanged.
+
+- 2026-10-22 (PR #3544): Refresh against upstream d5047aa4; adapt text transforms to resource-aware fallible interpretation and retain both upstream and transform regression tests. Fill the feature labels in all 33 current catalogs. Refuse rotations/scales inside inner marked-content spans atomically; outer ActualText remains supported. Estimates unchanged.

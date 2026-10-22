@@ -2694,3 +2694,8 @@ key	Space	Mellomrom
 # Page gaps (AI-assisted, not separately native-reviewed)
 	Show gaps between pages	Vis mellomrom mellom sidene
 	Hide gaps to join page edges. Margins inside the PDF remain unchanged.	Skjul mellomrommene slik at sidekantene møtes. Margene inne i PDF-en endres ikke.
+	Rotate object	Roter objekt
+	Rotate corner {n}	Roter hjørne {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Dra for å rotere. Hold Shift for trinn på 15°; Esc avbryter.
+	Scale object	Skaler objekt
+	Scale corner {n}	Skaler fra hjørne {n}

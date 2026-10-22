@@ -2774,3 +2774,8 @@ theme	Appearance	Aspecte
 	field names can't contain a period: {name}	els noms dels camps no poden contenir cap punt: {name}
 	two cells would both be named {name}	dues cel·les es dirien {name}
 	a field named {name} already exists	ja existeix un camp anomenat {name}
+	Rotate object	Gira l’objecte
+	Rotate corner {n}	Gira la cantonada {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Arrossega per girar. Mantén premuda Maj per fer passos de 15°; Esc cancel·la.
+	Scale object	Canvia la mida de l’objecte
+	Scale corner {n}	Canvia la mida des de la cantonada {n}

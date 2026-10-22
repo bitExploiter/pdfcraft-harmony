@@ -2713,3 +2713,8 @@ certificate	Version	وەشان
 	Make properties default	کردنی تایبەتمەندییەکان بە بنەڕەتی
 	Pages selected	پەڕە هەڵبژێردراوەکان
 	Page properties	تایبەتمەندییەکانی پەڕە
+	Rotate object	سوڕاندنی شت
+	Rotate corner {n}	سوڕاندنی گۆشەی {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	ڕایبکێشە بۆ سوڕاندن. Shift ڕابگرە بۆ هەنگاوی 15°؛ Esc هەڵدەوەشێنێتەوە.
+	Scale object	گۆڕینی قەبارەی شت
+	Scale corner {n}	گۆڕینی قەبارە لە گۆشەی {n}

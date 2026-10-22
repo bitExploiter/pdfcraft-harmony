@@ -2781,3 +2781,8 @@ certificate	Version	Version
 	field names can't contain a period: {name}	les noms de champ ne peuvent pas contenir de point : {name}
 	two cells would both be named {name}	deux cellules porteraient le nom {name}
 	a field named {name} already exists	un champ nommé {name} existe déjà
+	Rotate object	Pivoter un objet
+	Rotate corner {n}	Pivoter depuis le coin {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Faites glisser pour pivoter. Maj : pas de 15° ; Échap : annuler.
+	Scale object	Redimensionner l’objet
+	Scale corner {n}	Redimensionner depuis le coin {n}

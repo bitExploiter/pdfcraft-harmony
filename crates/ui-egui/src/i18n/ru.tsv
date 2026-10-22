@@ -2428,3 +2428,8 @@ animation effects	Off	Выкл
 	field names can't contain a period: {name}	имена полей не могут содержать точку: {name}
 	two cells would both be named {name}	две ячейки получили бы одно имя {name}
 	a field named {name} already exists	поле с именем {name} уже существует
+	Rotate object	Повернуть объект
+	Rotate corner {n}	Поворот за угол {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Перетащите для поворота. Shift: шаг 15°; Esc: отмена.
+	Scale object	Масштабировать объект
+	Scale corner {n}	Масштабировать от угла {n}

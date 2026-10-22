@@ -2537,3 +2537,8 @@ animation effects	Off	Вимкнено
 	field names can't contain a period: {name}	імена полів не можуть містити крапку: {name}
 	two cells would both be named {name}	дві клітинки мали б однакове ім'я {name}
 	a field named {name} already exists	поле з іменем {name} уже існує
+	Rotate object	Повернути об’єкт
+	Rotate corner {n}	Обертання за кут {n}
+	Drag to rotate. Hold Shift for 15° steps; Esc cancels.	Перетягніть для обертання. Shift: крок 15°; Esc: скасування.
+	Scale object	Масштабувати об’єкт
+	Scale corner {n}	Масштабувати від кута {n}
