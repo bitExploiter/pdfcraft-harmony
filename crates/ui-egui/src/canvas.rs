@@ -319,16 +319,17 @@ pub struct Snapshot {
     pub from: String,
 }
 
-/// A validation badge drawn over a signature widget: the widget rectangle (user space), the verdict it shows, and its caption and hover text.
+/// A signed signature widget on a page: the widget rectangle (user space), the verdict, and its hover text.
 pub(crate) struct SignatureBadge {
     pub rect: [f64; 4],
+    #[allow(dead_code)]
     pub status: pdfcraft_engine::SignatureStatus,
     pub summary: &'static str,
 }
 
-/// The validation badges drawn over one page's signature widgets: signed, visible widgets
-/// on this page with coordinates that survive the cast to screen space. Hostile files can
-/// carry NaN, infinite or gigantic rectangles, which must never reach the painter.
+/// Signed, visible signature widgets on `page` with coordinates that survive the cast to
+/// screen space. Hostile files can carry NaN, infinite or gigantic rectangles, which must
+/// never reach screen-space hit-testing.
 pub(crate) fn signature_badges(signatures: &[pdfcraft_engine::SignatureInfo], page: usize) -> Vec<SignatureBadge> {
     signatures
         .iter()
@@ -341,35 +342,6 @@ pub(crate) fn signature_badges(signatures: &[pdfcraft_engine::SignatureInfo], pa
             })
         })
         .collect()
-}
-
-/// Where the verdict caption for a signature widget sits: a tab on the widget's top edge,
-/// outside it so the signer's artwork stays readable, or on its bottom edge when the top
-/// would leave `bounds`. `None` when neither fits or the numbers are not usable, so a
-/// hostile rectangle can never reach the painter.
-pub(crate) fn verdict_tab_rect(widget: Rect, bounds: Rect, size: Vec2) -> Option<Rect> {
-    let usable = [widget.min.x, widget.min.y, widget.max.x, widget.max.y, size.x, size.y].into_iter().all(f32::is_finite);
-    if !usable || size.x <= 0.0 || size.y <= 0.0 {
-        return None;
-    }
-    let x = widget.min.x.min(bounds.max.x - size.x).max(bounds.min.x);
-    let above = Rect::from_min_size(pos2(x, widget.min.y - size.y), size);
-    let below = Rect::from_min_size(pos2(x, widget.max.y), size);
-    [above, below].into_iter().find(|r| bounds.contains_rect(*r))
-}
-
-/// Paints the verdict caption tab for a signature widget in the verdict's colour and returns
-/// where it went. Skipped for widgets too narrow for a readable label.
-fn verdict_tab(painter: &egui::Painter, widget: Rect, bounds: Rect, caption: &str, color: Color32) -> Option<Rect> {
-    if widget.width() < 48.0 {
-        return None;
-    }
-    let galley = painter.layout_no_wrap(caption.to_string(), theme::regular(11.0), Color32::WHITE);
-    let size = galley.size() + vec2(10.0, 4.0);
-    let tab = verdict_tab_rect(widget, bounds, size)?;
-    painter.rect_filled(tab, CornerRadius::same(2), color);
-    painter.galley(tab.min + vec2(5.0, 2.0), galley, Color32::WHITE);
-    Some(tab)
 }
 
 /// The name shown for a document tab, the window title and the Combine picker.
@@ -3579,36 +3551,17 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     view.flash = None;
                 }
             }
-            // Validation is viewer chrome over the signer's original artwork, which may
-            // still say "Signature Not Verified" or claim validity it does not have. It is
-            // drawn for every verdict and every appearance, in the viewer's own language,
-            // and never enters document streams, image/text exports, vector printing or
-            // Print as Image: each of those would state the verdict as of the moment of
-            // export instead of as of the moment of looking.
+            // Signature widgets are rendered from the document's display copy at every zoom
+            // level without a canvas badge overlay; hovering a signed widget shows its summary.
             for badge in signature_badges(&doc.signatures, i) {
                 let [x0, y0, x1, y1] = badge.rect;
                 let sr = xf.user_rect(info, i, [x0 as f32, y0 as f32, x1 as f32, y1 as f32]);
-                let (icon, color) = crate::sign_ui::signature_status_style(badge.status);
-                painter.rect_stroke(sr, CornerRadius::same(2), Stroke::new(1.5, color), egui::StrokeKind::Outside);
-                let caption = crate::i18n::t(badge.summary);
-                let mut hit = sr;
-                if let Some(tab) = verdict_tab(painter, sr, r, caption, color) {
-                    hit = hit.union(tab);
-                }
-                // A widget too small for the mark keeps its outline and caption: the verdict still shows.
-                if sr.width() >= 4.0 && sr.height() >= 4.0 {
-                    // Big enough to read at a glance, small enough to leave the signer's own
-                    // text visible around it.
-                    let side = (sr.width().min(sr.height()) * 0.8).clamp(24.0, 192.0);
-                    let mark = Rect::from_center_size(sr.center(), vec2(side, side));
-                    icons::paint(ui, mark, icon, side * 0.64, color);
-                }
-                if let Some(p) = pointer.filter(|p| hit.expand(2.0).contains(*p)) {
-                    badge_hover = Some((p, caption.to_string()));
+                if let Some(p) = pointer.filter(|p| sr.contains(*p)) {
+                    badge_hover = Some((p, badge.summary.to_string()));
                 }
             }
-            // Overlapping widgets paint in order, so the topmost badge owns the hover; an
-            // earlier link or annotation hover still wins over any badge.
+            // Overlapping widgets run in order, so the topmost widget owns the hover; an
+            // earlier link or annotation hover still wins.
             if hover_text.is_none() {
                 hover_text = badge_hover.take();
             }
@@ -5503,48 +5456,6 @@ mod tests {
         let signatures: Vec<_> = hostile.into_iter().map(|rect| signature(true, true, Some(0), Some(rect))).collect();
         let badges = signature_badges(&signatures, 0);
         assert_eq!(badges.len(), 1);
-    }
-
-    #[test]
-    fn verdict_tab_sits_above_the_widget_and_flips_below_at_the_page_edge() {
-        let bounds = Rect::from_min_max(pos2(0.0, 0.0), pos2(600.0, 800.0));
-        let size = vec2(120.0, 18.0);
-        let mid = Rect::from_min_max(pos2(50.0, 100.0), pos2(250.0, 160.0));
-        let tab = verdict_tab_rect(mid, bounds, size).unwrap();
-        assert_eq!(tab.max.y, mid.min.y);
-        let top = Rect::from_min_max(pos2(50.0, 4.0), pos2(250.0, 60.0));
-        let tab = verdict_tab_rect(top, bounds, size).unwrap();
-        assert_eq!(tab.min.y, top.max.y);
-    }
-
-    #[test]
-    fn verdict_tab_stays_inside_bounds_and_rejects_unusable_numbers() {
-        let bounds = Rect::from_min_max(pos2(0.0, 0.0), pos2(600.0, 800.0));
-        let size = vec2(120.0, 18.0);
-        let right = Rect::from_min_max(pos2(560.0, 100.0), pos2(590.0, 160.0));
-        assert!(bounds.contains_rect(verdict_tab_rect(right, bounds, size).unwrap()));
-        let hostile = Rect::from_min_max(pos2(f32::NAN, 100.0), pos2(250.0, 160.0));
-        assert!(verdict_tab_rect(hostile, bounds, size).is_none());
-        assert!(verdict_tab_rect(right, bounds, vec2(f32::INFINITY, 18.0)).is_none());
-        assert!(verdict_tab_rect(right, bounds, vec2(0.0, 18.0)).is_none());
-        assert!(verdict_tab_rect(bounds, bounds, size).is_none());
-    }
-
-    #[test]
-    fn every_verdict_gets_a_badge_with_its_own_summary() {
-        use pdfcraft_engine::SignatureStatus::{Invalid, Unknown, Valid};
-        let rect = [10.0, 10.0, 100.0, 50.0];
-        let signatures: Vec<_> = [Valid, Unknown, Invalid]
-            .into_iter()
-            .map(|status| {
-                let mut s = signature(true, true, Some(0), Some(rect));
-                s.status = status;
-                s
-            })
-            .collect();
-        let badges = signature_badges(&signatures, 0);
-        let summaries: Vec<_> = badges.iter().map(|b| b.summary).collect();
-        assert_eq!(summaries, ["Signature is valid", "Signature validity is unknown", "Signature is invalid"]);
     }
 
     #[test]
