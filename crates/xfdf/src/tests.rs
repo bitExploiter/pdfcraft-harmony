@@ -610,6 +610,44 @@ fn csv_exports_preserve_carriage_returns_in_names_and_values() {
     }
 }
 
+/// A spreadsheet runs a CSV cell that starts with = + - or @ as a formula, so Export Data and
+/// Merge Data Files write such names and values with a leading ', and importing the CSV gives
+/// them back unchanged.
+#[test]
+fn csv_cells_that_look_like_formulas_stay_text() {
+    for (name, value, expected) in [
+        ("Name", "=1+1", "Name\n'=1+1\n"),
+        ("Name", "+1 555 0100", "Name\n'+1 555 0100\n"),
+        ("Name", "-5", "Name\n'-5\n"),
+        ("Name", "@SUM(A1:A2)", "Name\n'@SUM(A1:A2)\n"),
+        ("Name", " =1+1", "Name\n' =1+1\n"),
+        ("Name", "\t=1+1", "Name\n\"'\t=1+1\"\n"),
+        ("Name", "\r=1+1", "Name\n\"'\r=1+1\"\n"),
+        ("Name", "=1,2", "Name\n\"'=1,2\"\n"),
+        ("Name", "'=1+1", "Name\n''=1+1\n"),
+        ("Name", "'plain", "Name\n'plain\n"),
+        ("Name", "a=b", "Name\na=b\n"),
+        ("=Name", "Ada", "'=Name\nAda\n"),
+    ] {
+        let mut src = one_field();
+        let field = fields(&src)[0].obj;
+        src.update_dict(field, |d| d.set(b"T".to_vec(), PdfString::text(name))).unwrap();
+        set_value(&mut src, name, &FieldValue::Text(value.into())).unwrap();
+        let source = Arc::new(write_full(&src, &SaveOptions::default()).unwrap());
+        let src = Document::open(source.clone()).unwrap();
+        let csv = export_data(&src, Format::Csv);
+        assert_eq!(csv, expected, "{value:?}");
+        assert_eq!(merge_csv(&[vec![(name.to_string(), vec![value.to_string()])]]), expected, "{value:?}");
+
+        let mut dst = Document::open(source).unwrap();
+        set_value(&mut dst, name, &FieldValue::Text("replaced".into())).unwrap();
+        let report = import(&mut dst, csv.as_bytes()).unwrap();
+        assert_eq!(report.fields, 1, "{value:?}");
+        assert!(report.rejected.is_empty(), "{report:?}");
+        assert_eq!(values(&dst), [(name.to_string(), vec![value.to_string()])]);
+    }
+}
+
 /// #1321: the text export of a one-field form has no tab to tell it from CSV, so a comma in the
 /// value used to split it and only the text before the comma was imported.
 #[test]

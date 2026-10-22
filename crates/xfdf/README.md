@@ -30,7 +30,9 @@ let report = import(&mut doc, &bytes)?;                 // XFDF, FDF, XML, CSV o
   COS/parser limits, with no total source-memory bound. Unknown indirect streams retain their
   encoded bytes. FDF import semantics are unchanged.
 - **Form data**: Acrobat's XML (`xfdf:original` keeps names that aren't XML names), CSV and
-  tab-delimited text (a row of names, a row of values).
+  tab-delimited text (a row of names, a row of values). A CSV cell that starts with `=`, `+`, `-`
+  or `@` is written with a leading `'` so a spreadsheet shows it as text instead of running it as
+  a formula; import takes the `'` off again.
 
 XML and XFDF exports preserve tabs and line breaks in field names and comment metadata with
 character references, so XML attribute normalization cannot change their identities.

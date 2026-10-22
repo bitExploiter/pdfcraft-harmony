@@ -844,14 +844,11 @@ pub fn export_data(doc: &Document, format: Format) -> String {
             out.push_str("</fields>\n");
             out
         }
-        Format::Csv => {
-            let q = |s: &str| if s.contains([',', '"', '\n', '\r', '\t']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() };
-            format!(
-                "{}\n{}\n",
-                fields.iter().map(|f| q(&f.0)).collect::<Vec<_>>().join(","),
-                fields.iter().map(|f| q(&f.1)).collect::<Vec<_>>().join(",")
-            )
-        }
+        Format::Csv => format!(
+            "{}\n{}\n",
+            fields.iter().map(|f| csv_cell(&f.0)).collect::<Vec<_>>().join(","),
+            fields.iter().map(|f| csv_cell(&f.1)).collect::<Vec<_>>().join(",")
+        ),
         _ => {
             let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
             format!(
@@ -1274,15 +1271,38 @@ pub fn merge_csv(files: &[Vec<(String, Vec<String>)>]) -> String {
             }
         }
     }
-    let q = |s: &str| if s.contains([',', '"', '\n', '\r', '\t']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_string() };
-    let mut out = columns.iter().map(|c| q(c)).collect::<Vec<_>>().join(",");
+    let mut out = columns.iter().map(|c| csv_cell(c)).collect::<Vec<_>>().join(",");
     out.push('\n');
     for f in files {
-        let row: Vec<String> = columns.iter().map(|c| f.iter().find(|(k, _)| k == c).map_or(String::new(), |(_, v)| q(&v.join(", ")))).collect();
+        let row: Vec<String> =
+            columns.iter().map(|c| f.iter().find(|(k, _)| k == c).map_or(String::new(), |(_, v)| csv_cell(&v.join(", ")))).collect();
         out.push_str(&row.join(","));
         out.push('\n');
     }
     out
+}
+
+/// One CSV cell: quoted when it holds a comma, a quote, a tab or a line break. Spreadsheets run
+/// a cell that starts with `=`, `+`, `-` or `@` as a formula, quoted or not, so such a cell gets
+/// a leading `'`, as the measurement CSV does (`pdfcraft_measure::csv`). [`csv_text`] takes it
+/// off again on import.
+fn csv_cell(s: &str) -> String {
+    let s = if formula_like(s) { format!("'{s}") } else { s.to_string() };
+    if s.contains([',', '"', '\n', '\r', '\t']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s }
+}
+
+/// Whether [`csv_cell`] guards `s`. Leading `'`s are skipped, so a value that already starts with
+/// `'` before a formula character gets one more and comes back unchanged through [`csv_text`].
+fn formula_like(s: &str) -> bool {
+    s.trim_start_matches('\'').trim_start().starts_with(['=', '+', '-', '@'])
+}
+
+/// A CSV cell's text without the `'` that [`csv_cell`] added.
+fn csv_text(cell: String) -> String {
+    match cell.strip_prefix('\'') {
+        Some(rest) if formula_like(rest) => rest.to_string(),
+        _ => cell,
+    }
 }
 
 fn import_fdf(doc: &mut Document, bytes: &[u8]) -> Result<Report, DataError> {
@@ -1414,7 +1434,11 @@ fn import_table(doc: &mut Document, text: &str) -> Result<Report, DataError> {
         let (Some(head), Some(row)) = (records.next(), records.next()) else { return Err(DataError::UnknownFormat) };
         // Text exported from a one-field form has no tab to show for it (#1321). CSV quotes a
         // value with a comma, so one name over several unquoted cells is that text, not CSV.
-        if head.len() == 1 && row.len() > 1 { tab_delimited(t)? } else { head.into_iter().zip(row).map(|(k, v)| (k, vec![v])).collect() }
+        if head.len() == 1 && row.len() > 1 {
+            tab_delimited(t)?
+        } else {
+            head.into_iter().zip(row).map(|(k, v)| (csv_text(k), vec![csv_text(v)])).collect()
+        }
     };
     apply_values(doc, &values, &mut report);
     Ok(report)
