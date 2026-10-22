@@ -3321,7 +3321,7 @@ fn the_read_mode_command_applies_an_open_paragraph_and_puts_edit_text_down() {
 }
 
 #[test]
-fn text_tool_clicking_source_text_edits_instead_of_adding_a_copy() {
+fn text_tool_adds_over_source_text_without_editing_it() {
     let mut h = harness(1, |_| {});
     assert!(h.state_mut().execute("edit.text"));
     h.run_steps(2);
@@ -3342,16 +3342,24 @@ fn text_tool_clicking_source_text_edits_instead_of_adding_a_copy() {
     h.run_steps(1);
     h.drop_at(point);
     h.run_steps(4);
-    assert!(h.state().views[0].content.draft.is_none(), "clicking source text must not start an added layer");
-    assert_eq!(h.state().views[0].line_editor.as_ref().unwrap().text, "Page 1");
+    assert!(h.state().views[0].line_editor.is_none(), "Add Text must not open the source-text editor");
+    assert!(h.state().views[0].content.draft.as_ref().unwrap().text.is_empty(), "a new empty text box starts at the click");
     assert_eq!(h.state().session.get(h.state().views[0].id).unwrap().added().len(), 1, "the previous draft is kept");
-    h.key_press_modifiers(Modifiers::COMMAND, Key::A);
-    h.event(egui::Event::Text("Replacement".into()));
+    h.event(egui::Event::Text("Overlay note".into()));
     h.run_steps(3);
-    h.key_press_modifiers(Modifiers::COMMAND, Key::Enter);
+    h.get_by_label("Done adding text").click();
     h.run_steps(3);
-    assert_eq!(page_texts(h.state()), ["Keep this note\nReplacement"]);
-    assert_eq!(h.state().session.get(h.state().views[0].id).unwrap().added().len(), 1, "editing the source adds no second layer");
+    let s = h.state();
+    let doc = s.session.get(s.views[0].id).unwrap();
+    assert_eq!(doc.added().len(), 2, "both added notes are retained");
+    let text = page_texts(s).join("\n");
+    for expected in ["Keep this note", "Page 1", "Overlay note"] {
+        assert!(text.contains(expected), "source text and both notes survive: {text:?}");
+    }
+    if let Ok(dir) = std::env::var("PDFCRAFT_SHOTS") {
+        support::wait_until(&mut h, "the added text to render", |app| !app.render_pending());
+        h.render().unwrap().save(format!("{dir}/add-text-over-source.png")).unwrap();
+    }
 }
 
 #[test]

@@ -3452,7 +3452,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             let image_owns_pointer = tool == QuickTool::EditText && crate::edit_text_ui::image_owns_pointer(ui, &xf, i, info, view);
             let on_objects =
                 !image_owns_pointer && tool == QuickTool::EditText && can_modify && crate::object_ui::page_input(ui, &resp, &xf, i, doc, view);
-            let lines = if matches!(tool, QuickTool::AddText | QuickTool::EditText) && can_modify {
+            let lines = if tool == QuickTool::EditText && can_modify {
                 let generation = doc.edit_generation();
                 match view.edit_lines.get(&i) {
                     Some((g, l)) if *g == generation => l.clone(),
@@ -3465,33 +3465,19 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             } else {
                 Vec::new()
             };
-            let over_source = tool == QuickTool::AddText
-                && pointer.is_some_and(|p| {
-                    !crate::content_ui::hits_added(&xf, info, i, &added, p)
-                        && lines.iter().any(|line| xf.user_rect(info, i, line.rect.map(|v| v as f32)).expand(2.0).contains(p))
-                });
-            let source_blocked = over_source && view.content.hold_blocked();
-            if over_source && resp.clicked() && !source_blocked {
-                if let Some(edit) = view.content.finish_draft(&added) {
-                    view.pending_edit = Some(edit);
-                }
-                view.content.selected = None;
-            }
             let on_content = !on_objects && editing_content && can_modify && {
-                source_blocked
-                    || crate::content_ui::page_input(
-                        ui,
-                        &resp,
-                        &xf,
-                        i,
-                        info,
-                        &added,
-                        tool == QuickTool::AddText && !over_source,
-                        matches!(tool, QuickTool::AddText | QuickTool::EditText),
-                        &text_style,
-                        view,
-                    )
-                    || tool == QuickTool::AddText && !over_source
+                crate::content_ui::page_input(
+                    ui,
+                    &resp,
+                    &xf,
+                    i,
+                    info,
+                    &added,
+                    tool == QuickTool::AddText,
+                    matches!(tool, QuickTool::AddText | QuickTool::EditText),
+                    &text_style,
+                    view,
+                ) || tool == QuickTool::AddText
             };
             // Added content owns its gesture; its source text must not queue a second edit.
             // Edit text & images boxes every paragraph and image whenever the tool is on. Only the
@@ -3499,7 +3485,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // input is blocked (another tab, a dialog, the window unfocused): the boxes stay drawn
             // instead of vanishing until the pointer comes back.
             let others_own_pointer = on_objects || on_content;
-            let on_edit_text = (tool == QuickTool::EditText || over_source) && can_modify && {
+            let on_edit_text = tool == QuickTool::EditText && can_modify && {
                 let generation = doc.edit_generation();
                 let images = match view.edit_images.get(&i) {
                     Some((g, l)) if *g == generation => l.clone(),
