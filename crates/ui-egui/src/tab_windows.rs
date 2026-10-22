@@ -23,6 +23,9 @@ impl PdfCraftApp {
         self.animation_effects = source.animation_effects;
         self.default_mode = source.default_mode;
         self.view_defaults = source.view_defaults;
+        self.always_default_view = source.always_default_view;
+        self.organize_zoom = source.organize_zoom;
+        self.print_draft.paper = source.print_draft.paper;
         self.units = source.units;
         if self.language != source.language {
             self.language.clone_from(&source.language);
@@ -81,6 +84,7 @@ impl PdfCraftApp {
         self.transfer_ready() && self.detach_request.is_none() && self.session.get(id).is_some() && self.views.iter().any(|v| v.id == id)
     }
 
+    /// Refuse transfers while a modal, worker or save operation still owns document state.
     fn transfer_ready(&self) -> bool {
         #[cfg(not(target_arch = "wasm32"))]
         if self.pickers.pending() || self.pending_overwrite.is_some() {
@@ -203,6 +207,7 @@ impl PdfCraftApp {
         child.window_controls = self.window_controls.clone();
         child.update_source = self.update_source.clone();
         child.printer_source = self.printer_source.clone();
+        child.options_source = self.options_source.clone();
         child.os_key_store_ids = self.os_key_store_ids;
         child.run_inline = self.run_inline;
         child.recovery = self.recovery.clone();
@@ -249,6 +254,7 @@ fn visible_position(position: egui::Pos2, scale: f32) -> egui::Pos2 {
     )
 }
 
+/// Other native hosts retain the requested logical position without Windows monitor clamping.
 #[cfg(all(not(target_os = "windows"), not(target_arch = "wasm32")))]
 fn visible_position(position: egui::Pos2, _scale: f32) -> egui::Pos2 {
     position
@@ -280,6 +286,7 @@ impl NativeWindows {
         Self { root, windows: Vec::new(), next: 0, root_hidden: false, final_session: None }
     }
 
+    /// Collect bounded, deduplicated reopen entries from every visible managed window.
     fn combined_session(&self) -> crate::last_session::LastSession {
         let mut all = if self.root_hidden { Default::default() } else { self.root.session_to_save() };
         for window in &self.windows {
@@ -297,6 +304,7 @@ impl NativeWindows {
         all
     }
 
+    /// Borrow two distinct managed applications without aliasing their document sessions.
     fn pair_mut(&mut self, source: egui::ViewportId, target: egui::ViewportId) -> Option<(&mut PdfCraftApp, &mut PdfCraftApp)> {
         if source == target {
             return None;
@@ -318,6 +326,7 @@ impl NativeWindows {
         }
     }
 
+    /// Consume queued drags, accepting tab/page destinations before creating a detached window.
     fn collect(&mut self, ctx: &egui::Context) {
         let mut requests = Vec::new();
         if let Some(request) = self.root.detach_request.take() {
@@ -367,6 +376,7 @@ impl NativeWindows {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl eframe::App for NativeWindows {
+    /// Route native input to the application that owns the receiving viewport.
     fn raw_input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
         if ctx.viewport_id() == egui::ViewportId::ROOT {
             self.root.raw_input_hook(ctx, input);
@@ -375,6 +385,7 @@ impl eframe::App for NativeWindows {
         }
     }
 
+    /// Persist shared preferences and the combined session even after the root window is hidden.
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.root.save(storage);
         if let Ok(mut saved) = serde_json::from_str::<serde_json::Value>(&self.root.persist()) {
@@ -384,6 +395,7 @@ impl eframe::App for NativeWindows {
         }
     }
 
+    /// Keep the root event loop alive and reveal it when new documents arrive.
     fn logic(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         if self.root_hidden {
             self.root.window_close_ready = false;
@@ -398,6 +410,7 @@ impl eframe::App for NativeWindows {
         }
     }
 
+    /// Render managed viewports sequentially, sharing preferences while retaining independent close guards.
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         if !self.root_hidden {
@@ -454,6 +467,7 @@ mod tests {
     use super::*;
     use egui_kittest::{Harness, kittest::Queryable};
 
+    /// Construct a synthetic managed host with three documents and no installed-app state.
     fn app() -> PdfCraftApp {
         let mut app = PdfCraftApp::new();
         app.run_inline = true;
@@ -466,6 +480,7 @@ mod tests {
         app
     }
 
+    /// Changes and deletions in a child must survive its closure and the next settings save.
     #[test]
     fn window_settings_changes_and_deletions_survive_child_close() {
         use eframe::App as _;
@@ -491,6 +506,9 @@ mod tests {
         child.set_option("date-format", "yyyy-mm-dd").unwrap();
         child.session.set_date_language(Some("fr")).unwrap();
         child.ui_scale = Some(1.25);
+        child.always_default_view = true;
+        child.organize_zoom = 1.25;
+        child.print_draft.paper = 1;
         child.comment_prefs.author = "Synthetic author".into();
         child.signature = Some(crate::fill_sign::SavedSig::Typed("Test".into()));
         child.initials = Some(crate::fill_sign::SavedSig::Typed("T".into()));
@@ -501,6 +519,9 @@ mod tests {
         next.copy_shared_settings_from(&host.root);
         assert_eq!(next.language, "fr");
         assert_eq!(next.ui_scale, Some(1.25));
+        assert!(next.always_default_view);
+        assert_eq!(next.organize_zoom, 1.25);
+        assert_eq!(next.print_draft.paper, 1);
         assert_eq!(next.session.date_format(), "yyyy-mm-dd");
         assert_eq!(next.session.date_language(), Some("fr"));
         assert_eq!(next.comment_prefs.author, "Synthetic author");
@@ -515,11 +536,15 @@ mod tests {
         host.save(&mut storage);
         let saved: serde_json::Value = serde_json::from_str(&eframe::Storage::get_string(&storage, "pdfcraft").unwrap()).unwrap();
         assert_eq!(saved["language"], "fr");
+        assert_eq!(saved["always_default_view"], true);
+        assert_eq!(saved["organize_zoom"], 1.25);
+        assert_eq!(saved["print_paper"], pdfcraft_engine::print::PAPERS[1].0);
         assert!(saved["signature_text"].is_null());
         assert!(saved["initials"].is_null());
         assert_eq!(saved["recent"], serde_json::json!([]));
     }
 
+    /// Hiding the root must not omit detached documents from session restoration.
     #[test]
     fn window_last_session_includes_detached_documents_when_root_is_hidden() {
         let mut host = NativeWindows::new(app());
@@ -537,6 +562,7 @@ mod tests {
         assert_eq!(saved.files[0].page, 2);
     }
 
+    /// Moving a tab retains its reading position without replacing an already queued navigation.
     #[test]
     fn window_transfers_restore_current_page_without_overwriting_pending_destination() {
         let mut root = app();
@@ -551,10 +577,12 @@ mod tests {
         assert_eq!(root.views[0].goto, Some((1, 42.0)));
     }
 
+    /// Detaching transfers unsaved bytes, history, view position and recovery ownership together.
     #[test]
     fn tear_off_preserves_working_bytes_undo_redo_view_and_recovery_identity() {
         let mut root = app();
         root.active = Some(1);
+        root.options_source = Some(std::sync::Arc::new(|_| Vec::new()));
         let id = root.views[1].id;
         root.apply_edit(pdfcraft_engine::Edit::SetInfo { key: "Title".into(), value: "First edit".into() });
         let first = root.session.get(id).unwrap().bytes.clone();
@@ -571,6 +599,7 @@ mod tests {
         assert!(root.request_detach_tab(id, None));
         root.move_tab(1, 0); // A queued request follows identity, not its old index.
         let (mut child, _) = root.take_detached_tab().unwrap();
+        assert!(std::sync::Arc::ptr_eq(child.options_source.as_ref().unwrap(), root.options_source.as_ref().unwrap()));
         assert!(root.session.get(id).is_none());
         assert_eq!(root.active_ids().unwrap().1, active);
         assert_eq!(child.active_ids().unwrap().1, id);
@@ -588,6 +617,7 @@ mod tests {
         assert_eq!(root.views.len(), 2);
     }
 
+    /// Unavailable hosts and blocked operations leave the source document owned and intact.
     #[test]
     fn tear_off_rejects_unavailable_host_missing_document_and_modal_without_removing_work() {
         let mut root = app();
@@ -606,6 +636,7 @@ mod tests {
         assert_eq!(root.session.docs().len(), 3);
     }
 
+    /// A detached window applies its own save guard without closing its neighbours.
     #[test]
     fn tear_off_close_uses_save_discard_cancel_and_does_not_close_other_windows() {
         let mut root = app();
@@ -626,6 +657,7 @@ mod tests {
         assert!(!root.window_close_ready);
     }
 
+    /// The final managed window permits process exit only after its document close guard succeeds.
     #[test]
     fn tear_off_final_window_allows_the_native_exit_after_its_save_guard() {
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_| NativeWindows::new(app()));
@@ -637,6 +669,7 @@ mod tests {
         assert!(h.state().windows.is_empty());
     }
 
+    /// Drive a synthetic pointer drag with an optional Escape cancellation before release.
     fn drag(h: &mut Harness<'static, PdfCraftApp>, to: egui::Pos2, escape: bool) {
         let from = h.get_by_role_and_label(egui::accesskit::Role::Tab, "first.pdf").rect().center();
         h.event(egui::Event::PointerMoved(from));
@@ -654,6 +687,7 @@ mod tests {
         h.run_steps(2);
     }
 
+    /// Only a completed drag beyond the strip queues tear-off; Escape leaves the tab in place.
     #[test]
     fn tear_off_raw_drag_queues_only_outside_strip_and_escape_cancels() {
         for escape in [false, true] {
@@ -666,6 +700,7 @@ mod tests {
         }
     }
 
+    /// Horizontal dragging retains reorder and edge scrolling instead of detaching the tab.
     #[test]
     fn tear_off_keeps_horizontal_reordering_and_strip_edge_scrolling() {
         let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_| app());
@@ -680,6 +715,7 @@ mod tests {
         assert!(!outside_strip(strip, viewport, egui::pos2(1399.0, 20.0)));
         assert!(outside_strip(strip, viewport, egui::pos2(1430.0, 20.0)));
     }
+    /// A transferred document keeps the protection against overwriting externally changed files.
     #[test]
     fn tear_off_preserves_external_file_change_protection() {
         let mut root = app();
@@ -695,6 +731,7 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    /// Documents created in different windows never share recovery identifiers.
     #[test]
     fn tear_off_new_documents_have_distinct_autosaves_across_windows() {
         let mut root = app();
@@ -727,6 +764,7 @@ mod tests {
         std::fs::remove_dir(&dir).unwrap();
     }
 
+    /// Moving a tab into another window preserves state and inserts it at the chosen tab gap.
     #[test]
     fn window_drop_tab_move_keeps_identity_view_recovery_and_target_order() {
         let mut source = app();
@@ -757,6 +795,7 @@ mod tests {
         assert_eq!(source.session.get(source.views[0].id).unwrap().bytes, bytes);
     }
 
+    /// Organize receives the current edited pages as one undoable copy, leaving the source open.
     #[test]
     fn window_drop_organize_copies_current_pages_at_gap_and_undo_keeps_source() {
         let mut source = app();
@@ -780,6 +819,7 @@ mod tests {
         assert_eq!(source.session.get(id).unwrap().bytes, source_bytes);
     }
 
+    /// Rejected destinations must not mutate either participating document.
     #[test]
     fn window_drop_rejection_keeps_both_documents_unchanged() {
         let mut source = app();
@@ -800,6 +840,7 @@ mod tests {
         assert!(!source.insert_tab_pages_into(id, &mut target, into, 0));
     }
 
+    /// Transfers address the correct source and destination across root and child viewports.
     #[test]
     fn window_drop_child_to_child_and_back_to_root_use_correct_sessions() {
         let mut host = NativeWindows::new(app());
@@ -819,6 +860,7 @@ mod tests {
         assert!(host.pair_mut(a, a).is_none());
     }
 
+    /// Page copying refuses restricted sources and accepts a source with sufficient permissions.
     #[test]
     fn window_drop_organize_honors_encryption_permissions_and_accepts_unlocked_source() {
         for permitted in [false, true] {
@@ -850,6 +892,7 @@ mod tests {
         }
     }
 
+    /// Transferred file watches continue detecting external modifications under the retained identity.
     #[test]
     fn window_drop_remapped_file_watch_still_detects_external_changes() {
         let mut source = app();

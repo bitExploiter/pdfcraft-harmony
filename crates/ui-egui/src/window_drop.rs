@@ -29,12 +29,15 @@ struct Layout {
 }
 
 impl Layout {
+    /// Convert source-local points to physical desktop pixels using its viewport scale.
     fn physical(&self, local: Pos2) -> Pos2 {
         self.origin + local.to_vec2() * self.scale
     }
+    /// Convert physical desktop pixels into this destination viewport's logical points.
     fn local(&self, physical: Pos2) -> Pos2 {
         ((physical - self.origin) / self.scale).to_pos2()
     }
+    /// Resolve a tab gap or enabled page grid; reject all other positions inside this window.
     fn target(&self, physical: Pos2) -> Option<Target> {
         let p = self.local(physical);
         if !self.content.contains(p) {
@@ -61,12 +64,15 @@ struct State {
     layouts: HashMap<ViewportId, Layout>,
     drag: Option<(ViewportId, Pos2)>,
 }
+/// Use one shared egui context key for cross-viewport drag geometry.
 fn key() -> egui::Id {
     egui::Id::new("pdfcraft-window-drop-state")
 }
+/// Read the current drag snapshot, defaulting to an empty registry before the first frame.
 fn state(ctx: &egui::Context) -> State {
     ctx.data(|d| d.get_temp(key())).unwrap_or_default()
 }
+/// Mutate and store the shared drag registry within one context-data access.
 fn update(ctx: &egui::Context, f: impl FnOnce(&mut State)) {
     ctx.data_mut(|d| {
         let mut s = d.get_temp::<State>(key()).unwrap_or_default();
@@ -75,6 +81,7 @@ fn update(ctx: &egui::Context, f: impl FnOnce(&mut State)) {
     });
 }
 
+/// Refresh this viewport's geometry only when native drops and finite coordinates are available.
 pub(crate) fn begin(ctx: &egui::Context, enabled: bool) {
     let id = ctx.viewport_id();
     let scale = ctx.pixels_per_point();
@@ -92,6 +99,7 @@ pub(crate) fn begin(ctx: &egui::Context, enabled: bool) {
     });
 }
 
+/// Remove layouts for closed viewports so hidden windows cannot receive future drops.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn retain(ctx: &egui::Context, live: &[ViewportId]) {
     update(ctx, |s| s.layouts.retain(|id, _| live.contains(id)));
@@ -99,6 +107,7 @@ pub(crate) fn retain(ctx: &egui::Context, live: &[ViewportId]) {
 
 // WindowFromPoint excludes covered/hidden windows. Compare the native client origin so a
 // geometrically overlapping background window never steals the drop (also across DPI scales).
+/// Locate the visible native window under a bounded physical pointer position.
 #[cfg(target_os = "windows")]
 fn top_origin(p: Pos2) -> Option<Pos2> {
     if !p.x.is_finite() || !p.y.is_finite() || p.x.abs() > 1_000_000.0 || p.y.abs() > 1_000_000.0 {
@@ -110,6 +119,7 @@ fn top_origin(p: Pos2) -> Option<Pos2> {
     Some(egui::pos2(origin.x as f32, origin.y as f32))
 }
 
+/// Select a foreign viewport under the pointer, excluding obscured windows on Windows.
 fn find(s: &State, source: ViewportId, physical: Pos2) -> Option<(ViewportId, Target)> {
     #[cfg(target_os = "windows")]
     let origin = top_origin(physical)?;
@@ -122,6 +132,7 @@ fn find(s: &State, source: ViewportId, physical: Pos2) -> Option<(ViewportId, Ta
     })
 }
 
+/// Resolve the current local pointer against other managed windows using physical coordinates.
 pub(crate) fn foreign_target(ctx: &egui::Context, local: Pos2) -> Option<(ViewportId, Target)> {
     let s = state(ctx);
     let from = ctx.viewport_id();
@@ -136,6 +147,7 @@ pub(crate) fn destination(ctx: &egui::Context, from: ViewportId, absolute: Pos2)
     find(&s, from, (absolute.to_vec2() * scale).to_pos2())
 }
 
+/// Publish or clear the source drag and repaint destinations to update insertion indicators.
 pub(crate) fn drag(ctx: &egui::Context, local: Option<Pos2>) {
     let from = ctx.viewport_id();
     update(ctx, |s| s.drag = local.and_then(|p| s.layouts.get(&from).map(|l| (from, l.physical(p)))));
@@ -144,6 +156,7 @@ pub(crate) fn drag(ctx: &egui::Context, local: Option<Pos2>) {
     }
 }
 
+/// Return a drop preview only to the destination viewport currently under the drag.
 fn hover(ctx: &egui::Context) -> Option<(Pos2, Target)> {
     let s = state(ctx);
     let (source, physical) = s.drag?;
@@ -151,6 +164,7 @@ fn hover(ctx: &egui::Context) -> Option<(Pos2, Target)> {
     (id == ctx.viewport_id()).then(|| (s.layouts.get(&id).map_or(Pos2::ZERO, |l| l.local(physical)), target))
 }
 
+/// Register tab insertion gaps and paint the active destination indicator within the strip.
 pub(crate) fn tabs(ui: &egui::Ui, rect: Rect, slots: &[(usize, Rect)]) {
     let ctx = ui.ctx();
     let viewport = ctx.viewport_id();
@@ -168,6 +182,7 @@ pub(crate) fn tabs(ui: &egui::Ui, rect: Rect, slots: &[(usize, Rect)]) {
     }
 }
 
+/// Register an Organize grid and preview insertion without mutating either document.
 pub(crate) fn grid(ui: &egui::Ui, doc: DocId, rect: Rect, cells: &[(usize, Rect)], enabled: bool) {
     let ctx = ui.ctx();
     let viewport = ctx.viewport_id();
@@ -214,6 +229,7 @@ pub(crate) fn inspect(ctx: &egui::Context) -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Build synthetic tab and page geometry at a requested DPI scale.
     fn layout(scale: f32) -> Layout {
         Layout {
             origin: egui::pos2(-900.0, 200.0),
@@ -237,6 +253,7 @@ mod tests {
             }),
         }
     }
+    /// Cross-scale coordinate conversion retains the intended tab gap and page insertion position.
     #[test]
     fn window_drop_geometry_preserves_tab_gaps_and_page_positions_across_dpi() {
         for scale in [1.0, 1.25, 1.5, 2.0] {
@@ -256,6 +273,7 @@ mod tests {
             assert_eq!(l.target(egui::pos2(f32::NAN, 200.0)), None);
         }
     }
+    /// Disabled or absent Organize grids reject drops rather than copying pages.
     #[test]
     fn window_drop_does_not_insert_into_disabled_or_closed_organizer() {
         let mut l = layout(1.5);
