@@ -50,7 +50,7 @@ for s in signatures(&doc, &bytes, &trust) {                                // li
 
 Not yet: revocation fetching (AIA/CRLDP extraction and a fetcher), timestamp-server
 configuration, FieldMDP locks, certificate security, GOST algorithms, RSA-PSS, session or PIN
-caching, nssdb/CryptoTokenKit, and a run of the PKCS #11 path against SoftHSM or a real token.
+caching, nssdb/CryptoTokenKit, and a run of the PKCS #11 path against a real token (SoftHSM runs in Linux CI).
 macOS Keychain and Windows Current User Personal (My) store identities sign through
 `ExternalKey` without exporting private keys. Windows CNG supports RSA PKCS #1 v1.5 and
 ECDSA P-256/P-384; the store integration is tested with software-backed keys. A smart card

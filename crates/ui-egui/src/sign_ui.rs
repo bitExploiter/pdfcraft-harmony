@@ -317,10 +317,19 @@ fn pkcs11_id(modules: &[String], reference: &str, pin: &str) -> Result<DigitalId
                     continue;
                 }
             };
-            hits.extend(listing.ids.into_iter().filter(|id| id.matches(&uri)).map(|id| id.id));
+            for id in listing.ids.into_iter().filter(|id| id.matches(&uri)) {
+                // One card is often reachable through two modules (OpenSC and the vendor's):
+                // the same token serial and key is one identity, signed through the first.
+                let same = |h: &sign::pkcs11::Identity| {
+                    h.key_id == id.key_id && h.token.serial == id.token.serial && h.token.manufacturer == id.token.manufacturer
+                };
+                if !hits.iter().any(same) {
+                    hits.push(id);
+                }
+            }
         }
         match hits.len() {
-            1 => Ok(hits.into_iter().next().ok_or_else(|| format!("no PKCS #11 identity {reference}"))?),
+            1 => Ok(hits.into_iter().next().map(|id| id.id).ok_or_else(|| format!("no PKCS #11 identity {reference}"))?),
             0 => Err(load_error.unwrap_or_else(|| format!("no PKCS #11 identity {reference}"))),
             _ => Err(format!("the PKCS #11 reference {reference} matches several identities")),
         }
@@ -444,7 +453,11 @@ impl PdfCraftApp {
                 match sign::pkcs11::list(&module, &sign::pkcs11::PinSource::None) {
                     Ok(listing) => {
                         for id in &listing.ids {
-                            self.digital_ids.push(entry_for(&id.reference(), &id.id.certificate));
+                            // The same token through a second module lists once.
+                            let reference = id.reference();
+                            if !self.digital_ids.iter().any(|e| e.path == reference) {
+                                self.digital_ids.push(entry_for(&reference, &id.id.certificate));
+                            }
                         }
                         for u in &listing.unusable {
                             self.digital_ids.push(entry_unusable_pkcs11(unusable, &u.subject, &u.reason));
@@ -577,7 +590,13 @@ impl PdfCraftApp {
         } else if entry.path.starts_with("windows:") {
             windows_id(&entry.path)?
         } else if entry.path.starts_with("pkcs11:") {
-            pkcs11_id(&self.pkcs11_modules, &entry.path, &d.password)?
+            // The PIN is used for this one signing only: cleared from the dialog whether
+            // signing then succeeds or fails, so it never carries over to another attempt.
+            let id = pkcs11_id(&self.pkcs11_modules, &entry.path, &d.password);
+            if let Some(draft) = self.sign_draft.as_mut() {
+                draft.password.clear();
+            }
+            id?
         } else {
             let bytes = std::fs::read(&entry.path).map_err(|e| format!("{}: {e}", entry.path))?;
             sign::pkcs12::open(&bytes, &d.password).map_err(|e| match e {
@@ -884,6 +903,11 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
                 continue;
             }
             if resp.clicked() {
+                // A token PIN (or file password) typed for one identity never goes to another:
+                // a wrong PIN spends that token's retries.
+                if d.selected != Some(i) {
+                    d.password.clear();
+                }
                 d.selected = Some(i);
                 d.confirm_remove = None;
             }
@@ -910,7 +934,10 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
         });
         ui.add_space(10.0);
     }
-    let removable = d.selected.filter(|&i| ids.get(i).is_some_and(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")));
+    // Store and token IDs are listed again on every signing, so there's nothing to remove.
+    let removable = d.selected.filter(|&i| {
+        ids.get(i).is_some_and(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:") && !e.path.starts_with("pkcs11:"))
+    });
     ui.horizontal(|ui| {
         if widgets::pill_button(ui, tl!("Configure New Digital ID"), false).clicked() {
             d.step = SignStep::Configure;

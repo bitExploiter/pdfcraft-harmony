@@ -199,7 +199,7 @@ update the numbers.
 
 ### 10. Signatures: PKCS #11 without hardware validation, timestamp servers, online revocation
 
-- **Missing:** a run of the PKCS #11 path against SoftHSM or a real token; GOST algorithms;
+- **Missing:** a run of the PKCS #11 path against a real token (SoftHSM runs in Linux CI); GOST algorithms;
   timestamp-server preferences; fetching OCSP/CRL online for LTV; FieldMDP and locking fields
   on signing; the OS trust store; EU Trusted Lists; signature graphics and saved appearances;
   compare signed version; signing in the browser.

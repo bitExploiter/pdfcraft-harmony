@@ -5523,11 +5523,19 @@ fn pkcs11_tools_refuse_bad_input_without_a_token() {
         a.call("sign_document", &json!({ "doc": doc, "id": "ada.p12", "module": "nope.dll", "out": "s.pdf" })),
         Err(ToolError::InvalidArgs(_))
     ));
-    // A garbage reference never reaches the (missing) module.
+    // A garbage reference is refused as the caller's mistake before any module is loaded
+    // (with a missing module, loading first would have answered Failed instead).
     assert!(matches!(
         a.call("sign_document", &json!({ "doc": doc, "id": "pkcs11:token=x?pin-value=1", "module": "nope.dll", "out": "s.pdf" })),
-        Err(ToolError::Failed(_))
+        Err(ToolError::InvalidArgs(_))
     ));
+    // Keychain and Windows identities refuse module/pin_env too, on every platform.
+    for id in ["keychain:Ada", "windows:Ada"] {
+        assert!(
+            matches!(a.call("sign_document", &json!({ "doc": doc, "id": id, "pin_env": "PIN", "out": "s.pdf" })), Err(ToolError::InvalidArgs(_))),
+            "{id}"
+        );
+    }
 }
 
 #[test]

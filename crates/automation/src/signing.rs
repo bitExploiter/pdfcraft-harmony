@@ -175,6 +175,11 @@ impl Automation {
     }
 
     fn open_id(&self, a: &Args) -> Result<DigitalId> {
+        // `module` and `pin_env` only mean something with a pkcs11: identity; any other
+        // identity silently ignoring them would lie about what signed.
+        if !a.str("id")?.starts_with("pkcs11:") && (a.opt_str("module")?.is_some() || a.opt_str("pin_env")?.is_some()) {
+            return Err(bad("module and pin_env need a pkcs11: identity"));
+        }
         // A macOS Keychain identity: "keychain:<fingerprint>" or "keychain:<common name>".
         if let Some(r) = a.str("id")?.strip_prefix("keychain:") {
             #[cfg(target_os = "macos")]
@@ -193,6 +198,9 @@ impl Automation {
             {
                 // Caller-fixable argument errors come before anything touching the environment.
                 let module_arg = a.opt_str("module")?.ok_or_else(|| bad("a pkcs11: identity needs the module argument: the PKCS #11 DLL to use"))?;
+                // A malformed reference is refused before any native module is loaded.
+                let reference = format!("pkcs11:{uri}");
+                sign::pkcs11::parse_uri(&reference).map_err(|e| bad(e.to_string()))?;
                 let pin = match a.opt_str("pin_env")? {
                     Some("") => return Err(bad("pin_env must not be empty")),
                     Some(name) => sign::pkcs11::PinSource::Env(name.to_string()),
@@ -200,15 +208,10 @@ impl Automation {
                 };
                 let module_path = self.resolve(module_arg, false)?;
                 let module = sign::pkcs11::load_module(&module_path).map_err(failed)?;
-                return sign::pkcs11::find(&module, &format!("pkcs11:{uri}"), &pin).map_err(failed);
+                return sign::pkcs11::find(&module, &reference, &pin).map_err(failed);
             }
             #[cfg(target_arch = "wasm32")]
             return Err(failed(format!("pkcs11:{uri}: PKCS #11 tokens aren't available in the browser")));
-        }
-        // `module` and `pin_env` only mean something with a pkcs11: identity; anything else
-        // silently ignoring them would lie about what signed.
-        if a.opt_str("module")?.is_some() || a.opt_str("pin_env")?.is_some() {
-            return Err(bad("module and pin_env need a pkcs11: identity"));
         }
         let path = self.resolve(a.str("id")?, false)?;
         let bytes = std::fs::read(&path).map_err(|e| failed(format!("{}: {e}", path.display())))?;
