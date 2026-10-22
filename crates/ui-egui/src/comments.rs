@@ -779,10 +779,14 @@ fn turnable(a: &Annotation) -> bool {
         && !a.locked
 }
 
-/// The rotate handle above a selected comment's frame `r` (on screen).
+/// The rotate handle above a selected comment's frame `r` (on screen): the middle of a round
+/// button with a turning arrow, on a stem.
 fn turn_handle(r: Rect) -> Pos2 {
-    pos2(r.center().x, r.top() - 22.0)
+    pos2(r.center().x, r.top() - 30.0)
 }
+
+/// How near the rotate handle's middle a press takes it.
+const TURN_HANDLE_REACH: f32 = 12.0;
 
 /// How far a drag of the rotate handle turns, in degrees counterclockwise as displayed: from the
 /// press `from` to `to` about `centre`, between -180 and 180, in 15° steps with Shift. After Tab,
@@ -1250,7 +1254,7 @@ fn on_handle(cx: &PageCx<'_>, view: &DocView, p: Pos2, pick: impl Fn(&Annotation
     view.comments.selected.filter(|(page, _)| *page == cx.page).and_then(|(_, i)| cx.get(i)).filter(|a| pick(a) && cx.allowed).is_some_and(|a| {
         (resizable(a) && a.turn.is_none() && HANDLES.into_iter().any(|h| handle_pos(cx.screen_rect(a), h).distance(p) <= 7.0))
             || (grabs_points(cx.tool) && reshapable(a) && point_handle(cx, a, p).is_some())
-            || (turnable(a) && turn_handle(cx.screen_rect(a).expand(2.0)).distance(p) <= 8.0)
+            || (turnable(a) && turn_handle(cx.screen_rect(a).expand(2.0)).distance(p) <= TURN_HANDLE_REACH)
     })
 }
 
@@ -1280,7 +1284,8 @@ fn select_input(
     let point_at =
         |p: Pos2| -> Option<usize> { selected.filter(|a| cx.allowed && grabs_points(cx.tool) && reshapable(a)).and_then(|a| point_handle(cx, a, p)) };
     // The rotate handle above the selected comment's frame.
-    let turn_at = |p: Pos2| selected.filter(|a| cx.allowed && turnable(a) && turn_handle(cx.screen_rect(a).expand(2.0)).distance(p) <= 8.0);
+    let turn_at =
+        |p: Pos2| selected.filter(|a| cx.allowed && turnable(a) && turn_handle(cx.screen_rect(a).expand(2.0)).distance(p) <= TURN_HANDLE_REACH);
     let mut consumed = false;
     if let Some(p) = pointer {
         if turn_at(p).is_some() || matches!(cv.gesture, Some(Gesture::Rotate { page, .. }) if page == cx.page) {
@@ -1503,10 +1508,7 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
             return paint_gesture(painter, cx, view);
         }
         if cx.allowed && turnable(a) && cv.gesture.is_none() {
-            let r = cx.screen_rect(a).expand(2.0);
-            let knob = turn_handle(r);
-            painter.line_segment([r.center_top(), knob], Stroke::new(1.0, SELECT_BLUE));
-            painter.circle(knob, 5.0, Color32::WHITE, Stroke::new(1.0, SELECT_BLUE));
+            paint_turn_handle(ui, painter, cx.screen_rect(a).expand(2.0), (page, index), pointer);
         }
         if cx.allowed && grabs_points(cx.tool) && reshapable(a) {
             return paint_points(painter, cx, view, a, pointer, shift);
@@ -1531,6 +1533,27 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
         }
     }
     paint_gesture(painter, cx, view);
+}
+
+/// The rotate handle above frame `r`: a stem, and a round button with a turning arrow that
+/// lights up under the pointer. It names itself to screen readers and says how it works.
+fn paint_turn_handle(ui: &egui::Ui, painter: &egui::Painter, r: Rect, (page, index): (usize, usize), pointer: Option<Pos2>) {
+    let knob = turn_handle(r);
+    let radius = 10.0;
+    painter.line_segment([r.center_top(), knob + vec2(0.0, radius)], Stroke::new(1.0, SELECT_BLUE));
+    let over = pointer.is_some_and(|p| p.distance(knob) <= TURN_HANDLE_REACH);
+    let fill = if over { SELECT_BLUE } else { Color32::WHITE };
+    painter.circle(knob, radius, fill, Stroke::new(1.5, SELECT_BLUE));
+    let tint = if over { Color32::WHITE } else { SELECT_BLUE };
+    icons::paint(ui, Rect::from_center_size(knob, vec2(13.0, 13.0)), "rotate-cw", 13.0, tint);
+    // Hover only: the page below still takes the press and the drag.
+    let tip = tl!("Drag to rotate · Shift: 15° steps · Tab while dragging: quarter turns");
+    let resp =
+        ui.interact(Rect::from_center_size(knob, vec2(2.0 * radius, 2.0 * radius)), egui::Id::new(("turn-handle", page, index)), Sense::hover());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, tl!("Rotate")));
+    if over {
+        resp.on_hover_text(tip);
+    }
 }
 
 /// A selected line, connected lines, polygon or cloud: a handle on each end or corner and, while
