@@ -10,8 +10,8 @@
 //! another user could have written or could read the file. They run the tools Windows ships rather
 //! than calling the security API directly, which would need `unsafe`.
 
-/// Why the file whose security descriptor is `sddl` (`O:` owner and `D:` access list, as
-/// `Get-Acl` prints it) can't be trusted as user `me`'s own: it is owned by someone else, it has no
+/// Why the file whose security descriptor is `sddl` (`O:` owner and `D:` access list, in SDDL or
+/// as [`read_with_sddl`] writes it) can't be trusted as user `me`'s own: it is owned by someone else, it has no
 /// access list (everyone may use it), or it lets an account other than `me`, SYSTEM or the
 /// Administrators group use it. Accounts are compared by SID; `None` means it is `me`'s alone.
 ///
@@ -45,7 +45,7 @@ pub fn foreign_access(sddl: &str, me: &str) -> Option<String> {
         let Some(sid) = parts.get(5).filter(|s| !s.is_empty()) else {
             return Some(format!("its access list has an entry that can't be read ({ace})"));
         };
-        if !(same_account(sid, me) || matches!(*sid, "SY" | "S-1-5-18" | "BA" | "S-1-5-32-544" | "OW")) {
+        if !(same_account(sid, me) || matches!(*sid, "SY" | "S-1-5-18" | "BA" | "S-1-5-32-544" | "OW" | "S-1-3-4")) {
             return Some(format!("another account ({sid}) has access to it"));
         }
     }
@@ -76,16 +76,12 @@ fn section<'a>(sddl: &'a str, tag: &str) -> Option<&'a str> {
     rest.get(..end).map(str::trim)
 }
 
-/// Whether SDDL account `a` names user SID `me`. `OW` (owner rights) and `CO` are not users.
-///
-/// SDDL writes the machine's built-in Administrator and Guest accounts (RIDs 500 and 501) as
-/// `LA` and `LG`, not by SID, and CI runners run as that Administrator. `me` is taken to be one
-/// of them by its RID alone; the machine's SID isn't to hand. A domain account with RID 500
-/// would so also accept the local Administrator, which is already trusted as a member of
-/// Administrators.
+/// Whether account `a` names user SID `me`. `OW` (owner rights) and `CO` are not users. An alias
+/// is never taken for the user: [`read_with_sddl`] gives every account as a full SID, because
+/// Windows' own SDDL writes some users by alias (the built-in Administrator as `LA`, whose SID
+/// depends on the machine).
 fn same_account(a: &str, me: &str) -> bool {
-    let local = |rid: &str| me.starts_with("S-1-5-21-") && me.strip_suffix(rid).is_some_and(|r| r.ends_with('-'));
-    a.eq_ignore_ascii_case(me) || (a == "LA" && local("500")) || (a == "LG" && local("501"))
+    a.eq_ignore_ascii_case(me)
 }
 
 /// The current user's SID (`whoami /user`).
@@ -131,16 +127,29 @@ fn icacls(path: &std::path::Path, args: &[String]) -> std::io::Result<()> {
 }
 
 /// Open `path` shared for reading only, so that while it is open it can't be replaced, renamed or
-/// written, and read through that one handle both its security descriptor in SDDL form (owner and
-/// access list) and its first `max + 1` bytes. The descriptor checked is the one of the handle the
-/// bytes come from, so there is no moment at which the path could name a different file (a
-/// time-of-check to time-of-use race). The path reaches PowerShell through an environment variable,
-/// never as script text.
+/// written, and read through that one handle both its security descriptor (owner and access list)
+/// and its first `max + 1` bytes. The descriptor checked is the one of the handle the bytes come
+/// from, so there is no moment at which the path could name a different file (a time-of-check to
+/// time-of-use race). The path reaches PowerShell through an environment variable, never as script
+/// text.
+///
+/// The descriptor is written in SDDL's shape but with every account as a full SID, read from the
+/// binary descriptor (`RawSecurityDescriptor`): `O:<owner>D:(<type>;<flags>;<rights>;;;<sid>)…`,
+/// where the type is `D` for a deny entry and `A` for any other, and the flags are `IO` for an
+/// inherit-only entry. Windows' own SDDL writes some accounts by alias, and the built-in
+/// Administrator's alias `LA` stands for a SID that depends on the machine.
 #[cfg(windows)]
 pub fn read_with_sddl(path: &std::path::Path, max: u64) -> std::io::Result<(String, Vec<u8>)> {
-    // No double quotes: the command line would strip them.
+    // No double quotes: the command line would strip them. An entry with no account (a custom
+    // entry) is written with none, and `foreign_access` refuses it.
     const SCRIPT: &str = "$fs = [IO.File]::Open($env:PDFCRAFT_ACL_PATH, 'Open', 'Read', 'Read'); try { \
-        $sddl = $fs.GetAccessControl().GetSecurityDescriptorSddlForm('Owner, Access'); \
+        $raw = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList @($fs.GetAccessControl().GetSecurityDescriptorBinaryForm(), 0); \
+        $sddl = 'O:' + $raw.Owner.Value; \
+        if ($raw.DiscretionaryAcl -ne $null) { $sddl += 'D:'; foreach ($a in $raw.DiscretionaryAcl) { \
+            $t = 'A'; if ([string]$a.AceType -like 'AccessDenied*') { $t = 'D' }; \
+            $f = ''; if ($a.AceFlags.HasFlag([Security.AccessControl.AceFlags]::InheritOnly)) { $f = 'IO' }; \
+            $sid = ''; if ($a.SecurityIdentifier) { $sid = $a.SecurityIdentifier.Value }; \
+            $sddl += '(' + $t + ';' + $f + ';' + $a.AccessMask + ';;;' + $sid + ')' } }; \
         $max = [int]$env:PDFCRAFT_ACL_MAX + 1; $buf = New-Object byte[] $max; $total = 0; \
         while ($total -lt $max) { $n = $fs.Read($buf, $total, $max - $total); if ($n -le 0) { break }; $total += $n }; \
         [Console]::Out.Write($sddl + [char]10 + [BitConverter]::ToString($buf, 0, $total)) } finally { $fs.Dispose() }";
@@ -298,6 +307,33 @@ mod tests {
     /// file isn't taken as restricted.
     #[cfg(windows)]
     #[test]
+    fn a_file_with_no_access_list_is_refused() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-owner-only-null-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("ctl.json");
+        std::fs::write(&file, b"{}").unwrap();
+        restrict_to_owner(&file).unwrap();
+        // A null access list lets everyone in; the user, as owner, may set one.
+        let null = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$s = New-Object Security.AccessControl.FileSecurity; $s.SetSecurityDescriptorSddlForm('D:NO_ACCESS_CONTROL', 'Access'); [IO.File]::SetAccessControl($env:PDFCRAFT_NULL_PATH, $s)",
+            ])
+            .env("PDFCRAFT_NULL_PATH", &file)
+            .output()
+            .unwrap();
+        assert!(null.status.success(), "{}", String::from_utf8_lossy(&null.stderr));
+        let (sddl, _) = read_with_sddl(&file, 64).unwrap();
+        let me = current_user_sid().unwrap();
+        assert!(foreign_access(&sddl, &me).is_some_and(|p| p.contains("no access list")), "{sddl}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(windows)]
+    #[test]
     fn a_file_whose_access_list_cant_be_replaced_is_not_restricted() {
         let dir = std::env::temp_dir().join(format!("pdfcraft-owner-only-ow-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
@@ -365,6 +401,12 @@ mod tests {
         // A limit past what the script's `[int]` holds is capped, not handed to it.
         assert_eq!(read_with_sddl(&file, u64::MAX).unwrap().1, br#"{"port":1}"#);
         assert!(read_with_sddl(&dir.join("none.json"), 64).is_err());
+        // A deny entry is read as one: denying Guests takes nothing from the user.
+        let guests = std::process::Command::new("icacls").arg(&file).arg("/deny").arg("*S-1-5-32-546:(R)").output().unwrap();
+        assert!(guests.status.success(), "{}", String::from_utf8_lossy(&guests.stderr));
+        let (sddl, _) = read_with_sddl(&file, 64).unwrap();
+        assert!(sddl.contains(";;;S-1-5-32-546)") && sddl.contains("(D;"), "{sddl}");
+        assert_eq!(foreign_access(&sddl, &me), None, "{sddl}");
         // The handle shares the file for reading only: a file someone has open for writing (or
         // could rename or delete) isn't read, and so can't change between the check and the read.
         let writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
@@ -380,21 +422,24 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// SDDL names the built-in Administrator `LA` and Guest `LG` (RIDs 500 and 501); a CI runner's
-    /// own restricted file reads `O:LAD:PAI(A;;FA;;;SY)(A;;FA;;;LA)`.
+    /// [`read_with_sddl`] gives accounts as full SIDs (rights as a number, no list flags), the way a
+    /// CI runner's built-in Administrator reads its own restricted file. An alias such as `LA`
+    /// is never taken for the user, whatever the user's RID: on a domain-joined machine a domain
+    /// account can share the local Administrator's RID 500.
     #[test]
-    fn the_built_in_administrator_and_guest_are_named_by_alias() {
+    fn descriptors_with_full_sids_and_aliases_that_are_never_the_user() {
         let admin = "S-1-5-21-1-2-3-500";
-        let ci = "O:LAD:PAI(A;;FA;;;SY)(A;;FA;;;LA)";
-        assert_eq!(foreign_access(ci, admin), None);
-        assert_eq!(foreign_access("O:LGD:P(A;;FA;;;LG)", "S-1-5-21-1-2-3-501"), None);
-        // Anyone else: another user, a RID that only ends in 500, a non-domain SID, the wrong alias.
-        for me in [ME, "S-1-5-21-1-2-3-1500", "S-1-5-32-500", "S-1-5-21-1-2-3-501"] {
-            assert!(foreign_access(ci, me).is_some_and(|p| p.contains("owned by another account (LA)")), "{me}");
+        let full = format!("O:{admin}D:(A;;2032127;;;S-1-5-18)(A;;2032127;;;{admin})");
+        assert_eq!(foreign_access(&full, admin), None);
+        // Owner rights by SID, a deny by SID, an inherit-only entry for Creator Owner.
+        let more = format!("O:{ME}D:(D;;1179785;;;S-1-5-32-546)(A;IO;268435456;;;S-1-3-0)(A;;2032127;;;S-1-3-4)(A;;2032127;;;{ME})");
+        assert_eq!(foreign_access(&more, ME), None);
+        assert!(foreign_access(&format!("O:{ME}D:(A;;1179785;;;S-1-5-32-545)(A;;2032127;;;{ME})"), ME).is_some_and(|p| p.contains("S-1-5-32-545")));
+        for me in [admin, "S-1-5-21-1-2-3-501"] {
+            assert!(foreign_access("O:LAD:PAI(A;;FA;;;SY)(A;;FA;;;LA)", me).is_some_and(|p| p.contains("owned by another account (LA)")), "{me}");
+            assert!(foreign_access("O:LGD:P(A;;FA;;;LG)", me).is_some(), "{me}");
         }
-        assert!(foreign_access("O:LGD:P(A;;FA;;;LG)", admin).is_some());
-        // The alias is matched on the trustee too: the user's own file shared with `LA` is refused.
-        assert!(foreign_access(&format!("O:{ME}D:P(A;;FA;;;{ME})(A;;FR;;;LA)"), ME).is_some_and(|p| p.contains("LA")));
+        assert!(foreign_access(&format!("O:{admin}D:P(A;;FA;;;{admin})(A;;FR;;;LA)"), admin).is_some_and(|p| p.contains("LA")));
     }
 
     #[test]
