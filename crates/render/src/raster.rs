@@ -311,9 +311,14 @@ fn render_page<'a>(
 ) -> Result<Output, (String, bool)> {
     let reading = request_reading(config, &req);
     if req.kind == RequestKind::Text {
-        return match catch_unwind(AssertUnwindSafe(|| crate::text::extract_page(pdf, req.page, settings))) {
-            Ok(Some(t)) => Ok((0, 0, Pixels::default(), Some(Arc::new(t)))),
-            Ok(None) => Err((format!("page {} does not exist", req.page + 1), false)),
+        return match catch_unwind(AssertUnwindSafe(|| {
+            if pdf.pages().get(req.page).is_none() {
+                return Err(format!("page {} does not exist", req.page + 1));
+            }
+            crate::text::extract_page_filtered(pdf, req.page, settings, Default::default())
+        })) {
+            Ok(Ok(t)) => Ok((0, 0, Pixels::default(), Some(Arc::new(t)))),
+            Ok(Err(error)) => Err((error, false)),
             Err(panic) => Err((format!("text extraction crashed on page {}: {}", req.page + 1, panic_message(&panic)), true)),
         };
     }
