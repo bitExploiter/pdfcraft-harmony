@@ -53,7 +53,10 @@ fn main() {
                     }
                     // eframe never raises a close request on a browser reload or tab close, so `guard_quit` never
                     // prompts; ask the browser to confirm instead while a document has unsaved work (#812).
-                    warn_before_unload(app.unsaved_flag.clone());
+                    // A host page (`?host=parent`) guards leaving the page itself.
+                    if query_param("host").as_deref() != Some("parent") {
+                        warn_before_unload(app.unsaved_flag.clone());
+                    }
                     // `?host=parent`: a same-origin page embedding PdfCraft in an iframe (such
                     // as the Nextcloud app) passes files in and takes saves back (`host` below).
                     if query_param("host").as_deref() == Some("parent")
@@ -69,6 +72,7 @@ fn main() {
                         bridge.listen(app.startup_inbox.clone(), cc.egui_ctx.clone());
                         app.host_save = Some(bridge.save_fn());
                         app.host_dirty = Some(bridge.dirty_fn());
+                        pdfcraft_ui_egui::set_host_download(bridge.export_fn());
                         bridge.post_ready();
                     } else if query_param("host").as_deref() == Some("parent") {
                         eframe::web_sys::console::warn_1(
@@ -131,6 +135,10 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 ///   `Uint8Array` holding a PDF. It opens in a tab, like a `?file=` URL.
 /// - `pdfcraft:save` (to the parent): `{ name, saveAs, bytes }` when the user saves; `bytes` is
 ///   a transferred `ArrayBuffer`. The parent stores the file (and reports its own errors).
+///   Every other file that would download (exports, reports, printed PDFs) comes the same way
+///   with `export: true` (and `saveAs: true`); it doesn't mark the document clean.
+///
+/// In host mode the parent guards leaving the page (no `beforeunload` prompt here).
 /// - `pdfcraft:dirty` (to the parent): `{ dirty }` whenever unsaved work appears or goes away.
 /// - `pdfcraft:failed` (to the parent): `{ error }` when the app couldn't start.
 ///
@@ -225,6 +233,23 @@ mod host {
                 let m =
                     message(&[("type", "pdfcraft:save".into()), ("name", name.into()), ("saveAs", save_as.into()), ("bytes", buffer.clone().into())])
                         .ok_or_else(|| "couldn't build the message".to_string())?;
+                bridge.post(&m, Some(&buffer))
+            })
+        }
+
+        /// Exports and other files that would download: `pdfcraft:save` with `export: true`.
+        pub fn export_fn(&self) -> pdfcraft_ui_egui::HostDownloadFn {
+            let bridge = self.clone();
+            Box::new(move |name: &str, bytes: &[u8]| {
+                let buffer = js_sys::Uint8Array::from(bytes).buffer();
+                let m = message(&[
+                    ("type", "pdfcraft:save".into()),
+                    ("name", name.into()),
+                    ("saveAs", true.into()),
+                    ("export", true.into()),
+                    ("bytes", buffer.clone().into()),
+                ])
+                .ok_or_else(|| "couldn't build the message".to_string())?;
                 bridge.post(&m, Some(&buffer))
             })
         }
