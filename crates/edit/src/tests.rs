@@ -5112,8 +5112,10 @@ fn printer_marks_are_drawn_outside_the_trim_box_and_removable() {
     let mut doc = fixture();
     let page_content_text = |doc: &Document, page: usize| String::from_utf8_lossy(&page_content_bytes(doc, page)).into_owned();
     let page = page_list(&doc)[0].clone();
-    // A trim box inside the page, 36 pt in: room for the marks without widening.
+    // A trim box inside a letter-size page, 36 pt in: room for the marks, bleed marks included
+    // (the bleed box is 9 pt out, so they reach 33 pt beyond the trim box), without widening.
     doc.update_dict(page.obj, |d| {
+        d.set(b"MediaBox".to_vec(), Object::Array([0.0, 0.0, 612.0, 792.0].iter().map(|v| Object::Real(*v)).collect()));
         d.set(b"TrimBox".to_vec(), Object::Array([36.0, 36.0, 576.0, 756.0].iter().map(|v| Object::Real(*v)).collect()));
         d.set(b"BleedBox".to_vec(), Object::Array([27.0, 27.0, 585.0, 765.0].iter().map(|v| Object::Real(*v)).collect()));
     })
