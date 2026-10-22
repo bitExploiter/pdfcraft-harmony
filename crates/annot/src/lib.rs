@@ -2031,8 +2031,20 @@ pub fn set_style(
     }
     refuse_foreign_text(doc, &d)?;
     let free_text = subtype == "FreeText";
+    // Typewriter text has no box of its own: a border goes around its text, so the box grows
+    // (or shrinks) by the change on every side and the text keeps its place and its lines.
+    let typewriter = free_text && d.name(b"IT") == Some(b"FreeTextTypeWriter") && !d.contains(b"CL");
+    let regrow = width.filter(|_| typewriter).and_then(|w| {
+        let by = w.max(0.0) - if d.contains(b"BS") || d.contains(b"Border") { border_width_of(&d) } else { 0.0 };
+        let rect: Vec<f64> = d.get(b"Rect")?.as_array()?.iter().filter_map(|o| o.as_f64()).collect();
+        let rect = grow(normalize(four(&rect)?), by);
+        (by != 0.0 && finite(&rect) && rect[2] - rect[0] >= 1.0 && rect[3] - rect[1] >= 1.0).then_some(rect)
+    });
     let before = d;
     doc.update_dict(r, |d| {
+        if let Some(rect) = regrow {
+            d.set(b"Rect".to_vec(), num_array(&rect));
+        }
         if let Some(c) = color {
             if free_text {
                 let (_, size) = appearance::parse_da(d);
