@@ -22,12 +22,18 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-ARCH="$(uname -m)"
-case "$ARCH" in
-  amd64 | x86_64) ARCH=x86_64 ;;
-  arm64 | aarch64) ARCH=aarch64 ;;
-  *) echo "unsupported architecture $ARCH" >&2; exit 2 ;;
-esac
+release_arch() {
+  case "$1" in
+    amd64 | x86_64) echo x86_64 ;;
+    arm64 | aarch64) echo aarch64 ;;
+    *) echo "unsupported architecture $1" >&2; return 2 ;;
+  esac
+}
+HOST_ARCH="$(release_arch "$(uname -m)")"
+# The release workflow cross-compiles aarch64 in an x86_64 VM with CARGO_BUILD_TARGET set to
+# aarch64-unknown-freebsd (craft-common-actions#39): name the archive after the target.
+ARCH="$HOST_ARCH"
+if [ -n "${CARGO_BUILD_TARGET:-}" ]; then ARCH="$(release_arch "${CARGO_BUILD_TARGET%%-*}")"; fi
 BASENAME="pdfcraft-$VERSION-freebsd-$ARCH"
 
 echo "==> PdfCraft $VERSION for FreeBSD $ARCH"
@@ -35,7 +41,8 @@ echo "==> PdfCraft $VERSION for FreeBSD $ARCH"
 if [ "$SKIP_BUILD" = 0 ]; then
   (cd "$ROOT" && cargo build --release --locked -p pdfcraft -p pdfcraft-cli)
 fi
-BIN="$CARGO_TARGET_DIR/release"
+# Cargo puts a cross build under target/<triple>/release.
+BIN="$CARGO_TARGET_DIR/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release"
 WORK="$CARGO_TARGET_DIR/freebsd-package"
 STAGE="$WORK/$BASENAME"
 rm -rf "$WORK"
@@ -51,10 +58,15 @@ sed -e "s/@VERSION@/$VERSION/g" -e "s/@DATE@/$PDFCRAFT_BUILD_DATE/g" \
   "$LINUX/$APP_ID.metainfo.xml.in" >"$STAGE/share/metainfo/$APP_ID.metainfo.xml"
 cp -R "$ROOT/assets/app-icon/hicolor" "$STAGE/share/icons/"
 copy_docs "$STAGE/share/doc/pdfcraft"
-# OCR models: the app finds them at <bin>/../share/pdfcraft/models.
-stage_models "$STAGE/share/pdfcraft/models"
+# OCR models: the app finds them at <bin>/../share/pdfcraft/models. They come from cargo xtask,
+# which has to run here: build it for this machine, not for CARGO_BUILD_TARGET.
+(unset CARGO_BUILD_TARGET; stage_models "$STAGE/share/pdfcraft/models")
 
-"$STAGE/bin/pdfcraft" --version
+if [ "$ARCH" = "$HOST_ARCH" ]; then
+  "$STAGE/bin/pdfcraft" --version
+else
+  echo "skipping --version: an $ARCH binary does not run on this $HOST_ARCH machine"
+fi
 mkdir -p "$DIST"
 tar -C "$WORK" -czf "$DIST/$BASENAME.tar.gz" "$BASENAME"
 echo "wrote $DIST/$BASENAME.tar.gz"
