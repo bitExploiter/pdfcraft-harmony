@@ -5546,6 +5546,61 @@ fn a_refused_data_rewrite_leaves_the_row_overrides_where_they_were() {
     assert!(started.elapsed() < std::time::Duration::from_secs(60), "{:?}", started.elapsed());
 }
 
+/// Several fields on one data node in a form without scripts (two text fields bound `dataRef`
+/// to `Numeric1`, as #3885's form; three check boxes on one `group1a` with on values 1, 2 and 3,
+/// as DA Form 31's): filling one writes its value to the node rather than another's stale one,
+/// and the others show the node's value at once.
+#[test]
+fn filling_one_of_several_fields_on_a_data_node_updates_the_node_and_the_others() {
+    let check = |name: &str, on: u8| {
+        format!(
+            r##"<field name="{name}" w="0.3in" h="0.3in"><ui><checkButton/></ui><items><integer>{on}</integer><integer>0</integer></items><bind match="dataRef" ref="$.group1a"/></field>"##
+        )
+    };
+    let xml = format!(
+        r##"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="form" layout="tb"><pageSet><pageArea name="p"><occur max="-1"/><contentArea x="0.5in" y="0.5in" w="7.5in" h="10in"/><medium short="8.5in" long="11in"/></pageArea></pageSet>
+<subform name="page1" layout="tb">
+<field name="NumericField1" w="2in" h="0.3in"><ui><textEdit/></ui><bind match="dataRef" ref="Numeric1"/></field>
+<field name="NumericField2" w="2in" h="0.3in"><ui><textEdit/></ui><bind match="dataRef" ref="Numeric3"/></field>
+<field name="NumericField3" w="2in" h="0.3in"><ui><textEdit/></ui><bind match="dataRef" ref="Numeric1"/></field>
+{}{}{}
+</subform></subform></template><xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data><form><page1/></form></xfa:data></xfa:datasets></xdp:xdp>"##,
+        check("chargeable", 1),
+        check("nonChargeable", 2),
+        check("combination", 3)
+    );
+    let mut s = Session::new().with_clock(|| 1_700_000_000);
+    let id = s.open("shared.pdf", None, Arc::new(pdfcraft_xfa::fixtures::shell(&xml)), None).expect("opens");
+    let value = |s: &Session, n: &str| {
+        s.get(id).unwrap().form.iter().find(|f| f.name == n).map(|f| f.value.join("")).unwrap_or_else(|| panic!("no field {n}"))
+    };
+    let data = |s: &mut Session, som: &str| {
+        let cos = pdfcraft_cos::Document::open(s.save_bytes(id).unwrap()).unwrap();
+        pdfcraft_xfa::data_of(&cos).unwrap().text_at(&pdfcraft_xfa::som_to_path(som)).map(str::to_string)
+    };
+    s.apply(id, Edit::SetFieldValue { name: "NumericField1".into(), value: FieldValue::Text("42".into()) }).unwrap();
+    assert_eq!(data(&mut s, "form[0].page1[0].Numeric1[0]").as_deref(), Some("42"), "the filled field's value reaches the node");
+    assert_eq!(value(&s, "NumericField3"), "42", "the other field on the node shows it");
+    assert_eq!(value(&s, "NumericField2"), "");
+    s.apply(id, Edit::SetFieldValue { name: "NumericField3".into(), value: FieldValue::Text("7".into()) }).unwrap();
+    assert_eq!(data(&mut s, "form[0].page1[0].Numeric1[0]").as_deref(), Some("7"));
+    assert_eq!(value(&s, "NumericField1"), "7");
+    assert!(data(&mut s, "form[0].page1[0].Numeric3[0]").unwrap_or_default().is_empty());
+    // Check boxes on one node with different on values are exclusive through the node.
+    s.apply(id, Edit::SetFieldValue { name: "chargeable".into(), value: FieldValue::Check(true) }).unwrap();
+    assert_eq!(data(&mut s, "form[0].page1[0].group1a[0]").as_deref(), Some("1"));
+    assert_eq!((value(&s, "chargeable"), value(&s, "nonChargeable"), value(&s, "combination")), ("1".to_string(), String::new(), String::new()));
+    s.apply(id, Edit::SetFieldValue { name: "nonChargeable".into(), value: FieldValue::Check(true) }).unwrap();
+    assert_eq!(data(&mut s, "form[0].page1[0].group1a[0]").as_deref(), Some("2"));
+    assert_eq!((value(&s, "chargeable"), value(&s, "nonChargeable"), value(&s, "combination")), (String::new(), "2".to_string(), String::new()));
+    s.undo(id).unwrap();
+    assert_eq!(
+        (value(&s, "chargeable"), value(&s, "nonChargeable")),
+        ("1".to_string(), String::new()),
+        "undo brings the previous choice back on both"
+    );
+}
+
 #[test]
 fn a_value_a_script_sets_reaches_every_field_bound_to_the_same_data_node() {
     // `carried` inside the area and a second `carried` outside it bind to one data node (areas

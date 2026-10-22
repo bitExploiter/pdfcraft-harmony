@@ -1625,6 +1625,11 @@ pub fn write_datasets_with(
     reuse: Option<ObjRef>,
 ) -> Result<DatasetsWrite, XfaError> {
     let wants = with_template(doc, tpl, |t| wanted(doc, fields, t));
+    // Several fields on one data node (two bound to it, or check boxes sharing one): the last
+    // value given for the node is the one written, so a caller puts the field just filled last.
+    let mut seen = std::collections::HashSet::new();
+    let mut wants: Vec<Want> = wants.into_iter().rev().filter(|w| seen.insert(w.path.clone())).collect();
+    wants.reverse();
     rewrite(doc, &[Op::Values(&wants)], reuse)
 }
 
