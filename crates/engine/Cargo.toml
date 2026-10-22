@@ -31,6 +31,7 @@ pdfcraft-js = { workspace = true }
 pdfcraft-compare = { workspace = true }
 pdfcraft-preflight = { workspace = true }
 pdfcraft-export = { workspace = true }
+pdfcraft-office = { workspace = true }
 pdfcraft-fonts = { workspace = true }
 pdfcraft-create = { workspace = true }
 pdfcraft-model = { workspace = true }

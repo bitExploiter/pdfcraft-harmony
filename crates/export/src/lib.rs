@@ -9,9 +9,11 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 mod pptx;
+mod slides;
 mod zip;
 
 pub use pptx::pptx;
+pub use slides::pptx_positioned;
 pub use zip::Zip;
 
 /// A paragraph of a page.
@@ -28,6 +30,20 @@ pub struct Block {
     pub color: [f64; 3],
     /// Counterclockwise baseline angle in user space (degrees).
     pub rotation: f64,
+    /// Invisible text (rendering mode 3): an OCR layer over a scan, or a selectable layer over
+    /// text drawn as outlines. The flowing writers treat it as text;
+    /// [`pptx_positioned`] shows it only where outlines drew it.
+    pub invisible: bool,
+    /// Font family name ("Times New Roman"), empty when unknown.
+    pub font: String,
+    /// Visual lines the paragraph had on the page (1 for a single line).
+    pub lines: usize,
+    /// How far its first line starts right of the others (points; negative: a hanging indent).
+    pub indent: f64,
+    /// The text of each visual line, when it had more than one; empty otherwise. Slides keep these
+    /// breaks ([`pptx_positioned`]): a list drawn without bullet characters looks like one
+    /// paragraph, and only the line breaks tell its items apart.
+    pub rows: Vec<String>,
 }
 
 /// An image of a page.
@@ -43,12 +59,31 @@ pub struct Image {
     pub rotation: f64,
 }
 
+/// A filled and/or stroked vector path on a page (rectangles, rules, table borders, chart
+/// bars), flattened to straight segments.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Shape {
+    /// Subpaths, each a list of points `[x, y]` on the displayed page in points (y up).
+    pub paths: Vec<Vec<[f64; 2]>>,
+    /// The subpaths are closed (a fill always closes them).
+    pub closed: bool,
+    /// Fill colour as sRGB components in 0..=1; `None`: not filled.
+    pub fill: Option<[f64; 3]>,
+    /// Stroke colour; `None`: not stroked.
+    pub stroke: Option<[f64; 3]>,
+    /// Stroke width in points.
+    pub line_width: f64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Page {
     pub width: f64,
     pub height: f64,
     pub blocks: Vec<Block>,
     pub images: Vec<Image>,
+    /// Vector artwork, in paint order. Only [`pptx_positioned`] draws it; the flowing writers
+    /// (Word, HTML, RTF, [`pptx()`]) leave it out.
+    pub shapes: Vec<Shape>,
 }
 
 /// One cell of a detected table. `span` is how many grid columns the cell covers (a header
@@ -459,8 +494,12 @@ pub(crate) fn hex(c: [f64; 3]) -> Option<String> {
 }
 
 /// A formatted text run (shared by paragraphs and table cells).
-fn run_xml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3]) -> String {
+fn run_xml(text: &str, size: f64, bold: bool, italic: bool, color: [f64; 3], font: &str) -> String {
     let mut rpr = String::new();
+    if !font.trim().is_empty() {
+        let f = esc(font.trim());
+        rpr.push_str(&format!("<w:rFonts w:ascii=\"{f}\" w:hAnsi=\"{f}\" w:cs=\"{f}\"/>"));
+    }
     if bold {
         rpr.push_str("<w:b/>");
     }
@@ -497,7 +536,7 @@ fn docx_table(t: &Table) -> String {
             let w: i64 = widths.iter().take(c.span.min(widths.len())).sum();
             s.push_str(&format!(
                 "<w:tc><w:tcPr><w:tcW w:w=\"{w}\" w:type=\"dxa\"/>{span}</w:tcPr><w:p>{}</w:p></w:tc>",
-                run_xml(&c.text, c.size, c.bold, c.italic, c.color)
+                run_xml(&c.text, c.size, c.bold, c.italic, c.color, "")
             ));
         }
         // Pad the grid so every row covers all columns (Word rejects short rows).
@@ -612,8 +651,9 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
             "position:absolute;margin-left:{x:.3}pt;margin-top:{y:.3}pt;width:{w:.3}pt;height:{h:.3}pt;rotation:{rotation:.3};z-index:{z};mso-position-horizontal-relative:page;mso-position-vertical-relative:page"
         );
         s.push_str(&format!(
-            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent><w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p></w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
-            shape_id, run_xml(&b.text, b.size, b.bold, b.italic, b.color)
+            "<w:r><w:pict><v:rect id=\"Text{}\" style=\"{style}\" filled=\"f\" stroked=\"f\"><v:textbox inset=\"0,0,0,0\" style=\"mso-fit-shape-to-text:t\"><w:txbxContent>{}</w:txbxContent></v:textbox><w10:wrap type=\"none\"/></v:rect></w:pict></w:r>",
+            shape_id,
+            box_paragraphs(b)
         ));
     }
     for im in &page.images {
@@ -647,19 +687,211 @@ fn positioned_page<'a>(page: &'a Page, media: &mut Vec<(String, &'a Image)>, sha
     s
 }
 
+/// A floating text box's paragraphs: one per line the page drew, as on slides (a list without
+/// bullet characters keeps its items apart), or the block as one.
+fn box_paragraphs(b: &Block) -> String {
+    let para = |text: &str| {
+        format!("<w:p><w:pPr><w:spacing w:before=\"0\" w:after=\"0\"/></w:pPr>{}</w:p>", run_xml(text, b.size, b.bold, b.italic, b.color, &b.font))
+    };
+    let rows: Vec<&str> = b.rows.iter().map(String::as_str).filter(|r| !r.is_empty()).collect();
+    if rows.len() < 2 { para(&b.text) } else { rows.iter().map(|r| para(r)).collect() }
+}
+
 fn word_page_size(page: &Page) -> (i64, i64) {
     let twips = |pt: f64| if pt.is_finite() { (pt * 20.0).round().clamp(144.0, 31680.0) as i64 } else { 12240 };
     (twips(page.width), twips(page.height))
 }
 
-fn section(page: &Page) -> String {
+/// The page's text column `[left, bottom, right, top]` (points, y up): where its upright text
+/// starts and ends. `None` without such text.
+fn column(page: &Page) -> Option<[f64; 4]> {
+    let mut c: Option<[f64; 4]> = None;
+    for b in page.blocks.iter().filter(|b| b.rotation.abs() < 1.0 && !b.text.trim().is_empty() && b.rect.iter().all(|v| v.is_finite())) {
+        let [x0, y0, x1, y1] = b.rect;
+        c = Some(c.map_or([x0, y0, x1, y1], |c| [c[0].min(x0), c[1].min(y0), c[2].max(x1), c[3].max(y1)]));
+    }
+    c
+}
+
+/// A page's Word margins `(top, right, bottom, left)` in twips: where its text is, when that
+/// leaves a sensible page (at least ¼ inch, at most a third of the page on each side), else an
+/// eighth of the page up to an inch. The section and the width pictures fit both use these.
+fn margins(page: &Page) -> (i64, i64, i64, i64) {
     let (pw, ph) = word_page_size(page);
     let (mx, my) = ((pw / 8).min(1440), (ph / 8).min(1440));
+    let (mut top, mut right, mut bottom, mut left) = (my, mx, my, mx);
+    if let Some([x0, y0, x1, y1]) = column(page) {
+        let fits = |m: f64, of: i64| m.is_finite() && m * 20.0 >= 360.0 && m * 20.0 <= of as f64 / 3.0;
+        let (l, r, t, b) = (x0, page.width - x1, page.height - y1, y0);
+        if fits(l, pw) && fits(r, pw) {
+            (left, right) = ((l * 20.0).round() as i64, (r * 20.0).round() as i64);
+        }
+        if fits(t, ph) && fits(b.min(t * 2.0), ph) {
+            (top, bottom) = ((t * 20.0).round() as i64, ((b.min(t * 2.0)) * 20.0).round() as i64);
+        }
+    }
+    (top, right, bottom, left)
+}
+
+fn section(page: &Page) -> String {
+    let (pw, ph) = word_page_size(page);
+    let (top, right, bottom, left) = margins(page);
     format!(
-        "<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{pw}\" w:h=\"{ph}\"/><w:pgMar w:top=\"{my}\" w:right=\"{mx}\" w:bottom=\"{my}\" w:left=\"{mx}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/></w:sectPr>",
-        my / 2,
-        my / 2
+        "<w:sectPr><w:type w:val=\"nextPage\"/><w:pgSz w:w=\"{pw}\" w:h=\"{ph}\"/><w:pgMar w:top=\"{top}\" w:right=\"{right}\" w:bottom=\"{bottom}\" w:left=\"{left}\" w:header=\"{}\" w:footer=\"{}\" w:gutter=\"0\"/></w:sectPr>",
+        top / 2,
+        bottom / 2
     )
+}
+
+/// The paragraphs right after `list[at]` that sit on its line, beside it: a label and its value,
+/// or the parts of a line set apart by tabs (a CV's contact line). Every piece but the last is a
+/// single line, so two columns of paragraphs stay apart.
+fn same_row<'a>(list: &[Item<'a>], at: usize) -> Vec<&'a Block> {
+    let Some(Item::Para(first, _)) = list.get(at) else { return Vec::new() };
+    let mut row: Vec<&Block> = Vec::new();
+    let mut prev: &Block = first;
+    for it in list.iter().skip(at + 1).take(7) {
+        let Item::Para(b, _) = it else { break };
+        let tol = prev.size.max(b.size).max(1.0) * 0.3;
+        let beside = (b.rect[3] - first.rect[3]).abs() <= tol && b.rect[0] >= prev.rect[2] - 1.0;
+        let flat = [prev, b].iter().all(|p| p.rotation.abs() < 1.0 && p.rect.iter().all(|v| v.is_finite()));
+        if !beside || !flat || prev.lines > 1 {
+            break;
+        }
+        row.push(b);
+        prev = b;
+    }
+    row
+}
+
+/// What goes between two pieces of a line: nothing when the second touches the first (a
+/// superscript, a word split by a style change), a space for a word space up to [`INLINE_GAP`]
+/// (a bold word or a link inside a sentence), else a tab.
+#[derive(Clone, Copy, PartialEq)]
+enum Join {
+    Touch,
+    Space,
+    Tab,
+}
+
+fn join(a: &Block, b: &Block) -> Join {
+    let gap = b.rect[0] - a.rect[2];
+    let size = a.size.max(b.size).max(1.0);
+    if gap <= size * 0.12 {
+        Join::Touch
+    } else if gap <= size * INLINE_GAP {
+        Join::Space
+    } else {
+        Join::Tab
+    }
+}
+
+/// One Word paragraph for `pieces` on one line: runs of one sentence joined as they read, tab
+/// stops where pieces set apart start, and, when the last piece is set apart and runs on over
+/// more lines, a hanging indent that brings them back under it.
+fn row_paragraph(pieces: &[&Block], column: Option<[f64; 4]>, above: Option<f64>, run: &dyn Fn(&Block) -> String) -> String {
+    let left = column.map_or(0.0, |c| c[0]);
+    let tw = |pt: f64| (pt.max(0.0) * 20.0).round() as i64;
+    let Some(first) = pieces.first() else { return String::new() };
+    let start = first.rect[0] - left;
+    let joins: Vec<Join> = pieces.windows(2).map(|w| join(w[0], w[1])).collect();
+    let mut ppr = String::new();
+    let stops: Vec<String> = pieces
+        .iter()
+        .skip(1)
+        .zip(&joins)
+        .filter(|(_, j)| **j == Join::Tab)
+        .map(|(p, _)| format!("<w:tab w:val=\"left\" w:pos=\"{}\"/>", tw(p.rect[0] - left)))
+        .collect();
+    if !stops.is_empty() {
+        ppr.push_str(&format!("<w:tabs>{}</w:tabs>", stops.concat()));
+    }
+    if let Some(prev_bottom) = above {
+        let gap = prev_bottom - first.rect[3] - first.size * 0.3;
+        if gap.is_finite() && gap > 2.0 {
+            ppr.push_str(&format!("<w:spacing w:before=\"{}\"/>", tw(gap.min(144.0))));
+        }
+    }
+    match pieces.last() {
+        Some(last) if pieces.len() == 2 && last.lines >= 2 && joins.first() == Some(&Join::Tab) => {
+            let at = tw(last.rect[0] - left);
+            ppr.push_str(&format!("<w:ind w:left=\"{at}\" w:hanging=\"{}\"/>", at - tw(start)));
+        }
+        _ if start > first.size * 0.6 => ppr.push_str(&format!("<w:ind w:left=\"{}\"/>", tw(start))),
+        _ => {}
+    }
+    let mut runs = String::new();
+    for (k, p) in pieces.iter().enumerate() {
+        match k.checked_sub(1).and_then(|j| joins.get(j)) {
+            Some(Join::Tab) => runs.push_str("<w:r><w:tab/></w:r>"),
+            Some(Join::Space) => runs.push_str("<w:r><w:t xml:space=\"preserve\"> </w:t></w:r>"),
+            _ => {}
+        }
+        runs.push_str(&run(p));
+    }
+    let ppr = if ppr.is_empty() { String::new() } else { format!("<w:pPr>{ppr}</w:pPr>") };
+    format!("<w:p>{ppr}{runs}</w:p>")
+}
+
+/// How a paragraph sat in its page's text column: alignment, left indent, the space above it
+/// (from `above`, the bottom of the paragraph before it on the page) and its line spacing, as
+/// `<w:pPr>` children.
+fn layout(b: &Block, column: Option<[f64; 4]>, above: Option<f64>) -> String {
+    let Some([left, _, right, _]) = column else { return String::new() };
+    let [x0, y0, x1, y1] = b.rect;
+    if ![x0, y0, x1, y1, b.size].iter().all(|v| v.is_finite()) || b.size <= 0.0 || b.rotation.abs() >= 1.0 {
+        return String::new();
+    }
+    let width = (right - left).max(1.0);
+    let slack = b.size * 0.6;
+    let mut out = String::new();
+    // Line spacing: baseline to baseline over the paragraph's lines, as a multiple of single
+    // spacing (about 1.17 × the font size in common fonts), in 240ths.
+    let lines = b.lines.max(1);
+    let mut spacing = Vec::new();
+    if lines >= 2 {
+        let pitch = ((y1 - y0) - b.size) / (lines - 1) as f64;
+        let multiple = pitch / (b.size * 1.17);
+        if multiple.is_finite() && (1.08..=3.0).contains(&multiple) {
+            spacing.push(format!("w:line=\"{}\" w:lineRule=\"auto\"", (multiple * 240.0).round() as i64));
+        }
+    }
+    if let Some(prev_bottom) = above {
+        let gap = prev_bottom - y1 - b.size * 0.3;
+        if gap.is_finite() && gap > 2.0 {
+            spacing.push(format!("w:before=\"{}\"", (gap.min(144.0) * 20.0).round() as i64));
+        }
+    }
+    if !spacing.is_empty() {
+        out.push_str(&format!("<w:spacing {}/>", spacing.join(" ")));
+    }
+    let from_left = x0 - left;
+    let from_right = right - x1;
+    let centred = (from_left - from_right).abs() <= slack.max(width * 0.02) && from_left > width * 0.05;
+    let jc = if centred {
+        Some("center")
+    } else if from_right <= slack && from_left > width * 0.25 && lines == 1 {
+        Some("right")
+    } else if lines >= 2 && from_right <= slack {
+        Some("both")
+    } else {
+        None
+    };
+    let mut ind = Vec::new();
+    if jc.is_none() && from_left > slack {
+        ind.push(format!("w:left=\"{}\"", (from_left.min(width) * 20.0).round() as i64));
+    }
+    if lines >= 2 && b.indent.is_finite() && b.indent.abs() > 2.0 && jc != Some("center") {
+        let twips = (b.indent.abs().min(width / 2.0) * 20.0).round() as i64;
+        ind.push(if b.indent > 0.0 { format!("w:firstLine=\"{twips}\"") } else { format!("w:hanging=\"{twips}\"") });
+    }
+    if !ind.is_empty() {
+        out.push_str(&format!("<w:ind {}/>", ind.join(" ")));
+    }
+    if let Some(jc) = jc {
+        out.push_str(&format!("<w:jc w:val=\"{jc}\"/>"));
+    }
+    out
 }
 
 /// A Word document (.docx, Office Open XML). Ordinary pages flow as paragraphs and tables;
@@ -669,32 +901,53 @@ pub fn docx(pages: &[Page], title: &str) -> Vec<u8> {
     let mut media: Vec<(String, &Image)> = Vec::new();
     // Word needs a paragraph between adjacent tables and after the last one in the body.
     let mut after_table = false;
-    let run = |b: &Block| run_xml(&b.text, b.size, b.bold, b.italic, b.color);
+    let run = |b: &Block| run_xml(&b.text, b.size, b.bold, b.italic, b.color, &b.font);
     let mut shape_id = 0usize;
     for (page_index, page) in pages.iter().enumerate() {
         let (pw, _) = word_page_size(page);
-        let text_w = (pw - 2 * (pw / 8).min(1440)) as f64 / 20.0;
+        let (_, right, _, left) = margins(page);
+        let text_w = (pw - left - right).max(20) as f64 / 20.0;
         if positioned(page) {
             body.push_str(&positioned_page(page, &mut media, &mut shape_id));
             after_table = false;
         } else {
-            for it in items(std::slice::from_ref(page)) {
-                match &it {
+            let col = column(page);
+            let mut above: Option<f64> = None;
+            let list = items(std::slice::from_ref(page));
+            let mut skip = 0usize;
+            for (at, it) in list.iter().enumerate() {
+                if skip > 0 {
+                    skip -= 1;
+                    continue;
+                }
+                match it {
+                    Item::Para(b, _) if col.is_some() && !same_row(&list, at).is_empty() => {
+                        let row = same_row(&list, at);
+                        skip = row.len();
+                        let pieces: Vec<&Block> = std::iter::once(*b).chain(row).collect();
+                        body.push_str(&row_paragraph(&pieces, col, above, &run));
+                        above = pieces.iter().map(|p| p.rect[1]).reduce(f64::min);
+                    }
                     Item::Para(b, lvl) => {
                         let style = match lvl {
-                            1 => "<w:pPr><w:pStyle w:val=\"Heading1\"/></w:pPr>",
-                            2 => "<w:pPr><w:pStyle w:val=\"Heading2\"/></w:pPr>",
+                            1 => "<w:pStyle w:val=\"Heading1\"/>",
+                            2 => "<w:pStyle w:val=\"Heading2\"/>",
                             _ => "",
                         };
-                        body.push_str(&format!("<w:p>{style}{}</w:p>", run(b)));
+                        let place = layout(b, col, above);
+                        above = Some(b.rect[1]);
+                        let ppr = if style.is_empty() && place.is_empty() { String::new() } else { format!("<w:pPr>{style}{place}</w:pPr>") };
+                        body.push_str(&format!("<w:p>{ppr}{}</w:p>", run(b)));
                     }
                     Item::Table(t) => {
+                        above = None;
                         if after_table {
                             body.push_str("<w:p/>");
                         }
                         body.push_str(&docx_table(t));
                     }
                     Item::Img(im) => {
+                        above = None;
                         if room_for(&media, im) {
                             let n = media.len() + 1;
                             let name = format!("image{n}.{}", im.ext);
@@ -895,6 +1148,11 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         };
         Page {
             width: 612.0,
@@ -912,6 +1170,7 @@ mod tests {
                 size: [200.0, 150.0],
                 rotation: 0.0,
             }],
+            shapes: Vec::new(),
         }
     }
 
@@ -976,6 +1235,11 @@ mod tests {
             italic: false,
             color: [0.8; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         });
         p.images = page().images;
         let xml = part(&docx(&[p], "Invoice"), "word/document.xml");
@@ -1008,6 +1272,168 @@ mod tests {
     }
 
     /// One part of a package written by [`Zip`], inflated.
+    /// A letter page laid out like a typical document: a centred title, a justified paragraph of
+    /// four lines in Times, a right-aligned date and a short left-aligned line.
+    fn layout_page() -> Page {
+        let b = |t: &str, rect: [f64; 4], size: f64, lines: usize| Block {
+            text: t.into(),
+            rect,
+            size,
+            bold: false,
+            italic: false,
+            color: [0.0; 3],
+            rotation: 0.0,
+            invisible: false,
+            font: "Times New Roman".into(),
+            lines,
+            indent: 0.0,
+            rows: Vec::new(),
+        };
+        Page {
+            width: 612.0,
+            height: 792.0,
+            blocks: vec![
+                Block { bold: true, ..b("Centred Title", [236.0, 700.0, 376.0, 724.0], 18.0, 1) },
+                b(
+                    "A justified paragraph that runs over four lines of text from the left margin to the right margin of the column.",
+                    [72.0, 600.0, 540.0, 670.0],
+                    11.0,
+                    4,
+                ),
+                b("21 October 2026", [460.0, 560.0, 540.0, 572.0], 11.0, 1),
+                b("Left line", [72.0, 520.0, 130.0, 532.0], 11.0, 1),
+            ],
+            images: vec![],
+            shapes: vec![],
+        }
+    }
+
+    /// The `<w:p>…</w:p>` holding `text`.
+    fn para_with<'a>(xml: &'a str, text: &str) -> &'a str {
+        let at = xml.find(text).unwrap_or(0);
+        let start = xml[..at].rfind("<w:p>").unwrap_or(0);
+        let end = xml[at..].find("</w:p>").map_or(xml.len(), |e| at + e);
+        &xml[start..end]
+    }
+
+    #[test]
+    fn a_wide_picture_fits_a_narrow_text_column() {
+        // Text from 150 to 450 pt on a 612 pt page: Word's column is 300 pt wide.
+        let mut p = layout_page();
+        p.blocks = vec![block("A narrow column of text", 150.0, 700.0, 450.0, 712.0)];
+        p.images = vec![Image { ext: "png", bytes: vec![0; 8], rect: [72.0, 300.0, 540.0, 500.0], size: [468.0, 200.0], rotation: 0.0 }];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let cx: i64 = xml.split("<wp:extent cx=\"").nth(1).and_then(|r| r.split('"').next()).and_then(|v| v.parse().ok()).expect("a picture");
+        assert!(cx <= 300 * 12700, "{cx}: {xml}");
+    }
+
+    fn piece(t: &str, rect: [f64; 4], lines: usize) -> Block {
+        Block { lines, ..block(t, rect[0], rect[1], rect[2], rect[3]) }
+    }
+
+    #[test]
+    fn pieces_of_one_line_share_a_paragraph() {
+        // A CV's contact line and a label beside its two-line value.
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("Ankara", [72.0, 700.0, 120.0, 712.0], 1),
+            piece("|", [130.0, 700.0, 133.0, 712.0], 1),
+            piece("me@example.org", [143.0, 700.0, 240.0, 712.0], 1),
+            piece("Skills:", [72.0, 660.0, 115.0, 672.0], 1),
+            piece("Penetration testing, network security, web security and a second line", [150.0, 646.0, 540.0, 672.0], 2),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let contact = para_with(&xml, "Ankara");
+        assert!(contact.contains("me@example.org") && contact.matches("<w:tab/>").count() == 2, "{xml}");
+        let skills = para_with(&xml, "Skills:");
+        assert!(skills.contains("Penetration testing") && skills.contains("<w:tab/>"), "{xml}");
+        // The value's second line comes back under its first: a hanging indent at the value.
+        assert!(skills.contains("w:hanging=\"1560\"") && skills.contains("w:left=\"1560\""), "{skills}");
+    }
+
+    #[test]
+    fn style_runs_of_a_sentence_stay_a_sentence() {
+        // "This is bold text" set as three blocks (the middle one bold), a word space apart, and a
+        // superscript touching its number.
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("This is", [72.0, 700.0, 110.0, 712.0], 1),
+            Block { bold: true, ..piece("bold", [113.0, 700.0, 135.0, 712.0], 1) },
+            piece("text, 10", [138.0, 700.0, 180.0, 712.0], 1),
+            piece("3", [180.5, 706.0, 184.0, 712.0], 1),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let para = para_with(&xml, "This is");
+        assert!(para.contains("bold") && para.contains("text, 10") && !para.contains("<w:tab/>"), "{para}");
+        assert_eq!(para.matches("<w:t xml:space=\"preserve\"> </w:t>").count(), 2, "a space between words, none before the 3: {para}");
+    }
+
+    #[test]
+    fn two_columns_side_by_side_stay_apart() {
+        let mut p = layout_page();
+        p.blocks = vec![
+            piece("Left column paragraph over two lines of text", [72.0, 640.0, 290.0, 672.0], 2),
+            piece("Right column paragraph over two lines of text", [322.0, 640.0, 540.0, 672.0], 2),
+        ];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        assert!(!para_with(&xml, "Left column").contains("Right column"), "{xml}");
+    }
+
+    #[test]
+    fn a_positioned_text_box_keeps_its_lines() {
+        // Turned text puts the page in floating shapes; a list without bullets keeps its lines.
+        let rows = ["Ship the app", "Reach more users", "Keep replies fast"];
+        let mut p = layout_page();
+        p.blocks = vec![Block { rotation: 90.0, lines: 3, rows: rows.map(String::from).to_vec(), ..p.blocks[1].clone() }];
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        let boxed = xml.split("<w:txbxContent>").nth(1).and_then(|t| t.split("</w:txbxContent>").next()).unwrap_or("");
+        assert_eq!(boxed.matches("<w:p>").count(), 3, "{xml}");
+        assert!(rows.iter().all(|r| boxed.contains(&format!(">{r}</w:t>"))), "{boxed}");
+    }
+
+    #[test]
+    fn docx_keeps_paragraph_alignment() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        assert!(para_with(&xml, "Centred Title").contains("<w:jc w:val=\"center\"/>"), "{xml}");
+        assert!(para_with(&xml, "A justified paragraph").contains("<w:jc w:val=\"both\"/>"), "{xml}");
+        assert!(para_with(&xml, "21 October 2026").contains("<w:jc w:val=\"right\"/>"), "{xml}");
+        assert!(!para_with(&xml, "Left line").contains("<w:jc"), "{xml}");
+    }
+
+    #[test]
+    fn docx_margins_follow_the_text_column() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        // Left 72 pt, right 612 − 540 = 72 pt, top 792 − 724 = 68 pt (twips: × 20).
+        assert!(xml.contains("w:top=\"1360\" w:right=\"1440\""), "{xml}");
+        assert!(xml.contains("w:left=\"1440\""), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_the_font_family() {
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        assert!(xml.contains("<w:rFonts w:ascii=\"Times New Roman\" w:hAnsi=\"Times New Roman\" w:cs=\"Times New Roman\"/>"), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_a_first_line_indent() {
+        let mut p = layout_page();
+        if let Some(b) = p.blocks.get_mut(1) {
+            b.indent = 36.0;
+        }
+        let xml = part(&docx(&[p], "Doc"), "word/document.xml");
+        assert!(para_with(&xml, "A justified paragraph").contains("w:firstLine=\"720\""), "{xml}");
+        assert!(!para_with(&xml, "Left line").contains("w:firstLine"), "{xml}");
+    }
+
+    #[test]
+    fn docx_keeps_line_spacing() {
+        // Four lines in 70 pt of 11 pt text: baselines about 19.7 pt apart, 1.5 lines or so.
+        let xml = part(&docx(&[layout_page()], "Doc"), "word/document.xml");
+        let p = para_with(&xml, "A justified paragraph");
+        let line: i64 = p.split("w:line=\"").nth(1).and_then(|r| r.split('"').next()).and_then(|v| v.parse().ok()).expect("line spacing set");
+        assert!((330..=400).contains(&line), "{line}: {p}");
+        assert!(!para_with(&xml, "Left line").contains("w:line="), "a single line keeps the default");
+    }
     pub(crate) fn part(zip: &[u8], name: &str) -> String {
         let at = |i: usize, n: usize| zip[i..i + n].iter().rev().fold(0usize, |v, b| v << 8 | *b as usize);
         let mut i = 0;
@@ -1038,6 +1464,11 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         });
         let xml = part(&docx(&[p.clone()], "Receipt\u{1}"), "word/document.xml");
         assert!(xml.contains(">Total 4.50\tGBP</w:t>"), "{xml}");
@@ -1091,6 +1522,11 @@ mod tests {
             italic: true,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         });
         let r = rtf(&[p]);
         assert!(r.starts_with("{\\rtf1") && r.ends_with('}'));
@@ -1108,6 +1544,11 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         };
         Page {
             width: 612.0,
@@ -1131,9 +1572,15 @@ mod tests {
                     italic: false,
                     color: [0.0; 3],
                     rotation: 0.0,
+                    invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
+                    rows: Vec::new(),
                 },
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         }
     }
 
@@ -1182,7 +1629,20 @@ mod tests {
             .map(|i| {
                 let (row, col) = (i / 2, i / 2 + i % 2);
                 let (x, y) = (10.0 + col as f64 * 20.0, 10_000.0 - row as f64 * 14.0);
-                Block { text: "x".into(), rect: [x, y, x + 8.0, y + 12.0], size: 11.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+                Block {
+                    text: "x".into(),
+                    rect: [x, y, x + 8.0, y + 12.0],
+                    size: 11.0,
+                    bold: false,
+                    italic: false,
+                    color: [0.0; 3],
+                    rotation: 0.0,
+                    invisible: false,
+                    font: String::new(),
+                    lines: 1,
+                    indent: 0.0,
+                    rows: Vec::new(),
+                }
             })
             .collect();
         let started = std::time::Instant::now();
@@ -1209,11 +1669,17 @@ mod tests {
                             italic: false,
                             color: [0.0; 3],
                             rotation: 0.0,
+                            invisible: false,
+                            font: String::new(),
+                            lines: 1,
+                            indent: 0.0,
+                            rows: Vec::new(),
                         }
                     })
                 })
                 .collect(),
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let grid_cols = |p: &Page| part(&docx(std::slice::from_ref(p), "Grid"), "word/document.xml").matches("<w:gridCol ").count();
         assert_eq!(grid_cols(&grid(63)), 63, "63 columns is still a table");
@@ -1222,7 +1688,20 @@ mod tests {
     }
 
     fn block(t: &str, x0: f64, y0: f64, x1: f64, y1: f64) -> Block {
-        Block { text: t.into(), rect: [x0, y0, x1, y1], size: 12.0, bold: false, italic: false, color: [0.0; 3], rotation: 0.0 }
+        Block {
+            text: t.into(),
+            rect: [x0, y0, x1, y1],
+            size: 12.0,
+            bold: false,
+            italic: false,
+            color: [0.0; 3],
+            rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
+        }
     }
 
     /// #2806: a sentence whose link is set in another colour or font runs on as separate blocks
@@ -1248,6 +1727,7 @@ mod tests {
                 block("conducted during a WGP tournament.", 164.3, 502.0, 352.5, 516.6),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let h = html(std::slice::from_ref(&p), "Regulations");
         assert!(!h.contains("<table>"), "running text became a table: {h}");
@@ -1267,7 +1747,7 @@ mod tests {
             blocks.push(block(lead, 72.0, y, 211.0, y + 12.0));
             blocks.push(blue("https://example.org/event", 212.5, y, 360.0, y + 12.0));
         }
-        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new() };
+        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new(), shapes: Vec::new() };
         let h = html(std::slice::from_ref(&p), "Event");
         assert!(!h.contains("<table>"), "sentences became a table: {h}");
         assert_eq!(h.matches("https://example.org/event").count(), 3, "{h}");
@@ -1284,7 +1764,7 @@ mod tests {
             blocks.push(Block { size: 8.0, ..block(sup, 106.0, y + 5.0, 113.0, y + 13.0) });
             blocks.push(block(&format!("{},000", 30 - 5 * n), 300.0, y, 340.0, y + 12.0));
         }
-        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new() };
+        let p = Page { width: 612.0, height: 792.0, blocks, images: Vec::new(), shapes: Vec::new() };
         let h = html(std::slice::from_ref(&p), "Prizes");
         assert!(h.contains("<table>"), "the prize table was lost: {h}");
         assert!(h.contains("30,000") && h.contains("15,000"), "{h}");
@@ -1300,6 +1780,11 @@ mod tests {
             italic: false,
             color: [0.0; 3],
             rotation: 0.0,
+            invisible: false,
+            font: String::new(),
+            lines: 1,
+            indent: 0.0,
+            rows: Vec::new(),
         };
         let p = Page {
             width: 612.0,
@@ -1311,6 +1796,7 @@ mod tests {
                 para("Second right block, still a tall flowing paragraph rather than a cell.", 320.0, 400.0),
             ],
             images: Vec::new(),
+            shapes: Vec::new(),
         };
         let h = html(&[p], "Paper");
         assert!(!h.contains("<table>"), "tall two-column text must stay paragraphs: {h}");

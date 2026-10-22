@@ -853,7 +853,9 @@ pub use objects::{EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget, ed
 mod flatten;
 pub use flatten::{flatten, flatten_fill_sign};
 pub mod images;
+pub mod shapes;
 pub use images::{ImageChange, PageImage, change_image, page_images, reading_images, rect_to_rect, turn_about_centre};
+pub use shapes::{MAX_PAGE_SHAPES, MAX_SHAPE_POINTS, PageShape, ReadingShapes, reading_shapes};
 pub mod bidi;
 pub mod indic;
 mod linebreak;

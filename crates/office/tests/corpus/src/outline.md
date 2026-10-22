@@ -1,0 +1,25 @@
+# Garden Guide
+
+## Spring
+
+### Soil
+
+Turn the soil once it is dry enough to crumble in the hand, and mix in a layer of compost.
+
+### Seeds
+
+Sow peas and lettuce early; beans and squash wait until the nights are warm.
+
+## Summer
+
+### Water
+
+Water deeply twice a week rather than a little every day, so the roots grow down.
+
+### Pests
+
+Pick snails off by hand in the evening, and let the birds deal with the rest.
+
+## Autumn
+
+Plant bulbs for next year and leave the seed heads standing for the finches.

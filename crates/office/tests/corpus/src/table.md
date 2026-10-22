@@ -1,0 +1,12 @@
+# Price List
+
+The table below lists the prices for the season.
+
+| Item | Size | Price |
+|---|---|---|
+| Notebook | A5 | 4.50 |
+| Pencil set | 12 | 3.20 |
+| Backpack | Large | 39.00 |
+| Water bottle | 750 ml | 12.75 |
+
+Prices include tax and are valid until the end of the month.

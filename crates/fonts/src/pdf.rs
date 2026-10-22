@@ -1564,6 +1564,54 @@ mod tests {
         assert_eq!(glyph_unicode("nonsense"), None);
     }
 
+    #[test]
+    fn glyph_name_table_is_sorted() {
+        // `glyph_component` binary-searches it: one name out of order hides others.
+        let names = crate::encodings::NAMES;
+        assert!(names.windows(2).all(|w| w[0].0 < w[1].0), "NAMES must be sorted by name, without duplicates");
+    }
+
+    #[test]
+    fn latin_extended_a_glyph_names() {
+        // Turkish, then the rest of Latin Extended-A that PDF writers name in /Differences.
+        for (name, c) in [("gbreve", 'ğ'), ("Gbreve", 'Ğ'), ("scedilla", 'ş'), ("Scedilla", 'Ş'), ("Idotaccent", 'İ'), ("dotlessi", 'ı')] {
+            assert_eq!(glyph_unicode(name), Some(c), "{name}");
+        }
+        for (name, c) in [
+            ("Amacron", 'Ā'),
+            ("aogonek", 'ą'),
+            ("cacute", 'ć'),
+            ("Ccaron", 'Č'),
+            ("dcaron", 'ď'),
+            ("Dcroat", 'Đ'),
+            ("eogonek", 'ę'),
+            ("ecaron", 'ě'),
+            ("Gcommaaccent", 'Ģ'),
+            ("Gcedilla", 'Ģ'),
+            ("hbar", 'ħ'),
+            ("ij", 'ĳ'),
+            ("kgreenlandic", 'ĸ'),
+            ("Ldot", 'Ŀ'),
+            ("lcaron", 'ľ'),
+            ("nacute", 'ń'),
+            ("napostrophe", 'ŉ'),
+            ("Eng", 'Ŋ'),
+            ("Ohungarumlaut", 'Ő'),
+            ("rcaron", 'ř'),
+            ("sacute", 'ś'),
+            ("Tcommaaccent", 'Ţ'),
+            ("tbar", 'ŧ'),
+            ("uring", 'ů'),
+            ("Uhungarumlaut", 'Ű'),
+            ("wcircumflex", 'ŵ'),
+            ("zdotaccent", 'ż'),
+            ("Zacute", 'Ź'),
+            ("longs", 'ſ'),
+        ] {
+            assert_eq!(glyph_unicode(name), Some(c), "{name}");
+        }
+    }
+
     fn to_unicode(cmap: &[u8]) -> HashMap<u32, String> {
         let mut u = Unicode::default();
         parse_to_unicode(cmap, &mut u);

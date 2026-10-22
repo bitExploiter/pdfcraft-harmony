@@ -1,0 +1,35 @@
+Northern Lights
+	A short tour of the aurora — where it comes from, when to look, and how to photograph it
+What we'll cover
+	The science: solar wind meets the magnetosphere
+	Where and when to see it
+		High latitudes, dark skies, long winter nights
+		Kp index and space-weather forecasts
+	Photographing the aurora
+	Safety and etiquette in the field
+The Science
+	Charged particles, magnetic fields and glowing gases
+From the Sun to your sky
+	Solar wind
+	Magnetosphere
+	Particles collide
+	Light!
+	Oxygen glows green and red; nitrogen adds blue and purple fringes.
+Best months to look (clear nights)
+Camera settings that work
+Setting	Faint aurora	Bright, active aurora
+Aperture	f/1.4 – f/2.8	f/2.8
+Shutter	8 – 15 s	1 – 4 s
+ISO	1600 – 3200	800 – 1600
+Focus	Manual, on a bright star	Manual, on a bright star
+Field checklist
+	Bring
+		Tripod and spare batteries
+		Headlamp with a red mode
+		Warm layers and a thermos
+	Remember
+		Check the forecast and cloud cover
+		Let your eyes adapt for 20 minutes
+		Leave no trace
+Clear skies!
+	Made with DeckCraft — free and open source

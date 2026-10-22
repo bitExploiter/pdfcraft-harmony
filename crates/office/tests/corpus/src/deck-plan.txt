@@ -1,0 +1,13 @@
+Product Launch
+	Plan for the autumn release
+Goals
+	Ship the mobile app in October
+	Reach ten thousand users by December
+	Keep support replies under one day
+Timeline
+	August: beta with fifty customers
+	September: fix what the beta finds
+	October: launch and press day
+Risks
+	The payment provider changes its terms
+	Two engineers leave before launch

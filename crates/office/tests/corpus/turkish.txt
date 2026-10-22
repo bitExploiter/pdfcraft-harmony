@@ -1,0 +1,6 @@
+Yazılım ile Donanım Arasındaki İlişki
+Bilgisayar sistemleri iki temel bileşenden oluşur: donanım ve yazılım. Donanım, dokunabildiğimiz fiziksel parçalardır; işlemci, bellek, disk ve ekran bunlara örnektir.
+Yazılım ise donanıma ne yapacağını söyleyen komutların bütünüdür. İşletim sistemi, uygulamalar ve sürücüler yazılımın farklı katmanlarını oluşturur.
+Çalışma Düzeni
+Bir uygulama açıldığında işletim sistemi programı belleğe yükler, işlemci de komutları sırayla çalıştırır. Güçlü bir donanım, iyi yazılmış bir yazılımla birleştiğinde hızlı ve güvenilir bir sistem ortaya çıkar.
+Öğrenciler bu ilişkiyi kavradığında, ağır çalışan bir bilgisayarın sorununu doğru yerde aramayı öğrenir: ışık, ses, ağ ve şifreleme gibi işler çoğu zaman özel çiplerle hızlandırılır.

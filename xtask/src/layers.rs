@@ -74,6 +74,7 @@ pub const TABLE: &[(&str, Class)] = &[
     // L5 interaction
     ("viewport", Class::Layer(5)),
     ("tools", Class::Layer(5)),
+    ("office", Class::Layer(5)),
     // L6 façade
     ("engine", Class::Layer(6)),
     // L7 platform + frontends
