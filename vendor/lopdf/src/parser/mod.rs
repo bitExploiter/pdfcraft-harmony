@@ -375,13 +375,15 @@ fn recover_stream_length(input: ParserInput) -> Option<(ParserInput, ParserInput
 
 fn stream<'a>(
     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_length: bool,
-    recovery_bound: Option<usize>,
+    recovery_bound: Option<usize>, load_log: &crate::reader::ObjectLoadLog,
 ) -> NomResult<'a, Object> {
     let (i, dict) = terminated(dictionary, (space, tag(&b"stream"[..]), space0, eol)).parse(input)?;
 
     if let Ok(length) = dict.get(b"Length").and_then(|value| {
         if let Ok(id) = value.as_reference() {
-            reader.get_object(id, already_seen).and_then(|value| value.as_i64())
+            reader
+                .get_object_with_log(id, already_seen, load_log)
+                .and_then(|value| value.as_i64())
         } else {
             value.as_i64()
         }
@@ -467,11 +469,20 @@ pub fn direct_object(input: ParserInput) -> Option<Object> {
 
 fn object<'a>(
     input: ParserInput<'a>, reader: &Reader, already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool,
-    recovery_bound: Option<usize>,
+    recovery_bound: Option<usize>, load_log: &crate::reader::ObjectLoadLog,
 ) -> NomResult<'a, Object> {
     terminated(
         alt((
-            |input| stream(input, reader, already_seen, recover_stream_length, recovery_bound),
+            |input| {
+                stream(
+                    input,
+                    reader,
+                    already_seen,
+                    recover_stream_length,
+                    recovery_bound,
+                    load_log,
+                )
+            },
             _direct_objects(crate::reader::MAX_NESTING_DEPTH),
         )),
         space,
@@ -483,6 +494,22 @@ pub fn indirect_object(
     input: ParserInput, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
     already_seen: &mut HashSet<ObjectId>, recovery_bound: Option<usize>,
 ) -> crate::Result<(ObjectId, Object)> {
+    indirect_object_with_log(
+        input,
+        offset,
+        expected_id,
+        reader,
+        already_seen,
+        recovery_bound,
+        &crate::reader::ObjectLoadLog::silent(),
+    )
+}
+
+/// PdfCraft patch: eager reads retain their budget while resolving an indirect stream Length.
+pub(crate) fn indirect_object_with_log(
+    input: ParserInput, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
+    already_seen: &mut HashSet<ObjectId>, recovery_bound: Option<usize>, load_log: &crate::reader::ObjectLoadLog,
+) -> crate::Result<(ObjectId, Object)> {
     // Every downstream slice is a suffix of `input`, so express the absolute
     // end offset as the maximum length a suffix may have.
     let recovery_bound = recovery_bound.map(|end| input.len().saturating_sub(end));
@@ -492,8 +519,8 @@ pub fn indirect_object(
         expected_id,
         reader,
         already_seen,
-        true,
-        recovery_bound,
+        (true, recovery_bound),
+        load_log,
     )?;
 
     offset_stream(&mut object, offset);
@@ -503,7 +530,7 @@ pub fn indirect_object(
 
 fn _indirect_object<'a>(
     input: ParserInput<'a>, offset: usize, expected_id: Option<ObjectId>, reader: &Reader,
-    already_seen: &mut HashSet<ObjectId>, recover_stream_length: bool, recovery_bound: Option<usize>,
+    already_seen: &mut HashSet<ObjectId>, recovery: (bool, Option<usize>), load_log: &crate::reader::ObjectLoadLog,
 ) -> crate::Result<(ObjectId, Object)> {
     let (i, (_, object_id)) = terminated((space, object_id), pair(tag(&b"obj"[..]), space))
         .parse(input)
@@ -516,7 +543,7 @@ fn _indirect_object<'a>(
 
     let object_offset = input.len() - i.len();
     let (_, mut object) = terminated(
-        |i: ParserInput<'a>| object(i, reader, already_seen, recover_stream_length, recovery_bound),
+        |i: ParserInput<'a>| object(i, reader, already_seen, recovery.0, recovery.1, load_log),
         (space, opt(tag(&b"endobj"[..])), space),
     )
     .parse(i)
@@ -639,18 +666,26 @@ pub fn xref_and_trailer(input: ParserInput, reader: &Reader) -> crate::Result<(X
     alt((
         xref_trailer,
         (|input| {
-            _indirect_object(input, 0, None, reader, &mut HashSet::new(), false, None)
-                .map(|(_, obj)| {
-                    let res = match obj {
-                        Object::Stream(stream) => decode_xref_stream_with_limit(stream, reader.max_decompressed_size),
-                        _ => Err(crate::error::ParseError::InvalidXref.into()),
-                    };
-                    (input, res)
-                })
-                .map_err(|_| {
-                    // artificial error kind is created to allow descriptive nom errors
-                    nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
-                })
+            _indirect_object(
+                input,
+                0,
+                None,
+                reader,
+                &mut HashSet::new(),
+                (false, None),
+                &crate::reader::ObjectLoadLog::silent(),
+            )
+            .map(|(_, obj)| {
+                let res = match obj {
+                    Object::Stream(stream) => decode_xref_stream_with_limit(stream, reader.max_decompressed_size),
+                    _ => Err(crate::error::ParseError::InvalidXref.into()),
+                };
+                (input, res)
+            })
+            .map_err(|_| {
+                // artificial error kind is created to allow descriptive nom errors
+                nom::Err::Error(NomError::from_error_kind(input, ErrorKind::Fail))
+            })
         }),
     ))
     .parse(input)
