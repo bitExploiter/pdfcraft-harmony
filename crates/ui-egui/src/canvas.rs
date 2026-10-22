@@ -519,6 +519,8 @@ pub struct DocView {
     pub forms: crate::forms_ui::FormView,
     /// Prepare a form: the selected field and the gesture in progress.
     pub prepare: crate::prepare::PrepareView,
+    /// Prepare a form ▸ Calculation order.
+    pub(crate) calc_order: crate::calc_order_ui::CalcOrderView,
     /// Edit a PDF: the selected added item, the text being typed.
     pub content: crate::content_ui::ContentView,
     /// Edit a PDF ▸ Link tool state.
@@ -799,6 +801,7 @@ impl DocView {
             measure: Default::default(),
             forms: Default::default(),
             prepare: Default::default(),
+            calc_order: Default::default(),
             content: Default::default(),
             links: Default::default(),
             redact_drag: None,
@@ -2058,6 +2061,14 @@ fn annotation_hover_text(a: &pdfcraft_render::Annotation) -> Option<String> {
     Some(if body.is_empty() { who } else { format!("{who}\n{body}") })
 }
 
+/// The scroll offset that puts `point` (content coordinates) at `rel` in the viewport, kept within
+/// the content as egui keeps it. egui clamps only after drawing, so an offset past the end showed
+/// the page misplaced for a frame and then jumped (zooming out beside a page that fits).
+fn anchored_scroll(point: Pos2, rel: Vec2, content: Vec2, viewport: Vec2) -> Vec2 {
+    let max = vec2((content.x - viewport.x).max(0.0), (content.y - viewport.y).max(0.0));
+    vec2((point.x - rel.x).clamp(0.0, max.x), (point.y - rel.y).clamp(0.0, max.y))
+}
+
 /// The request tag for a raster at `scale`: equal tags mean the same scale (to 1/65536).
 fn scale_tag(scale: f32) -> u64 {
     (f64::from(scale) * 65536.0).round() as u64
@@ -2346,6 +2357,17 @@ const SUPPRESS_SECS: f64 = 0.25;
 /// Short rolling extension while egui still has an unprocessed wheel tail.
 const SUPPRESS_TAIL_SECS: f64 = 0.05;
 
+// The viewer moves between docking and the central panel as modes change; keep its scroll
+// identity tied to the document instead of either parent UI.
+fn page_scroll<R>(
+    ui: &mut egui::Ui,
+    scroll: egui::ScrollArea,
+    id: egui::Id,
+    draw: impl FnOnce(&mut egui::Ui, egui::Rect) -> R,
+) -> egui::scroll_area::ScrollAreaOutput<R> {
+    ui.scope_builder(egui::UiBuilder::new().id(id), |ui| scroll.show_viewport(ui, draw)).inner
+}
+
 pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     // Keyboard scrolling applies to this frame's page view only, never later.
@@ -2384,6 +2406,8 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     }
     // The Prepare a form panel is open (or a field tool is picked): fields are edited, not filled.
     let preparing = app.is_preparing();
+    // Prepare a form ▸ Calculation order: the order's steps and links on the page.
+    let calc_order = preparing && app.left_open && app.left == crate::LeftPanel::CalculationOrder;
     // Edit a PDF: added text and images can be selected, moved and edited.
     let editing_content =
         (app.left_open && app.left == crate::LeftPanel::Tool("edit")) || matches!(app.quick_tool, QuickTool::AddText | QuickTool::EditText);
@@ -2414,9 +2438,13 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     }
     // No dialog, close prompt or palette over the page: only then does page input count.
     let unobstructed = !app.modal_open() && !app.palette_open;
+    let organize_zoom = app.organize_zoom;
     let view = &mut app.views[index];
     if view.organize {
+        // One remembered grid size for every document, kept in the settings.
+        view.set_grid_zoom(organize_zoom);
         organize_grid(view, info, doc.allows_assembly(), doc.dirty, unobstructed, ui, &t);
+        app.organize_zoom = view.grid_zoom();
         return;
     }
 
@@ -2676,7 +2704,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     if let Some((page, fx, fy, rel)) = view.zoom_anchor.take() {
         let r = rects[page.min(rects.len() - 1)];
         let point = pos2(r.left() + fx * r.width(), r.top() - y_shift + fy * r.height());
-        scroll = scroll.scroll_offset(vec2((point.x - rel.x).max(0.0), (point.y - rel.y).max(0.0)));
+        scroll = scroll.scroll_offset(anchored_scroll(point, rel, vec2(content_w, content_h), avail.size()));
     } else if let Some((page, frac)) = view.goto.take() {
         let page = page.min(rects.len() - 1);
         let r = rects[page];
@@ -2744,6 +2772,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let mut copy_selected = false;
     let comments_hidden = doc.comments_hidden();
     let form = doc.form.clone();
+    let generation = doc.edit_generation();
     let can_fill = doc.allows_form_filling();
     let can_crop = doc.allows_assembly();
     let mut open_boxes = false;
@@ -2781,6 +2810,9 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let mut open_props: Option<(usize, usize)> = None;
     let mut field_props = false;
     let mut field_placed = false;
+    let mut open_table: Option<(usize, [f64; 4])> = None;
+    // The table being set up in its window, shown on its own document's page.
+    let table_preview = app.field_table_draft.as_mut().filter(|d| d.doc == view.id).and_then(|d| Some(d.preview(info.pages.get(d.page)?, &form)));
     let can_modify = doc.allows_modification();
     if preparing {
         crate::prepare::after_refresh(view, &form);
@@ -2812,7 +2844,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         }
     }
     let selection_wheel = view.selection_drag && navigation_enabled && unobstructed && !single_paging && ui.rect_contains_pointer(avail);
-    let out = scroll.show_viewport(ui, |ui, viewport| {
+    let out = page_scroll(ui, scroll, egui::Id::new(("page-view-scope", view.id)), |ui, viewport| {
         // egui's drag responses accept every pointer button. Keep a wheel gesture from also
         // selecting text, drawing a mark, or panning with the Hand tool.
         if middle_gesture {
@@ -2869,6 +2901,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             // Set again below when the right-click lands on a link.
             view.links.context = None;
         }
+        let mut calc_hover = None;
         for &i in &visible_pages {
             badge_hover = None;
             let r = snap_to_pixels(rects[i].translate(origin.to_vec2()), ppp);
@@ -3122,9 +3155,12 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     QuickTool::Field(f) => Some(f),
                     _ => None,
                 };
-                let o = crate::prepare::page_input(ui, &resp, &xf, i, info, &form, field_tool, can_modify, view);
+                // While a table is being set up, nothing else is drawn or moved.
+                let allowed = can_modify && table_preview.is_none() && open_table.is_none();
+                let o = crate::prepare::page_input(ui, &resp, &xf, i, info, &form, field_tool, allowed, view);
                 field_props |= o.properties;
                 field_placed |= o.placed;
+                open_table = open_table.or(o.table);
                 (o.consumed || field_tool.is_some(), false)
             } else {
                 use crate::forms_ui::FieldPointer;
@@ -3437,6 +3473,15 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             }
             if preparing {
                 crate::prepare::paint_page(ui, painter, &xf, i, info, &form, view);
+                if let Some(preview) = &table_preview {
+                    crate::field_table_ui::paint_preview(painter, &xf, i, preview);
+                }
+                if calc_order {
+                    let selected = view.prepare.selected.as_ref().map(|(name, _)| name.as_str());
+                    if let Some(name) = crate::calc_order_ui::paint_page(ui, painter, &xf, i, info, &form, &view.calc_order, generation, selected) {
+                        calc_hover = Some(name);
+                    }
+                }
             } else {
                 crate::forms_ui::paint_page(ui, painter, &xf, i, info, &form, view);
             }
@@ -3557,6 +3602,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             if hover_text.is_none() {
                 hover_text = badge_hover.take();
             }
+        }
+        if calc_order {
+            view.calc_order.set_hover_page(calc_hover);
+            let selected = view.prepare.selected.as_ref().map(|(name, _)| name.as_str());
+            crate::calc_order_ui::paint_trace(ui, painter, visible, &view.calc_order, generation, selected);
         }
         // ScrollArea ignores the wheel while any widget is dragged, so a text-selection drag
         // scrolls the page itself (#721). After the page loop, so it keeps scrolling once the
@@ -4039,6 +4089,14 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         app.boxes_draft.seeded = None;
         app.dialog = Some(crate::Dialog::PageBoxes);
     }
+    if let Some((page, rect)) = open_table {
+        app.field_table_draft = Some(crate::field_table_ui::FieldTableDraft::new(app.views[index].id, page, rect, &form, generation));
+        app.dialog = Some(crate::Dialog::FieldTable);
+        // The window lasts while the form is prepared. Drawn with the tool picked but its panel
+        // closed, the tool goes back to Select above, so the panel opens to keep it prepared.
+        app.left = crate::LeftPanel::Tool("form");
+        app.reveal_tools();
+    }
     if let Some(n) = form_notice {
         match n {
             crate::forms_ui::FormNotice::Security => app.notify_tr("The document's security settings don't allow filling in form fields"),
@@ -4483,11 +4541,8 @@ fn notices(
     // A form whose scripts were turned off no longer calculates or answers its buttons: that
     // comes before what else there is to say about the document.
     let scripts_off = doc.xfa_scripts_off();
-    let msg = if scripts_off {
-        Some(("triangle-alert", crate::js_ui::scripts_off_notice(), true))
-    } else if secured {
-        Some(("lock", tl!("This document is secured. Some changes are restricted by its security settings.").to_string(), false))
-    } else if let Some(x) = xfa {
+    // What the document is as a form, if it is one: what the bar says first, secured or not.
+    let form = if let Some(x) = xfa {
         let lang = crate::i18n::current();
         let pages = crate::i18n::trn(lang, x.pages as u64, "{n} page", "{n} pages");
         let fields = crate::i18n::trn(lang, x.fields as u64, "{n} field", "{n} fields");
@@ -4518,6 +4573,21 @@ fn notices(
             crate::i18n::fmt(tl!("This document contains {n} interactive form fields."), &[("n", &info.fields.len().to_string())]),
             true,
         ))
+    } else {
+        None
+    };
+    let msg = if scripts_off {
+        Some(("triangle-alert", crate::js_ui::scripts_off_notice(), true))
+    } else if secured {
+        // A secured form still says what it is, and keeps Highlight fields: the security
+        // sentence follows the form's.
+        let security = tl!("This document is secured. Some changes are restricted by its security settings.");
+        Some(match form {
+            Some((icon, text, fields)) => (icon, format!("{text} {security}"), fields),
+            None => ("lock", security.to_string(), false),
+        })
+    } else if form.is_some() {
+        form
     } else if repaired {
         Some(("bandage", tl!("This file was damaged and has been repaired. Saving keeps the repaired version.").to_string(), false))
     } else if !info.warnings.is_empty() {
@@ -5285,6 +5355,19 @@ fn grayscale(mut img: egui::ColorImage) -> egui::ColorImage {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn zoom_anchor_scroll_stays_within_the_content() {
+        let (content, viewport) = (vec2(1000.0, 2000.0), vec2(800.0, 600.0));
+        // Past the end: clamped to the maximum (200, 1400), not left for egui to snap back.
+        assert_eq!(anchored_scroll(pos2(900.0, 1900.0), vec2(0.0, 0.0), content, viewport), vec2(200.0, 1400.0));
+        // Before the start.
+        assert_eq!(anchored_scroll(pos2(10.0, 10.0), vec2(300.0, 300.0), content, viewport), Vec2::ZERO);
+        // Inside: unchanged.
+        assert_eq!(anchored_scroll(pos2(150.0, 800.0), vec2(100.0, 100.0), content, viewport), vec2(50.0, 700.0));
+        // Content smaller than the viewport: no scrolling.
+        assert_eq!(anchored_scroll(pos2(400.0, 400.0), Vec2::ZERO, vec2(500.0, 500.0), viewport), vec2(0.0, 0.0));
+    }
+
     #[test]
     fn page_size_hint_zone_is_the_bottom_left_quadrant() {
         let area = Rect::from_min_max(pos2(100.0, 50.0), pos2(500.0, 450.0));

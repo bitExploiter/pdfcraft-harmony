@@ -213,6 +213,9 @@ pub static LANGUAGES: [LangInfo; 24] = [
     // Vietnamese; every `vi-*` locale (`vi-VN`, `vi_VN.UTF-8`) resolves here. CLDR `vi` counts have
     // one form ("other"), so `@plural` entries list a single form.
     LangInfo { code: "vi", name: "Tiếng Việt", source: include_str!("vi.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
+    // Norwegian Bokmål; every `nb-*` locale resolves here, and so do general Norwegian (`no-*`) and
+    // Nynorsk (`nn-*`), which have no catalog of their own (see `candidates`).
+    LangInfo { code: "nb", name: "Norsk bokmål", source: include_str!("nb.tsv"), plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
 ];
 
 impl LangInfo {
@@ -318,6 +321,11 @@ fn candidates(tag: &str) -> Vec<String> {
     if primary == "pt" && !out.iter().any(|c| c == "pt-br") {
         // The only Portuguese catalog is Brazilian; other regions use it rather than English.
         out.insert(out.len().saturating_sub(1), "pt-br".to_string());
+    }
+    if matches!(primary, "no" | "nn") {
+        // The only Norwegian catalog is Bokmål. `no` (Norwegian in general) and Nynorsk readers use
+        // it rather than English; last, so a catalog of their own would win.
+        out.push("nb".to_string());
     }
     out
 }
@@ -669,6 +677,9 @@ mod tests {
         assert_eq!(candidates("zh_TW"), ["zh-tw", "zh-hant", "zh"]);
         assert_eq!(candidates("zh-CN"), ["zh-cn", "zh-hans", "zh"]);
         assert_eq!(candidates("zh-Hant-HK"), ["zh-hant-hk", "zh-hant", "zh"]);
+        assert_eq!(candidates("nb_NO.UTF-8"), ["nb-no", "nb"]);
+        assert_eq!(candidates("no_NO.UTF-8"), ["no-no", "no", "nb"]);
+        assert_eq!(candidates("nn-NO"), ["nn-no", "nn", "nb"]);
     }
 
     #[test]
@@ -1311,7 +1322,7 @@ mod tests {
     /// Spanish says everything the layers below word for themselves: what the accessibility
     /// checker finds and what its saved report calls things, what the PDF/A verifier reports, what
     /// a signature's details say and the changes they name, what can be wrong with the pages to
-    /// print, and what an edit is called in the history.
+    /// print or with a table of text fields, and what an edit is called in the history.
     ///
     /// These lists are the whole point of the engine handing the wording over apart from the
     /// document's own words: a catalog that covers them says those sentences in its own language.
@@ -1319,7 +1330,7 @@ mod tests {
     #[test]
     fn spanish_covers_what_the_engine_says() {
         let es = Lang::from_code("es").expect("es registered");
-        let lists: [(&str, &[&str]); 8] = [
+        let lists: [(&str, &[&str]); 9] = [
             ("accessibility finding", pdfcraft_engine::a11y::WORDINGS),
             ("accessibility report", pdfcraft_engine::a11y::REPORT_WORDS),
             ("PDF/A problem", pdfcraft_engine::pdfa::WORDINGS),
@@ -1328,6 +1339,7 @@ mod tests {
             ("pages to print", pdfcraft_engine::print::WORDINGS),
             ("edit label", pdfcraft_engine::EDIT_LABELS),
             ("batch label", pdfcraft_engine::BATCH_LABELS),
+            ("text field table mistake", pdfcraft_engine::field_table::WORDINGS),
         ];
         for (what, list) in lists {
             assert!(!list.is_empty(), "no {what} wordings to cover");
@@ -1343,11 +1355,12 @@ mod tests {
     #[test]
     fn spanish_keeps_the_holes_in_what_the_engine_says() {
         let es = Lang::from_code("es").expect("es registered");
-        let lists: [&[&str]; 4] = [
+        let lists: [&[&str]; 5] = [
             pdfcraft_engine::a11y::WORDINGS,
             pdfcraft_engine::pdfa::WORDINGS,
             pdfcraft_engine::sign::pdf::WORDINGS,
             pdfcraft_engine::print::WORDINGS,
+            pdfcraft_engine::field_table::WORDINGS,
         ];
         for wording in lists.into_iter().flatten() {
             let said = tr(es, wording);
@@ -2309,6 +2322,29 @@ mod tests {
         restored.restore(&app.persist());
         assert_eq!(restored.language, "lt");
         assert!(restored.set_option("language", "xx").is_err());
+    }
+
+    #[test]
+    fn norwegian_bokmal_is_registered_and_persists() {
+        let nb = Lang::from_code("nb").expect("nb registered");
+        assert_eq!(nb.name(), "Norsk bokmål");
+        assert_eq!(normalize_pref("NB"), Some("nb"));
+        assert_eq!(normalize_pref("no"), None, "only exact codes are preferences");
+        // Current systems say `nb`; older ones and some Linux setups say `no`. Nynorsk is `nn`.
+        for tag in ["nb", "nb-NO", "nb_NO.UTF-8", "no", "no_NO.UTF-8", "NO-no", "nn", "nn_NO.UTF-8"] {
+            assert_eq!(lang_from_tag(tag), Some(nb), "{tag}");
+        }
+        assert_eq!(first_supported("(\n    \"nb-NO\",\n    \"en-US\"\n)\n"), Some(nb));
+        assert_eq!(first_supported("nn-NO\r\nen-US\r\n"), Some(nb));
+        assert_eq!((0..=3).map(|n| (nb.0.plural)(n)).collect::<Vec<_>>(), [1, 0, 1, 1]);
+        assert_eq!(tr(nb, "Allow"), "Tillat");
+        assert_eq!(tr_ctx(nb, "key", "Space"), "Mellomrom");
+        let mut app = crate::PdfCraftApp::default();
+        app.set_option("language", "NB").unwrap();
+        assert_eq!(app.language, "nb");
+        let mut restored = crate::PdfCraftApp::default();
+        restored.restore(&app.persist());
+        assert_eq!(restored.language, "nb");
     }
 
     #[test]

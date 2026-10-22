@@ -3391,6 +3391,65 @@ fn rotating_a_field_through_tools() {
     assert_eq!((rot, back), (0, before));
 }
 
+/// A table of text fields through the tool: laid out from the top of the page as displayed, named
+/// column by column, one undo step, and refused whole, with the reason, when any of it can't go in.
+#[test]
+fn adding_a_field_table_through_tools() {
+    let dir = workdir("field-table");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let table =
+        json!({ "doc": doc, "page": 1, "rect": [20, 20, 220, 120], "rows": 2, "names": ["desc_N", "price_N"], "widths": [3, 1], "row_gap": 10 });
+    assert_eq!(ok(&mut a, "form_add_field_table", table.clone())["fields"], json!(["desc_1", "price_1", "desc_2", "price_2"]));
+    let rects = |a: &mut Automation| {
+        let fields = ok(a, "form_fields", json!({ "doc": doc }))["fields"].as_array().unwrap().clone();
+        fields.iter().map(|f| (f["name"].as_str().unwrap().to_owned(), f["rect"].clone())).collect::<Vec<_>>()
+    };
+    // 150 and 50 points wide, (100 - 10) / 2 = 45 high, the first row at the top.
+    let near = |v: &Value, want: [f64; 4]| v.as_array().unwrap().iter().zip(want).all(|(g, w)| (g.as_f64().unwrap() - w).abs() < 0.01);
+    let got = rects(&mut a);
+    for (name, want) in [
+        ("desc_1", [20.0, 20.0, 170.0, 65.0]),
+        ("price_1", [170.0, 20.0, 220.0, 65.0]),
+        ("desc_2", [20.0, 75.0, 170.0, 120.0]),
+        ("price_2", [170.0, 75.0, 220.0, 120.0]),
+    ] {
+        let rect = got.iter().find(|(n, _)| n == name).map(|(_, r)| r).unwrap();
+        assert!(near(rect, want), "{name}: {rect} != {want:?}");
+    }
+    // Without names, each table takes the first free base.
+    let plain = json!({ "doc": doc, "page": 2, "rect": [20, 20, 220, 120], "rows": 2 });
+    assert_eq!(ok(&mut a, "form_add_field_table", plain.clone())["fields"], json!(["Table1_1", "Table1_2"]));
+    assert_eq!(ok(&mut a, "form_add_field_table", plain)["fields"], json!(["Table2_1", "Table2_2"]));
+    let count = |a: &mut Automation| ok(a, "form_fields", json!({ "doc": doc }))["fields"].as_array().unwrap().len();
+    assert_eq!(count(&mut a), 8);
+    // Refused whole, saying why: nothing is added.
+    let refused = |a: &mut Automation, args: Value| match a.call("form_add_field_table", &args) {
+        Err(ToolError::InvalidArgs(m)) => m,
+        other => panic!("refused, not {other:?}"),
+    };
+    assert_eq!(refused(&mut a, table), "a field named \"desc_1\" already exists");
+    let small = json!({ "doc": doc, "page": 1, "rect": [20, 200, 220, 300], "rows": 30 });
+    assert!(refused(&mut a, small).starts_with("the rows are too short"));
+    let dotted = json!({ "doc": doc, "page": 1, "rect": [20, 200, 220, 300], "rows": 2, "names": ["a.{n}"] });
+    assert_eq!(refused(&mut a, dotted), "field names can't contain a period: \"a.1\"");
+    let disagree = json!({ "doc": doc, "page": 1, "rect": [20, 200, 220, 300], "rows": 2, "columns": 3, "names": ["a_N", "b_N"] });
+    assert!(refused(&mut a, disagree).contains("must agree"));
+    let wide = json!({ "doc": doc, "page": 1, "rect": [20, 200, 220, 300], "rows": 2, "columns": 51 });
+    assert_eq!(refused(&mut a, wide), "a table has 1 to 50 columns");
+    let none = json!({ "doc": doc, "page": 1, "rect": [20, 200, 220, 300], "rows": -1 });
+    assert_eq!(refused(&mut a, none), "a table has 1 to 100 rows");
+    let huge = json!({ "doc": doc, "page": 1, "rect": [20, 200, 1e39, 300], "rows": 2 });
+    assert!(refused(&mut a, huge).starts_with("the area, the spacing and the column widths must be numbers"));
+    assert_eq!(count(&mut a), 8);
+    // The table tool's command runs it too.
+    let by_command = json!({ "id": "form.add.text_table", "params": { "doc": doc, "page": 3, "rect": [20, 20, 220, 120], "rows": 2 } });
+    assert_eq!(ok(&mut a, "command_run", by_command)["fields"], json!(["Table3_1", "Table3_2"]));
+    assert_eq!(count(&mut a), 10);
+    assert_eq!(ok(&mut a, "edit_undo", json!({ "doc": doc }))["undone"], "Add text field table");
+    assert_eq!(count(&mut a), 8, "one undo takes back the whole last table");
+}
+
 #[test]
 fn redacting_through_tools() {
     let dir = workdir("redact");
@@ -3799,6 +3858,121 @@ fn form_formats_and_calculations_through_tools() {
     ));
 }
 
+/// Renaming a field renames it in the formulas that read it: a sum dropped the field, notation
+/// read it as 0 and a script kept a stale value.
+#[test]
+fn renaming_a_field_keeps_the_formulas_that_read_it() {
+    let dir = workdir("formrename");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    for (i, name) in ["a", "b", "c", "d", "e", "x", "sum", "product", "double", "total"].into_iter().enumerate() {
+        let y = 20 + 30 * i;
+        ok(&mut a, "form_add_field", json!({ "doc": doc, "page": 1, "type": "text", "rect": [20, y, 180, y + 22], "name": name }));
+    }
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "sum", "calculate": { "op": "sum", "fields": ["a", "b"] } }));
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "product", "calculate": { "notation": "c * d" } }));
+    ok(
+        &mut a,
+        "form_set_script",
+        json!({ "doc": doc, "field": "double", "event": "calculate", "script": "event.value = getField(\"e\").value * 2;" }),
+    );
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "total", "calculate": { "op": "sum", "fields": ["x"] } }));
+    let renamed = |a: &mut Automation, from: &str, to: &str| ok(a, "form_set_props", json!({ "doc": doc, "field": from, "name": to }));
+    assert_eq!(renamed(&mut a, "a", "qty")["formulas_updated"], json!(["sum"]));
+    assert_eq!(renamed(&mut a, "c", "price")["formulas_updated"], json!(["product"]));
+    assert_eq!(renamed(&mut a, "e", "base")["formulas_updated"], json!(["double"]));
+    assert_eq!(renamed(&mut a, "total", "grand")["formulas_updated"], json!([]), "a calculated field's own name is in no formula");
+    ok(&mut a, "form_fill", json!({ "doc": doc, "values": { "qty": "10", "b": "2", "price": "10", "d": "4", "base": "10", "x": "9" } }));
+    let values = |a: &mut Automation| {
+        let f = ok(a, "form_fields", json!({ "doc": doc }));
+        let value = |name: &str| f["fields"].as_array().unwrap().iter().find(|x| x["name"] == name).map(|x| x["value"].clone());
+        [value("sum"), value("product"), value("double"), value("grand")]
+    };
+    assert_eq!(values(&mut a), [Some(json!("12")), Some(json!("40")), Some(json!("20")), Some(json!("9"))]);
+    let f = ok(&mut a, "form_fields", json!({ "doc": doc }));
+    let field = |name: &str| f["fields"].as_array().unwrap().iter().find(|x| x["name"] == name).unwrap().clone();
+    assert_eq!(field("sum")["calculate"]["fields"], json!(["qty", "b"]));
+    assert_eq!(field("product")["calculate"]["notation"], "price * d");
+    // The rename and the formulas it changed are one undo step: undo the fill, then the last
+    // three renames.
+    for _ in 0..4 {
+        ok(&mut a, "edit_undo", json!({ "doc": doc }));
+    }
+    let f = ok(&mut a, "form_fields", json!({ "doc": doc }));
+    let field = |name: &str| f["fields"].as_array().unwrap().iter().find(|x| x["name"] == name).cloned();
+    assert!(field("c").is_some() && field("price").is_none());
+    assert_eq!(field("product").unwrap()["calculate"]["notation"], "c * d", "undone together with the rename");
+    // The renamed field's own formula, changed in the same call, is not one the rename
+    // rewrote, though the name is stored trimmed.
+    let r = ok(
+        &mut a,
+        "form_set_props",
+        json!({ "doc": doc, "field": "sum", "name": " added ", "calculate": { "op": "sum", "fields": ["qty", "b", "x"] } }),
+    );
+    assert_eq!(r["formulas_updated"], json!([]));
+}
+
+/// The calculation order through the tool: read with what each formula reads and what is wrong,
+/// fixed so stale values come out right, moved, set, and undone.
+#[test]
+fn the_calculation_order_is_read_fixed_and_set() {
+    let dir = workdir("calcorder");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    for (i, name) in ["qty", "price", "sub", "total", "tax", "x", "y"].into_iter().enumerate() {
+        let y = 20 + 30 * i;
+        ok(&mut a, "form_add_field", json!({ "doc": doc, "page": 1, "type": "text", "rect": [20, y, 180, y + 22], "name": name }));
+    }
+    // Defined backwards: total and tax calculate before the fields they read.
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "total", "calculate": { "op": "sum", "fields": ["sub", "tax"] } }));
+    ok(
+        &mut a,
+        "form_set_script",
+        json!({ "doc": doc, "field": "tax", "event": "calculate", "script": "event.value = getField(\"sub\").value / 10;" }),
+    );
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "sub", "calculate": { "notation": "qty * price" } }));
+    // x and y read each other.
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "x", "calculate": { "notation": "y + 1" } }));
+    ok(&mut a, "form_set_props", json!({ "doc": doc, "field": "y", "calculate": { "notation": "x + 1" } }));
+    ok(&mut a, "form_fill", json!({ "doc": doc, "values": { "qty": "3", "price": "10" } }));
+    let value = |a: &mut Automation, name: &str| {
+        let f = ok(a, "form_fields", json!({ "doc": doc }));
+        f["fields"].as_array().unwrap().iter().find(|x| x["name"] == name).map(|x| x["value"].clone()).unwrap()
+    };
+    assert_eq!((value(&mut a, "total"), value(&mut a, "tax")), (json!("0"), json!("0")), "stale: they calculate too early");
+    let r = ok(&mut a, "form_calculation_order", json!({ "doc": doc }));
+    assert_eq!(r["calculation_order"], json!(["total", "tax", "sub", "x", "y"]));
+    assert_eq!(r["fields"][0]["reads"], json!(["sub", "tax"]));
+    assert_eq!(r["fields"][0]["issues"], json!([{ "issue": "runs_too_early", "field": "tax" }, { "issue": "runs_too_early", "field": "sub" }]));
+    assert_eq!(r["fields"][1]["issues"], json!([{ "issue": "runs_too_early", "field": "sub" }]), "a script's reads are checked too");
+    assert_eq!(r["fields"][3]["issues"], json!([{ "issue": "cycle", "fields": ["y"] }]));
+    assert_eq!((r["fixable"].clone(), r["extra"].clone()), (json!(true), json!([])));
+    assert!(r.get("undo").is_none(), "reading changes nothing");
+    // Prepare a form ▸ Calculation order is this tool headlessly.
+    let r = ok(&mut a, "command_run", json!({ "id": "form.calculation_order", "params": { "doc": doc } }));
+    assert_eq!(r["calculation_order"], json!(["total", "tax", "sub", "x", "y"]));
+    let r = ok(&mut a, "form_calculation_order", json!({ "doc": doc, "fix": true }));
+    assert_eq!(r["calculation_order"], json!(["sub", "tax", "total", "x", "y"]), "only what must move moves; the loop stays");
+    assert_eq!(r["undo"], "Set calculation order");
+    assert_eq!(r["fixable"], false);
+    assert_eq!((value(&mut a, "total"), value(&mut a, "tax")), (json!("33"), json!("3")), "recalculated in the new order");
+    let r = ok(&mut a, "form_calculation_order", json!({ "doc": doc, "field": "y", "move": "earlier" }));
+    assert_eq!(r["calculation_order"], json!(["sub", "tax", "total", "y", "x"]));
+    let r = ok(&mut a, "form_calculation_order", json!({ "doc": doc, "order": ["x"] }));
+    assert_eq!(r["calculation_order"], json!(["x", "sub", "tax", "total", "y"]), "the fields named first, the others after them");
+    for bad in [json!({ "order": ["qty"] }), json!({ "order": ["sub", "sub"] }), json!({ "field": "qty" }), json!({ "fix": true, "field": "x" })] {
+        let mut args = bad.clone();
+        args["doc"] = json!(doc);
+        assert!(a.call("form_calculation_order", &args).is_err(), "{bad}");
+    }
+    for _ in 0..3 {
+        ok(&mut a, "edit_undo", json!({ "doc": doc }));
+    }
+    let r = ok(&mut a, "form_calculation_order", json!({ "doc": doc }));
+    assert_eq!(r["calculation_order"], json!(["total", "tax", "sub", "x", "y"]));
+    assert_eq!((value(&mut a, "total"), value(&mut a, "tax")), (json!("0"), json!("0")), "undone with the values it recalculated");
+}
+
 #[test]
 fn tab_order_and_field_appearance_through_tools() {
     let dir = workdir("taborder");
@@ -3880,15 +4054,13 @@ fn natural_image_stamps_through_tools_on_rotated_pages() {
         let mut reader = png::Decoder::new(std::io::Cursor::new(data)).read_info().unwrap();
         let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
         let info = reader.next_frame(&mut pixels).unwrap();
-        assert_eq!(info.color_type, png::ColorType::Rgba);
-        for ((x, y), colour) in [(80, 90), (120, 90), (80, 110), (120, 110)].into_iter().zip([
-            [240, 20, 20, 255],
-            [20, 180, 20, 255],
-            [20, 20, 240, 255],
-            [230, 180, 20, 255],
-        ]) {
-            let offset = ((y * info.width + x) * 4) as usize;
-            assert_eq!(&pixels[offset..offset + 4], &colour, "page rotation {degrees}");
+        // A rendered page is opaque, so it comes as RGB.
+        assert_eq!(info.color_type, png::ColorType::Rgb);
+        for ((x, y), colour) in
+            [(80, 90), (120, 90), (80, 110), (120, 110)].into_iter().zip([[240, 20, 20], [20, 180, 20], [20, 20, 240], [230, 180, 20]])
+        {
+            let offset = ((y * info.width + x) * 3) as usize;
+            assert_eq!(&pixels[offset..offset + 3], &colour, "page rotation {degrees}");
         }
     }
 }
@@ -5282,6 +5454,74 @@ fn exporting_to_word_html_and_rtf() {
     assert!(a.call("doc_export_office", &json!({ "doc": doc, "path": "a.xyz" })).is_err());
 }
 
+/// #3120: a PDF whose pages draw "Head", then a chain of `depths[page]` nested forms whose
+/// innermost writes "TAIL".
+fn nested_forms_pdf(depths: &[usize]) -> Vec<u8> {
+    let mut objs: Vec<String> =
+        vec!["<< /Type /Catalog /Pages 2 0 R >>".into(), String::new(), "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".into()];
+    let mut kids = Vec::new();
+    for &depth in depths {
+        // The object number of D1, D2 and so on.
+        let first = objs.len() + 1;
+        let xobjects: String = (1..=depth).map(|i| format!("/D{i} {} 0 R ", first + i - 1)).collect();
+        let resources = format!("<< /Font << /F1 3 0 R >> /XObject << {xobjects}>> >>");
+        for i in 1..=depth {
+            let body = if i == depth { "BT /F1 24 Tf 20 150 Td (TAIL) Tj ET".to_string() } else { format!("/D{} Do", i + 1) };
+            objs.push(format!(
+                "<< /Type /XObject /Subtype /Form /BBox [0 0 200 300] /Resources {resources} /Length {} >>\nstream\n{body}\nendstream",
+                body.len()
+            ));
+        }
+        let body = "BT /F1 24 Tf 20 250 Td (Head) Tj ET /D1 Do";
+        objs.push(format!("<< /Length {} >>\nstream\n{body}\nendstream", body.len()));
+        objs.push(format!("<< /Type /Page /Parent 2 0 R /Contents {} 0 R /Resources {resources} >>", objs.len()));
+        kids.push(format!("{} 0 R", objs.len()));
+    }
+    objs[1] = format!("<< /Type /Pages /Kids [{}] /Count {} /MediaBox [0 0 200 300] >>", kids.join(" "), kids.len());
+    let mut out = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend_from_slice(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offsets {
+        out.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    out.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    out
+}
+
+/// #3120: export reads forms as deeply nested as the renderer draws them (13 used to lose their
+/// text), and its result says which pages draw forms past that, whose text is missing.
+#[test]
+fn exporting_office_files_says_which_pages_left_form_text_out() {
+    use pdfcraft_engine::compare::{MAX_FORM_DEPTH, MAX_FORM_VISITS};
+    let dir = workdir("office-forms");
+    std::fs::write(dir.join("deep.pdf"), nested_forms_pdf(&[13, MAX_FORM_DEPTH + 1, MAX_FORM_DEPTH])).unwrap();
+    std::fs::write(dir.join("fine.pdf"), nested_forms_pdf(&[13])).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "deep.pdf" }))["doc"].as_u64().unwrap();
+    for ext in ["html", "docx"] {
+        let r = ok(&mut a, "doc_export_office", json!({ "doc": doc, "path": format!("deep.{ext}") }));
+        assert_eq!((&r["truncated"], &r["truncated_pages"]), (&json!(true), &json!([2])), "{r}");
+        let warning = r["warnings"][0].as_str().unwrap();
+        assert!(warning.contains(&format!("{MAX_FORM_DEPTH} deep")) && warning.contains(&MAX_FORM_VISITS.to_string()), "{warning}");
+        assert!(warning.contains("truncated_pages"), "{warning}");
+    }
+    let html = std::fs::read_to_string(dir.join("deep.html")).unwrap();
+    let tails: Vec<usize> = html.split("<hr>").map(|page| page.matches("TAIL").count()).collect();
+    assert_eq!(tails, [1, 0, 1], "{html}");
+    assert_eq!(html.matches("Head").count(), 3, "{html}");
+
+    let fine = ok(&mut a, "doc_open", json!({ "path": "fine.pdf" }))["doc"].as_u64().unwrap();
+    let r = ok(&mut a, "doc_export_office", json!({ "doc": fine, "path": "fine.html" }));
+    assert_eq!((&r["truncated"], &r["truncated_pages"]), (&json!(false), &json!([])), "{r}");
+    assert!(r.get("warnings").is_none(), "{r}");
+    assert!(std::fs::read_to_string(dir.join("fine.html")).unwrap().contains("TAIL"));
+}
+
 /// #773: a diagonal watermark must not enter the body flow or move invoice fields.
 #[test]
 fn exporting_an_invoice_to_word_keeps_the_watermark_out_of_flow() {
@@ -6447,7 +6687,8 @@ fn reading_colors_workdir() -> PathBuf {
     dir
 }
 
-/// Decodes a `page_render` PNG (pages here are 200×300 pt) into RGBA pixels.
+/// Decodes a `page_render` PNG (pages here are 200×300 pt) into RGBA pixels. Opaque pages
+/// come as RGB; their alpha is 255.
 fn png_pixels(content: &Content) -> Vec<u8> {
     let Content::Png { data, width, height } = content else { panic!("expected a PNG") };
     assert_eq!((*width, *height), (200, 300));
@@ -6455,7 +6696,11 @@ fn png_pixels(content: &Content) -> Vec<u8> {
     let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
     let info = reader.next_frame(&mut pixels).unwrap();
     assert_eq!((info.width, info.height), (200, 300));
-    pixels
+    match info.color_type {
+        png::ColorType::Rgba => pixels,
+        png::ColorType::Rgb => pixels.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        other => panic!("unexpected colour type {other:?}"),
+    }
 }
 
 /// The RGBA pixel at (`x`, `y`), top-left origin, of a 200-wide image.
@@ -6696,4 +6941,94 @@ fn a_root_less_write_output_is_atomic_too() {
     let e = free.write_output(&dir.join("new").to_string_lossy(), &[4]).unwrap_err();
     assert!(matches!(&e, ToolError::Failed(m) if m.contains("is a folder")), "{e:?}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn fdf_nested_comment_values_survive_export_import_and_save_through_tools() {
+    use pdfcraft_cos::{Dict, Document, Object, PdfString, SaveOptions, write_full};
+    use std::sync::Arc;
+    let dir = workdir("fdf-nested-values");
+    let mut source = Document::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&source)[0].obj;
+    let mut note = Dict::new();
+    note.set(b"Type".to_vec(), Object::name("Annot"));
+    note.set(b"Subtype".to_vec(), Object::name("Square"));
+    note.set(b"NM".to_vec(), PdfString::text("nested-values"));
+    note.set(b"Rect".to_vec(), Object::Array([10, 20, 30, 40].map(|value| Object::Ref(source.add(Object::Int(value)))).into()));
+    note.set(b"C".to_vec(), Object::Array([0.25, 0.5, 0.75].map(|value| Object::Ref(source.add(Object::Real(value)))).into()));
+    let note = source.add(note);
+    source.update_dict(page, |dict| dict.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(note)]))).unwrap();
+    std::fs::write(dir.join("source.pdf"), write_full(&source, &SaveOptions::default()).unwrap()).unwrap();
+    let mut a = auto(&dir);
+    let source = ok(&mut a, "doc_open", json!({ "path": "source.pdf" }))["doc"].as_u64().unwrap();
+
+    ok(&mut a, "doc_export_data", json!({ "doc": source, "path": "notes.fdf", "what": "comments" }));
+    let target = ok(&mut a, "doc_open", json!({ "path": "b.pdf" }))["doc"].as_u64().unwrap();
+    ok(&mut a, "doc_import_data", json!({ "doc": target, "path": "notes.fdf" }));
+    ok(&mut a, "doc_save", json!({ "doc": target, "path": "restored.pdf" }));
+    let reopened = ok(&mut a, "doc_open", json!({ "path": "restored.pdf" }))["doc"].as_u64().unwrap();
+    let after = ok(&mut a, "comment_list", json!({ "doc": reopened }));
+    // The saved input has legal indirect scalar numbers. The engine's source inspection
+    // currently reads those as defaults, so compare the restored data to the fixture's
+    // known values (converted from PDF bottom-left to the tool's top-left coordinates).
+    assert_eq!(after["comments"][0]["rect"], json!([10.0, 260.0, 30.0, 280.0]));
+    assert_eq!(after["comments"][0]["color"], "#4080BF");
+}
+
+#[test]
+fn refused_fdf_export_keeps_the_destination_and_source_through_tools() {
+    use pdfcraft_cos::{Dict, Document, Object, SaveOptions, write_full};
+    use std::sync::Arc;
+    let dir = workdir("fdf-export-limit");
+    let mut source = Document::open(Arc::new(fixture(1))).unwrap();
+    let page = pdfcraft_model::pages(&source)[0].obj;
+    let mut note = Dict::new();
+    note.set(b"Type".to_vec(), Object::name("Annot"));
+    note.set(b"Subtype".to_vec(), Object::name("Square"));
+    note.set(b"Rect".to_vec(), Object::Array(vec![10.into(), 20.into(), 30.into(), 40.into()]));
+    note.set(b"PCData".to_vec(), Object::Array(vec![Object::Null; 100_001]));
+    let note = source.add(note);
+    source.update_dict(page, |dict| dict.set(b"Annots".to_vec(), Object::Array(vec![Object::Ref(note)]))).unwrap();
+    let bytes = write_full(&source, &SaveOptions::default()).unwrap();
+    std::fs::write(dir.join("source.pdf"), &bytes).unwrap();
+    std::fs::write(dir.join("notes.fdf"), b"existing destination").unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "source.pdf" }))["doc"].as_u64().unwrap();
+    let before = ok(&mut a, "comment_list", json!({ "doc": doc }));
+    let error = a.call("doc_export_data", &json!({ "doc": doc, "path": "notes.fdf", "what": "comments" })).unwrap_err();
+    assert!(error.to_string().contains("100,000 values"), "{error}");
+    assert_eq!(std::fs::read(dir.join("notes.fdf")).unwrap(), b"existing destination");
+    assert_eq!(std::fs::read(dir.join("source.pdf")).unwrap(), bytes);
+    assert_eq!(ok(&mut a, "comment_list", json!({ "doc": doc })), before);
+}
+
+#[test]
+fn text_box_and_callout_fill_and_border_through_tools() {
+    let dir = workdir("textbox-fill");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    for kind in ["textbox", "callout"] {
+        let mut args = json!({ "doc": doc, "page": 1, "type": kind, "rect": [80, 40, 180, 100], "contents": "Example" });
+        if kind == "callout" {
+            args["to"] = json!([20, 120]);
+        }
+        let added = ok(&mut a, "comment_add", args);
+        let comment = &added["comment"];
+        ok(&mut a, "comment_edit", json!({ "doc": doc, "page": 1, "index": comment["index"], "fill": "white", "width": 3 }));
+    }
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "filled.pdf" }));
+    let mut session = pdfcraft_engine::Session::new();
+    let bytes = std::sync::Arc::new(std::fs::read(dir.join("filled.pdf")).unwrap());
+    let saved = session.open("filled.pdf", None, bytes, None).unwrap();
+    for index in 0..2 {
+        let props = session.get(saved).unwrap().comment_props(0, index).unwrap();
+        assert_eq!((props.fill, props.width), (Some([1.0; 3]), Some(3.0)));
+        ok(&mut a, "comment_edit", json!({ "doc": doc, "page": 1, "index": index + 1, "fill": "none" }));
+    }
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "transparent.pdf" }));
+    let bytes = std::sync::Arc::new(std::fs::read(dir.join("transparent.pdf")).unwrap());
+    let saved = session.open("transparent.pdf", None, bytes, None).unwrap();
+    for index in 0..2 {
+        assert_eq!(session.get(saved).unwrap().comment_props(0, index).unwrap().fill, None);
+    }
 }

@@ -990,6 +990,7 @@ fn is_form_edit(edit: &Edit) -> bool {
             | Edit::SetFieldProps { .. }
             | Edit::SetFieldImage { .. }
             | Edit::SetFieldScript { .. }
+            | Edit::SetCalculationOrder { .. }
             | Edit::ApplyScriptChanges { .. }
     )
 }
@@ -1420,6 +1421,7 @@ mod revert_draft_tests {
             press: None,
             calendar: None,
             calendar_rect: None,
+            calendar_text: None,
         }
     }
 

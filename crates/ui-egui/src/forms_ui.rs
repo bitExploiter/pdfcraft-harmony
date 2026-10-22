@@ -38,6 +38,9 @@ pub struct Focus {
     /// Date fields: the month the calendar shows (year, month 1–12), and where it was drawn.
     pub calendar: Option<(i32, u32)>,
     pub calendar_rect: Option<egui::Rect>,
+    /// The text the calendar last saw, so it moves to a typed date once, when the typing becomes
+    /// a whole date, and otherwise keeps the month its arrows turned to.
+    pub calendar_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -90,6 +93,7 @@ fn open_focus(f: &FormField, widget: usize) -> Focus {
         press: None,
         calendar: None,
         calendar_rect: None,
+        calendar_text: None,
     }
 }
 
@@ -255,11 +259,19 @@ const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "Jun
 fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &str, today: (i64, u32, u32)) -> Option<String> {
     use pdfcraft_engine::form_scripts::{DateTime, format_date, parse_date};
     let fx = view.forms.focus.as_mut()?;
-    let (mut y, mut m) = fx.calendar.unwrap_or_else(|| match parse_date(&fx.text, fmt) {
-        Some(d) => (d.y, d.m),
-        None => (today.0 as i32, today.1),
-    });
     let current = parse_date(&fx.text, fmt);
+    // A whole date typed since the last frame moves the calendar to it; half a date, or text
+    // that hasn't changed, leaves it on the month it shows (the one the arrows turned to).
+    let changed = fx.calendar_text.as_deref() != Some(fx.text.as_str());
+    let (mut y, mut m) = match (fx.calendar, current) {
+        (Some(_), Some(d)) if changed => (d.y, d.m),
+        (Some(shown), _) => shown,
+        (None, Some(d)) => (d.y, d.m),
+        (None, None) => (today.0 as i32, today.1),
+    };
+    if changed {
+        fx.calendar_text = Some(fx.text.clone());
+    }
     let mut picked = None;
     let area = egui::Area::new(egui::Id::new(("date-picker", view.id.0)))
         .order(egui::Order::Foreground)
@@ -278,19 +290,25 @@ fn calendar(ctx: &egui::Context, view: &mut DocView, field: egui::Rect, fmt: &st
                         .strong(),
                     );
                     if ui.small_button("›").on_hover_text(tl!("Next month")).clicked() {
-                        (y, m) = if m == 12 { (y + 1, 1) } else { (y, m + 1) };
+                        // `y + 1` would overflow at `i32::MAX` (a date parsed or persisted with
+                        // that year); stay put on December of the last year instead of panicking.
+                        (y, m) = if m == 12 { y.checked_add(1).map_or((y, m), |next| (next, 1)) } else { (y, m + 1) };
                     }
                 });
                 // Weekday of the 1st (0 = Sunday), Zeller-style via days since 1970-01-01 (a Thursday).
-                let days_from_civil = |y: i32, m: u32, d: u32| -> i64 {
-                    let (y, m) = if m <= 2 { (y as i64 - 1, m as i64 + 9) } else { (y as i64, m as i64 - 3) };
-                    let era = y.div_euclid(400);
-                    let yoe = y - era * 400;
-                    let doy = (153 * m + 2) / 5 + d as i64 - 1;
-                    era * 146_097 + yoe * 365 + yoe / 4 - yoe / 100 + doy - 719_468
+                use chrono::Datelike;
+                // The month the calendar shows: the weekday of its 1st (0 = Sunday) and its
+                // length, both from chrono. A year chrono can't represent falls back to a plain
+                // 31-day month starting on Sunday, which only the arrows can reach.
+                let first_of = |y: i32, m: u32| chrono::NaiveDate::from_ymd_opt(y, m, 1);
+                let first = first_of(y, m).map_or(0, |d| d.weekday().num_days_from_sunday() as usize);
+                // `y + 1` for December would overflow at `i32::MAX`; a year chrono can't represent
+                // (or that overflows here) falls back to the plain 31-day month.
+                let next_y = if m == 12 { y.checked_add(1) } else { Some(y) };
+                let len = match (first_of(y, m), next_y.and_then(|next| first_of(next, if m == 12 { 1 } else { m + 1 }))) {
+                    (Some(a), Some(b)) => (b - a).num_days() as usize,
+                    _ => 31,
                 };
-                let first = (days_from_civil(y, m, 1) + 4).rem_euclid(7) as usize;
-                let len = (days_from_civil(if m == 12 { y + 1 } else { y }, if m == 12 { 1 } else { m + 1 }, 1) - days_from_civil(y, m, 1)) as usize;
                 egui::Grid::new(("date-grid", view.id.0)).spacing([4.0, 2.0]).show(ui, |ui| {
                     for d in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] {
                         ui.label(egui::RichText::new(tl_ctx!("calendar weekday", d)).small());

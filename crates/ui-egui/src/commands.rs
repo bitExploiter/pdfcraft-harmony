@@ -313,6 +313,15 @@ impl PdfCraftApp {
                 }
             }
             "form.fields" => self.choose_right_panel(Some(RightPanel::Fields)),
+            "form.calculation_order" => {
+                self.left = crate::LeftPanel::CalculationOrder;
+                // The page edits the fields, so Preview ends; the page grid closes, as for a tool.
+                self.form_preview = false;
+                if let Some(v) = active.and_then(|i| self.views.get_mut(i)) {
+                    v.organize = false;
+                }
+                self.reveal_tools();
+            }
             "comment.flatten" => {
                 self.apply_edit(Edit::Flatten { comments: true, fields: false });
             }
@@ -779,17 +788,19 @@ pub(crate) fn registry_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui, menu: &str
             let mut open: Option<String> = None;
             let mut clear = false;
             ui.menu_button(label, |ui| {
-                for r in &app.recent {
-                    if ui.button(&r.name).on_hover_text(&r.path).clicked() {
-                        open = Some(r.path.clone());
+                crate::chrome::scroll_menu(ui, |ui| {
+                    for r in &app.recent {
+                        if ui.button(&r.name).on_hover_text(&r.path).clicked() {
+                            open = Some(r.path.clone());
+                            ui.close();
+                        }
+                    }
+                    ui.separator();
+                    if ui.button(tl!("Clear Recent Files")).clicked() {
+                        clear = true;
                         ui.close();
                     }
-                }
-                ui.separator();
-                if ui.button(tl!("Clear Recent Files")).clicked() {
-                    clear = true;
-                    ui.close();
-                }
+                })
             });
             if let Some(p) = open {
                 app.open_recent(&p);
