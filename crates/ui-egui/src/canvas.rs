@@ -5857,10 +5857,10 @@ mod tests {
                 .collect(),
             ..Default::default()
         };
-        let ltr = v.layout(&info, 1200.0);
+        let ltr = v.layout(&info, 1200.0, 1.0);
         assert!(ltr[0].left() < ltr[1].left(), "left to right: {ltr:?}");
         v.rtl_pages = true;
-        let rtl = v.layout(&info, 1200.0);
+        let rtl = v.layout(&info, 1200.0, 1.0);
         assert!(rtl[0].left() > rtl[1].left(), "the first page is on the right: {rtl:?}");
         assert!(rtl[2].left() > rtl[3].left(), "the next spread does the same: {rtl:?}");
         assert!((rtl[0].width() - ltr[0].width()).abs() < 0.1);
@@ -5892,7 +5892,7 @@ mod tests {
         assert!(v.rtl_pages, "replacing the file switched the spread back to left to right");
         assert!(v.cover);
         assert_eq!(v.page_input, "1", "the page box names the right-hand page");
-        let rtl = v.layout(&info, 1200.0);
+        let rtl = v.layout(&info, 1200.0, 1.0);
         // The cover sits alone. The next row is a pair: its earlier page stays on the right.
         assert!(rtl.get(1).is_some_and(|right| rtl.get(2).is_some_and(|left| right.left() > left.left())), "the spread under the cover: {rtl:?}");
     }
