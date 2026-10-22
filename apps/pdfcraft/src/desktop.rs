@@ -41,17 +41,22 @@ impl Desktop {
             }
             return;
         }
-        // Keep upstream's one-file-one-view rule across independent native windows too.
-        if let WindowOpen::Path { path, then } = &request {
-            if self.root.owns_path(path) {
-                self.root.open_path_then(path, *then);
-                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(true));
-                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-                return;
-            }
-            if let Some(window) = self.children.iter_mut().find(|window| window.app.owns_path(path)) {
-                window.app.open_path_then(path, *then);
-                ctx.send_viewport_cmd_to(window.id, egui::ViewportCommand::Focus);
+        let local_file = match &request {
+            WindowOpen::Path { path, then } => Some((path.as_str(), *then)),
+            WindowOpen::Bytes { path: Some(path), .. } => Some((path.as_str(), None)),
+            _ => None,
+        };
+        if let Some((path, then)) = local_file {
+            let existing = if self.root.activate_open_path(path, then) {
+                Some(egui::ViewportId::ROOT)
+            } else {
+                self.children.iter_mut().find_map(|window| window.app.activate_open_path(path, then).then_some(window.id))
+            };
+            if let Some(id) = existing {
+                ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Visible(true));
+                ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Minimized(false));
+                ctx.send_viewport_cmd_to(id, egui::ViewportCommand::Focus);
+                ctx.request_repaint_of(id);
                 return;
             }
         }
@@ -212,6 +217,135 @@ mod tests {
         app.window_open = Some(sender);
         app.open_bytes("first.pdf", None, fixture()).unwrap();
         (app, receiver)
+    }
+
+    fn desktop_with_file() -> (Desktop, egui::Context, String) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let mut app = PdfCraftApp::new();
+        app.single_document_window = true;
+        app.window_open = Some(sender.clone());
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../crates/ui-egui/tests/data/form.pdf")
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        app.open_path(&path);
+        (Desktop::new(app, receiver, sender), egui::Context::default(), path)
+    }
+
+    #[test]
+    fn duplicate_open_reuses_root_and_preserves_unsaved_edits() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        desktop.root.apply_edit(pdfcraft_engine::Edit::RotatePages { pages: vec![0], degrees: 90 });
+        let id = desktop.root.views[0].id;
+        let bytes = desktop.root.session.get(id).unwrap().bytes.clone();
+        desktop.new_document(WindowOpen::Path { path, then: None }, &ctx);
+        assert!(desktop.children.is_empty(), "same file must reuse its existing window");
+        assert_eq!(desktop.root.views[0].id, id);
+        assert_eq!(desktop.root.session.get(id).unwrap().bytes, bytes);
+        assert!(desktop.root.first_dirty().is_some());
+    }
+
+    #[test]
+    fn duplicate_open_reuses_child_even_when_root_is_closed() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        let child_id = egui::ViewportId::from_hash_of("existing-child");
+        let mut child = PdfCraftApp::new();
+        child.single_document_window = true;
+        child.open_path(&path);
+        desktop.root.request_close_tab(0);
+        desktop.children.push(DocumentWindow { id: child_id, app: child });
+        desktop.new_document(WindowOpen::Path { path, then: None }, &ctx);
+        assert!(desktop.root.window_closed, "must find the child before reusing the empty root");
+        assert_eq!(desktop.children.len(), 1);
+        assert_eq!(desktop.children[0].id, child_id);
+    }
+
+    #[test]
+    fn duplicate_open_is_coalesced_while_file_is_loading() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        desktop.root.request_close_tab(0);
+        desktop.root.prepare_native_window(&ctx);
+        desktop.new_document(WindowOpen::Path { path: path.clone(), then: None }, &ctx);
+        assert!(desktop.root.window_occupied());
+        assert!(desktop.root.views.is_empty());
+        desktop.new_document(WindowOpen::Path { path, then: None }, &ctx);
+        assert!(desktop.children.is_empty(), "a pending open already owns the file");
+    }
+
+    #[test]
+    fn duplicate_open_from_bytes_reuses_existing_document() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        desktop.new_document(WindowOpen::Bytes { name: "form.pdf".into(), path: Some(path), bytes: fixture() }, &ctx);
+        assert!(desktop.children.is_empty());
+    }
+
+    #[test]
+    fn duplicate_open_resolves_alternate_path_spelling() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        let alternate = std::path::Path::new(&path).parent().unwrap().join("../data/form.pdf").to_string_lossy().into_owned();
+        desktop.new_document(WindowOpen::Path { path: alternate, then: None }, &ctx);
+        assert!(desktop.children.is_empty());
+    }
+
+    #[test]
+    fn same_filename_in_another_folder_and_closed_files_can_open() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        desktop.new_document(WindowOpen::Bytes { name: "form.pdf".into(), path: Some(format!("{path}/other/form.pdf")), bytes: fixture() }, &ctx);
+        assert_eq!(desktop.children.len(), 1);
+        desktop.root.request_close_tab(0);
+        desktop.new_document(WindowOpen::Path { path, then: None }, &ctx);
+        assert!(!desktop.root.window_closed);
+        assert_eq!(desktop.children.len(), 1);
+    }
+
+    #[test]
+    fn duplicate_open_restores_a_minimized_window() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            desktop.new_document(WindowOpen::Path { path: path.clone(), then: None }, ui.ctx());
+        });
+        let commands = &output.viewport_output.get(&egui::ViewportId::ROOT).unwrap().commands;
+        assert!(commands.iter().any(|command| matches!(command, egui::ViewportCommand::Minimized(false))));
+        assert!(commands.iter().any(|command| matches!(command, egui::ViewportCommand::Focus)));
+        assert!(desktop.children.is_empty());
+    }
+
+    #[test]
+    fn duplicate_open_keeps_the_existing_password_prompt() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        let mut session = pdfcraft_engine::Session::new();
+        let id = session.open("encrypted.pdf", None, std::sync::Arc::new(fixture()), None).unwrap();
+        session
+            .apply(
+                id,
+                pdfcraft_engine::Edit::Protect(pdfcraft_engine::Protection { open_password: Some("test-password".into()), ..Default::default() }),
+            )
+            .unwrap();
+        let bytes = session.save_bytes(id).unwrap().as_ref().clone();
+        desktop.root.request_close_tab(0);
+        desktop.root.open_bytes("encrypted.pdf", Some(path.clone()), bytes).unwrap();
+        desktop.root.password_prompt.as_mut().unwrap().input = "typed-password".into();
+        desktop.new_document(WindowOpen::Path { path, then: None }, &ctx);
+        assert!(desktop.children.is_empty());
+        assert_eq!(desktop.root.password_prompt.as_ref().unwrap().input, "typed-password");
+    }
+
+    #[test]
+    fn duplicate_open_recognizes_symlinks_and_hard_links() {
+        let (mut desktop, ctx, path) = desktop_with_file();
+        let folder = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/duplicate-file-links-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).unwrap();
+        let symlink = folder.join("symlink.pdf");
+        let hard_link = folder.join("hard-link.pdf");
+        std::os::unix::fs::symlink(&path, &symlink).unwrap();
+        std::fs::hard_link(&path, &hard_link).unwrap();
+        for alias in [&symlink, &hard_link] {
+            desktop.new_document(WindowOpen::Path { path: alias.to_string_lossy().into_owned(), then: None }, &ctx);
+        }
+        std::fs::remove_dir_all(folder).unwrap();
+        assert!(desktop.children.is_empty());
     }
 
     #[test]

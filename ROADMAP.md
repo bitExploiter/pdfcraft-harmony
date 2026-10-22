@@ -1,5 +1,6 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M3: reuse existing native windows for repeated local-file opens, aliases and password prompts; restore minimized windows; estimates unchanged)
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -172,6 +173,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-22 (M3, repeated file opens):** Reopening a local PDF reuses its native window, including while loading or entering a password. Path aliases and hard links share the existing document; minimized windows restore without resetting edits, page, zoom or scroll. Files with the same name in different folders remain independent.
 - **2026-10-15 (M3, reader workflow):** macOS documents use independent windows with Tools closed and Pages open; closing the last document retains the process. Fixed small thumbnails reflow into multiple columns as the Inspector widens. Opaque-image downsampling is available through an opt-in rendering setting.
 
 - **2026-10-20 (M6, calculation order page):** Prepare a form ▸ Calculation order, a page of its own, lists the calculated fields in the order they calculate with their formulas and values, moved with Up/Down arrows (as Acrobat's Set Field Calculation Order), Alt+↑/↓ or by dragging. A card says what is wrong with the order and holds Fix order; a loop has a card of its own that opens one of its formulas. On the page, each calculated field shows its step, and arrows show what the field in focus reads and what reads it. Estimates unchanged.

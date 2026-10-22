@@ -1168,6 +1168,7 @@ impl Renderer {
                                 ),
                                 color_replacement: None,
                                 in_annotations: false,
+                                smooth_images: false,
                                 cur_mask: None,
                                 inside_pattern: true,
                                 soft_mask_cache: HashMap::default(),

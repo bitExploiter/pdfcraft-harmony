@@ -1764,19 +1764,50 @@ impl PdfCraftApp {
         self.views.iter().position(|v| self.session.get(v.id).and_then(|d| d.path.as_deref()).is_some_and(|p| same_file(p, path)))
     }
 
-    /// Whether this window already owns a file, including a queued asynchronous open.
-    pub fn owns_path(&self, path: &str) -> bool {
-        if self.tab_showing(path).is_some() {
+    /// Reuse an open or loading local file without reloading its edits or view state.
+    /// The desktop host calls this before allocating another native window.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn activate_open_path(&mut self, path: &str, then: Option<&'static str>) -> bool {
+        if self.window_closed {
+            return false;
+        }
+        let matches = |candidate: &str| {
+            if same_file(candidate, path) {
+                return true;
+            }
+            if let (Ok(a), Ok(b)) = (std::fs::canonicalize(candidate), std::fs::canonicalize(path))
+                && a == b
+            {
+                return true;
+            }
+            // On macOS this also recognises case aliases and hard links to the same file.
+            #[cfg(unix)]
+            if let (Ok(a), Ok(b)) = (std::fs::metadata(candidate), std::fs::metadata(path)) {
+                use std::os::unix::fs::MetadataExt;
+                return a.dev() == b.dev() && a.ino() == b.ino();
+            }
+            false
+        };
+        if let Some(index) = self.views.iter().position(|view| self.session.get(view.id).and_then(|doc| doc.path.as_deref()).is_some_and(matches)) {
+            self.active = Some(index);
+            if let Some(command) = then {
+                self.execute(command);
+            }
             return true;
         }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.pending_opens.iter().any(|p| p.path.as_deref().is_some_and(|p| same_file(p, path)))
+        if let Some(pending) = self.pending_opens.iter_mut().find(|pending| pending.path.as_deref().is_some_and(matches)) {
+            if then.is_some() {
+                pending.then = then;
+            }
+            return true;
         }
-        #[cfg(target_arch = "wasm32")]
-        {
-            false
+        if let Some(prompt) = self.password_prompt.as_mut().filter(|prompt| prompt.path.as_deref().is_some_and(matches)) {
+            if then.is_some() {
+                prompt.then = then;
+            }
+            return true;
         }
+        false
     }
 
     /// Open a file from a recent list: focus the tab already showing it, else open it (File ▸
@@ -1919,16 +1950,7 @@ impl PdfCraftApp {
     /// Keep a chosen tool with its file until preparation and any password entry finish.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
-        // One file, one tab (#2166): a file that is open already comes to the front instead,
-        // and the tool it was opened for runs on it. One still being opened is left to that.
-        if let Some(i) = self.tab_showing(path) {
-            self.active = Some(i);
-            if let Some(command) = then {
-                self.execute(command);
-            }
-            return;
-        }
-        if self.pending_opens.iter().any(|p| p.path.as_deref().is_some_and(|p| same_file(p, path))) {
+        if self.activate_open_path(path, then) {
             return;
         }
         if self.single_document_window

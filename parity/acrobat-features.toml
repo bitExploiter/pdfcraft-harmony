@@ -1226,8 +1226,8 @@ milestone = "M14"
 status = "partial"
 commands = []
 tools = []
-evidence = ["apps/pdfcraft/src/desktop.rs::second_document_is_routed_without_changing_the_first", "apps/pdfcraft/src/desktop.rs::closing_the_last_document_retires_only_its_window", "apps/pdfcraft/src/desktop.rs::unsaved_close_can_be_cancelled_without_losing_work"]
-notes = "macOS opens documents and generated results in independent native windows. Reopening a file focuses its owning window. The final document window closes without terminating the process; explicit Quit preserves unsaved-work prompts. Driven by the opt-in ui.open/ui.command/ui.quit channel. Tab tear-out and independent document windows on other platforms are not implemented."
+evidence = ["apps/pdfcraft/src/desktop.rs::second_document_is_routed_without_changing_the_first", "apps/pdfcraft/src/desktop.rs::closing_the_last_document_retires_only_its_window", "apps/pdfcraft/src/desktop.rs::unsaved_close_can_be_cancelled_without_losing_work", "apps/pdfcraft/src/desktop.rs::duplicate_open_reuses_root_and_preserves_unsaved_edits", "apps/pdfcraft/src/desktop.rs::duplicate_open_is_coalesced_while_file_is_loading", "apps/pdfcraft/src/desktop.rs::duplicate_open_restores_a_minimized_window", "apps/pdfcraft/src/desktop.rs::duplicate_open_keeps_the_existing_password_prompt", "apps/pdfcraft/src/desktop.rs::duplicate_open_recognizes_symlinks_and_hard_links"]
+notes = "macOS opens documents and generated results in independent native windows. Reopening a local file restores and focuses its owning window, including through symlink/hard-link aliases or during loading/password entry, while preserving unsaved edits and view state. Same-name files in different folders remain independent. The final document window closes without terminating the process; explicit Quit preserves unsaved-work prompts. Driven by the opt-in ui.open/ui.command/ui.quit channel. Tab tear-out and independent document windows on other platforms are not implemented."
 
 [[feature]]
 id = "view.split-window"
