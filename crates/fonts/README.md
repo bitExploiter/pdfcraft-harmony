@@ -59,6 +59,10 @@ set). Without that variable `CRAFT_FONTS` is empty and everything below copes:
   and shaped Thai Add Text content. Harfrust positions stacked vowel/tone marks and decomposes
   Sara Am; cluster ToUnicode entries preserve the original text. The shared Type 3 writer
   embeds outlines, so reopening does not depend on installed fonts.
+- `ui_korean_fonts` / `document_korean_font`: the `Kore` faces (학교안심 나무 / Hakgyoansim Namu,
+  KERIS, OFL-1.1) for Korean interface text, and the face `pdfcraft-render` substitutes for
+  non-embedded Adobe-Korea1 CID fonts, while `fallback` reports it as the `ScriptFace` for
+  `Korea1`/`KR` orderings. `[]`/`None` without a craft-fonts input that has a Korean face.
 - `SHIPPORI_MINCHO`: Shippori Mincho's bytes, or `None`.
 
 Generated Japanese Type 3 fonts record the fallback face's family and style in an indirect
