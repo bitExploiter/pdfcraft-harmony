@@ -2695,3 +2695,91 @@ key	Space	רווח
 @id	file.word_count	ספירת מילים…
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	אתה צופה בגרסה החתומה של “{from}” (מהדורה {rev}). זהו תצלום מצב: שינויים כאן לא ישפיעו על המקור.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	אתה צופה במהדורה {rev} של “{from}”. זהו תצלום מצב: שינויים כאן לא ישפיעו על המקור.
+	Add fields	הוספת שדות
+	Add text field table	הוספת טבלת שדות טקסט
+	Alignment	יישור
+	Always use my default zoom and page layout	שימוש תמיד בתקריב ובפריסת העמוד המוגדרים כברירת מחדל
+	Back to Prepare a form	חזרה להכנת טופס
+	Bulleted list	רשימת תבליטים
+	Calculation order	סדר חישוב
+	Column spacing	מרווח בין עמודות
+	Column widths	רוחב עמודות
+	Column {n}	עמודה {n}
+	Columns	עמודות
+	Distribute evenly	חלוקה שווה
+	Drag a field to move it, or select it and press {up} or {down}.	גרור שדה כדי להזיזו, או בחר אותו והקש {up} או {down}.
+	Earlier in calculation order	מוקדם יותר בסדר החישוב
+	Edit {field}'s formula	עריכת הנוסחה של {field}
+	Every field calculates after the fields it reads.	כל שדה מחושב לאחר השדות שהוא קורא.
+	Every field outside a loop calculates after the fields it reads.	כל שדה מחוץ ללולאה מחושב לאחר השדות שהוא קורא.
+	Field names	שמות שדות
+	First row number	מספר שורה ראשונה
+	Fix order	תיקון סדר
+	Hide gaps to join page edges. Margins inside the PDF remain unchanged.	הסתרת מרווחים לחיבור קצוות העמודים. השוליים בתוך ה-PDF נשארים ללא שינוי.
+	Larger thumbnails	תמונות ממוזערות גדולות יותר
+	Later in calculation order	מאוחר יותר בסדר החישוב
+	Layer options	אפשרויות שכבה
+	Less	פחות
+	Links on page	קישורים בעמוד
+	Loop	לולאה
+	Missing from the calculation order saved in the PDF: other PDF viewers may not calculate it.	חסר מסדר החישוב השמור ב-PDF: מציגי PDF אחרים עשויים שלא לחשב אותו.
+	Move only what must move, so every field calculates after the fields it reads.	הזז רק את מה שחייב לזוז, כך שכל שדה יחושב לאחר השדות שהוא קורא.
+	Moves only what must move	מזיז רק את מה שחייב לזוז
+	N or {row} is the row number, {col} the column number, {seq} the cell number. With none of them, the row number goes last.	N או {row} הוא מספר השורה, {col} מספר העמודה, {seq} מספר התא. ללא אף אחד מהם, מספר השורה נוסף בסוף.
+	No field in this form calculates its value yet. Give a field a calculation on the Calculate tab of its properties, and it shows here.	אף שדה בטופס זה אינו מחשב את ערכו עדיין. הגדר חישוב לשדה בלשונית חישוב במאפייניו, והוא יופיע כאן.
+	No field reads it	אף שדה אינו קורא אותו
+	No order can fix a loop. Change one of the formulas.	שום סדר אינו יכול לתקן לולאה. שנה אחת מהנוסחאות.
+	Not in order	לא לפי הסדר
+	Numbered list	רשימה ממוספרת
+	Order · top calculates first	סדר · העליון מחושב ראשון
+	Other options	אפשרויות אחרות
+	Paragraph spacing	מרווח בין פסקאות
+	Printer default	ברירת מחדל של המדפסת
+	Reading the printer's settings…	קורא את הגדרות המדפסת…
+	Reads {names}, which read it back. No order can fix a loop: change one of the formulas.	קורא את {names}, שקוראים אותו בחזרה. שום סדר אינו יכול לתקן לולאה: שנה אחת מהנוסחאות.
+	Reads {name}, which calculates later, so it shows an old value.	קורא את {name}, שמחושב מאוחר יותר, ולכן מציג ערך ישן.
+	Remove {standard} identification	הסרת זיהוי {standard}
+	Reset to Initial Visibility	איפוס לנראות התחלתית
+	Reshape comment	שינוי צורת הערה
+	Row spacing	מרווח בין שורות
+	Script	כתב
+	Set calculation order	הגדרת סדר חישוב
+	Show gaps between pages	הצגת מרווחים בין עמודים
+	Show on the page which fields each field reads	הצגה בעמוד אילו שדות כל שדה קורא
+	Shrink the page content to make room for the header and footer	כיווץ תוכן העמוד כדי לפנות מקום לכותרת העליונה והתחתונה
+	Smaller thumbnails	תמונות ממוזערות קטנות יותר
+	Subscript	כתב תחתי
+	Superscript	כתב עילי
+	Text Field Table	טבלת שדות טקסט
+	Text field table	טבלת שדות טקסט
+	The certificate of {} has critical extensions PdfCraft does not recognize, so it is not used to vouch for {}.	התעודה של {} מכילה הרחבות קריטיות ש-PdfCraft אינו מזהה, ולכן אינה משמשת לאימות {}.
+	The document's security settings don't allow printing	הגדרות האבטחה של המסמך אינן מתירות הדפסה
+	The order saved in the PDF needs tidying	הסדר השמור ב-PDF דורש סידור
+	The signature's signed attributes have no content type, which CMS requires; it was read anyway.	למאפיינים החתומים של החתימה אין סוג תוכן כנדרש על ידי CMS; היא נקראה בכל זאת.
+	The signature's signed attributes have no message digest, so the signature does not cover the document.	למאפיינים החתומים של החתימה אין תקציר הודעה, ולכן החתימה אינה מכסה את המסמך.
+	The signature's signed attributes name a content type other than data, so it is not a signature of the document.	המאפיינים החתומים של החתימה מציינים סוג תוכן שאינו נתונים, ולכן זו אינה חתימה של המסמך.
+	The timestamp authority's certificate is not issued for time stamping.	תעודת רשות חותמת הזמן לא הונפקה לצורך חתימת זמן.
+	This signature uses an RSA key shorter than 2048 bits, which is no longer considered strong enough for signatures. It still validates, but it should not be relied on.	חתימה זו משתמשת במפתח RSA קצר מ-2048 סיביות, שאינו נחשב עוד חזק מספיק לחתימות. היא עדיין עוברת אימות, אך אין להסתמך עליה.
+	Thumbnail size	גודל תמונות ממוזערות
+	Too early	מוקדם מדי
+	a column is too narrow: make the area wider, give the column more of it, or use fewer columns or less column spacing	עמודה צרה מדי: הרחב את האזור, הקצה לעמודה חלק גדול יותר ממנו, או השתמש בפחות עמודות או במרווח עמודות קטן יותר
+	a field named {name} already exists	שדה בשם {name} כבר קיים
+	a table has 1 to {max} columns	בטבלה יש 1 עד {max} עמודות
+	a table has 1 to {max} rows	בטבלה יש 1 עד {max} שורות
+	field names can't contain a period: {name}	שמות שדות אינם יכולים להכיל נקודה: {name}
+	the area, the spacing and the column widths must be numbers, the spacing 0 or more and each width more than 0	האזור, המרווח ורוחבי העמודות חייבים להיות מספרים, המרווח 0 או יותר וכל רוחב גדול מ-0
+	the first row number can be at most {max}	מספר השורה הראשונה יכול להיות לכל היותר {max}
+	the rows are too short: make the area taller, or use fewer rows or less row spacing	השורות נמוכות מדי: הגבה את האזור, או השתמש בפחות שורות או במרווח שורות קטן יותר
+	two cells would both be named {name}	שני תאים יקבלו שניהם את השם {name}
+	{fields} read each other	{fields} קוראים זה את זה
+	{field} reads its own value	{field} קורא את הערך של עצמו
+	{field} reads no other field	{field} אינו קורא שום שדה אחר
+	{field} reads {fields}	{field} קורא את {fields}
+	{names} and {last}	{names} ו-{last}
+@plural	The calculation order has {n} entry that calculates nothing. Fix order removes it.|The calculation order has {n} entries that calculate nothing. Fix order removes them.	בסדר החישוב יש רשומה {n} שאינה מחשבת דבר. תיקון סדר מסיר אותה.|בסדר החישוב יש {n} רשומות שאינן מחשבות דבר. תיקון סדר מסיר אותן.
+@plural	{fields} is missing from the order saved in the PDF, so other PDF viewers may not calculate it.|{fields} are missing from the order saved in the PDF, so other PDF viewers may not calculate them.	{fields} חסר מהסדר השמור ב-PDF, ולכן מציגי PDF אחרים עשויים שלא לחשב אותו.|{fields} חסרים מהסדר השמור ב-PDF, ולכן מציגי PDF אחרים עשויים שלא לחשב אותם.
+@plural	{fields} reads it|{fields} read it	{fields} קורא אותו|{fields} קוראים אותו
+@plural	{field} calculates before {fields}, which it reads.|{field} calculates before {fields}, which it reads.	{field} מחושב לפני {fields}, שאותו הוא קורא.|{field} מחושב לפני {fields}, שאותם הוא קורא.
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	חישוב {n} משתמש כעת בשם החדש.|{n} חישובים משתמשים כעת בשם החדש.
+@plural	{n} field shows an old value|{n} fields show old values	שדה {n} מציג ערך ישן|{n} שדות מציגים ערכים ישנים
+@plural	{n} more field calculates too early.|{n} more fields calculate too early.	עוד שדה {n} מחושב מוקדם מדי.|עוד {n} שדות מחושבים מוקדם מדי.
