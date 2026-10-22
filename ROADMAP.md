@@ -1,5 +1,6 @@
 # PdfCraft roadmap
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M3: reuse existing native windows for repeated local-file opens, aliases and password prompts; restore minimized windows; estimates unchanged)
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M5, PR #1971: bounded nested FDF export excludes source page/page-tree dictionaries; refreshed against upstream 4db6ac4a; estimates unchanged)
@@ -17,6 +18,7 @@
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-16 | **Last updated:** 2026-10-16 | **Change:** minor (M10 #1201 partial: lossless image Decode; estimates unchanged) | **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-14 · **Change:** minor (M14: the Italian catalog has every entry the other catalogs had and the code looks up; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M3 candidate: independent macOS reader windows, fixed-size multicolumn thumbnails and optional opaque-image downsampling; readiness estimates unchanged)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M3 #2080 candidate: explicit search jumps join per-tab history; rail and control-channel Back/Forward; estimates unchanged)
 > **Last reviewed:** 2026-10-13 · **Last updated:** 2026-10-13 · **Change:** minor (M4 #1910: Organize Pages opens on the current page; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M3 candidate: coordinate control clicks keep press/release together on slow frames and preserve text multi-click selection; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -171,6 +173,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-22 (M3, repeated file opens):** Reopening a local PDF reuses its native window, including while loading or entering a password. Path aliases and hard links share the existing document; minimized windows restore without resetting edits, page, zoom or scroll. Files with the same name in different folders remain independent.
+- **2026-10-15 (M3, reader workflow):** macOS documents use independent windows with Tools closed and Pages open; closing the last document retains the process. Fixed small thumbnails reflow into multiple columns as the Inspector widens. Opaque-image downsampling is available through an opt-in rendering setting.
 
 - **2026-10-20 (M6, calculation order page):** Prepare a form ▸ Calculation order, a page of its own, lists the calculated fields in the order they calculate with their formulas and values, moved with Up/Down arrows (as Acrobat's Set Field Calculation Order), Alt+↑/↓ or by dragging. A card says what is wrong with the order and holds Fix order; a loop has a card of its own that opens one of its formulas. On the page, each calculated field shows its step, and arrows show what the field in focus reads and what reads it. Estimates unchanged.
 - **2026-10-20 (M6, calculation order):** The order a form's fields calculate in (`/CO`) is read, checked, fixed and set headlessly with `form_calculation_order`: it says which fields read one calculated later (they show stale values), which read each other in a loop, and which the PDF's order leaves out; Fix order moves only what must move, in one undo step, and the form recalculates. Editing a formula no longer moves its field to the end of the order, and a field the order lists twice calculates once. Estimates unchanged.

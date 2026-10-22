@@ -752,7 +752,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     });
                 });
                 ui.add_space(6.0);
-                let search_id = egui::Id::new(("bookmark_search", id.0));
+                let search_id = crate::window_id(ui.ctx(), ("bookmark_search", id.0));
                 let mut bookmark_query = ui.data(|d| d.get_temp::<String>(search_id)).unwrap_or_default();
                 if panel == RightPanel::Bookmarks && !info.outline.is_empty() {
                     ui.horizontal(|ui| {
@@ -1215,107 +1215,116 @@ fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocVie
     // scroll bar dragged by the user already wins over a scroll to a place in egui.
     let follow = view.panel_followed != Some(view.current) && view.panel_drag.is_none();
     view.panel_followed = Some(view.current);
-    let w = (ui.available_width() - 40.0).min(150.0);
+    // A wider panel adds columns, never larger thumbnails: prioritize visible page count.
+    let available = ui.available_width().max(1.0);
+    let w = 96.0;
+    let cell_width = w + 16.0;
+    let columns = ((available + 8.0) / (cell_width + 8.0)).floor().max(1.0) as usize;
     let count = info.pages.len();
     let mut rows: Vec<Rect> = Vec::with_capacity(info.pages.len());
     let mut dropped = false;
-    for (i, p) in info.pages.iter().enumerate() {
-        ui.vertical_centered(|ui| {
-            let h = w * p.height / p.width.max(1.0);
-            let sense = if editable { Sense::click_and_drag() } else { Sense::click() };
-            let (rect, resp) = ui.allocate_exact_size(vec2(w + 16.0, h + 16.0), sense);
-            rows.push(rect);
-            if rect.intersects(ui.clip_rect().expand(200.0)) {
-                view.need_thumbnail(i, rect.intersects(ui.clip_rect()));
-            }
-            // Only the primary button drags pages (the middle button scrolls, the secondary one opens the menu).
-            if resp.drag_started_by(egui::PointerButton::Primary) {
-                if !view.target_pages().contains(&i) {
-                    view.click_page(i, egui::Modifiers::NONE, true);
+    egui::Grid::new("pages-thumbnail-grid").num_columns(columns).spacing(vec2(8.0, 8.0)).show(ui, |ui| {
+        for (i, p) in info.pages.iter().enumerate() {
+            ui.vertical_centered(|ui| {
+                ui.set_width(cell_width);
+                let h = w * p.height / p.width.max(1.0);
+                let sense = if editable { Sense::click_and_drag() } else { Sense::click() };
+                let (rect, resp) = ui.allocate_exact_size(vec2(w + 16.0, h + 16.0), sense);
+                rows.push(rect);
+                if rect.intersects(ui.clip_rect().expand(200.0)) {
+                    view.need_thumbnail(i, rect.intersects(ui.clip_rect()));
                 }
-                view.panel_drag = Some(view.target_pages());
-            }
-            if resp.drag_stopped() {
-                dropped = true;
-            }
-            let info = crate::i18n::fmt(tl!("Page {label}"), &[("label", &p.label)]);
-            let picked = view.selected.contains(&i);
-            resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, info.clone()));
-            // The current page keeps its heavier border; picked pages share its fill.
-            let selected = i == view.current;
-            let press = theme::Press::track(ui, &resp);
-            press.wash(ui, rect, 8, selected || picked);
-            if picked {
-                ui.painter().rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
-            }
-            let pr = rect.translate(press.offset()).shrink(8.0);
-            ui.painter().rect_filled(pr, CornerRadius::ZERO, Color32::WHITE);
-            if let Some(tex) = view.thumb(i) {
-                ui.painter().image(tex.id(), pr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
-            }
-            ui.painter().rect_stroke(
-                pr,
-                CornerRadius::ZERO,
-                Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { t.accent } else { t.border }),
-                egui::StrokeKind::Outside,
-            );
-            let label = ui.label(egui::RichText::new(&p.label).font(theme::medium(12.0)).color(if selected || picked {
-                t.accent_text
-            } else {
-                t.text_muted
-            }));
-            if follow && selected {
-                ui.scroll_to_rect(rect.union(label.rect), None);
-            }
-            let resp = theme::hand(resp);
-            if resp.clicked() {
-                let m = ui.input(|i| i.modifiers);
-                if m.shift || m.command {
-                    view.click_page(i, m, true);
+                // Only the primary button drags pages (the middle button scrolls, the secondary one opens the menu).
+                if resp.drag_started_by(egui::PointerButton::Primary) {
+                    if !view.target_pages().contains(&i) {
+                        view.click_page(i, egui::Modifiers::NONE, true);
+                    }
+                    view.panel_drag = Some(view.target_pages());
+                }
+                if resp.drag_stopped() {
+                    dropped = true;
+                }
+                let info = crate::i18n::fmt(tl!("Page {label}"), &[("label", &p.label)]);
+                let picked = view.selected.contains(&i);
+                resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, picked, info.clone()));
+                // The current page keeps its heavier border; picked pages share its fill.
+                let selected = i == view.current;
+                let press = theme::Press::track(ui, &resp);
+                press.wash(ui, rect, 8, selected || picked);
+                if picked {
+                    ui.painter().rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.5, t.accent), egui::StrokeKind::Inside);
+                }
+                let pr = rect.translate(press.offset()).shrink(8.0);
+                ui.painter().rect_filled(pr, CornerRadius::ZERO, Color32::WHITE);
+                if let Some(tex) = view.thumb(i) {
+                    ui.painter().image(tex.id(), pr, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
+                }
+                ui.painter().rect_stroke(
+                    pr,
+                    CornerRadius::ZERO,
+                    Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { t.accent } else { t.border }),
+                    egui::StrokeKind::Outside,
+                );
+                let label = ui.label(egui::RichText::new(&p.label).font(theme::medium(12.0)).color(if selected || picked {
+                    t.accent_text
                 } else {
-                    view.clear_page_selection(Some(i));
-                    // A page clicked here is in view already: the panel stays put.
-                    view.panel_followed = Some(i);
-                    *nav = Some(Nav::Page(i));
+                    t.text_muted
+                }));
+                if follow && selected {
+                    ui.scroll_to_rect(rect.union(label.rect), None);
                 }
-            }
-            resp.context_menu(|ui| {
-                // A page outside the selection becomes the selection, as in the organize grid.
-                if !view.target_pages().contains(&i) {
-                    view.click_page(i, egui::Modifiers::NONE, true);
+                let resp = theme::hand(resp);
+                if resp.clicked() {
+                    let m = ui.input(|i| i.modifiers);
+                    if m.shift || m.command {
+                        view.click_page(i, m, true);
+                    } else {
+                        view.clear_page_selection(Some(i));
+                        // The clicked thumbnail is already visible.
+                        view.panel_followed = Some(i);
+                        *nav = Some(Nav::Page(i));
+                    }
                 }
-                if ui.button(tl!("Extract pages")).clicked() {
-                    view.pending_action = Some(crate::canvas::ViewAction::Extract);
-                    ui.close();
-                }
-                if ui.add_enabled(editable, egui::Button::new(tl!("Replace pages…"))).clicked() {
-                    view.pending_action = Some(crate::canvas::ViewAction::ReplacePages);
-                    ui.close();
-                }
-                ui.separator();
-                if ui.add_enabled(editable, egui::Button::new(tl!("Cut"))).clicked() {
-                    view.pending_action = Some(crate::canvas::ViewAction::CopyPages { cut: true });
-                    ui.close();
-                }
-                if ui.button(tl!("Copy")).clicked() {
-                    view.pending_action = Some(crate::canvas::ViewAction::CopyPages { cut: false });
-                    ui.close();
-                }
-                if ui.add_enabled(editable, egui::Button::new(tl!("Paste after"))).clicked() {
-                    view.pending_action = Some(crate::canvas::ViewAction::PastePages);
-                    ui.close();
-                }
-                ui.separator();
-                let some_left = view.target_pages().len() < count;
-                // Never every page: a document keeps at least one.
-                if ui.add_enabled(editable && some_left, egui::Button::new(tl!("Delete pages"))).clicked() {
-                    delete_pages(view, count);
-                    ui.close();
-                }
+                resp.context_menu(|ui| {
+                    // A page outside the selection becomes the selection, as in the organize grid.
+                    if !view.target_pages().contains(&i) {
+                        view.click_page(i, egui::Modifiers::NONE, true);
+                    }
+                    if ui.button(tl!("Extract pages")).clicked() {
+                        view.pending_action = Some(crate::canvas::ViewAction::Extract);
+                        ui.close();
+                    }
+                    if ui.add_enabled(editable, egui::Button::new(tl!("Replace pages…"))).clicked() {
+                        view.pending_action = Some(crate::canvas::ViewAction::ReplacePages);
+                        ui.close();
+                    }
+                    ui.separator();
+                    if ui.add_enabled(editable, egui::Button::new(tl!("Cut"))).clicked() {
+                        view.pending_action = Some(crate::canvas::ViewAction::CopyPages { cut: true });
+                        ui.close();
+                    }
+                    if ui.button(tl!("Copy")).clicked() {
+                        view.pending_action = Some(crate::canvas::ViewAction::CopyPages { cut: false });
+                        ui.close();
+                    }
+                    if ui.add_enabled(editable, egui::Button::new(tl!("Paste after"))).clicked() {
+                        view.pending_action = Some(crate::canvas::ViewAction::PastePages);
+                        ui.close();
+                    }
+                    ui.separator();
+                    let some_left = view.target_pages().len() < count;
+                    // Never every page: a document keeps at least one.
+                    if ui.add_enabled(editable && some_left, egui::Button::new(tl!("Delete pages"))).clicked() {
+                        delete_pages(view, count);
+                        ui.close();
+                    }
+                });
             });
-        });
-        ui.add_space(4.0);
-    }
+            if (i + 1) % columns == 0 {
+                ui.end_row();
+            }
+        }
+    });
     page_drag(ui, t, view, &rows, dropped);
     file_drop(ui, t, view, &rows, editable && !modal);
 }
@@ -1329,15 +1338,14 @@ fn file_drop(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::DocView, rows: &[R
     let clip = ui.clip_rect();
     view.pages_panel = Some(clip);
     let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| clip.contains(*p));
-    view.panel_gap = pointer.filter(|_| view.panel_drag.is_none()).and_then(|p| panel_gap(rows, p.y));
+    view.panel_gap = pointer.filter(|_| view.panel_drag.is_none()).and_then(|p| panel_gap(rows, p));
     if pointer.is_none() || ui.input(|i| i.raw.hovered_files.is_empty()) {
         return;
     }
     let painter = ui.painter().with_clip_rect(clip);
     painter.rect_stroke(clip.shrink(2.0), CornerRadius::same(6), Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
-    if let (Some(gap), Some(first), Some(last)) = (view.panel_gap, rows.first(), rows.last()) {
-        let y = rows.get(gap).map_or(last.bottom() + 2.0, |r| r.top() - 3.0);
-        painter.line_segment([pos2(first.left(), y), pos2(first.right(), y)], Stroke::new(3.0, t.accent));
+    if let Some(line) = view.panel_gap.and_then(|gap| panel_gap_line(rows, gap)) {
+        painter.line_segment(line, Stroke::new(3.0, t.accent));
     }
 }
 
@@ -1359,11 +1367,43 @@ fn delete_pages(view: &mut crate::DocView, n: usize) {
     view.pending_edit = Some(pdfcraft_engine::Edit::DeletePages { pages });
 }
 
-/// The gap (0 = before the first page, n = after the last) the pointer points at in the Pages
-/// panel, whose thumbnails are `rows`, top to bottom.
-fn panel_gap(rows: &[Rect], y: f32) -> Option<usize> {
-    let (i, r) = rows.iter().enumerate().min_by(|(_, a), (_, b)| (a.center().y - y).abs().total_cmp(&(b.center().y - y).abs()))?;
-    Some(if y < r.center().y { i } else { i + 1 })
+/// Insertion gap in row-major order, including multi-column thumbnail grids.
+fn panel_gap(rows: &[Rect], pointer: egui::Pos2) -> Option<usize> {
+    let grid = rows.windows(2).any(|pair| (pair[0].top() - pair[1].top()).abs() < 1.0);
+    if !grid {
+        let (i, r) =
+            rows.iter().enumerate().min_by(|(_, a), (_, b)| (a.center().y - pointer.y).abs().total_cmp(&(b.center().y - pointer.y).abs()))?;
+        return Some(if pointer.y < r.center().y { i } else { i + 1 });
+    }
+    let first = rows.first()?;
+    let last = rows.last()?;
+    if pointer.y < first.top() {
+        return Some(0);
+    }
+    if pointer.y > rows.iter().map(Rect::bottom).fold(last.bottom(), f32::max) {
+        return Some(rows.len());
+    }
+    let (i, r) = rows.iter().enumerate().min_by(|(_, a), (_, b)| a.distance_sq_to_pos(pointer).total_cmp(&b.distance_sq_to_pos(pointer)))?;
+    // The nearest edge decides the gap: top/left insert before, bottom/right after.
+    // This retains vertical insertion gestures when a list becomes a multicolumn grid.
+    let dx = (pointer.x - r.center().x) / r.width().max(1.0);
+    let dy = (pointer.y - r.center().y) / r.height().max(1.0);
+    let before = if dy.abs() >= dx.abs() { dy < 0.0 } else { dx < 0.0 };
+    Some(if before { i } else { i + 1 })
+}
+
+/// The insertion marker follows row-major order in a grid and vertical order in a list.
+fn panel_gap_line(rows: &[Rect], gap: usize) -> Option<[egui::Pos2; 2]> {
+    let last = rows.last()?;
+    let r = rows.get(gap).unwrap_or(last);
+    let grid = rows.windows(2).any(|pair| (pair[0].top() - pair[1].top()).abs() < 1.0);
+    Some(if grid {
+        let x = if gap == rows.len() { r.right() + 3.0 } else { r.left() - 3.0 };
+        [pos2(x, r.top()), pos2(x, r.bottom())]
+    } else {
+        let y = if gap == rows.len() { r.bottom() + 20.0 } else { r.top() - 3.0 };
+        [pos2(r.left(), y), pos2(r.right(), y)]
+    })
 }
 
 /// Where page `p` goes when `moving` (sorted) move to `to` (counted without them).
@@ -1387,10 +1427,9 @@ fn page_drag(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::DocView, rows: &[R
         return;
     }
     let pointer = ui.input(|i| i.pointer.interact_pos());
-    let gap = pointer.and_then(|p| panel_gap(rows, p.y));
-    if let (Some(gap), Some(first), Some(last)) = (gap, rows.first(), rows.last()) {
-        let y = rows.get(gap).map_or(last.bottom() + 20.0, |r| r.top() - 3.0);
-        ui.painter().line_segment([pos2(first.left(), y), pos2(first.right(), y)], Stroke::new(3.0, t.accent));
+    let gap = pointer.and_then(|p| panel_gap(rows, p));
+    if let Some(line) = gap.and_then(|gap| panel_gap_line(rows, gap)) {
+        ui.painter().line_segment(line, Stroke::new(3.0, t.accent));
     }
     if let Some(p) = pointer {
         let n = moving.len();
@@ -1604,12 +1643,29 @@ mod page_moves {
     #[test]
     fn the_gap_follows_the_nearest_thumbnail() {
         let rows: Vec<Rect> = (0..3).map(|i| Rect::from_min_max(pos2(0.0, i as f32 * 100.0), pos2(50.0, i as f32 * 100.0 + 90.0))).collect();
-        assert_eq!(panel_gap(&rows, -20.0), Some(0));
-        assert_eq!(panel_gap(&rows, 30.0), Some(0));
-        assert_eq!(panel_gap(&rows, 60.0), Some(1));
-        assert_eq!(panel_gap(&rows, 260.0), Some(3));
-        assert_eq!(panel_gap(&rows, 900.0), Some(3));
-        assert_eq!(panel_gap(&[], 10.0), None);
+        assert_eq!(panel_gap(&rows, pos2(25.0, -20.0)), Some(0));
+        assert_eq!(panel_gap(&rows, pos2(25.0, 30.0)), Some(0));
+        assert_eq!(panel_gap(&rows, pos2(25.0, 60.0)), Some(1));
+        assert_eq!(panel_gap(&rows, pos2(25.0, 260.0)), Some(3));
+        assert_eq!(panel_gap(&rows, pos2(25.0, 900.0)), Some(3));
+        assert_eq!(panel_gap(&[], pos2(25.0, 10.0)), None);
+    }
+
+    #[test]
+    fn grid_gap_uses_column_and_row() {
+        let rows: Vec<Rect> = (0..6)
+            .map(|i| {
+                let x = (i % 3) as f32 * 100.0;
+                let y = (i / 3) as f32 * 150.0;
+                Rect::from_min_size(pos2(x, y), egui::vec2(90.0, 140.0))
+            })
+            .collect();
+        assert_eq!(panel_gap(&rows, pos2(110.0, 50.0)), Some(1));
+        assert_eq!(panel_gap(&rows, pos2(180.0, 50.0)), Some(2));
+        assert_eq!(panel_gap(&rows, pos2(145.0, 10.0)), Some(1));
+        assert_eq!(panel_gap(&rows, pos2(145.0, 130.0)), Some(2));
+        assert_eq!(panel_gap(&rows, pos2(10.0, 180.0)), Some(3));
+        assert_eq!(panel_gap(&rows, pos2(280.0, 280.0)), Some(6));
     }
 
     /// The current page follows a move, whether it moved or others moved around it.

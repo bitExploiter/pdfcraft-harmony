@@ -85,6 +85,7 @@ pub struct ControlRequest {
 pub struct ControlClient {
     tx: Sender<ControlRequest>,
     ctx: egui::Context,
+    viewport: egui::ViewportId,
 }
 
 impl ControlClient {
@@ -95,7 +96,7 @@ impl ControlClient {
         if let Err(e) = self.tx.send(req) {
             let _ = e.0.reply.send(Err("the app has closed".into()));
         }
-        self.ctx.request_repaint();
+        self.ctx.request_repaint_of(self.viewport);
         rx
     }
 }
@@ -103,6 +104,8 @@ impl ControlClient {
 /// State shared between the plugin (frame hooks) and the app.
 #[derive(Default)]
 struct Shared {
+    /// Plugins belong to the shared Context, but this control channel owns just one window.
+    viewport: egui::ViewportId,
     nodes: HashMap<NodeId, accesskit::Node>,
     root: Option<NodeId>,
     focus: Option<NodeId>,
@@ -115,6 +118,8 @@ struct Shared {
 /// The egui plugin half of the control channel.
 pub struct ControlPlugin {
     shared: Arc<Mutex<Shared>>,
+    /// `output_hook` runs after egui restores the parent viewport; pair it with its input.
+    input_viewports: Vec<egui::ViewportId>,
 }
 
 impl egui::Plugin for ControlPlugin {
@@ -123,7 +128,11 @@ impl egui::Plugin for ControlPlugin {
     }
 
     fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        self.input_viewports.push(input.viewport_id);
         let Ok(mut s) = self.shared.lock() else { return };
+        if input.viewport_id != s.viewport {
+            return;
+        }
         if let Some(batch) = s.inject.pop_front() {
             input.events.extend(batch);
         }
@@ -133,7 +142,11 @@ impl egui::Plugin for ControlPlugin {
     }
 
     fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
+        let Some(viewport) = self.input_viewports.pop() else { return };
         let Ok(mut s) = self.shared.lock() else { return };
+        if viewport != s.viewport {
+            return;
+        }
         s.passes += 1;
         let Some(update) = &output.platform_output.accesskit_update else { return };
         s.nodes = update.nodes.iter().cloned().collect();
@@ -170,11 +183,12 @@ pub struct Control {
 
 /// Install the control channel on `ctx`: returns the app half and a client.
 pub fn attach(ctx: &egui::Context) -> (Control, ControlClient) {
-    let shared = Arc::new(Mutex::new(Shared::default()));
-    ctx.add_plugin(ControlPlugin { shared: shared.clone() });
+    let viewport = ctx.viewport_id();
+    let shared = Arc::new(Mutex::new(Shared { viewport, ..Default::default() }));
+    ctx.add_plugin(ControlPlugin { shared: shared.clone(), input_viewports: Vec::new() });
     ctx.enable_accesskit();
     let (tx, rx) = channel();
-    (Control { rx, shared, pending: Vec::new(), next_tag: 1 }, ControlClient { tx, ctx: ctx.clone() })
+    (Control { rx, shared, pending: Vec::new(), next_tag: 1 }, ControlClient { tx, ctx: ctx.clone(), viewport })
 }
 
 /// What a request needs from the app (implemented by `PdfCraftApp`).
@@ -669,6 +683,9 @@ impl Host for crate::PdfCraftApp {
         #[cfg(target_arch = "wasm32")]
         let pending_opens: Vec<Value> = Vec::new();
         json!({
+            "single_document_window": self.single_document_window,
+            "desktop_windows": self.desktop_windows,
+            "window_closed": self.window_closed,
             "docking": self.docking,
             "documents": docs,
             "pending_opens": pending_opens,
@@ -766,6 +783,15 @@ impl Host for crate::PdfCraftApp {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn open(&mut self, path: &str) -> Reply {
+        if self.single_document_window
+            && self.window_occupied()
+            && let Some(sender) = &self.window_open
+        {
+            sender
+                .send(crate::WindowOpen::Path { path: path.to_owned(), then: None })
+                .map_err(|_| "the desktop window manager is unavailable".to_owned())?;
+            return Ok(json!({ "accepted": path, "pending": true, "new_window": true }));
+        }
         let before = self.views.len();
         self.open_path(path);
         if self.views.len() > before || self.password_prompt.is_some() {
@@ -1079,6 +1105,74 @@ fn random_token() -> std::io::Result<String> {
     let mut bytes = [0u8; 16];
     getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    #[test]
+    fn injected_input_and_widget_tree_stay_in_the_attached_viewport() {
+        let ctx = egui::Context::default();
+        let (control, _client) = super::attach(&ctx);
+        control.inject(vec![vec![egui::Event::Key {
+            key: egui::Key::ArrowRight,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }]]);
+        let child = egui::ViewportId::from_hash_of("another-native-window");
+        let mut raw = egui::RawInput { viewport_id: child, ..Default::default() };
+        raw.viewports.insert(child, egui::ViewportInfo::default());
+        ctx.run_ui(raw.clone(), |ui| {
+            assert!(!ui.input(|input| input.key_pressed(egui::Key::ArrowRight)), "another PDF must not consume the control window's keyboard input");
+            ui.label("Other PDF window");
+        })
+        .textures_delta
+        .clear();
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            assert!(ui.input(|input| input.key_pressed(egui::Key::ArrowRight)), "the target window must receive the queued key");
+            ui.label("Owned PDF window");
+        })
+        .textures_delta
+        .clear();
+        let passes = control.passes();
+        ctx.run_ui(raw, |ui| {
+            ui.label("Other PDF window");
+        })
+        .textures_delta
+        .clear();
+        assert_eq!(control.passes(), passes, "another viewport's paint must not finish a pending control request");
+        let shared = control.shared.lock().unwrap();
+        assert!(
+            shared.nodes.values().any(|node| node.value() == Some("Owned PDF window") || node.label() == Some("Owned PDF window")),
+            "inspection must keep the target window's widget tree"
+        );
+        drop(shared);
+        // Desktop paints immediate child viewports inside the root pass. The output hook
+        // must identify the completed pass after egui restores its parent viewport.
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.label("Parent PDF window");
+            let mut raw = egui::RawInput { viewport_id: child, ..Default::default() };
+            raw.viewports.insert(child, egui::ViewportInfo::default());
+            ctx.run_ui(raw, |ui| {
+                ui.label("Nested child PDF window");
+            })
+            .textures_delta
+            .clear();
+        })
+        .textures_delta
+        .clear();
+        assert_eq!(control.passes(), passes + 1);
+        assert!(
+            control
+                .shared
+                .lock()
+                .unwrap()
+                .nodes
+                .values()
+                .any(|node| node.value() == Some("Parent PDF window") || node.label() == Some("Parent PDF window"))
+        );
+    }
 }
 
 #[cfg(test)]

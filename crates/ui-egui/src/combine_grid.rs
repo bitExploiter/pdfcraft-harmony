@@ -1139,7 +1139,7 @@ pub(crate) fn preview(app: &mut PdfCraftApp, ctx: &egui::Context, t: &Tokens) {
     // No larger than the GPU takes, or the render would be refused.
     let longest = ctx.input(|i| i.max_texture_side as f32).min(PREVIEW_SIDE);
     let thumbs = &mut app.combine_thumbs;
-    let modal = egui::Modal::new(egui::Id::new("combine-preview")).show(ctx, |ui| {
+    let modal = egui::Modal::new(crate::window_id(ctx, "combine-preview")).show(ctx, |ui| {
         ui.set_width(width);
         ui.horizontal(|ui| {
             ui.label(egui::RichText::new(crate::bidi::visual(&f.name)).font(theme::semibold(15.0)));

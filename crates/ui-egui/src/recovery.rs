@@ -291,11 +291,25 @@ impl PdfCraftApp {
         self.recovery = Some(store);
     }
 
+    /// Additional windows share the recovery directory without offering live windows' snapshots.
+    pub fn enable_window_recovery(&mut self, store: RecoveryStore) {
+        store.claim();
+        self.recovery = Some(store);
+    }
+
     /// Write snapshots of documents changed since the last autosave (called periodically).
     pub fn autosave_now(&mut self) {
         let Some(store) = self.recovery.clone() else { return };
         for snap in self.session.autosave_snapshots() {
-            let key = self.recovery_keys.entry(snap.doc).or_insert_with(|| format!("{}-{}-{}", now_secs(), std::process::id(), snap.doc.0)).clone();
+            let key = self
+                .recovery_keys
+                .entry(snap.doc)
+                .or_insert_with(|| {
+                    static NONCE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                    let nonce = NONCE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    format!("{}-{}-{}-{nonce}", now_secs(), std::process::id(), snap.doc.0)
+                })
+                .clone();
             let meta =
                 RecoveryMeta { key, name: snap.name, path: snap.path, saved_at: now_secs(), encrypted: snap.encrypted, instance: store.instance() };
             if let Err(e) = store.write(&meta, &snap.bytes) {

@@ -401,7 +401,10 @@ pub fn show(app: &mut crate::PdfCraftApp, ui: &mut egui::Ui) {
     // to the other side stays a preference and a command.
     let bare_tools = rendered.location(&Panel::Tools).is_ok_and(|l| l.floating.is_none() && matches!(l.placement, Placement::Split(_)));
     let render_permissions = move |panel: &Panel| if bare_tools && *panel == Panel::Tools { Permissions::PROTECTED } else { permissions(panel) };
-    let output = DockArea::new(egui::Id::new("pdfcraft-docking")).show_with_limits(
+    // DockArea creates explicit child IDs, so an outer push_id cannot isolate native windows.
+    // Sessions start document IDs at 1 in every window; include the viewport before deriving
+    // panel and scroll-area IDs so their offsets and limits never share egui memory.
+    let output = DockArea::new(egui::Id::new(("pdfcraft-docking", ui.ctx().viewport_id()))).show_with_limits(
         ui,
         &rendered,
         &style,
@@ -422,7 +425,8 @@ pub fn show(app: &mut crate::PdfCraftApp, ui: &mut egui::Ui) {
             }
             Panel::Tools => crate::panels::left_panel(app, ui),
             Panel::Inspector => {
-                ui.data_mut(|data| data.insert_temp(egui::Id::new("pdfcraft-inspector-body"), ui.max_rect()));
+                let body_id = crate::window_id(ui.ctx(), "pdfcraft-inspector-body");
+                ui.data_mut(|data| data.insert_temp(body_id, ui.max_rect()));
                 crate::panels::right_panel(app, ui);
             }
         },
@@ -450,7 +454,7 @@ fn panel_limits(panel: &Panel) -> PanelLimits {
     let (min, max_width) = match panel {
         Panel::Canvas => (egui::vec2(160.0, 160.0), 1_000_000.0),
         Panel::Tools => (egui::vec2(240.0, 120.0), 520.0),
-        Panel::Inspector => (egui::vec2(260.0, 120.0), 520.0),
+        Panel::Inspector => (egui::vec2(180.0, 120.0), 1_000_000.0),
     };
     PanelLimits { min, max: egui::vec2(max_width, 1_000_000.0) }
 }
@@ -458,6 +462,84 @@ fn panel_limits(panel: &Panel) -> PanelLimits {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn document_window(pages: usize) -> crate::PdfCraftApp {
+        let mut app = crate::PdfCraftApp::new();
+        let bytes = app.session.create_blank(200.0, 300.0, pages).unwrap();
+        app.open_bytes("scroll.pdf", None, bytes.as_ref().clone()).unwrap();
+        app
+    }
+
+    fn window_pass(ctx: &egui::Context, app: &mut crate::PdfCraftApp, viewport_id: egui::ViewportId, events: Vec<egui::Event>) {
+        let mut raw = egui::RawInput {
+            viewport_id,
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1200.0, 850.0))),
+            events,
+            ..Default::default()
+        };
+        raw.viewports.insert(viewport_id, egui::ViewportInfo::default());
+        ctx.run_ui(raw, |ui| show(app, ui)).textures_delta.clear();
+    }
+
+    #[test]
+    fn native_windows_do_not_share_document_scroll_positions() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let child = egui::ViewportId::from_hash_of("second-document");
+        let (mut first, mut second) = (document_window(12), document_window(2));
+        // Each native window owns a Session; its first document has the same document id.
+        assert_eq!(first.views[0].id, second.views[0].id);
+        for _ in 0..3 {
+            window_pass(&ctx, &mut first, egui::ViewportId::ROOT, Vec::new());
+            window_pass(&ctx, &mut second, child, Vec::new());
+        }
+        let second_top = second.views[0].page_screen_rect(0).unwrap();
+        first.views[0].go_to_page(7);
+        for _ in 0..3 {
+            window_pass(&ctx, &mut first, egui::ViewportId::ROOT, Vec::new());
+            window_pass(&ctx, &mut second, child, Vec::new());
+        }
+        assert_eq!(second.views[0].current, 0, "the window without input must stay on its first page");
+        assert_eq!(second.views[0].page_screen_rect(0), Some(second_top), "its exact scroll position must stay unchanged");
+        assert!(first.views[0].current >= 7, "the short document must not clamp the long document's offset");
+    }
+
+    #[test]
+    fn wheel_over_long_window_keeps_scrolling_past_other_windows_end() {
+        let ctx = egui::Context::default();
+        crate::theme::install_fonts(&ctx);
+        let child = egui::ViewportId::from_hash_of("second-document");
+        let (mut long, mut short) = (document_window(12), document_window(2));
+        for _ in 0..3 {
+            window_pass(&ctx, &mut long, egui::ViewportId::ROOT, Vec::new());
+            window_pass(&ctx, &mut short, child, Vec::new());
+        }
+        short.views[0].go_to_page(1);
+        for _ in 0..3 {
+            window_pass(&ctx, &mut short, child, Vec::new());
+        }
+        let short_end = short.views[0].page_screen_rect(1).unwrap();
+        let pointer = long.views[0].viewport_rect().center();
+        for _ in 0..16 {
+            window_pass(
+                &ctx,
+                &mut long,
+                egui::ViewportId::ROOT,
+                vec![
+                    egui::Event::PointerMoved(pointer),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -400.0),
+                        phase: egui::TouchPhase::Move,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ],
+            );
+            window_pass(&ctx, &mut short, child, Vec::new());
+        }
+        assert!(long.views[0].current > 2, "the other window's end must not prevent scrolling down");
+        assert_eq!(short.views[0].page_screen_rect(1), Some(short_end), "wheel input belongs only to its target window");
+    }
 
     #[test]
     fn lithuanian_translates_every_dynamic_panel_title() {

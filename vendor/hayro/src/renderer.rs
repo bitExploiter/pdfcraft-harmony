@@ -435,6 +435,7 @@ pub(crate) struct Renderer {
     /// PdfCraft patch (17): while the page's annotations are being drawn, paints keep their
     /// colours — reading colours replace document colours, never annotation colours.
     in_annotations: bool,
+    smooth_images: bool,
     pub(crate) inside_pattern: bool,
     /// Soft masks drawn during this render. PdfCraft note: it belongs to one `Renderer` (one
     /// render, every nested renderer starting empty) and so to one `preview` setting: a mask
@@ -465,11 +466,13 @@ impl Renderer {
         cache: &RenderCache<'_>,
         color_replacement: Option<ColorReplacement>,
         preview: bool,
+        smooth_images: bool,
     ) -> Self {
         Self {
             ctx: RenderContext::new_with(width, height, settings),
             color_replacement,
             in_annotations: false,
+            smooth_images,
             inside_pattern: false,
             soft_mask_cache: HashMap::default(),
             outline_cache: cache.outline_cache.clone(),
@@ -571,6 +574,7 @@ impl Renderer {
                 // original values, so it is never remapped by the reading-colours setting.
                 color_replacement: None,
                 in_annotations: false,
+                smooth_images: false,
                 inside_pattern: false,
                 soft_mask_cache: HashMap::default(),
                 outline_cache: self.outline_cache.clone(),
@@ -766,7 +770,8 @@ impl Renderer {
             log::warn!("Image has invalid or over-limit source dimensions/data and was skipped");
             return;
         }
-        let interpolate = image_data.interpolate();
+        let interpolate = image_data.interpolate()
+            || (self.smooth_images && alpha_data.is_none() && !self.in_type3_glyph && x_scale < 1.0 && y_scale < 1.0);
         if let Some(a) = &alpha_data {
             if source_byte_len(a.width, a.height, 1, MAX_IMAGE_PIXELS) != Some(a.data.len()) {
                 log::warn!("Image has invalid or over-limit alpha dimensions/data and was skipped");
@@ -1163,6 +1168,7 @@ impl Renderer {
                                 ),
                                 color_replacement: None,
                                 in_annotations: false,
+                                smooth_images: false,
                                 cur_mask: None,
                                 inside_pattern: true,
                                 soft_mask_cache: HashMap::default(),
@@ -1217,6 +1223,7 @@ impl Renderer {
                             // content is never remapped by the reading-colours setting.
                             color_replacement: None,
                             in_annotations: false,
+                            smooth_images: false,
                             cur_mask: None,
                             inside_pattern: true,
                             soft_mask_cache: HashMap::default(),
@@ -1533,6 +1540,7 @@ impl<'a> Device<'a> for Renderer {
                                         // the reading-colours setting.
                                         color_replacement: None,
                                         in_annotations: false,
+                                        smooth_images: false,
                                         inside_pattern: false,
                                         soft_mask_cache: HashMap::default(),
                                         outline_cache: self.outline_cache.clone(),
@@ -1829,6 +1837,7 @@ fn draw_soft_mask(mask: &SoftMask<'_>, settings: RenderSettings, width: u16, hei
         // content is never remapped by the reading-colours setting.
         color_replacement: None,
         in_annotations: false,
+        smooth_images: false,
         inside_pattern: false,
         cur_mask: None,
         soft_mask_cache: HashMap::default(),

@@ -136,6 +136,9 @@ impl ColorReplacement {
 /// Settings to apply during rendering.
 #[derive(Clone, Copy)]
 pub struct RenderSettings {
+    /// Display preference: smoothly reduce opaque images without altering PDF bytes.
+    /// Masks, Type 3 glyphs and image magnification retain the document's sampling rule.
+    pub smooth_images: bool,
     /// How much the contents should be scaled into the x direction.
     pub x_scale: f32,
     /// How much the contents should be scaled into the y direction.
@@ -162,6 +165,7 @@ pub struct RenderSettings {
 impl Default for RenderSettings {
     fn default() -> Self {
         Self {
+            smooth_images: false,
             x_scale: 1.0,
             y_scale: 1.0,
             width: None,
@@ -252,6 +256,7 @@ pub fn render_into<'a>(
         cache,
         render_settings.color_replacement,
         interpreter_settings.preview,
+        render_settings.smooth_images,
     );
 
     // PdfCraft patch (18): the page renders as one transparency group with the background

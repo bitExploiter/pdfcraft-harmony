@@ -588,6 +588,10 @@ fn new_window(
         if let Some(identifier) = &attrs.platform_specific.tabbing_identifier {
             window.setTabbingIdentifier(&NSString::from_str(identifier));
             window.setTabbingMode(NSWindowTabbingMode::Preferred);
+        } else {
+            // The PdfCraft host owns independent document windows. Do not let
+            // the system's automatic tab preference merge them back into one window.
+            window.setTabbingMode(NSWindowTabbingMode::Disallowed);
         }
 
         if attrs.content_protected {

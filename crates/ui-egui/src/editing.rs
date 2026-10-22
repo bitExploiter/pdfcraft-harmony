@@ -859,7 +859,11 @@ impl PdfCraftApp {
             }
         }
         match choice {
-            None => {} // cancelled: nothing closes
+            None => {
+                if let Some(sender) = &self.window_open {
+                    let _ = sender.send(crate::WindowOpen::CancelQuit);
+                }
+            } // cancelled: nothing closes
             Some(false) => self.close_and_continue(ctx, index, req),
             Some(true) => {
                 let Some(id) = self.views.get(index).map(|v| v.id) else { return };
@@ -895,6 +899,13 @@ impl PdfCraftApp {
     /// Request a normal application exit, preserving every unsaved document until answered.
     /// Returns false while the existing save/discard/cancel prompt needs a decision.
     pub(crate) fn request_quit(&mut self, ctx: &egui::Context) -> bool {
+        if self.single_document_window {
+            if let Some(sender) = &self.window_open {
+                let _ = sender.send(crate::WindowOpen::Quit);
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
+            }
+            return !self.desktop_dirty;
+        }
         if self.first_dirty().is_some() {
             self.close_request = Some(CloseRequest::Quit);
             ctx.request_repaint();
@@ -931,6 +942,15 @@ impl PdfCraftApp {
         }
         self.sync_unsaved_flag();
         if !ctx.input(|i| i.viewport().close_requested()) {
+            return;
+        }
+        if self.single_document_window {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            if self.window_closed {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                return;
+            }
+            self.close_native_window(ctx);
             return;
         }
         // `first_dirty` counts text typed into a field as an unsaved change.

@@ -152,6 +152,17 @@ pub mod window_state;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod open_worker_tests;
 
+#[cfg(test)]
+mod window_isolation_tests;
+
+/// Persistent widget data is shared by egui viewports even though input and focus are not.
+/// Keep existing root-window IDs for saved UI state, and namespace every additional window.
+pub(crate) fn window_id(ctx: &egui::Context, salt: impl std::hash::Hash + std::fmt::Debug) -> egui::Id {
+    let id = egui::Id::new(salt);
+    let viewport = ctx.viewport_id();
+    if viewport == egui::ViewportId::ROOT { id } else { id.with(viewport) }
+}
+
 use pdfcraft_engine::{DocId, Session};
 
 pub use canvas::{DocView, RasterMemory};
@@ -490,6 +501,15 @@ pub struct RecentFile {
     pub size: usize,
 }
 
+/// An owned request for another independent native document window.
+pub enum WindowOpen {
+    Path { path: String, then: Option<&'static str> },
+    Bytes { name: String, path: Option<String>, bytes: Vec<u8> },
+    Created { name: String, bytes: std::sync::Arc<Vec<u8>> },
+    CancelQuit,
+    Quit,
+}
+
 pub struct PdfCraftApp {
     pub docking: docking::Workspace,
     pub(crate) pending_panel_reveals: Vec<docking::Panel>,
@@ -598,6 +618,16 @@ pub struct PdfCraftApp {
     /// Folders pinned to Home, and what they held when last listed.
     pub pinned: folders_ui::PinnedFolders,
     pub toast: Option<(String, f64)>,
+    /// Independent macOS document windows, with the reading panes opened to Pages.
+    pub single_document_window: bool,
+    /// Visible native windows reported by the desktop host to the opt-in control channel.
+    pub desktop_windows: usize,
+    /// Aggregated unsaved work, so the quit API reports the real confirmation state.
+    pub desktop_dirty: bool,
+    /// A closed document window is retired by the desktop host without ending the process.
+    pub window_closed: bool,
+    /// Routes subsequent opens to the desktop host instead of inserting another tab.
+    pub window_open: Option<std::sync::mpsc::Sender<WindowOpen>>,
     /// Whether the macOS title bar is drawn by us (traffic lights over our tab strip).
     pub integrated_titlebar: bool,
     /// Set when the desktop leaves the window frame to the app (GNOME on Wayland): the tab strip
@@ -964,6 +994,11 @@ impl PdfCraftApp {
             open_prepare_gate: None,
             pinned: Default::default(),
             toast: None,
+            single_document_window: false,
+            desktop_windows: 1,
+            desktop_dirty: false,
+            window_closed: false,
+            window_open: None,
             integrated_titlebar: false,
             window_controls: None,
             system_title_bar: false,
@@ -1110,7 +1145,7 @@ impl PdfCraftApp {
     fn apply_initial_view(&mut self, index: usize, v: &pdfcraft_engine::InitialView) {
         use pdfcraft_engine::{InitialLayout as L, Magnification as M, Navigation as N};
         let pages = self.session.get(self.views[index].id).map_or(0, |d| d.info.pages.len());
-        if self.active == Some(index) {
+        if self.active == Some(index) && !self.single_document_window {
             match v.navigation {
                 N::PageOnly => {}
                 N::Bookmarks => self.right = Some(RightPanel::Bookmarks),
@@ -1150,6 +1185,15 @@ impl PdfCraftApp {
 
     /// Open a document and make it the active tab. Encrypted files raise the password prompt.
     pub fn open_bytes(&mut self, name: &str, path: Option<String>, bytes: Vec<u8>) -> Result<(), String> {
+        if self.single_document_window
+            && self.window_occupied()
+            && let Some(sender) = &self.window_open
+        {
+            return sender
+                .send(WindowOpen::Bytes { name: name.to_owned(), path, bytes })
+                .map_err(|_| "the desktop window manager is unavailable".to_string());
+        }
+        self.window_closed = false;
         self.startup_superseded = true;
         self.open_bytes_with_focus(name, path, bytes, true)
     }
@@ -1380,6 +1424,12 @@ impl PdfCraftApp {
             let left_open = self.left_open;
             self.select_mode(self.default_mode);
             self.left_open = left_open;
+        }
+        if activate && self.single_document_window {
+            self.left_open = false;
+            self.right = Some(RightPanel::Pages);
+            self.right_panel_closed = false;
+            self.right_before_read = None;
         }
         if let Some(p) = path {
             self.recent.retain(|r| r.path != p);
@@ -1714,6 +1764,52 @@ impl PdfCraftApp {
         self.views.iter().position(|v| self.session.get(v.id).and_then(|d| d.path.as_deref()).is_some_and(|p| same_file(p, path)))
     }
 
+    /// Reuse an open or loading local file without reloading its edits or view state.
+    /// The desktop host calls this before allocating another native window.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn activate_open_path(&mut self, path: &str, then: Option<&'static str>) -> bool {
+        if self.window_closed {
+            return false;
+        }
+        let matches = |candidate: &str| {
+            if same_file(candidate, path) {
+                return true;
+            }
+            if let (Ok(a), Ok(b)) = (std::fs::canonicalize(candidate), std::fs::canonicalize(path))
+                && a == b
+            {
+                return true;
+            }
+            // On macOS this also recognises case aliases and hard links to the same file.
+            #[cfg(unix)]
+            if let (Ok(a), Ok(b)) = (std::fs::metadata(candidate), std::fs::metadata(path)) {
+                use std::os::unix::fs::MetadataExt;
+                return a.dev() == b.dev() && a.ino() == b.ino();
+            }
+            false
+        };
+        if let Some(index) = self.views.iter().position(|view| self.session.get(view.id).and_then(|doc| doc.path.as_deref()).is_some_and(matches)) {
+            self.active = Some(index);
+            if let Some(command) = then {
+                self.execute(command);
+            }
+            return true;
+        }
+        if let Some(pending) = self.pending_opens.iter_mut().find(|pending| pending.path.as_deref().is_some_and(matches)) {
+            if then.is_some() {
+                pending.then = then;
+            }
+            return true;
+        }
+        if let Some(prompt) = self.password_prompt.as_mut().filter(|prompt| prompt.path.as_deref().is_some_and(matches)) {
+            if then.is_some() {
+                prompt.then = then;
+            }
+            return true;
+        }
+        false
+    }
+
     /// Open a file from a recent list: focus the tab already showing it, else open it (File ▸
     /// Open Recent and the Home view's list share this).
     pub fn open_recent(&mut self, path: &str) {
@@ -1806,6 +1902,46 @@ impl PdfCraftApp {
         }
     }
 
+    /// Includes queued reads and password prompts: opening two files quickly must never
+    /// accidentally put both documents in the same window.
+    pub fn window_occupied(&self) -> bool {
+        !self.views.is_empty()
+            || self.password_prompt.is_some()
+            || self.image_import.is_some()
+            || self.combine_showing()
+            || self.dialog.is_some()
+            || {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    !self.pending_opens.is_empty()
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    false
+                }
+            }
+    }
+
+    /// Use the existing asynchronous file reader when a host creates a new document window.
+    pub fn prepare_native_window(&mut self, ctx: &egui::Context) {
+        self.ctx = Some(ctx.clone());
+    }
+
+    /// Preserve the normal save/discard/cancel flow when the desktop host asks to close.
+    pub fn close_native_window(&mut self, ctx: &egui::Context) {
+        if self.views.is_empty() {
+            #[cfg(not(target_arch = "wasm32"))]
+            self.pending_opens.clear();
+            self.password_prompt = None;
+            self.image_import = None;
+            self.dialog = None;
+            self.window_closed = true;
+            ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        } else {
+            self.request_close_tab(0);
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub fn open_path(&mut self, path: &str) {
         self.open_path_then(path, None);
@@ -1813,19 +1949,20 @@ impl PdfCraftApp {
 
     /// Keep a chosen tool with its file until preparation and any password entry finish.
     #[cfg(not(target_arch = "wasm32"))]
-    fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
-        // One file, one tab (#2166): a file that is open already comes to the front instead,
-        // and the tool it was opened for runs on it. One still being opened is left to that.
-        if let Some(i) = self.tab_showing(path) {
-            self.active = Some(i);
-            if let Some(command) = then {
-                self.execute(command);
+    pub fn open_path_then(&mut self, path: &str, then: Option<&'static str>) {
+        if self.activate_open_path(path, then) {
+            return;
+        }
+        if self.single_document_window
+            && self.window_occupied()
+            && let Some(sender) = &self.window_open
+        {
+            if sender.send(WindowOpen::Path { path: path.to_owned(), then }).is_err() {
+                self.notify("The desktop window manager is unavailable");
             }
             return;
         }
-        if self.pending_opens.iter().any(|p| p.path.as_deref().is_some_and(|p| same_file(p, path))) {
-            return;
-        }
+        self.window_closed = false;
         let name = std::path::Path::new(path).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string());
         // Taken before reading: a build that rewrites the file meanwhile still counts as a change.
         let stamp = file_watch::Stamp::at(path);
@@ -1928,6 +2065,13 @@ impl PdfCraftApp {
             Some(a) if a >= self.views.len() => Some(self.views.len() - 1),
             other => other,
         };
+        if self.single_document_window && self.views.is_empty() {
+            self.window_closed = true;
+            if let Some(ctx) = &self.ctx {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Visible(false));
+                ctx.request_repaint_of(egui::ViewportId::ROOT);
+            }
+        }
     }
 
     /// Moves the tab at `from` so it sits at `to` (#1537). The same document stays active

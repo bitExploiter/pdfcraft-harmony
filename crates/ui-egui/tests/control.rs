@@ -1719,3 +1719,49 @@ fn routine_continuous_scrolling_does_not_add_navigation_history() {
     assert!(h.state().views[0].back.is_empty());
     assert!(h.state().views[0].forward.is_empty());
 }
+
+#[test]
+fn independent_windows_open_with_tools_closed_and_pages_even_for_bookmark_initial_view() {
+    use pdfcraft_engine::{Edit, Navigation};
+    let mut app = PdfCraftApp::new();
+    app.single_document_window = true;
+    app.open_bytes("first.pdf", None, fixture(6)).unwrap();
+    assert!(!app.left_open);
+    assert_eq!(app.right, Some(pdfcraft_ui_egui::RightPanel::Pages));
+    let id = app.views[0].id;
+    let mut initial = app.session.get(id).unwrap().initial_view();
+    initial.navigation = Navigation::Bookmarks;
+    app.session.apply(id, Edit::SetInitialView(Box::new(initial))).unwrap();
+    let bytes = app.session.save_bytes(id).unwrap();
+    app.left_open = true;
+    app.choose_right_panel(Some(pdfcraft_ui_egui::RightPanel::Bookmarks));
+    app.open_bytes("bookmarks.pdf", None, bytes.to_vec()).unwrap();
+    assert!(!app.left_open);
+    assert_eq!(app.right, Some(pdfcraft_ui_egui::RightPanel::Pages));
+}
+
+#[test]
+fn thumbnail_panel_reflows_without_resizing_thumbnails_and_navigates() {
+    let (mut h, c) = harness_pages(12);
+    ok(&mut h, &c, "ui.set", json!({"key":"panel", "value":"pages"}));
+    ok(&mut h, &c, "ui.set", json!({"key":"left", "value":"closed"}));
+    h.run_steps(4);
+    let first = h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 1").rect();
+    let second = h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 2").rect();
+    assert!((second.top() - first.top()).abs() < 1.0);
+    let small_size = first.size();
+    ok(&mut h, &c, "ui.dock", json!({"operation":"resizeSplit", "path":[], "size":{"FixedSecond":800.0}}));
+    h.run_steps(6);
+    let first = h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 1").rect();
+    let second = h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 2").rect();
+    assert!((second.top() - first.top()).abs() < 1.0);
+    let sixth = h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 6").rect();
+    assert!((sixth.top() - first.top()).abs() < 1.0);
+    assert!(sixth.right() - first.left() > 520.0);
+    assert_eq!(first.size(), small_size);
+    assert_eq!(first.size(), second.size());
+    assert_eq!(first.width(), 112.0);
+    h.get_by_role_and_label(egui::accesskit::Role::Button, "Page 3").click();
+    h.run_steps(4);
+    assert_eq!(h.state().views[0].current, 2);
+}

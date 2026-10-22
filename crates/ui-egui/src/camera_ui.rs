@@ -141,7 +141,7 @@ pub(crate) fn paint(painter: &egui::Painter, xf: &PageXform, page: usize, view: 
 /// way, choose its look (original, colour, greyscale, black and white) and clean-up level,
 /// Crop pages, Organize pages, or Done. The instructions are a notice (`ocr.enhance_camera`).
 pub(crate) fn bar(ctx: &egui::Context, view: &mut DocView, area: Rect, t: &Tokens, allowed: bool) {
-    egui::Area::new(egui::Id::new("camera-bar"))
+    egui::Area::new(crate::window_id(ctx, "camera-bar"))
         .order(egui::Order::Middle)
         .pivot(Align2::RIGHT_TOP)
         .fixed_pos(area.right_top() + vec2(-18.0, 12.0))
