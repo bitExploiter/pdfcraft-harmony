@@ -1422,8 +1422,10 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             let visible = Rect::from_min_size(ed.rect.min, measured.rect.size().max(egui::vec2(1.0, 1.0)));
             // Unsupported source programs use an interface fallback whose glyph advances
             // can differ from the PDF's. Keep every visible row inside the growing frame.
-            let live = draft_rect.map_or(visible, |bounds| bounds.union(visible));
-            ui.painter().rect_stroke(live.expand(2.0), CornerRadius::ZERO, Stroke::new(1.5, ACCENT), egui::StrokeKind::Outside);
+            // An unchanged paragraph keeps the box its hover drew, corners included: opening it
+            // adds only the caret.
+            let live = if ed.has_changes() { draft_rect.map_or(visible, |bounds| bounds.union(visible)) } else { ed.rect };
+            ui.painter().rect_stroke(live.expand(2.0), CornerRadius::same(2), Stroke::new(1.5, ACCENT), egui::StrokeKind::Outside);
             // On the frame, a press takes hold of the box (a click selects it, a drag moves it):
             // the pointer says so there, and reads as text inside.
             if let Some(p) = ui.input(|i| i.pointer.hover_pos())
@@ -1445,6 +1447,8 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             egui::Frame::NONE.show(ui, |ui| {
                 // A textless PDF preview, or the page itself, keeps its real background through
                 // the transparent editor. The temporary opaque cover uses the shared caret-contrast rule.
+                // A hairline caret, as text fields draw it: egui's default (2 points) reads as a bar.
+                ui.visuals_mut().text_cursor.stroke.width = 1.0;
                 ui.visuals_mut().text_cursor.stroke.color = if background_ready || unchanged {
                     if luminance(text_color) < 0.5 { Color32::BLACK } else { Color32::WHITE }
                 } else {
