@@ -38,17 +38,19 @@ minutes. Subsequent builds reuse Cargo caches. The builder supports Linux amd64 
 the default Rust version is the stable release CI used when the `Dockerfile` was last updated
 (CI and releases always use the latest stable), and Trunk is pinned to the release workflow's
 `trunk-version`. `RUST_VERSION`, `TRUNK_VERSION`, and `NGINX_VERSION` can be overridden with
-`--build-arg`. To stamp the About dialog with a label instead of "dev build", pass
+`--build-arg`. To confirm a Rust tag exists for your architecture before building (a missing
+tag fails the build early), check `docker manifest inspect rust:<version>-slim-bookworm`.
+To stamp the About dialog with a label instead of "dev build", pass
 `--build-arg PDFCRAFT_BUILD_LABEL=docker`; the build then reports `0.9.0 (docker)`. The web
 build does not embed the optional `craft-fonts` checkout.
 
-The Docker build uses thin LTO and one Cargo build job to reduce peak memory, while keeping
-the web profile's size optimizations and `wasm-opt -Oz`. Its Wasm size may differ from the
-release-zip figure above; NGINX has no per-file size cap. To use the release zip's fat LTO on
-a builder with more memory, pass `--build-arg CARGO_PROFILE_WASM_RELEASE_LTO=fat`.
-`--build-arg CARGO_BUILD_JOBS=4` enables more concurrent compilation on larger builders. A
-compiler killed with `SIGKILL`/`cannot allocate memory` means the Docker/Podman VM needs more
-memory or swap.
+The Docker build runs one Cargo build job (the default, `--build-arg CARGO_BUILD_JOBS=1`) to
+keep peak memory low. The workspace's `[profile.release]` already sets `lto = "thin"` and
+`codegen-units = 1`, and `index.html`'s `data-wasm-opt="z"` makes Trunk run `wasm-opt -Oz`, so
+the image needs no profile overrides. Its Wasm size may differ from the release-zip figure
+above; NGINX has no per-file size cap. `--build-arg CARGO_BUILD_JOBS=4` enables more concurrent
+compilation on larger builders. A compiler killed with `SIGKILL`/`cannot allocate memory` means
+the Docker/Podman VM needs more memory or swap.
 
 For a public deployment, put an HTTPS reverse proxy or your hosting platform's TLS endpoint
 in front of container port 8080. With a reverse proxy on the same host, bind only loopback

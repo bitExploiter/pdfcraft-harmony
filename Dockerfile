@@ -35,15 +35,15 @@ RUN set -eu; \
 WORKDIR /src
 COPY . .
 WORKDIR /src/apps/pdfcraft-web
-# Docker serving has no static-host per-file size cap. Thin LTO uses less build
-# memory than the release zip's fat LTO; retain the profile's other optimizations.
-ARG CARGO_PROFILE_WASM_RELEASE_LTO=thin
+# One Cargo build job keeps peak memory low. The workspace's [profile.release]
+# already keeps lto = "thin" and codegen-units = 1, and index.html's
+# data-wasm-opt="z" makes trunk run wasm-opt -Oz, so the image needs no
+# profile overrides.
 ARG CARGO_BUILD_JOBS=1
 # Optional build label shown in About and `--version` (crates/engine/src/build_info.rs), e.g.
 #   --build-arg PDFCRAFT_BUILD_LABEL=docker
 # Left empty, the build reports itself as a dev build.
 ARG PDFCRAFT_BUILD_LABEL=
-# index.html selects the wasm-release profile and wasm-opt -Oz.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     --mount=type=cache,target=/root/.cache/trunk \
