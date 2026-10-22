@@ -5745,6 +5745,7 @@ mod tests {
             intent: None,
             fill_sign,
             points: Vec::new(),
+            text_box: None,
         }
     }
 
