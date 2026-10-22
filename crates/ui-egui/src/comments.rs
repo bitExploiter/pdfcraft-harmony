@@ -1116,7 +1116,8 @@ pub(crate) fn page_input(ui: &egui::Ui, resp: &egui::Response, cx: &PageCx<'_>, 
             {
                 if tool == CommentTool::TextBox && upright {
                     let at = cx.to_user(p);
-                    cv.inline = Some(InlineText { page: cx.page, index: None, at, size: None, text: String::new(), original: String::new(), focus: true });
+                    cv.inline =
+                        Some(InlineText { page: cx.page, index: None, at, size: None, text: String::new(), original: String::new(), focus: true });
                 } else {
                     let kind = if tool == CommentTool::Note { ComposerKind::Note } else { ComposerKind::TextBox { size: None } };
                     cv.composer = Some(Composer { page: cx.page, at: cx.to_user(p), kind, text: String::new(), focus: true });
@@ -1694,14 +1695,14 @@ pub(crate) fn composer(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, 
             let border = prefs.style(CommentTool::TextBox).width;
             let rect = match (size, info.pages.get(page)) {
                 (Some(size), Some(p)) => drawn_text_box_rect(p, c.at, size, &text, 12.0, border),
-                _ => text_box_rect(c.at, &text, 12.0, rotation),
+                _ => text_box_rect(c.at, &text, 12.0, border, rotation),
             };
             Some(new_comment(&cx, CommentTool::TextBox, Shape::TextBox { rect, font_size: 12.0 }, text))
         }
         ComposerKind::Callout { point } => {
             view.comments.tool_done = true;
             // A callout's leader and box stay in user-space axes (its appearance isn't turned).
-            let rect = text_box_rect(c.at, &text, 10.0, 0);
+            let rect = text_box_rect(c.at, &text, 10.0, prefs.style(CommentTool::Callout).width, 0);
             let side = if point[0] < rect[0] {
                 rect[0]
             } else if point[0] > rect[2] {
@@ -1745,7 +1746,7 @@ pub(crate) fn inline_edit(it: &InlineText, info: &DocInfo, prefs: &CommentPrefs)
             let style = prefs.style(CommentTool::TextBox);
             let rect = match (it.size, info.pages.get(it.page)) {
                 (Some(size), Some(p)) => drawn_text_box_rect(p, it.at, size, &text, 12.0, style.width),
-                _ => text_box_rect(it.at, &text, 12.0, 0),
+                _ => text_box_rect(it.at, &text, 12.0, style.width, 0),
             };
             Some(Edit::AddAnnotation(NewAnnotation {
                 page: it.page,
@@ -1943,14 +1944,14 @@ pub(crate) fn caret_snap(text: &PageText, vx: f32, vy: f32) -> Option<([f32; 2],
 }
 
 /// A text box sized to its text (at most 300 pt wide), hanging from its top-left corner.
-/// The box for `text` at `size` with its displayed top-left corner at `at`, on a page turned by
-/// `rotation` (its `/Rotate`): on a quarter-turned page it is taller than wide in user space.
-pub fn text_box_rect(at: [f64; 2], text: &str, size: f64, rotation: i64) -> [f64; 4] {
-    use pdfcraft_engine::annot_text::{text_box_width, wrap};
-    let pad = 2.0;
+/// The box for `text` at `size` inside a border `border` wide, with its displayed top-left
+/// corner at `at`, on a page turned by `rotation` (its `/Rotate`): on a quarter-turned page it is
+/// taller than wide in user space. The text sits 2 pt inside the border on every side.
+pub fn text_box_rect(at: [f64; 2], text: &str, size: f64, border: f64, rotation: i64) -> [f64; 4] {
+    use pdfcraft_engine::annot_text::{text_box_height, text_box_width, wrap};
+    let pad = 2.0 + border.max(0.0);
     let w = text_box_width(text, size, pad);
-    let lines = wrap(text, size, w - 2.0 * pad).len().max(1);
-    let h = lines as f64 * size * 1.2 + 2.0 * pad + 2.0;
+    let h = text_box_height(wrap(text, size, w - 2.0 * pad).len(), size, pad);
     pdfcraft_engine::text_box_at(rotation, at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]])
 }
 
@@ -2581,10 +2582,10 @@ mod tests {
 
     #[test]
     fn text_boxes_fit_their_text() {
-        let r = text_box_rect([100.0, 500.0], "Hi", 12.0, 0);
+        let r = text_box_rect([100.0, 500.0], "Hi", 12.0, 0.0, 0);
         assert_eq!((r[0], r[3]), (100.0, 500.0));
         assert!(r[2] - r[0] < 60.0);
-        let long = text_box_rect([0.0, 500.0], &"word ".repeat(80), 12.0, 0);
+        let long = text_box_rect([0.0, 500.0], &"word ".repeat(80), 12.0, 0.0, 0);
         assert_eq!(long[2], 300.0);
         assert!(long[3] - long[1] > 50.0);
     }
