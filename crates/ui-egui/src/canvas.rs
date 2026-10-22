@@ -319,16 +319,17 @@ pub struct Snapshot {
     pub from: String,
 }
 
-/// A validation badge drawn over a signature widget: the widget rectangle (user space), the verdict it shows, and its hover text.
+/// A signed signature widget on a page: the widget rectangle (user space), the verdict, and its hover text.
 pub(crate) struct SignatureBadge {
     pub rect: [f64; 4],
+    #[allow(dead_code)]
     pub status: pdfcraft_engine::SignatureStatus,
     pub summary: &'static str,
 }
 
-/// The validation badges drawn over one page's signature widgets: signed, visible widgets
-/// on this page with coordinates that survive the cast to screen space. Hostile files can
-/// carry NaN, infinite or gigantic rectangles, which must never reach the painter.
+/// Signed, visible signature widgets on `page` with coordinates that survive the cast to
+/// screen space. Hostile files can carry NaN, infinite or gigantic rectangles, which must
+/// never reach screen-space hit-testing.
 pub(crate) fn signature_badges(signatures: &[pdfcraft_engine::SignatureInfo], page: usize) -> Vec<SignatureBadge> {
     signatures
         .iter()
@@ -3576,29 +3577,17 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     view.flash = None;
                 }
             }
-            // Validation is viewer chrome over the signer's original artwork, which
-            // may still say "Signature Not Verified". These badges never enter document
-            // streams, image/text exports, vector printing or Print as Image.
+            // Signature widgets are rendered from the document's display copy at every zoom
+            // level without a canvas badge overlay; hovering a signed widget shows its summary.
             for badge in signature_badges(&doc.signatures, i) {
                 let [x0, y0, x1, y1] = badge.rect;
                 let sr = xf.user_rect(info, i, [x0 as f32, y0 as f32, x1 as f32, y1 as f32]);
-                let (icon, color) = crate::sign_ui::signature_status_style(badge.status);
-                painter.rect_stroke(sr, CornerRadius::same(2), Stroke::new(1.5, color), egui::StrokeKind::Outside);
-                // A widget too small for the mark keeps its outline: the verdict still shows.
-                if sr.width() < 4.0 || sr.height() < 4.0 {
-                    continue;
-                }
-                // Big enough to read at a glance, small enough to leave the signer's own
-                // text visible around it.
-                let side = (sr.width().min(sr.height()) * 0.8).clamp(24.0, 192.0);
-                let mark = Rect::from_center_size(sr.center(), vec2(side, side));
-                icons::paint(ui, mark, icon, side * 0.64, color);
-                if let Some(p) = pointer.filter(|p| mark.expand(2.0).contains(*p)) {
+                if let Some(p) = pointer.filter(|p| sr.contains(*p)) {
                     badge_hover = Some((p, badge.summary.to_string()));
                 }
             }
-            // Overlapping widgets paint in order, so the topmost badge owns the hover; an
-            // earlier link or annotation hover still wins over any badge.
+            // Overlapping widgets run in order, so the topmost widget owns the hover; an
+            // earlier link or annotation hover still wins.
             if hover_text.is_none() {
                 hover_text = badge_hover.take();
             }
