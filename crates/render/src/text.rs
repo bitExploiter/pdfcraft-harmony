@@ -321,11 +321,11 @@ impl PageText {
                 }
             }
         }
-        // Whether the selected glyphs of one line stack down a column, as the layout reads an
-        // upright CJK column written one glyph per baseline (#3712). Such a glyph runs
-        // horizontally, so its direction does not give the column away.
-        let stacked = |members: &[usize]| {
-            let mut column = members.iter().filter_map(|&i| self.glyphs.get(i));
+        // Whether glyphs `range` of the page stack down a column, as the layout reads an upright
+        // CJK column written one glyph per baseline (#3712). Such a glyph runs horizontally, so
+        // its direction does not give the column away.
+        let stacked = |range: std::ops::Range<usize>| {
+            let mut column = range.filter_map(|i| self.glyphs.get(i));
             let Some(mut upper) = column.next() else { return false };
             let Some(mut lower) = column.next() else { return false };
             loop {
@@ -336,9 +336,25 @@ impl PageText {
                 (upper, lower) = (lower, next);
             }
         };
+        // The whole line decides, not only the glyphs the rectangle caught: a shallow selection
+        // takes one glyph from each column, and those must still read as columns, not as the row
+        // they happen to share. A line's glyphs are one contiguous run of the page.
+        let line_range = |line: u32, at: usize| {
+            let same = |i: usize| self.line_of.get(i) == Some(&line);
+            let mut start = at;
+            while start > 0 && same(start - 1) {
+                start -= 1;
+            }
+            let mut end = at + 1;
+            while same(end) {
+                end += 1;
+            }
+            start..end
+        };
         // Within the layout's own tolerance for reading a glyph as unturned.
         let turned = glyphs.iter().any(|&i| self.glyphs.get(i).is_some_and(|g| g.direction[1].abs() > WORD_GAP));
-        let vertical = turned || lines.iter().any(|(members, _)| stacked(members));
+        let vertical =
+            turned || lines.iter().zip(&line_ids).any(|((members, _), &line)| members.first().is_some_and(|&at| stacked(line_range(line, at))));
         let piece = |members: &[usize]| {
             let mut s = String::new();
             let mut prev: Option<usize> = None;
@@ -1896,6 +1912,17 @@ mod tests {
         // A rectangle around the rightmost column copies just that column.
         let right = text.glyphs_in([494.0, 735.0, 516.0, 830.0]);
         assert_eq!(text.column_text(&right), columns[0]);
+    }
+
+    #[test]
+    fn a_shallow_rectangle_copies_stacked_columns_in_column_order() {
+        // A rectangle that catches only the top glyph of each column selects three columns, not
+        // the row those glyphs happen to share: the line's whole sequence says it is a column.
+        let columns = ["春天來得很早，", "山上開滿櫻花。", "遊客慢慢上山。"];
+        let text = layout(stacked_vertical_columns(&columns, 18.0));
+        let top = text.glyphs_in([460.0, 738.0, 516.0, 752.0]);
+        assert_eq!(top, vec![0, 7, 14], "one glyph from each column, in content order");
+        assert_eq!(text.column_text(&top), "春\n山\n遊");
     }
 
     #[test]
