@@ -2388,6 +2388,7 @@ animation effects	Off	關
 @plural	{n} field|{n} fields	{n} 個欄位
 	PDF page: {size}	PDF 頁面：{size}
 	Match page at 100%	以 100% 符合頁面
+	Custom size	自訂尺寸
 	PDF scale: {scale}%	PDF 比例：{scale}%
 	Printer paper and scaling may differ. Check driver settings.	印表機的紙張與縮放可能不同，請檢查驅動程式設定。
 	Drawing scale changes. Use Actual size for full-scale plans.	圖面比例會改變。如需原尺寸的圖面，請使用「實際大小」。

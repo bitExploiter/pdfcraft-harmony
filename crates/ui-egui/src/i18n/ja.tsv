@@ -2315,6 +2315,7 @@ key	Space	スペース
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	PDFページ: {size}
 	Match page at 100%	ページに合わせて100%に設定
+	Custom size	カスタムサイズ
 	PDF scale: {scale}%	PDFの倍率: {scale}%
 	Printer paper and scaling may differ. Check driver settings.	プリンターの用紙や倍率は異なる場合があります。ドライバーの設定を確認してください。
 	Drawing scale changes. Use Actual size for full-scale plans.	図面の縮尺が変わります。原寸で印刷するには「実際のサイズ」を使用してください。

@@ -2314,6 +2314,7 @@ key	Space	Бос орын
 	Inspector	Инспектор
 	PDF page: {size}	PDF беті: {size}
 	Match page at 100%	Бетке 100% сәйкестендіру
+	Custom size	Арнайы өлшем
 	PDF scale: {scale}%	PDF масштабы: {scale}%
 	Printer paper and scaling may differ. Check driver settings.	Принтер қағазы мен масштабы өзгеше болуы мүмкін. Драйвер параметрлерін тексеріңіз.
 	Drawing scale changes. Use Actual size for full-scale plans.	Сызба масштабы өзгереді. Толық масштабты жоспарлар үшін Нақты өлшемді пайдаланыңыз.

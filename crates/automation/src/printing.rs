@@ -127,17 +127,23 @@ impl Automation {
         };
         let paper = match a.opt_str("paper")? {
             None => PAPERS[0].1,
-            Some(p) => PAPERS
-                .iter()
-                .find(|(n, _)| {
-                    n.eq_ignore_ascii_case(p)
-                        || n.replace("US ", "").eq_ignore_ascii_case(p)
-                        || n.split(" (").next().is_some_and(|name| name.eq_ignore_ascii_case(p))
-                })
-                .map(|x| x.1)
-                .ok_or_else(|| {
-                    bad(format!("unknown paper {p:?}; choose one of {}", PAPERS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ")))
-                })?,
+            Some(p) => match print::parse_paper_size(p) {
+                Some(custom) => custom,
+                None => PAPERS
+                    .iter()
+                    .find(|(n, _)| {
+                        n.eq_ignore_ascii_case(p)
+                            || n.replace("US ", "").eq_ignore_ascii_case(p)
+                            || n.split(" (").next().is_some_and(|name| name.eq_ignore_ascii_case(p))
+                    })
+                    .map(|x| x.1)
+                    .ok_or_else(|| {
+                        bad(format!(
+                            "unknown paper {p:?}; choose one of {}, or give a custom size such as 100x150mm",
+                            PAPERS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ")
+                        ))
+                    })?,
+            },
         };
         // Print as image (Acrobat's Advanced Print Setup): pictures at `dpi`, grey when
         // `grayscale` is also asked for.

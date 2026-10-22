@@ -323,6 +323,27 @@ pub fn cups_media(index: usize) -> Option<&'static str> {
     }
 }
 
+/// A custom paper written `100x150mm` (`mm`, `cm`, `in` or `pt`; either way round), in points.
+/// `None` when it isn't one, or is smaller than an inch or larger than 200 inches a side.
+pub fn parse_paper_size(text: &str) -> Option<(f64, f64)> {
+    let text = text.trim().to_ascii_lowercase();
+    let (dims, per_unit) = [("mm", 72.0 / 25.4), ("cm", 72.0 / 2.54), ("in", 72.0), ("pt", 1.0)]
+        .into_iter()
+        .find_map(|(unit, k)| text.strip_suffix(unit).map(|d| (d.trim().to_string(), k)))?;
+    let (w, h) = dims.split_once(['x', '×'])?;
+    let (w, h) = (w.trim().parse::<f64>().ok()? * per_unit, h.trim().parse::<f64>().ok()? * per_unit);
+    let fits = |v: f64| v.is_finite() && (72.0..=14_400.0).contains(&v);
+    (fits(w) && fits(h)).then_some((w, h))
+}
+
+/// The CUPS media name for a custom paper of `size` points (`Custom.100x150mm`), so a PPD with a
+/// custom page size, or an IPP printer, gets the sheet the PDF was laid out on.
+pub fn cups_custom_media(size: (f64, f64)) -> Option<String> {
+    let mm = |pt: f64| (pt * 254.0 / 72.0).round() / 10.0;
+    let fine = size.0.is_finite() && size.1.is_finite() && size.0 > 0.0 && size.1 > 0.0;
+    fine.then(|| format!("Custom.{}x{}mm", mm(size.0.min(size.1)), mm(size.0.max(size.1))))
+}
+
 /// Whether most of page `index`'s text runs bottom-to-top as the page displays (a label laid
 /// sideways on a letter or A4 sheet), counting each text-showing operator once; form XObjects
 /// are followed a few levels deep.

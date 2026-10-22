@@ -2284,6 +2284,7 @@ key	Space	空格
 # Architectural print controls (follow-up to #599).
 	PDF page: {size}	PDF 页面：{size}
 	Match page at 100%	匹配页面并设为 100%
+	Custom size	自定义尺寸
 	PDF scale: {scale}%	PDF 缩放：{scale}%
 	Printer paper and scaling may differ. Check driver settings.	打印机纸张和缩放可能不同。请检查驱动程序设置。
 	Drawing scale changes. Use Actual size for full-scale plans.	图纸比例发生变化。按原比例打印图纸时请使用实际大小。
