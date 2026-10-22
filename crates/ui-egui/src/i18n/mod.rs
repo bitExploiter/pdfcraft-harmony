@@ -496,11 +496,11 @@ pub fn in_sentence(label: &str) -> std::borrow::Cow<'_, str> {
 /// The translation of `english` in upper case, for section titles. Rust's case mapping knows no
 /// language, and Turkish has a dotted and a dotless i (`i` ↔ `İ`, `ı` ↔ `I`): "Gelişmiş" must
 /// become "GELİŞMİŞ", not "GELIŞMIŞ". A label without a Turkish row is still English and keeps
-/// the English rule. Georgian stays uncapitalised ([`upper`]).
+/// the English rule.
 pub fn upper_label(english: &str) -> String {
     let lang = current();
     let shown = tr(lang, english);
-    if lang.code() == "tr" && has(lang, english) { shown.chars().flat_map(upper_turkish).collect() } else { upper(shown) }
+    if lang.code() == "tr" && has(lang, english) { shown.chars().flat_map(upper_turkish).collect() } else { shown.to_uppercase() }
 }
 
 fn upper_turkish(c: char) -> std::char::ToUppercase {
@@ -518,17 +518,6 @@ fn lower_turkish(c: char) -> std::char::ToLowercase {
         'I' => 'ı'.to_lowercase(),
         c => c.to_lowercase(),
     }
-}
-
-/// `text` in capitals, for section labels and initials. Georgian has no capitals in ordinary
-/// writing (Mtavruli is a display style, not upper case), so its letters stay as they are.
-pub fn upper(text: &str) -> String {
-    text.chars().map(|c| if capitalizes(c) { c.to_uppercase().collect() } else { c.to_string() }).collect()
-}
-
-/// Whether [`upper`] capitalises `c`: not Georgian (Mkhedruli, Mtavruli, Asomtavruli, Nuskhuri).
-fn capitalizes(c: char) -> bool {
-    !matches!(c, '\u{10A0}'..='\u{10FF}' | '\u{1C90}'..='\u{1CBF}' | '\u{2D00}'..='\u{2D2F}')
 }
 
 pub fn current() -> Lang {
@@ -1231,13 +1220,6 @@ mod tests {
         assert_eq!(menu_label("file.open", "Open…"), "開く…");
         set_current(Lang::EN);
         assert_eq!(command_label("Undo Fill in Save {e}"), "Undo Fill in Save {e}");
-    }
-
-    #[test]
-    fn upper_leaves_georgian_uncapitalised() {
-        assert_eq!(upper("Privacy"), "PRIVACY");
-        assert_eq!(upper("კონფიდენციალურობა"), "კონფიდენციალურობა");
-        assert_eq!(upper("pdf-ის ექსპორტი"), "PDF-ის ექსპორტი");
     }
 
     #[test]

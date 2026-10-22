@@ -69,7 +69,7 @@ pub fn subtype_icon(s: &str) -> &'static str {
 
 fn initials(name: &str) -> String {
     let s: String = name.split_whitespace().filter_map(|w| w.chars().next()).take(2).collect();
-    if s.is_empty() { "?".into() } else { crate::i18n::upper(&s) }
+    if s.is_empty() { "?".into() } else { s.to_uppercase() }
 }
 
 /// A comment's colour as `RRGGBB` (empty: none), the key the colour sort and filter use.
@@ -661,13 +661,5 @@ mod filter {
         assert!(any_contains(["IRMAK"], "ırmak"));
         assert!(any_contains(["Note"], "NOTE"));
         assert!(!any_contains(["Ayşe Yılmaz"], "mehmet"));
-    }
-
-    #[test]
-    fn georgian_initials_stay_mkhedruli() {
-        assert_eq!(super::initials("დავით მაჭახელიძე"), "დმ");
-        assert_eq!(super::initials("ana smith"), "AS");
-        assert_eq!(super::initials("ნინო smith"), "ნS");
-        assert_eq!(super::initials("  "), "?");
     }
 }
