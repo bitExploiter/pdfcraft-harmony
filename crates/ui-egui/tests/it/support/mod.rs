@@ -1,6 +1,9 @@
-//! State-based waits for native preparation, which completes between UI frames.
+//! State-based waits for native preparation, which completes between UI frames, and pointer
+//! input in the frames the platform delivers it in ([`input`]).
 use egui_kittest::Harness;
 use pdfcraft_ui_egui::PdfCraftApp;
+
+pub mod input;
 
 pub fn wait_until(h: &mut Harness<'static, PdfCraftApp>, what: &str, ready: impl Fn(&PdfCraftApp) -> bool) {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
