@@ -99,7 +99,7 @@ const COVER_CONTRAST: f64 = 3.0;
 pub fn audit_redactions(doc: &Document) -> Result<Vec<AuditFinding>, AuditError> {
     let mut out = Vec::new();
     for (n, page) in pdfcraft_model::pages(doc).iter().enumerate() {
-        let lines = pdfcraft_edit::text_lines(doc, n).map_err(|e| AuditError::Text(n, e.to_string()))?;
+        let lines = audit_lines(doc, n)?;
         // 1. Opaque filled rectangles over extractable text.
         for r in cover::filled_rects(doc, &page.dict)? {
             let mut covered = String::new();
@@ -140,6 +140,27 @@ pub fn audit_redactions(doc: &Document) -> Result<Vec<AuditFinding>, AuditError>
         }
     }
     Ok(out)
+}
+
+/// Join cell segments split from a single `TJ` operator back into one line box so covers
+/// spanning a wide `TJ` gap and part of the following value are still measured against the
+/// whole `TJ` instruction's box.
+fn audit_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, AuditError> {
+    let mut lines: Vec<TextLine> = Vec::new();
+    for line in pdfcraft_edit::text_lines(doc, page).map_err(|e| AuditError::Text(page, e.to_string()))? {
+        if let Some(prev) = lines.last_mut().filter(|p| p.paint_pos() == line.paint_pos()) {
+            if !prev.text.ends_with(' ') && !line.text.starts_with(' ') {
+                prev.text.push(' ');
+            }
+            prev.text.push_str(&line.text);
+            prev.rect =
+                [prev.rect[0].min(line.rect[0]), prev.rect[1].min(line.rect[1]), prev.rect[2].max(line.rect[2]), prev.rect[3].max(line.rect[3])];
+            prev.ink.extend(line.ink);
+        } else {
+            lines.push(line);
+        }
+    }
+    Ok(lines)
 }
 
 /// A filled rectangle is a faux-redaction cover for a text line iff it was painted strictly
