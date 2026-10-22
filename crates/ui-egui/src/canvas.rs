@@ -1322,10 +1322,13 @@ impl DocView {
 
     /// Where the reader is within the current page: the fraction of its height above the window's
     /// top, as [`Self::goto`] takes it, so `goto = Some((current, position_in_page()))` comes back
-    /// to the same place (#2310). A jump not yet drawn counts as done.
+    /// to the same place (#2310). A jump not yet drawn counts as done; for a destination's point
+    /// (a bookmark's or link's `/XYZ` top, a rectangle shown), that is the point on the page the
+    /// reader was sent to.
     pub fn position_in_page(&self) -> f32 {
-        match self.goto {
-            Some((page, frac)) if page == self.current => frac,
+        match (self.goto_point, self.goto) {
+            (Some((page, _, Some(fy), _)), _) if page == self.current => fy,
+            (_, Some((page, frac))) if page == self.current => frac,
             _ => self.top_in_page,
         }
     }
@@ -6906,6 +6909,27 @@ trailer << /Root 1 0 R >>
         let empty = pdfcraft_render::DocInfo::default();
         v.go_to_dest(1, DestView::FitH { top: Some(100.0) }, &empty);
         assert_eq!((v.current, v.goto_point), (1, None));
+    }
+
+    #[test]
+    fn a_destination_not_drawn_yet_is_the_place_on_its_page() {
+        // Saved before the next frame, the place is where the destination sends the reader,
+        // not the top of its page (#2310).
+        let info = pdfcraft_render::DocInfo {
+            pages: (0..3)
+                .map(|_| pdfcraft_render::PageInfo { width: 300.0, height: 400.0, label: String::new(), crop: [0.0, 0.0, 300.0, 400.0], rotation: 0 })
+                .collect(),
+            ..Default::default()
+        };
+        let mut v = view(3, PageLayout::Single, true);
+        v.go_to_dest(2, DestView::Xyz { left: None, top: Some(300.0), zoom: None }, &info);
+        assert_eq!(v.position_in_page(), 0.25);
+        // No vertical position: the page's top, as the jump itself.
+        v.go_to_dest(1, DestView::FitV { left: Some(75.0) }, &info);
+        assert_eq!(v.position_in_page(), 0.0);
+        (v.viewport_w, v.viewport_h) = (800.0, 600.0);
+        v.go_to_dest(0, DestView::FitR { rect: [0.0, 300.0, 100.0, 350.0] }, &info);
+        assert!((v.position_in_page() - 75.0 / 400.0).abs() < 1e-4, "{}", v.position_in_page());
     }
 
     #[test]
