@@ -240,24 +240,37 @@ fn ps_quote(s: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn run_with_timeout(mut child: std::process::Child, timeout: std::time::Duration) -> Result<std::process::Output, ConversionError> {
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut h) = stdout_handle {
+            let _ = std::io::Read::read_to_end(&mut h, &mut buf);
+        }
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut h) = stderr_handle {
+            let _ = std::io::Read::read_to_end(&mut h, &mut buf);
+        }
+        buf
+    });
+
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let mut stdout = Vec::new();
-                let mut stderr = Vec::new();
-                if let Some(mut out) = child.stdout.take() {
-                    let _ = std::io::Read::read_to_end(&mut out, &mut stdout);
-                }
-                if let Some(mut err) = child.stderr.take() {
-                    let _ = std::io::Read::read_to_end(&mut err, &mut stderr);
-                }
+                let stdout = stdout_thread.join().unwrap_or_default();
+                let stderr = stderr_thread.join().unwrap_or_default();
                 return Ok(std::process::Output { status, stdout, stderr });
             }
             Ok(None) => {
                 if start.elapsed() >= timeout {
                     let _ = child.kill();
                     let _ = child.wait();
+                    let _ = stdout_thread.join();
+                    let _ = stderr_thread.join();
                     return Err(ConversionError::ProcessFailed("process timed out".into()));
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
@@ -453,9 +466,9 @@ fn convert_with_libreoffice(soffice: &Path, input_path: &Path, output_path: &Pat
     let out_dir = output_path.parent().unwrap_or_else(|| Path::new("."));
 
     // Give LibreOffice its own isolated user profile so it doesn't conflict with any running instance.
-    let profile_dir = out_dir.join(format!(".lo_profile_{}", std::process::id()));
-    let _ = std::fs::create_dir_all(&profile_dir);
-    let profile_uri = format!("file:///{}", profile_dir.display().to_string().replace('\\', "/"));
+    let profile_temp = tempfile::Builder::new().prefix("pdfcraft-lo-profile-").tempdir().map_err(|e| ConversionError::Io(e.to_string()))?;
+    let profile_path = profile_temp.path().display().to_string().replace('\\', "/");
+    let profile_uri = if cfg!(windows) { format!("file:///{profile_path}") } else { format!("file://{profile_path}") };
 
     let child = std::process::Command::new(soffice)
         .arg(format!("-env:UserInstallation={profile_uri}"))
@@ -468,7 +481,6 @@ fn convert_with_libreoffice(soffice: &Path, input_path: &Path, output_path: &Pat
         .map_err(|e| ConversionError::ProcessFailed(format!("failed to spawn libreoffice: {e}")))?;
 
     let output = run_with_timeout(child, std::time::Duration::from_secs(60))?;
-    let _ = std::fs::remove_dir_all(&profile_dir);
 
     if !output.status.success() {
         return Err(ConversionError::ProcessFailed(format!("LibreOffice exited with code {:?}", output.status.code())));

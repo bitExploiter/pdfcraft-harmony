@@ -2792,7 +2792,10 @@ impl PdfCraftApp {
             let total = to_convert.len();
             let mut results = Vec::new();
             for (idx, item) in to_convert.into_iter().enumerate() {
-                let _ = tx.send(CombineConversionNews::Progress { current: idx + 1, total, name: item.name.clone() });
+                if tx.send(CombineConversionNews::Progress { current: idx + 1, total, name: item.name.clone() }).is_err() {
+                    // The Combine tab was closed: nobody is waiting for results.
+                    return;
+                }
                 if let Some(c) = &ctx {
                     c.request_repaint();
                 }
