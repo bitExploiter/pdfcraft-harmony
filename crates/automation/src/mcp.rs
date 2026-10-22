@@ -142,7 +142,7 @@ impl McpServer {
                 let args = params.get("arguments").cloned().unwrap_or(Value::Null);
                 if self.compact && name == TOOL_SEARCH {
                     check_keys(name, &args, &["query", "category", "name"]).map_err(|e| (INVALID_PARAMS, e))?;
-                    return Ok(match search_tools(&args) {
+                    return Ok(match search_tools(&args, self.automation.remote_enabled()) {
                         Ok(found) => call_result(vec![Content::Json(found)]),
                         Err(message) => tool_error(&message),
                     });
@@ -187,19 +187,22 @@ impl McpServer {
 
 impl McpServer {
     /// What `tools/list` returns: every tool, or in compact mode the core set and the meta tools.
+    /// A tool is open-world only when the automation has a network to reach the world with.
     fn tool_list(&self) -> Vec<Value> {
         let all = crate::tools();
+        let network = self.automation.remote_enabled();
         if !self.compact {
-            return all.iter().map(tool_json).collect();
+            return all.iter().map(|t| tool_json(t, network)).collect();
         }
-        let mut out: Vec<Value> = COMPACT_CORE_TOOLS.iter().filter_map(|n| all.iter().find(|t| t.name == *n)).map(tool_json).collect();
-        out.extend(meta_tools());
+        let mut out: Vec<Value> =
+            COMPACT_CORE_TOOLS.iter().filter_map(|n| all.iter().find(|t| t.name == *n)).map(|t| tool_json(t, network)).collect();
+        out.extend(meta_tools(network));
         out
     }
 }
 
-/// The two tools only compact mode lists.
-fn meta_tools() -> [Value; 2] {
+/// The two tools only compact mode lists; `network`: the automation can reach signing services.
+fn meta_tools(network: bool) -> [Value; 2] {
     [
         json!({
             "name": TOOL_SEARCH,
@@ -233,7 +236,8 @@ fn meta_tools() -> [Value; 2] {
                 "required": ["name"],
                 "additionalProperties": false,
             },
-            "annotations": { "title": "Run any PdfCraft tool", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+            // Open world with a network: it runs every tool, the remote signing ones included.
+            "annotations": { "title": "Run any PdfCraft tool", "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": network },
         }),
     ]
 }
@@ -266,8 +270,9 @@ fn check_keys(tool: &str, args: &Value, allowed: &[&str]) -> Result<(), String> 
     }
 }
 
-/// `tool_search`: filter the tool table by query and category, or describe one tool in full.
-fn search_tools(args: &Value) -> Result<Value, String> {
+/// `tool_search`: filter the tool table by query and category, or describe one tool in full
+/// (open-world only with a `network`, as `tools/list` says).
+fn search_tools(args: &Value, network: bool) -> Result<Value, String> {
     if !(args.is_object() || args.is_null()) {
         return Err(format!("{TOOL_SEARCH} takes an object with optional query, category and name"));
     }
@@ -284,7 +289,7 @@ fn search_tools(args: &Value) -> Result<Value, String> {
             all.iter().find(|t| t.name == name).ok_or_else(|| format!("unknown tool {name:?}; call {TOOL_SEARCH} without name to list the tools"))?;
         return Ok(json!({ "tool": {
             "name": t.name, "title": t.title, "category": category_of(t.name), "description": t.description,
-            "read_only": t.read_only, "destructive": t.destructive, "input_schema": t.input_schema,
+            "read_only": t.read_only, "destructive": t.destructive, "open_world": t.open_world && network, "input_schema": t.input_schema,
         } }));
     }
     let category = category.map(|c| c.trim_end_matches('_').to_lowercase()).filter(|c| !c.is_empty());
@@ -473,13 +478,14 @@ fn error(id: Value, code: i64, message: &str) -> Value {
     json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
 }
 
-fn tool_json(t: &crate::ToolDef) -> Value {
+/// `t` as `tools/list` gives it; it reaches past this computer only with a `network`.
+fn tool_json(t: &crate::ToolDef, network: bool) -> Value {
     json!({
         "name": t.name,
         "title": t.title,
         "description": t.description,
         "inputSchema": t.input_schema,
-        "annotations": { "title": t.title, "readOnlyHint": t.read_only, "destructiveHint": t.destructive, "idempotentHint": t.read_only || matches!(t.name, "doc_save" | "doc_optimize" | "doc_export_data" | "measure_export" | "doc_export_images" | "doc_export_office" | "doc_export_all_images" | "doc_export_text" | "image_save"), "openWorldHint": false },
+        "annotations": { "title": t.title, "readOnlyHint": t.read_only, "destructiveHint": t.destructive, "idempotentHint": t.read_only || matches!(t.name, "doc_save" | "doc_optimize" | "doc_export_data" | "measure_export" | "doc_export_images" | "doc_export_office" | "doc_export_all_images" | "doc_export_text" | "image_save"), "openWorldHint": t.open_world && network },
     })
 }
 

@@ -2511,3 +2511,39 @@ animation effects	Off	Kapalı
 	field names can't contain a period: {name}	alan adları nokta içeremez: {name}
 	two cells would both be named {name}	iki hücrenin de adı {name} olurdu
 	a field named {name} already exists	{name} adlı bir alan zaten var
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	İmza hizmeti  ·  
+	Remote signing isn't available in this build	Uzaktan imzalama bu sürümde kullanılamıyor
+	Remove "{name}" from this list? The certificate stays with the signing service.	"{name}" bu listeden kaldırılsın mı? Sertifika imza hizmetinde kalır.
+	Remote signature (OTP)	Uzaktan imza (OTP)
+	Looking for certificates…	Sertifikalar aranıyor…
+	Find certificates	Sertifikaları bul
+	Signing…	İmzalanıyor…
+	Code sent	Kod gönderildi
+	Challenge: {challenge}	Sınama: {challenge}
+	Service	Hizmet
+	Other provider (CSC API)	Başka bir sağlayıcı (CSC API)
+	Service address	Hizmet adresi
+	Domain	Etki alanı
+	Required, given by Aruba with the account	Zorunlu, Aruba hesapla birlikte verir
+	PIN	PIN kodu
+	One-time code (OTP)	Tek kullanımlık kod (OTP)
+	Send code	Kod gönder
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Kod gönderiliyor…
+	Choose where to save the signed file. The service signs it once you have.	İmzalı dosyanın nereye kaydedileceğini seçin. Siz seçtikten sonra hizmet dosyayı imzalar.
+	Signing… Confirm the signature on your other device.	İmzalanıyor… İmzayı diğer cihazınızda onaylayın.
+	The document changed while it was being signed, so the signature wasn't saved.	Belge imzalanırken değiştiği için imza kaydedilmedi.
+	The signing service lists no certificate for this account.	İmza hizmeti bu hesap için hiçbir sertifika listelemiyor.
+	the signing service is unreachable ({reason})	imza hizmetine ulaşılamıyor ({reason})
+	the signing service rejected the user name or password	imza hizmeti kullanıcı adını veya parolayı reddetti
+	the signing service rejected the PIN	imza hizmeti PIN kodunu reddetti
+	the signing service rejected the OTP (it may have expired)	imza hizmeti OTP'yi reddetti (süresi dolmuş olabilir)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	imza hizmeti PIN kodunu veya OTP'yi reddetti (OTP'nin süresi dolmuş olabilir)
+	the signing service refused to sign	imza hizmeti imzalamayı reddetti
+	the signing service refused to list the certificates	imza hizmeti sertifikaları listelemeyi reddetti
+	the signing service refused to send the OTP	imza hizmeti OTP'yi göndermeyi reddetti
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba hesabı için etki alanı gerekir (Aruba'nın hesapla birlikte verdiği "dominio"): bunu girin
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	bu imza hizmeti kullanılamıyor: tarayıcıda OAuth ile oturum açmayı gerektiriyor ve PdfCraft bunu henüz desteklemiyor

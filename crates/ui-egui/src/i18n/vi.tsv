@@ -2778,3 +2778,39 @@ key	Space	Space
 	a table has 1 to {max} columns	một bảng có từ 1 đến {max} cột
 	the first row number can be at most {max}	số hàng đầu tiên tối đa là {max}
 	the area, the spacing and the column widths must be numbers, the spacing 0 or more and each width more than 0	vùng, khoảng cách và độ rộng cột phải là số, khoảng cách từ 0 trở lên và mỗi độ rộng lớn hơn 0
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Dịch vụ ký  ·  
+	Remote signing isn't available in this build	Bản dựng này không hỗ trợ ký từ xa
+	Remove "{name}" from this list? The certificate stays with the signing service.	Gỡ "{name}" khỏi danh sách này? Chứng chỉ vẫn nằm ở dịch vụ ký.
+	Remote signature (OTP)	Chữ ký từ xa (OTP)
+	Looking for certificates…	Đang tìm chứng chỉ…
+	Find certificates	Tìm chứng chỉ
+	Signing…	Đang ký…
+	Code sent	Đã gửi mã
+	Challenge: {challenge}	Thử thách: {challenge}
+	Service	Dịch vụ
+	Other provider (CSC API)	Nhà cung cấp khác (CSC API)
+	Service address	Địa chỉ dịch vụ
+	Domain	Miền
+	Required, given by Aruba with the account	Bắt buộc, do Aruba cấp cùng tài khoản
+	PIN	Mã PIN
+	One-time code (OTP)	Mã dùng một lần (OTP)
+	Send code	Gửi mã
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Đang gửi mã…
+	Choose where to save the signed file. The service signs it once you have.	Hãy chọn nơi lưu tệp đã ký. Dịch vụ sẽ ký ngay sau khi bạn chọn.
+	Signing… Confirm the signature on your other device.	Đang ký… Hãy xác nhận chữ ký trên thiết bị khác của bạn.
+	The document changed while it was being signed, so the signature wasn't saved.	Tài liệu đã thay đổi trong lúc đang được ký, nên chữ ký không được lưu.
+	The signing service lists no certificate for this account.	Dịch vụ ký không liệt kê chứng chỉ nào cho tài khoản này.
+	the signing service is unreachable ({reason})	không thể kết nối với dịch vụ ký ({reason})
+	the signing service rejected the user name or password	dịch vụ ký đã từ chối tên người dùng hoặc mật khẩu
+	the signing service rejected the PIN	dịch vụ ký đã từ chối mã PIN
+	the signing service rejected the OTP (it may have expired)	dịch vụ ký đã từ chối OTP (có thể mã đã hết hạn)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	dịch vụ ký đã từ chối mã PIN hoặc OTP (có thể mã OTP đã hết hạn)
+	the signing service refused to sign	dịch vụ ký đã từ chối ký
+	the signing service refused to list the certificates	dịch vụ ký đã từ chối liệt kê các chứng chỉ
+	the signing service refused to send the OTP	dịch vụ ký đã từ chối gửi OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	tài khoản Aruba cần có miền của nó ("dominio" mà Aruba cấp cùng tài khoản): hãy nhập miền
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	không thể dùng dịch vụ ký này: dịch vụ yêu cầu đăng nhập OAuth trong trình duyệt, điều mà PdfCraft chưa hỗ trợ

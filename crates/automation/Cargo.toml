@@ -27,6 +27,8 @@ mcp = ["dep:base64"]
 
 [dev-dependencies]
 pdfcraft-fonts = { workspace = true }
+# `remote::mock`, the in-process signing services the remote signing tests sign with.
+pdfcraft-sign = { workspace = true, features = ["mock"] }
 png = "0.18"
 flate2.workspace = true
 pdfcraft-model = { workspace = true }

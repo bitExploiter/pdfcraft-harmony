@@ -2,6 +2,7 @@
 
 **Stage: alpha** · next: beta, ~25% (ready for real work 50% → 75%) and ~400–700 h away
 
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M9: remote signing with an OTP, CSC API and Aruba ARSS, partial; estimates unchanged)
 > **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (M3, #3808: the Pages inspector has an independent 50–150% thumbnail size slider and buttons; selection and current-page following are retained, with headless ui.set coverage. Estimates unchanged.)
 > **Last reviewed:** 2026-10-20 | **Last updated:** 2026-10-20 | **Change:** minor (M11 #3507: image merging preserves content stream boundaries; estimates unchanged)
 > **Last reviewed:** 2026-10-20 | **Last updated:** 2026-10-20 | **Change:** minor (M10, #3532 partial: vector printing retains existing appearances with absent Subtype; estimates unchanged)
@@ -190,6 +191,8 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
+
+- **2026-10-21 (M9, remote signing):** Sign with a key held by a remote signing service ("firma remota"), each signature authorized with a one-time password: the Cloud Signature Consortium API v2 (v1 tolerated) signed in with user name and password, and Aruba Remote Sign Server. The Sign dialog's new Remote signature (OTP) option finds an account's certificates, has the code sent and signs; agents use `sign_remote_ids`, `sign_remote_send_otp` and `sign_document` with a `remote:` id (`pdfcraft-cli mcp` only with `--remote-signing`). PdfCraft builds the PDF and the CMS and sends the service only the digest of the signed attributes; every signature the service returns is verified against the certificate before it is used, and the password, PIN and OTP are never stored or logged. The network goes through a new HTTPS transport in `pdfcraft-platform` (the system's certificate authorities, no redirects) that only the desktop app, `pdfcraft-cli run` and, with `--remote-signing`, `pdfcraft-cli mcp` pass in; the web build has none. Tested against in-process CSC v2, CSC v1 and ARSS services and a loopback HTTP server, never a real provider. `sign.cloud-signatures` moves from na to partial (tier N/A, uncounted); OAuth sign-in, a challenge shown while signing, several signatures on one OTP and timestamps from the service are missing. Estimates unchanged.
 
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
 - **2026-10-20 (M3, #3535):** Escape with a menu open closes the menu and keeps the text selection; the next Escape clears it, as before. One keypress used to do both. A synthetic UI regression checks it. Estimates unchanged.
@@ -635,6 +638,7 @@ Newest first: the date, what moved, and the new overall estimate.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | minor | M9: remote signing with an OTP (Cloud Signature Consortium API with user-name and password sign-in, Aruba ARSS) in the Sign dialog and through `sign_remote_ids`, `sign_remote_send_otp` and `sign_document`; only the digest leaves the computer. `sign.cloud-signatures` partial (tier N/A); OAuth sign-in missing. Estimates unchanged. |
 | 2026-10-20 | minor | M4: initial-view window and interface options resolve indirect boolean ViewerPreferences values; synthetic true/false and save/reopen regressions retain defaults for malformed entries. Estimates unchanged. |
 | 2026-10-20 | minor | M6, #3502: form detection preserves comments across content streams; estimates unchanged. |
 | 2026-10-20 | minor | M10, #3532 partial: vector printing retains existing appearances with absent Subtype; estimates unchanged. |

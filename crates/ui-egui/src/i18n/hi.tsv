@@ -2750,3 +2750,39 @@ theme	Appearance	स्वरूप
 	field names can't contain a period: {name}	फ़ील्ड के नामों में पूर्ण विराम (.) नहीं हो सकता: {name}
 	two cells would both be named {name}	दो सेल का नाम {name} हो जाएगा
 	a field named {name} already exists	{name} नाम का फ़ील्ड पहले से मौजूद है
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	हस्ताक्षर सेवा  ·  
+	Remote signing isn't available in this build	इस बिल्ड में दूरस्थ हस्ताक्षर उपलब्ध नहीं है
+	Remove "{name}" from this list? The certificate stays with the signing service.	“{name}” को इस सूची से हटाएँ? प्रमाणपत्र हस्ताक्षर सेवा के पास ही रहेगा।
+	Remote signature (OTP)	दूरस्थ हस्ताक्षर (OTP)
+	Looking for certificates…	प्रमाणपत्र खोजे जा रहे हैं…
+	Find certificates	प्रमाणपत्र खोजें
+	Signing…	हस्ताक्षर हो रहा है…
+	Code sent	कोड भेजा गया
+	Challenge: {challenge}	चुनौती: {challenge}
+	Service	सेवा
+	Other provider (CSC API)	अन्य प्रदाता (CSC API)
+	Service address	सेवा का पता
+	Domain	डोमेन
+	Required, given by Aruba with the account	आवश्यक, Aruba इसे खाते के साथ देता है
+	PIN	PIN
+	One-time code (OTP)	वन-टाइम कोड (OTP)
+	Send code	कोड भेजें
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	कोड भेजा जा रहा है…
+	Choose where to save the signed file. The service signs it once you have.	चुनें कि हस्ताक्षरित फ़ाइल कहाँ सहेजनी है। आपके चुनते ही सेवा उस पर हस्ताक्षर करेगी।
+	Signing… Confirm the signature on your other device.	हस्ताक्षर हो रहा है… अपने दूसरे डिवाइस पर हस्ताक्षर की पुष्टि करें।
+	The document changed while it was being signed, so the signature wasn't saved.	हस्ताक्षर के दौरान दस्तावेज़ बदल गया, इसलिए हस्ताक्षर सहेजा नहीं गया।
+	The signing service lists no certificate for this account.	हस्ताक्षर सेवा इस खाते के लिए कोई प्रमाणपत्र नहीं दिखाती।
+	the signing service is unreachable ({reason})	हस्ताक्षर सेवा तक नहीं पहुँचा जा सका ({reason})
+	the signing service rejected the user name or password	हस्ताक्षर सेवा ने उपयोगकर्ता नाम या पासवर्ड अस्वीकार कर दिया
+	the signing service rejected the PIN	हस्ताक्षर सेवा ने PIN अस्वीकार कर दिया
+	the signing service rejected the OTP (it may have expired)	हस्ताक्षर सेवा ने OTP अस्वीकार कर दिया (हो सकता है उसकी समय-सीमा समाप्त हो गई हो)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	हस्ताक्षर सेवा ने PIN या OTP अस्वीकार कर दिया (हो सकता है OTP की समय-सीमा समाप्त हो गई हो)
+	the signing service refused to sign	हस्ताक्षर सेवा ने हस्ताक्षर करने से मना कर दिया
+	the signing service refused to list the certificates	हस्ताक्षर सेवा ने प्रमाणपत्रों की सूची देने से मना कर दिया
+	the signing service refused to send the OTP	हस्ताक्षर सेवा ने OTP भेजने से मना कर दिया
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba खाते को उसका डोमेन चाहिए (वह “dominio” जो Aruba खाते के साथ देता है): उसे दर्ज करें
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	इस हस्ताक्षर सेवा का उपयोग नहीं किया जा सकता: इसके लिए ब्राउज़र में OAuth साइन-इन चाहिए, जिसका PdfCraft अभी समर्थन नहीं करता

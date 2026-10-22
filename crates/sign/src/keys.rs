@@ -402,6 +402,14 @@ impl PublicKey {
     // variant named and no `_` arm, so that a new variant fails to compile on every platform
     // rather than only in the Windows-only module (#386 added six and broke the Windows build).
 
+    /// The digest a signature with this key uses: SHA-256, or SHA-384 for P-384.
+    pub(crate) fn preferred_digest(&self) -> DigestAlg {
+        match self {
+            PublicKey::P384(_) => DigestAlg::Sha384,
+            _ => DigestAlg::Sha256,
+        }
+    }
+
     /// The key a platform key store must hold to sign for this public key, or `None` when
     /// PdfCraft doesn't sign with this kind of key (it only verifies P-521, brainpool and
     /// Ed25519 signatures), so the store's identity is skipped.
@@ -537,7 +545,7 @@ impl PublicKey {
 /// `SEQUENCE { INTEGER r, INTEGER s }` (also with integers that have redundant leading zeros or
 /// the sign byte missing), or already raw `r ‖ s` as PKCS #11 tokens return it. `notes` gets an
 /// entry when the signature was not canonical DER.
-fn ecdsa_rs(sig: &[u8], field_len: usize, notes: &mut Vec<&'static str>) -> Option<Vec<u8>> {
+pub(crate) fn ecdsa_rs(sig: &[u8], field_len: usize, notes: &mut Vec<&'static str>) -> Option<Vec<u8>> {
     let pad = |int: &[u8]| -> Option<Vec<u8>> {
         let int = int.get(int.iter().position(|b| *b != 0).unwrap_or(int.len())..).unwrap_or_default();
         let zeros = field_len.checked_sub(int.len())?;
@@ -723,10 +731,7 @@ impl PrivateKey {
 
     /// The digest a signature with this key should use: SHA-256, or SHA-384 for P-384.
     pub fn preferred_digest(&self) -> DigestAlg {
-        match self.public {
-            PublicKey::P384(_) => DigestAlg::Sha384,
-            _ => DigestAlg::Sha256,
-        }
+        self.public.preferred_digest()
     }
 
     /// Sign `msg` (hashed with `alg`). New signatures never use SHA-1.
@@ -760,6 +765,46 @@ impl PrivateKey {
                 let s: p384::ecdsa::Signature = k.sign_prehash(&alg.digest(&[msg])).map_err(|e| SignError::Crypto(e.to_string()))?;
                 Ok(s.to_der().as_bytes().to_vec())
             }
+        }
+    }
+
+    /// Sign a digest computed elsewhere, as a signing service does with the one a client sends
+    /// it (`remote::mock`). Keys held in memory only: an external key is given messages.
+    #[cfg(any(test, feature = "mock"))]
+    pub(crate) fn sign_digest(&self, alg: DigestAlg, digest: &[u8]) -> Result<Vec<u8>, SignError> {
+        match &self.inner {
+            #[cfg(not(target_arch = "wasm32"))]
+            Inner::Rsa(kp) => {
+                use aws_lc_rs::digest::{Algorithm, Digest, SHA256, SHA384, SHA512};
+                use aws_lc_rs::signature::{RSA_PKCS1_SHA256, RSA_PKCS1_SHA384, RSA_PKCS1_SHA512, RsaEncoding};
+                let (enc, hash): (&'static dyn RsaEncoding, &'static Algorithm) = match alg {
+                    DigestAlg::Sha256 => (&RSA_PKCS1_SHA256, &SHA256),
+                    DigestAlg::Sha384 => (&RSA_PKCS1_SHA384, &SHA384),
+                    DigestAlg::Sha512 => (&RSA_PKCS1_SHA512, &SHA512),
+                    other => return Err(SignError::Unsupported(format!("{} for new signatures", other.name()))),
+                };
+                let digest = Digest::import_less_safe(digest, hash).map_err(|_| SignError::Crypto("the digest has the wrong length".into()))?;
+                let mut sig = vec![0u8; kp.public_modulus_len()];
+                kp.sign_digest(enc, &digest, &mut sig).map_err(|_| SignError::Crypto("RSA signing failed".into()))?;
+                Ok(sig)
+            }
+            #[cfg(target_arch = "wasm32")]
+            Inner::Rsa => {
+                // ECDSA signs the digest as it is; only RSA's DigestInfo names `alg`.
+                let _ = alg;
+                Err(SignError::Unsupported("RSA signing in the browser".into()))
+            }
+            Inner::P256(k) => {
+                use p256::ecdsa::signature::hazmat::PrehashSigner;
+                let s: p256::ecdsa::Signature = k.sign_prehash(digest).map_err(|e| SignError::Crypto(e.to_string()))?;
+                Ok(s.to_der().as_bytes().to_vec())
+            }
+            Inner::P384(k) => {
+                use p384::ecdsa::signature::hazmat::PrehashSigner;
+                let s: p384::ecdsa::Signature = k.sign_prehash(digest).map_err(|e| SignError::Crypto(e.to_string()))?;
+                Ok(s.to_der().as_bytes().to_vec())
+            }
+            Inner::External(_) => Err(SignError::Unsupported("signing a digest with a key held elsewhere".into())),
         }
     }
 }

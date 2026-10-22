@@ -2747,3 +2747,39 @@ certificate	SHA-256 digest	Impronta SHA-256
 	field names can't contain a period: {name}	i nomi dei campi non possono contenere un punto: {name}
 	two cells would both be named {name}	due celle si chiamerebbero entrambe {name}
 	a field named {name} already exists	esiste già un campo chiamato {name}
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Servizio di firma  ·  
+	Remote signing isn't available in this build	La firma remota non è disponibile in questa versione
+	Remove "{name}" from this list? The certificate stays with the signing service.	Rimuovere "{name}" da questo elenco? Il certificato resta presso il servizio di firma.
+	Remote signature (OTP)	Firma remota (OTP)
+	Looking for certificates…	Ricerca dei certificati…
+	Find certificates	Trova certificati
+	Signing…	Firma in corso…
+	Code sent	Codice inviato
+	Challenge: {challenge}	Codice di sfida: {challenge}
+	Service	Servizio
+	Other provider (CSC API)	Altro fornitore (API CSC)
+	Service address	Indirizzo del servizio
+	Domain	Dominio
+	Required, given by Aruba with the account	Obbligatorio, fornito da Aruba con l'account
+	PIN	PIN
+	One-time code (OTP)	Codice monouso (OTP)
+	Send code	Invia codice
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Invio del codice…
+	Choose where to save the signed file. The service signs it once you have.	Scegli dove salvare il file firmato. Il servizio lo firma appena l'hai scelto.
+	Signing… Confirm the signature on your other device.	Firma in corso… Conferma la firma sull'altro dispositivo.
+	The document changed while it was being signed, so the signature wasn't saved.	Il documento è cambiato mentre veniva firmato, quindi la firma non è stata salvata.
+	The signing service lists no certificate for this account.	Il servizio di firma non elenca alcun certificato per questo account.
+	the signing service is unreachable ({reason})	il servizio di firma non è raggiungibile ({reason})
+	the signing service rejected the user name or password	il servizio di firma ha rifiutato il nome utente o la password
+	the signing service rejected the PIN	il servizio di firma ha rifiutato il PIN
+	the signing service rejected the OTP (it may have expired)	il servizio di firma ha rifiutato l'OTP (potrebbe essere scaduto)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	il servizio di firma ha rifiutato il PIN o l'OTP (l'OTP potrebbe essere scaduto)
+	the signing service refused to sign	il servizio di firma ha rifiutato di firmare
+	the signing service refused to list the certificates	il servizio di firma ha rifiutato di elencare i certificati
+	the signing service refused to send the OTP	il servizio di firma ha rifiutato di inviare l'OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	un account Aruba richiede il suo dominio (quello che Aruba fornisce con l'account): inseriscilo
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	questo servizio di firma non può essere usato: richiede l'accesso OAuth in un browser, che PdfCraft non supporta ancora

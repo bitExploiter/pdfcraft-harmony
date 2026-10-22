@@ -2791,3 +2791,39 @@ certificate	Version	الإصدار
 	field names can't contain a period: {name}	لا يمكن أن تحتوي أسماء الحقول على نقطة: {name}
 	two cells would both be named {name}	ستحمل خليتان الاسم نفسه {name}
 	a field named {name} already exists	يوجد حقل باسم {name} بالفعل
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	خدمة التوقيع  ·  
+	Remote signing isn't available in this build	التوقيع عن بُعد غير متاح في هذا الإصدار
+	Remove "{name}" from this list? The certificate stays with the signing service.	إزالة "{name}" من هذه القائمة؟ تبقى الشهادة لدى خدمة التوقيع.
+	Remote signature (OTP)	التوقيع عن بُعد (OTP)
+	Looking for certificates…	جارٍ البحث عن الشهادات…
+	Find certificates	البحث عن الشهادات
+	Signing…	جارٍ التوقيع…
+	Code sent	تم إرسال الرمز
+	Challenge: {challenge}	التحدي: {challenge}
+	Service	الخدمة
+	Other provider (CSC API)	مزوّد آخر (CSC API)
+	Service address	عنوان الخدمة
+	Domain	النطاق
+	Required, given by Aruba with the account	مطلوب، تمنحه Aruba مع الحساب
+	PIN	رمز PIN
+	One-time code (OTP)	رمز لمرة واحدة (OTP)
+	Send code	إرسال الرمز
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	جارٍ إرسال الرمز…
+	Choose where to save the signed file. The service signs it once you have.	اختر مكان حفظ الملف الموقّع. ستوقّعه الخدمة بمجرد أن تختار.
+	Signing… Confirm the signature on your other device.	جارٍ التوقيع… أكّد التوقيع على جهازك الآخر.
+	The document changed while it was being signed, so the signature wasn't saved.	تغيّر المستند أثناء توقيعه، لذا لم يُحفظ التوقيع.
+	The signing service lists no certificate for this account.	لا تعرض خدمة التوقيع أي شهادة لهذا الحساب.
+	the signing service is unreachable ({reason})	تعذّر الوصول إلى خدمة التوقيع ({reason})
+	the signing service rejected the user name or password	رفضت خدمة التوقيع اسم المستخدم أو كلمة المرور
+	the signing service rejected the PIN	رفضت خدمة التوقيع رمز PIN
+	the signing service rejected the OTP (it may have expired)	رفضت خدمة التوقيع رمز OTP (ربما انتهت صلاحيته)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	رفضت خدمة التوقيع رمز PIN أو رمز OTP (ربما انتهت صلاحية رمز OTP)
+	the signing service refused to sign	رفضت خدمة التوقيع التوقيع
+	the signing service refused to list the certificates	رفضت خدمة التوقيع عرض الشهادات
+	the signing service refused to send the OTP	رفضت خدمة التوقيع إرسال رمز OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	يحتاج حساب Aruba إلى نطاقه ("dominio" الذي تمنحه Aruba مع الحساب): أدخله
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	لا يمكن استخدام خدمة التوقيع هذه: فهي تتطلب تسجيل الدخول عبر OAuth في متصفح، وهو ما لا يدعمه PdfCraft بعد

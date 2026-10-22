@@ -1,7 +1,10 @@
 //! Signature tools: list and validate signatures, create a self-signed digital ID, sign a
-//! document, and manage trusted certificates. Rectangles are points from the top-left of the
-//! displayed page.
+//! document (with a local digital ID or a remote signing service's), and manage trusted
+//! certificates. Rectangles are points from the top-left of the displayed page.
 
+use std::sync::Arc;
+
+use pdfcraft_engine::sign::remote::{self, Account, AuthRole, HttpTransport, OtpKind, OtpSent, Protocol, RemoteFault, RemoteIdentity, Secrets};
 use pdfcraft_engine::sign::{self, Certificate, DigitalId, Modification, Name, PrivateKey};
 use pdfcraft_engine::{SignOptions, SignatureInfo, SignatureStatus};
 use serde_json::{Value, json};
@@ -10,6 +13,122 @@ use crate::{Args, Automation, Result, ToolError, failed, write_atomic};
 
 fn bad(m: impl Into<String>) -> ToolError {
     ToolError::InvalidArgs(m.into())
+}
+
+/// `remote`'s error as the tool's: one the caller fixes by changing the call (a user name,
+/// password, PIN or OTP the service turned down, a secret or the Aruba domain left out, a
+/// credential the account doesn't have, every Aruba refusal) is `InvalidArgs`, anything else
+/// (an unreachable service, an answer that makes no sense, a signature that doesn't verify) a
+/// failure. The sign crate, which words the errors, tells them apart ([`remote::fault_of`]).
+fn remote_error(e: impl std::fmt::Display) -> ToolError {
+    let m = e.to_string();
+    match remote::fault_of(&m) {
+        RemoteFault::Caller => bad(m),
+        RemoteFault::Service => failed(m),
+    }
+}
+
+/// The longest value a remote call passes on to the service (address, user name, domain, HSM
+/// type, credential, password, PIN, OTP): far more than any real one, and it keeps what a call
+/// can have PdfCraft send small.
+const MAX_REMOTE_VALUE: usize = 1024;
+
+/// Refuse `value` (never quoted: it may be a secret) when it is longer than [`MAX_REMOTE_VALUE`].
+fn short(key: &str, value: &str) -> Result<()> {
+    if value.len() > MAX_REMOTE_VALUE { Err(bad(format!("{key} is longer than {MAX_REMOTE_VALUE} bytes"))) } else { Ok(()) }
+}
+
+/// Refuse an account no service should be asked about: an address that isn't https (but to
+/// this computer), a blank user name, an Aruba account without its domain (which Aruba answers
+/// with "Invalid Parameters"), or an overlong value. Checked here as well as by `remote`, so
+/// the caller hears of it before anything else, network or none.
+fn check_account(account: &Account) -> Result<()> {
+    for (key, value) in
+        [("url", Some(&account.url)), ("user", Some(&account.user)), ("domain", account.domain.as_ref()), ("hsm", account.hsm.as_ref())]
+    {
+        value.map_or(Ok(()), |v| short(key, v))?;
+    }
+    remote::check_url(&account.url).map_err(|e| bad(e.to_string()))?;
+    if account.user.trim().is_empty() {
+        return Err(bad("user must not be empty"));
+    }
+    if account.protocol == Protocol::Arss && account.domain.as_deref().is_none_or(|d| d.trim().is_empty()) {
+        return Err(bad(remote::NEEDS_DOMAIN));
+    }
+    Ok(())
+}
+
+/// The account and credential a `remote:` id names, checked as `sign_remote_ids` checks its
+/// arguments: an id is the caller's to write, not only one `sign_remote_ids` returned.
+fn remote_reference(id: &str) -> Result<(Account, String)> {
+    if !id.starts_with("remote:") {
+        return Err(bad("id must be a remote: id from sign_remote_ids"));
+    }
+    let (account, credential) = remote::parse_reference(id).map_err(|e| bad(e.to_string()))?;
+    check_account(&account)?;
+    short("credential", &credential)?;
+    Ok((account, credential))
+}
+
+/// The signing service password, which every remote call needs.
+fn service_password<'a>(a: &'a Args) -> Result<&'a str> {
+    let password =
+        a.opt_str("password")?.filter(|p| !p.is_empty()).ok_or_else(|| bad("remote signing needs password, the signing service password"))?;
+    short("password", password)?;
+    Ok(password)
+}
+
+/// How many `remote:` ids a sent code is remembered for ([`Automation::remote_sent`]).
+const MAX_SENT: usize = 16;
+
+/// A secret for one signature (`pin`, `otp`), when given.
+fn remote_secret(a: &Args, key: &str) -> Result<Option<String>> {
+    let value = a.opt_str(key)?;
+    value.map_or(Ok(()), |v| short(key, v))?;
+    Ok(value.map(str::to_string))
+}
+
+/// A throwaway digital ID, made afresh for each call: `sign_document` signs a remote signature
+/// with it first, in memory, to have the document refuse what it would refuse before the
+/// service is asked. Nothing it signs is kept, so it is a P-256 key (the quickest to make, well
+/// under a millisecond with its certificate) that no one trusts.
+fn rehearsal_id(now: i64) -> Result<DigitalId> {
+    let key = PrivateKey::generate_p256().map_err(failed)?;
+    let certificate = Certificate::self_signed(&Name::build("PdfCraft", "", "", "", ""), &key, time(now), 1, &[1]).map_err(failed)?;
+    Ok(DigitalId { key, certificate, chain: Vec::new(), friendly_name: None })
+}
+
+fn remote_id_json(id: &RemoteIdentity) -> Value {
+    let c = &id.certificate;
+    let otp = match id.auth.otp {
+        OtpKind::None => "none",
+        OtpKind::Typed => "typed",
+        OtpKind::Sent => "sent",
+    };
+    let auth: Vec<Value> = id
+        .auth
+        .objects
+        .iter()
+        .map(|o| {
+            let role = match o.role {
+                AuthRole::Pin => "pin",
+                AuthRole::Otp => "otp",
+                AuthRole::Confirm => "confirm",
+            };
+            json!({ "id": o.id, "type": o.kind, "label": o.label, "format": o.format, "role": role })
+        })
+        .collect();
+    json!({
+        "id": id.reference(),
+        "name": c.display_name(),
+        "issuer": c.issuer.display_name(),
+        "email": c.subject.email(),
+        "expires": c.not_after.to_string(),
+        "pin": id.auth.pin,
+        "otp": otp,
+        "auth": auth,
+        "certificate": cert_json(c),
+    })
 }
 
 /// Seconds since 1970 → a DER time.
@@ -174,7 +293,71 @@ impl Automation {
         Ok(json!({ "path": path.to_string_lossy(), "certificate": cert_json(&id.certificate) }))
     }
 
+    /// The network for remote signing, or why there is none.
+    fn remote_transport(&self) -> Result<Arc<dyn HttpTransport>> {
+        self.remote.clone().ok_or_else(|| failed("remote signing needs network access, which this host did not enable"))
+    }
+
+    /// Sign in to a signing service and list the account's credentials that can sign.
+    pub(crate) fn sign_remote_ids(&self, a: &Args) -> Result<Value> {
+        let protocol = match a.str("protocol")? {
+            "csc" => Protocol::Csc,
+            "arss" => Protocol::Arss,
+            other => return Err(bad(format!("unknown protocol {other:?} (csc, arss)"))),
+        };
+        let url = match (protocol, a.opt_str("url")?) {
+            (_, Some(url)) => url.to_string(),
+            (Protocol::Arss, None) => remote::ARSS_ENDPOINT.to_string(),
+            (Protocol::Csc, None) => return Err(bad("protocol csc needs url, the service's CSC API address (ending in /csc/v2 or /csc/v1)")),
+        };
+        // Trimmed, as they are checked: " dom " is the domain "dom".
+        let given = |key: &str| a.opt_str(key).map(|v| v.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string));
+        let (domain, hsm) = (given("domain")?, given("hsm")?);
+        if protocol == Protocol::Csc && (domain.is_some() || hsm.is_some()) {
+            return Err(bad("domain and hsm are for protocol arss (Aruba); a CSC service takes neither"));
+        }
+        let account = Account { protocol, url, user: a.str("user")?.trim().to_string(), domain, hsm };
+        check_account(&account)?;
+        let password = service_password(a)?;
+        let ids = remote::list(&*self.remote_transport()?, &account, password).map_err(remote_error)?;
+        Ok(json!({ "count": ids.len(), "ids": ids.iter().map(remote_id_json).collect::<Vec<_>>() }))
+    }
+
+    /// Have the service of a `remote:` id send the OTP for its next signature, which then puts
+    /// it under the object it was sent for (of an SMS and an app as alternatives, the SMS).
+    pub(crate) fn sign_remote_send_otp(&mut self, a: &Args) -> Result<Value> {
+        let (account, credential) = remote_reference(a.str("id")?)?;
+        let password = service_password(a)?;
+        let sent = remote::send_otp(&*self.remote_transport()?, &account, &credential, password).map_err(remote_error)?;
+        let reference = remote::reference(&account, &credential);
+        self.remote_sent.retain(|r| *r != reference);
+        if self.remote_sent.len() >= MAX_SENT {
+            self.remote_sent.remove(0);
+        }
+        self.remote_sent.push(reference);
+        Ok(match sent {
+            OtpSent::Sent => json!({ "sent": true }),
+            OtpSent::Challenge(challenge) => json!({ "challenge": challenge }),
+        })
+    }
+
+    /// A `remote:` id's digital ID. Opening it signs in and reads the certificate (the CMS names
+    /// it before anything is signed); the OTP is spent by the signature. The OTP counts as sent
+    /// when `sign_remote_send_otp` had it sent for this id and no signature has used it since.
+    fn open_remote(&self, a: &Args, id: &str) -> Result<DigitalId> {
+        let (account, credential) = remote_reference(id)?;
+        let otp_sent = self.remote_sent.contains(&remote::reference(&account, &credential));
+        let secrets = Secrets { password: service_password(a)?.to_string(), pin: remote_secret(a, "pin")?, otp: remote_secret(a, "otp")?, otp_sent };
+        remote::digital_id(self.remote_transport()?, &account, &credential, secrets).map_err(remote_error)
+    }
+
     fn open_id(&self, a: &Args) -> Result<DigitalId> {
+        // A signing service's credential: "remote:csc?…" or "remote:arss?…". It names no file,
+        // so --root has nothing to confine.
+        let id = a.str("id")?;
+        if id.starts_with("remote:") {
+            return self.open_remote(a, id);
+        }
         // A macOS Keychain identity: "keychain:<fingerprint>" or "keychain:<common name>".
         if let Some(r) = a.str("id")?.strip_prefix("keychain:") {
             #[cfg(target_os = "macos")]
@@ -197,7 +380,10 @@ impl Automation {
     }
 
     pub(crate) fn sign_document(&mut self, a: &Args) -> Result<Value> {
-        let id = self.open_id(a)?;
+        let remote = a.str("id")?.starts_with("remote:");
+        if !remote && (a.opt_str("pin")?.is_some() || a.opt_str("otp")?.is_some()) {
+            return Err(bad("pin and otp are for a remote: id from sign_remote_ids"));
+        }
         let doc = self.doc(a)?;
         let doc_id = doc.id;
         let field = a.opt_str("field")?.map(str::to_string);
@@ -258,11 +444,36 @@ impl Automation {
             graphic,
             ..SignOptions::default()
         };
-        let signed = self.session.sign(doc_id, &id, opts).map_err(|e| match e {
-            // A graphic the signer refuses is the caller's to fix.
+        let job = self.session.sign_job(doc_id, opts).map_err(failed)?;
+        // A graphic the signer refuses is the caller's to fix.
+        let refused = |e| match e {
             pdfcraft_engine::EditError::Sign(m) if m.starts_with("the signature graphic") => bad(m),
             e => failed(e),
+        };
+        // The digital ID comes last: a remote one signs in to its service when opened, which a
+        // call that is wrong anyway shouldn't cost (a CSC sign-in is only revoked by signing).
+        // The engine has no check of a signature's preconditions short of signing, so a remote
+        // signature is first made in memory with a throwaway local key and thrown away:
+        // whatever the document refuses (a field that isn't there or is already signed, its
+        // permissions, a pending security change, the graphic) is refused before the service
+        // hears of it. It costs one more signature computed here, about an incremental save of
+        // the document, with no request and nothing written.
+        if remote {
+            job.run(&rehearsal_id(self.session.now_secs())?).map_err(refused)?;
+        }
+        let id = self.open_id(a)?;
+        let signed = job.run(&id).map_err(|e| match e {
+            // The service turning down the PIN or OTP is the caller's too; a signature that
+            // doesn't verify, or a refusal of what PdfCraft computed, is a failure.
+            pdfcraft_engine::EditError::Sign(m) if remote && remote::fault_of(&m) == RemoteFault::Caller => bad(m),
+            e => refused(e),
         })?;
+        if remote {
+            // That code is spent: the next one is sent again, or read from an app.
+            let (account, credential) = remote_reference(a.str("id")?)?;
+            let reference = remote::reference(&account, &credential);
+            self.remote_sent.retain(|r| *r != reference);
+        }
         write_atomic(&out, &signed)?;
         let path = out.to_string_lossy().into_owned();
         self.session.mark_signed(doc_id, signed.clone(), Some(path.clone())).map_err(failed)?;

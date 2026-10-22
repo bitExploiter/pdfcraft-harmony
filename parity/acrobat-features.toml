@@ -6477,12 +6477,12 @@ id = "sign.cloud-signatures"
 title = "Cloud signature (CSC) digital IDs via Adobe"
 area = "H"
 tier = "N/A"
-milestone = "none"
-status = "na"
-commands = []
-tools = []
-evidence = []
-notes = "Adobe cloud; a pluggable remote-signing KeyProvider may follow"
+milestone = "M9"
+status = "partial"
+commands = ["sign.digital"]
+tools = ["sign_remote_ids", "sign_remote_send_otp", "sign_document"]
+evidence = ["crates/sign/tests/remote.rs::csc_v2_rsa_lists_sends_the_otp_signs_and_validates", "crates/sign/tests/remote.rs::csc_v1_dialect_signs_with_its_own_field_names", "crates/sign/tests/remote.rs::arss_lists_sends_the_sms_and_signs", "crates/sign/tests/remote.rs::only_the_digest_leaves_the_machine_and_secrets_only_where_they_belong", "crates/sign/tests/remote.rs::a_signature_over_another_digest_is_never_used", "crates/automation/tests/automation.rs::remote_signing_with_a_csc_service_through_tools", "crates/automation/tests/automation.rs::remote_signing_with_aruba_through_tools", "crates/automation/tests/automation.rs::remote_signing_needs_the_hosts_network_and_good_arguments", "crates/ui-egui/tests/signing.rs::a_remote_csc_identity_is_found_sends_its_code_and_signs_with_pin_and_otp", "crates/ui-egui/tests/signing.rs::without_a_network_remote_ids_are_greyed_with_the_reason", "crates/ui-egui/tests/signing.rs::remote_ids_persist_with_what_they_ask_for_but_never_a_secret"]
+notes = "Remote (server-side) signing with a one-time password, the Italian and EU \"firma remota\", made by PdfCraft itself rather than through Adobe: the Cloud Signature Consortium API v2 (v1 tolerated) signed in with user name and password, and Aruba Remote Sign Server (ARSS signhash). In the Sign dialog, Remote signature (OTP) finds an account's certificates, has the code sent and signs; agents use sign_remote_ids, sign_remote_send_otp and sign_document with a remote: id (pdfcraft-cli run always, pdfcraft-cli mcp only with --remote-signing). RSA, P-256 and P-384 credentials; PAdES B-B. Only the digest of the signed attributes leaves the computer, every signature the service returns is verified against the certificate, and the password, PIN and OTP are never stored. Missing: OAuth sign-in (services or credentials that need it are refused with that reason), showing a challenge while signing (ChallengeResponseOOB), several signatures on one OTP (ARSS sessions), timestamps from the service, the web build (no network), and any check against a real provider: tested only against in-process mock services and a loopback HTTP server. Tier kept N/A, so it is not counted in the percentages."
 
 # ==================================================================================================
 # I. Scan and OCR

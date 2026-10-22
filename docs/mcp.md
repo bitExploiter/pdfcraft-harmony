@@ -1,6 +1,6 @@
 # MCP conventions
 
-Start explicitly with `pdfcraft-cli mcp [--root DIR] [--compact] [--automation-read-root DIR] [--automation-write-root DIR]`. The server uses JSON lines on
+Start explicitly with `pdfcraft-cli mcp [--root DIR] [--compact] [--automation-read-root DIR] [--automation-write-root DIR] [--remote-signing]`. The server uses JSON lines on
 stdin/stdout, opens no port, and stops on EOF. `--root` confines all reads and writes, including
 commands invoked through the common tools. Logs stay on stderr.
 
@@ -106,7 +106,8 @@ running app), so the roots cover every server it starts. The desktop app is not 
 
 What the roots do not cover: tools that take no path still read and change the open documents, and
 `text_extract` and the other inspection tools return their content. Keychain and Windows
-certificate-store identities for `sign_document` are not files and are not checked. Sending a job
+certificate-store identities and `remote:` ids for `sign_document` are not files and are not
+checked, and the roots don't confine remote signing's network (below). Sending a job
 to a printer is not a file write. Every path a tool reads or writes goes through
 `Automation::resolve`, and a unit test keeps the tool modules from touching the file system
 without it.
@@ -114,6 +115,16 @@ without it.
 A path is checked, then opened: another program that swaps a link in between can still win that
 race, so the roots keep an agent to the files it was given rather than guarding against other
 software on the computer.
+
+## Remote signing
+
+Without `--remote-signing`, `sign_remote_ids`, `sign_remote_send_otp` and `sign_document` with
+a `remote:` id fail with "remote signing needs network access, which this host did not enable",
+and no signing service is contacted. With it, those three tools (and `tool_call` running them)
+connect to the signing service address each call names, `https://` only (plain `http://` only to
+this computer), and send it the user name, password, PIN and OTP the agent passes and the digest
+of what is signed, never the document. Their `openWorldHint` is true. The
+[automation guide](../crates/automation/README.md#remote-signing) has the arguments and errors.
 
 ## Tools
 

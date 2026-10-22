@@ -2537,3 +2537,39 @@ animation effects	Off	Вимкнено
 	field names can't contain a period: {name}	імена полів не можуть містити крапку: {name}
 	two cells would both be named {name}	дві клітинки мали б однакове ім'я {name}
 	a field named {name} already exists	поле з іменем {name} уже існує
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Служба підписування  ·  
+	Remote signing isn't available in this build	Віддалене підписування недоступне в цій збірці
+	Remove "{name}" from this list? The certificate stays with the signing service.	Прибрати «{name}» з цього списку? Сертифікат залишається у службі підписування.
+	Remote signature (OTP)	Віддалений підпис (OTP)
+	Looking for certificates…	Пошук сертифікатів…
+	Find certificates	Знайти сертифікати
+	Signing…	Підписування…
+	Code sent	Код надіслано
+	Challenge: {challenge}	Запит: {challenge}
+	Service	Служба
+	Other provider (CSC API)	Інший постачальник (CSC API)
+	Service address	Адреса служби
+	Domain	Домен
+	Required, given by Aruba with the account	Обов’язково, Aruba надає з обліковим записом
+	PIN	PIN-код
+	One-time code (OTP)	Одноразовий код (OTP)
+	Send code	Надіслати код
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Надсилання коду…
+	Choose where to save the signed file. The service signs it once you have.	Виберіть, куди зберегти підписаний файл. Служба підпише його, щойно ви це зробите.
+	Signing… Confirm the signature on your other device.	Підписування… Підтвердьте підпис на іншому своєму пристрої.
+	The document changed while it was being signed, so the signature wasn't saved.	Документ змінився під час підписування, тому підпис не збережено.
+	The signing service lists no certificate for this account.	Служба підписування не показує жодного сертифіката для цього облікового запису.
+	the signing service is unreachable ({reason})	служба підписування недоступна ({reason})
+	the signing service rejected the user name or password	служба підписування відхилила ім’я користувача або пароль
+	the signing service rejected the PIN	служба підписування відхилила PIN-код
+	the signing service rejected the OTP (it may have expired)	служба підписування відхилила OTP (можливо, строк його дії минув)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	служба підписування відхилила PIN-код або OTP (можливо, строк дії OTP минув)
+	the signing service refused to sign	служба підписування відмовилася підписати
+	the signing service refused to list the certificates	служба підписування відмовилася показати список сертифікатів
+	the signing service refused to send the OTP	служба підписування відмовилася надіслати OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	обліковому запису Aruba потрібен його домен («dominio», який Aruba надає разом з обліковим записом): введіть його
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	цю службу підписування не можна використати: вона потребує входу через OAuth у браузері, якого PdfCraft поки не підтримує

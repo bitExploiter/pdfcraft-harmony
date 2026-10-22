@@ -2694,3 +2694,39 @@ key	Space	Mellomrom
 # Page gaps (AI-assisted, not separately native-reviewed)
 	Show gaps between pages	Vis mellomrom mellom sidene
 	Hide gaps to join page edges. Margins inside the PDF remain unchanged.	Skjul mellomrommene slik at sidekantene møtes. Margene inne i PDF-en endres ikke.
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Signeringstjeneste  ·  
+	Remote signing isn't available in this build	Fjernsignering er ikke tilgjengelig i denne versjonen
+	Remove "{name}" from this list? The certificate stays with the signing service.	Fjerne «{name}» fra denne listen? Sertifikatet blir værende hos signeringstjenesten.
+	Remote signature (OTP)	Fjernsignatur (OTP)
+	Looking for certificates…	Ser etter sertifikater…
+	Find certificates	Finn sertifikater
+	Signing…	Signerer…
+	Code sent	Koden er sendt
+	Challenge: {challenge}	Utfordring: {challenge}
+	Service	Tjeneste
+	Other provider (CSC API)	Annen leverandør (CSC API)
+	Service address	Tjenesteadresse
+	Domain	Domene
+	Required, given by Aruba with the account	Påkrevd, gis av Aruba sammen med kontoen
+	PIN	PIN-kode
+	One-time code (OTP)	Engangskode (OTP)
+	Send code	Send kode
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Sender koden…
+	Choose where to save the signed file. The service signs it once you have.	Velg hvor den signerte filen skal lagres. Tjenesten signerer den når du har valgt.
+	Signing… Confirm the signature on your other device.	Signerer… Bekreft signaturen på den andre enheten din.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokumentet ble endret mens det ble signert, så signaturen ble ikke lagret.
+	The signing service lists no certificate for this account.	Signeringstjenesten viser ingen sertifikater for denne kontoen.
+	the signing service is unreachable ({reason})	signeringstjenesten kan ikke nås ({reason})
+	the signing service rejected the user name or password	signeringstjenesten avviste brukernavnet eller passordet
+	the signing service rejected the PIN	signeringstjenesten avviste PIN-koden
+	the signing service rejected the OTP (it may have expired)	signeringstjenesten avviste engangskoden (den kan ha utløpt)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	signeringstjenesten avviste PIN-koden eller engangskoden (engangskoden kan ha utløpt)
+	the signing service refused to sign	signeringstjenesten nektet å signere
+	the signing service refused to list the certificates	signeringstjenesten nektet å vise sertifikatene
+	the signing service refused to send the OTP	signeringstjenesten nektet å sende engangskoden
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	en Aruba-konto trenger domenet sitt («dominio» som Aruba gir sammen med kontoen): skriv det inn
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	denne signeringstjenesten kan ikke brukes: den krever OAuth-pålogging i en nettleser, som PdfCraft ikke støtter ennå

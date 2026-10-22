@@ -2520,3 +2520,39 @@ animation effects	Off	Izklopljeni
 	field names can't contain a period: {name}	imena polj ne smejo vsebovati pike: {name}
 	two cells would both be named {name}	dve celici bi imeli enako ime {name}
 	a field named {name} already exists	polje z imenom {name} že obstaja
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Storitev za podpisovanje  ·  
+	Remote signing isn't available in this build	Oddaljeno podpisovanje v tej različici ni na voljo
+	Remove "{name}" from this list? The certificate stays with the signing service.	Odstranim »{name}« s tega seznama? Potrdilo ostane pri storitvi za podpisovanje.
+	Remote signature (OTP)	Oddaljeni podpis (OTP)
+	Looking for certificates…	Iskanje potrdil…
+	Find certificates	Poišči potrdila
+	Signing…	Podpisovanje…
+	Code sent	Koda je poslana
+	Challenge: {challenge}	Izziv: {challenge}
+	Service	Storitev
+	Other provider (CSC API)	Drug ponudnik (CSC API)
+	Service address	Naslov storitve
+	Domain	Domena
+	Required, given by Aruba with the account	Obvezno, Aruba jo dodeli skupaj z računom
+	PIN	PIN
+	One-time code (OTP)	Enkratna koda (OTP)
+	Send code	Pošlji kodo
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Pošiljanje kode…
+	Choose where to save the signed file. The service signs it once you have.	Izberite, kam shraniti podpisano datoteko. Storitev jo podpiše, ko to storite.
+	Signing… Confirm the signature on your other device.	Podpisovanje… Potrdite podpis v svoji drugi napravi.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokument se je med podpisovanjem spremenil, zato podpis ni bil shranjen.
+	The signing service lists no certificate for this account.	Storitev za podpisovanje za ta račun ne navaja nobenega potrdila.
+	the signing service is unreachable ({reason})	storitev za podpisovanje ni dosegljiva ({reason})
+	the signing service rejected the user name or password	storitev za podpisovanje je zavrnila uporabniško ime ali geslo
+	the signing service rejected the PIN	storitev za podpisovanje je zavrnila PIN
+	the signing service rejected the OTP (it may have expired)	storitev za podpisovanje je zavrnila OTP (morda je potekel)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	storitev za podpisovanje je zavrnila PIN ali OTP (OTP je morda potekel)
+	the signing service refused to sign	storitev za podpisovanje je zavrnila podpisovanje
+	the signing service refused to list the certificates	storitev za podpisovanje je zavrnila izpis potrdil
+	the signing service refused to send the OTP	storitev za podpisovanje je zavrnila pošiljanje OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	račun Aruba potrebuje svojo domeno (»dominio«, ki jo Aruba dodeli skupaj z računom): vnesite jo
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	te storitve za podpisovanje ni mogoče uporabiti: zahteva prijavo OAuth v brskalniku, ki je PdfCraft še ne podpira

@@ -2772,3 +2772,39 @@ theme	Appearance	Aspect
 	field names can't contain a period: {name}	numele câmpurilor nu pot conține punct: {name}
 	two cells would both be named {name}	două celule s-ar numi amândouă {name}
 	a field named {name} already exists	există deja un câmp numit {name}
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Serviciu de semnare  ·  
+	Remote signing isn't available in this build	Semnarea la distanță nu este disponibilă în această versiune
+	Remove "{name}" from this list? The certificate stays with the signing service.	Eliminați „{name}” din această listă? Certificatul rămâne la serviciul de semnare.
+	Remote signature (OTP)	Semnătură la distanță (OTP)
+	Looking for certificates…	Se caută certificatele…
+	Find certificates	Căutare certificate
+	Signing…	Se semnează…
+	Code sent	Cod trimis
+	Challenge: {challenge}	Provocare: {challenge}
+	Service	Serviciu
+	Other provider (CSC API)	Alt furnizor (API CSC)
+	Service address	Adresa serviciului
+	Domain	Domeniu
+	Required, given by Aruba with the account	Obligatoriu, furnizat de Aruba împreună cu contul
+	PIN	PIN
+	One-time code (OTP)	Cod de unică folosință (OTP)
+	Send code	Trimitere cod
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Se trimite codul…
+	Choose where to save the signed file. The service signs it once you have.	Alegeți unde se salvează fișierul semnat. Serviciul îl semnează după ce ați ales.
+	Signing… Confirm the signature on your other device.	Se semnează… Confirmați semnătura pe celălalt dispozitiv.
+	The document changed while it was being signed, so the signature wasn't saved.	Documentul s-a modificat în timpul semnării, așa că semnătura nu a fost salvată.
+	The signing service lists no certificate for this account.	Serviciul de semnare nu listează niciun certificat pentru acest cont.
+	the signing service is unreachable ({reason})	serviciul de semnare nu poate fi contactat ({reason})
+	the signing service rejected the user name or password	serviciul de semnare a respins numele de utilizator sau parola
+	the signing service rejected the PIN	serviciul de semnare a respins PIN-ul
+	the signing service rejected the OTP (it may have expired)	serviciul de semnare a respins codul OTP (este posibil să fi expirat)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	serviciul de semnare a respins PIN-ul sau codul OTP (este posibil ca codul OTP să fi expirat)
+	the signing service refused to sign	serviciul de semnare a refuzat să semneze
+	the signing service refused to list the certificates	serviciul de semnare a refuzat să listeze certificatele
+	the signing service refused to send the OTP	serviciul de semnare a refuzat să trimită codul OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	un cont Aruba are nevoie de domeniul său („dominio” pe care Aruba îl furnizează împreună cu contul): introduceți-l
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	acest serviciu de semnare nu poate fi folosit: necesită autentificare OAuth într-un browser, pe care PdfCraft nu o acceptă încă

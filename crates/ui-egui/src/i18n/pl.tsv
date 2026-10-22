@@ -2609,3 +2609,39 @@ animation effects	Off	Wyłączone
 	field names can't contain a period: {name}	nazwy pól nie mogą zawierać kropki: {name}
 	two cells would both be named {name}	dwie komórki miałyby nazwę {name}
 	a field named {name} already exists	pole o nazwie {name} już istnieje
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Usługa podpisu  ·  
+	Remote signing isn't available in this build	Podpis zdalny nie jest dostępny w tej wersji
+	Remove "{name}" from this list? The certificate stays with the signing service.	Usunąć „{name}” z tej listy? Certyfikat pozostaje w usłudze podpisu.
+	Remote signature (OTP)	Podpis zdalny (OTP)
+	Looking for certificates…	Wyszukiwanie certyfikatów…
+	Find certificates	Znajdź certyfikaty
+	Signing…	Podpisywanie…
+	Code sent	Kod wysłany
+	Challenge: {challenge}	Wyzwanie: {challenge}
+	Service	Usługa
+	Other provider (CSC API)	Inny dostawca (API CSC)
+	Service address	Adres usługi
+	Domain	Domena
+	Required, given by Aruba with the account	Wymagane, podawane przez Aruba wraz z kontem
+	PIN	PIN
+	One-time code (OTP)	Kod jednorazowy (OTP)
+	Send code	Wyślij kod
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Wysyłanie kodu…
+	Choose where to save the signed file. The service signs it once you have.	Wybierz, gdzie zapisać podpisany plik. Usługa podpisze go, gdy to zrobisz.
+	Signing… Confirm the signature on your other device.	Podpisywanie… Potwierdź podpis na drugim urządzeniu.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokument zmienił się podczas podpisywania, więc podpis nie został zapisany.
+	The signing service lists no certificate for this account.	Usługa podpisu nie podaje żadnego certyfikatu dla tego konta.
+	the signing service is unreachable ({reason})	usługa podpisu jest nieosiągalna ({reason})
+	the signing service rejected the user name or password	usługa podpisu odrzuciła nazwę użytkownika lub hasło
+	the signing service rejected the PIN	usługa podpisu odrzuciła PIN
+	the signing service rejected the OTP (it may have expired)	usługa podpisu odrzuciła kod OTP (mógł wygasnąć)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	usługa podpisu odrzuciła PIN lub kod OTP (kod OTP mógł wygasnąć)
+	the signing service refused to sign	usługa podpisu odmówiła złożenia podpisu
+	the signing service refused to list the certificates	usługa podpisu odmówiła podania listy certyfikatów
+	the signing service refused to send the OTP	usługa podpisu odmówiła wysłania kodu OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	konto Aruba wymaga domeny („dominio”, którą Aruba podaje wraz z kontem): wpisz ją
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	tej usługi podpisu nie można użyć: wymaga logowania OAuth w przeglądarce, którego PdfCraft jeszcze nie obsługuje

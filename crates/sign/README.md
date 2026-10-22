@@ -4,6 +4,7 @@ Layer L4: digital signatures (execution plan M9; ISO 32000-2 §12.8; PAdES, ETSI
 
 ```rust
 let id = pkcs12::open(&std::fs::read("me.p12")?, "password")?;          // a digital ID
+let id = remote::digital_id(transport, &account, &credential, secrets)?; // or a signing service's
 let signed = sign(&doc, &id, &SignOptions { page: 0, rect: Some(r), date, ..Default::default() })?;
 for s in signatures(&doc, &bytes, &trust) {                                // list + validate
     println!("{}: {} — {:?}", s.field, s.summary(), s.details);
@@ -61,6 +62,82 @@ sign (no private key, another key type, a key CNG can't open) are returned by
 `windows::list` as `unusable` with the reason and the Windows error code, shown greyed in
 the Sign dialog and by `sign_windows_ids`, instead of being left out silently; a key that
 needs a prompt to open is listed and asks at signing (issue #179).
+- **Remote signing (`remote`, "firma remota"):** a digital ID whose key a signing service holds,
+  each signature authorized with a one-time password (OTP), as Italian and EU qualified
+  signatures are made. Two protocols, from their public specifications: the Cloud Signature
+  Consortium API v2 (2.0–2.2), with the v1 (1.0.4) field names tolerated (`info`, HTTP Basic
+  `auth/login`, `credentials/list` and `credentials/info`, the OTP through `credentials/sendOTP`
+  or `credentials/getChallenge`, `credentials/authorize`, `signatures/signHash`, `auth/revoke`),
+  and Aruba Remote Sign Server (SOAP 1.1 from its WSDL: `listCert`, `sendCredential` by SMS,
+  `signhash`). `remote::list` signs in and lists the credentials PdfCraft can sign with (an RSA,
+  P-256 or P-384 key whose certificate allows signing documents) and what a signature asks for: a
+  PIN, an OTP typed from an app or token, or one the service sends (`remote::send_otp`).
+  `remote::digital_id` gives a `DigitalId` that `sign` uses like any other; a `remote:` reference
+  names the service, user and credential, and no secret. The PDF, its byte range and the CMS are
+  built here, and the service is sent only the digest of the CMS signed attributes, besides the
+  sign-in, the credential's name, the PIN and the OTP: the document never leaves the machine.
+  The service password, PIN, OTP and the token and SAD a service hands back are never stored or
+  logged, `Debug` prints none of them, and a service's error text is quoted cut to 200
+  characters with them taken out. The network is the caller's, as for timestamps: this crate
+  hands each exchange to a `remote::HttpTransport`. The desktop app and `pdfcraft-cli run` pass
+  `pdfcraft-platform`'s `https` transport (the system's certificate authorities, no redirects,
+  15 s to connect and 150 s an exchange, since a CSC service may hold an authorization open
+  until the user confirms it on a phone), and `pdfcraft-cli mcp` only with `--remote-signing`;
+  the web build has none, so remote IDs are greyed there. Addresses must be `https://` (plain `http://`
+  only to this computer), and an Aruba account needs its domain (`typeOtpAuth`, the "dominio"),
+  without which Aruba answers "Invalid Parameters": it is refused before anything is sent. The
+  Sign dialog's Remote signature (OTP) option and the `sign_remote_ids`, `sign_remote_send_otp`
+  and `sign_document` tools sit on top. Their errors begin with sentences written once in
+  `remote` (`WORDINGS` lists the ones an interface translates), and `remote::fault_of` tells
+  from that sentence whether the caller has to change the call or the service failed, so the
+  automation tools report the two apart without a word list of their own.
+- **Where the protocols come from.** Clean room (AGENTS.md §2): the CSC API specifications
+  v2.2.0.0, v2.0.0.2 and v1.0.4.0 and the CSC Data Model v1.0.0, as published by the Cloud
+  Signature Consortium; Aruba's public ARSS WSDL, with Aruba PEC's certification practice
+  statement MGA_A_66 v1.13 and its Firma Remota manual v0.3 for what the messages mean; and,
+  since Aruba publishes no API manual, the answers its public endpoint gave unauthenticated calls
+  with made-up values on 2026-10-21 (no account): the refusals the tests use, and that the domain
+  is required. No other CSC or ARSS client was read, nor code samples that turned up in search
+  results. `remote`'s module documentation lists the addresses and the sections followed.
+- **How a CSC credential is authorized.** Its authentication objects are told apart by type: a
+  `Password` with a generator, or whose id or label names it a code ("OTP", "one-time", "SMS",
+  or "code", "codice", "token" without "PIN"), is a code even with no PIN beside it, as is a
+  `ChallengeResponse`; of the other Passwords the one named PIN (else the first) is the PIN and
+  the rest are codes, so a PIN and a second value never get the PIN twice; `PasswordOOB` and
+  `ChallengeResponseOOB` are confirmed on another device. `auth/expression` is read (`AND` before
+  `OR` and `XOR`, nested eight deep at most) and decides what `credentials/authorize` sends: all
+  of an `AND`, and of an alternative one operand only, the first the user gave a value for, so an
+  `XOR` never gets both; a confirmation on the phone (and its `getChallenge`) only when no code
+  that would do was given, which `AuthNeeds::confirm` tells an interface. One PIN and one code
+  are asked for, so of two codes offered as alternatives (an SMS or an app) Send code
+  (`remote::send_otp`) asks for the one a signature fills with a code the service sent
+  (`Secrets::otp_sent`): the SMS, whichever comes first. A code nobody had sent goes under the
+  first. The user name and the Aruba domain go trimmed, as they are checked. A credential with an
+  object of another type, an expression that can't be read or names no object of it, or a key
+  whose `key/algo` lists nothing PdfCraft signs with (RSA PKCS #1 v1.5, ECDSA with SHA-256, or
+  SHA-384 for P-384) can't sign: it is left out of the list (which names the reason when nothing
+  else can sign), and asking for its code or signing with it fails with that reason before a
+  code is sent or anything is authorized.
+- **A signing service is checked, not trusted.** Every signature it returns is verified against
+  the certificate before it is used: RSA is brought to the modulus' length (leading zeros taken
+  off or put back, anything else refused), raw ECDSA `r ‖ s` is turned into DER, and a signature
+  that doesn't verify fails the signing instead of making a broken file, saying so when the
+  service signed the bare digest without its DigestInfo. One OTP authorizes one signature: the
+  ID refuses a second. A CSC sign-in is renewed once, and only when the service says the token
+  is no longer good (`invalid_token`, `expired_token`, or a 401 with no error code); a 401 naming
+  another error is that error. `credentials/authorize`, `sendOTP` and `getChallenge` are never
+  sent twice, so a retry can't count as one more wrong PIN or void the code the user just got. An
+  authorization confirmed on another device (HTTP 202) is polled for at most a minute, and an
+  answer over 1 MiB is refused. Not done: OAuth sign-in (a service or credential that needs it
+  is reported as such), showing a challenge while signing (a `ChallengeResponseOOB` credential
+  whose service answers with one is refused with that reason), Aruba sessions (several
+  signatures on one OTP), timestamps from the service itself, and revoking the CSC sign-in of a
+  remote ID opened but never signed with (it expires on the service), and the issuers of an
+  Aruba certificate: `listCert` gives the signer's alone, so the file carries no chain and a
+  validator that doesn't fetch issuers needs Aruba's CA trusted, not only its root. Tested only
+  against the in-process services of `remote::mock` (feature `mock`: CSC v2, CSC v1, ARSS, a CA
+  chain, authentication expressions, and their failure modes) and, for the transport, loopback
+  HTTP and HTTPS servers: no real provider has been tried yet.
 - **Validation:** `/ByteRange` and the CMS are read from the file's own bytes; the digest,
   the signature value and the signer's chain (against a `TrustStore`) are checked. Later
   revisions are diffed against the signed one, and the changes are classified (signing, form

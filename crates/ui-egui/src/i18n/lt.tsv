@@ -2774,3 +2774,39 @@ theme	Appearance	Išvaizda
 	a table has 1 to {max} columns	lentelėje gali būti nuo 1 iki {max} stulpelių
 	the first row number can be at most {max}	pirmosios eilutės numeris gali būti ne didesnis nei {max}
 	the area, the spacing and the column widths must be numbers, the spacing 0 or more and each width more than 0	sritis, tarpai ir stulpelių pločiai turi būti skaičiai, tarpai – 0 arba daugiau, o kiekvienas plotis – daugiau nei 0
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Pasirašymo paslauga  ·  
+	Remote signing isn't available in this build	Nuotolinis pasirašymas šioje versijoje negalimas
+	Remove "{name}" from this list? The certificate stays with the signing service.	Pašalinti „{name}“ iš šio sąrašo? Sertifikatas lieka pasirašymo paslaugoje.
+	Remote signature (OTP)	Nuotolinis parašas (OTP)
+	Looking for certificates…	Ieškoma sertifikatų…
+	Find certificates	Rasti sertifikatus
+	Signing…	Pasirašoma…
+	Code sent	Kodas išsiųstas
+	Challenge: {challenge}	Užklausa: {challenge}
+	Service	Paslauga
+	Other provider (CSC API)	Kitas teikėjas (CSC API)
+	Service address	Paslaugos adresas
+	Domain	Domenas
+	Required, given by Aruba with the account	Privaloma, „Aruba“ suteikia kartu su paskyra
+	PIN	PIN kodas
+	One-time code (OTP)	Vienkartinis kodas (OTP)
+	Send code	Siųsti kodą
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Siunčiamas kodas…
+	Choose where to save the signed file. The service signs it once you have.	Pasirinkite, kur įrašyti pasirašytą failą. Paslauga jį pasirašys, kai tai padarysite.
+	Signing… Confirm the signature on your other device.	Pasirašoma… Patvirtinkite parašą kitame savo įrenginyje.
+	The document changed while it was being signed, so the signature wasn't saved.	Pasirašant dokumentas pasikeitė, todėl parašas neišsaugotas.
+	The signing service lists no certificate for this account.	Pasirašymo paslauga šiai paskyrai nenurodo jokio sertifikato.
+	the signing service is unreachable ({reason})	pasirašymo paslauga nepasiekiama ({reason})
+	the signing service rejected the user name or password	pasirašymo paslauga atmetė naudotojo vardą arba slaptažodį
+	the signing service rejected the PIN	pasirašymo paslauga atmetė PIN kodą
+	the signing service rejected the OTP (it may have expired)	pasirašymo paslauga atmetė OTP (galbūt baigėsi jo galiojimas)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	pasirašymo paslauga atmetė PIN kodą arba OTP (galbūt baigėsi OTP galiojimas)
+	the signing service refused to sign	pasirašymo paslauga atsisakė pasirašyti
+	the signing service refused to list the certificates	pasirašymo paslauga atsisakė pateikti sertifikatų sąrašą
+	the signing service refused to send the OTP	pasirašymo paslauga atsisakė išsiųsti OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	„Aruba“ paskyrai reikia jos domeno („dominio“, kurį „Aruba“ suteikia kartu su paskyra): įveskite jį
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	šios pasirašymo paslaugos naudoti negalima: jai reikia prisijungti per OAuth naršyklėje, o „PdfCraft“ to dar nepalaiko

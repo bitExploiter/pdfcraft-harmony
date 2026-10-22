@@ -3,13 +3,18 @@
 //! Usage: `pdfcraft-cli --help`, which prints `USAGE` below.
 //!
 //! `run` and `mcp` drive the same tool table (`pdfcraft-automation`). In `run`, values parse as
-//! JSON when they can (`pages=[1,3]`, `degrees=90`) and are strings otherwise. A script runs its
-//! steps in one session, so `doc_open` returns id 1, the next document id 2, and so on. A step's
-//! `"out"` (like `--out`) saves its image there. With `--root DIR`, every path a tool or step
+//! JSON when they can (`pages=[1,3]`, `degrees=90`) and are strings otherwise; a string
+//! argument keeps the text as typed (`password=123456`). A script runs its steps in one session,
+//! so `doc_open` returns id 1, the next document id 2, and so on. A step's `"out"` (like
+//! `--out`) saves its image there. With `--root DIR`, every path a tool or step
 //! names, `"out"` included, must be inside DIR, and relative paths resolve inside it.
 //!
 //! The MCP server never starts on its own: it runs only when this command is launched (normally
-//! by an agent configured to use it), talks only over stdio, and exits when stdin closes.
+//! by an agent configured to use it), talks only over stdio, and exits when stdin closes. Its
+//! tools reach the network only with `--remote-signing`: then the remote signing tools talk to
+//! the signing service each call names, and only then does `tools/list` mark them open-world.
+//! `run` always lets them, since its caller names the service on the command line or in the
+//! script.
 //!
 //! `check` is the robustness harness: every file is opened, inspected and fully rendered in a
 //! *separate child process* with a wall-clock timeout, so hangs, panics and aborts in any
@@ -36,6 +41,7 @@ macro_rules! mcp_usage {
     () => {
         "\
 pdfcraft-cli mcp    [--root DIR] [--compact] [--automation-read-root DIR] [--automation-write-root DIR]
+                    [--remote-signing]
                                                            MCP server on stdin/stdout (opt-in)
                                                            --compact lists a core set of tools plus tool_search and tool_call
                                                            --automation-read-root / --automation-write-root confine the files the
@@ -43,6 +49,10 @@ pdfcraft-cli mcp    [--root DIR] [--compact] [--automation-read-root DIR] [--aut
                                                            write (save, export, extract, split, reports…) to DIR, links followed;
                                                            a root left out grants none of its access. --root, when also given,
                                                            applies as well
+                                                           --remote-signing lets sign_remote_ids, sign_remote_send_otp and
+                                                           sign_document with a remote: id reach the signing service each call
+                                                           names, with the password, PIN and OTP the agent gives (https://;
+                                                           plain http:// only to this computer). The roots don't limit it
 "
     };
 }
@@ -276,7 +286,11 @@ const RUN_OPTIONS: &[OptionSpec] = &[
 const UI_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--control", takes_value: true }, OptionSpec { name: "--out", takes_value: true }];
 
 #[cfg(feature = "mcp")]
-const MCP_OPTIONS: &[OptionSpec] = &[OptionSpec { name: "--root", takes_value: true }, OptionSpec { name: "--compact", takes_value: false }];
+const MCP_OPTIONS: &[OptionSpec] = &[
+    OptionSpec { name: "--root", takes_value: true },
+    OptionSpec { name: "--compact", takes_value: false },
+    OptionSpec { name: "--remote-signing", takes_value: false },
+];
 
 fn positional(args: &[String]) -> Vec<&str> {
     let mut out = Vec::new();
@@ -873,10 +887,17 @@ fn automation(args: &[String]) -> Result<pdfcraft_automation::Automation, String
     }
 }
 
+/// `a` with remote signing's network: the HTTPS transport through which `sign_remote_ids`,
+/// `sign_remote_send_otp` and `sign_document` with a `remote:` id reach the service address the
+/// call names. No other tool uses it.
+fn with_remote_signing(a: pdfcraft_automation::Automation) -> pdfcraft_automation::Automation {
+    a.with_remote_transport(pdfcraft_platform::https::transport())
+}
+
 fn tools() -> Result<(), CliError> {
     let list: Vec<serde_json::Value> = pdfcraft_automation::tools()
         .iter()
-        .map(|t| serde_json::json!({ "name": t.name, "description": t.description, "read_only": t.read_only, "command": t.command, "input_schema": t.input_schema }))
+        .map(|t| serde_json::json!({ "name": t.name, "description": t.description, "read_only": t.read_only, "open_world": t.open_world, "command": t.command, "input_schema": t.input_schema }))
         .collect();
     stdout_line(format_args!("{}", serde_json::to_string_pretty(&list).unwrap_or_default()))?;
     Ok(())
@@ -968,7 +989,8 @@ fn run(args: &[String]) -> Result<(), CliError> {
     if report && flag(args, "--script").is_none() {
         return Err("run: --report needs --script".to_string().into());
     }
-    let mut auto = automation(args)?;
+    // The person running this names the signing service in the call or the script.
+    let mut auto = with_remote_signing(automation(args)?);
     if let Some(script) = flag(args, "--script") {
         let text = std::fs::read_to_string(script).map_err(|e| format!("{script}: {e}"))?;
         let steps: Vec<serde_json::Value> = serde_json::from_str(&text).map_err(|e| format!("{script}: {e}"))?;
@@ -986,10 +1008,18 @@ fn run(args: &[String]) -> Result<(), CliError> {
         return Ok(());
     }
     let tool = *positional(args).first().ok_or("run: missing tool name (see `pdfcraft-cli tools`)")?;
+    let properties = pdfcraft_automation::tools().into_iter().find(|t| t.name == tool).map(|t| t.input_schema["properties"].clone());
     let mut obj = serde_json::Map::new();
     for kv in positional(args).iter().skip(1) {
         let (k, v) = kv.split_once('=').ok_or(format!("run: expected key=value, got {kv:?}"))?;
-        let value = serde_json::from_str(v).unwrap_or_else(|_| serde_json::Value::String(v.to_string()));
+        let value = match serde_json::from_str(v) {
+            // A string argument keeps digits and words as typed (`password=123456`,
+            // `user=1234`), which as JSON would be refused for not being a string; a quoted JSON
+            // string, or null for none, still reads as JSON.
+            Ok(json @ (serde_json::Value::String(_) | serde_json::Value::Null)) => json,
+            Ok(json) if properties.as_ref().is_none_or(|p| p[k]["type"] != "string") => json,
+            _ => serde_json::Value::String(v.to_string()),
+        };
         obj.insert(k.to_string(), value);
     }
     let content = auto.call(tool, &serde_json::Value::Object(obj)).map_err(|e| e.to_string())?;
@@ -1020,7 +1050,15 @@ fn mcp(args: &[String]) -> Result<(), CliError> {
     let args = args.as_slice();
     validate_options("mcp", args, MCP_OPTIONS)?;
     let compact = args.iter().any(|a| a == "--compact");
+    let remote_signing = args.iter().any(|a| a == "--remote-signing");
     let mut auto = automation(args)?;
+    if remote_signing {
+        auto = with_remote_signing(auto);
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "pdfcraft-cli: remote signing on: sign_remote_ids, sign_remote_send_otp and sign_document with a remote: id reach the signing service each call names"
+        );
+    }
     if let Some(roots) = roots {
         let show = |root: Option<&Path>| root.map_or_else(|| "none".to_string(), |r| r.display().to_string());
         let _ = writeln!(

@@ -2515,3 +2515,39 @@ animation effects	Off	オフ
 	field names can't contain a period: {name}	フィールド名にピリオドは使えません: {name}
 	two cells would both be named {name}	2 つのセルが同じ名前 {name} になります
 	a field named {name} already exists	{name} という名前のフィールドは既にあります
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	署名サービス · 
+	Remote signing isn't available in this build	このビルドではリモート署名を利用できません
+	Remove "{name}" from this list? The certificate stays with the signing service.	「{name}」をこの一覧から削除しますか？証明書は署名サービスに残ります。
+	Remote signature (OTP)	リモート署名 (OTP)
+	Looking for certificates…	証明書を検索しています…
+	Find certificates	証明書を検索
+	Signing…	署名しています…
+	Code sent	コードを送信しました
+	Challenge: {challenge}	チャレンジ: {challenge}
+	Service	サービス
+	Other provider (CSC API)	その他のプロバイダー (CSC API)
+	Service address	サービスのアドレス
+	Domain	ドメイン
+	Required, given by Aruba with the account	必須。Aruba がアカウントと一緒に提供します
+	PIN	PIN
+	One-time code (OTP)	ワンタイムコード (OTP)
+	Send code	コードを送信
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	コードを送信しています…
+	Choose where to save the signed file. The service signs it once you have.	署名済みファイルの保存先を選んでください。選ぶとサービスが署名します。
+	Signing… Confirm the signature on your other device.	署名しています… もう一方のデバイスで署名を承認してください。
+	The document changed while it was being signed, so the signature wasn't saved.	署名中に文書が変更されたため、署名は保存されませんでした。
+	The signing service lists no certificate for this account.	署名サービスには、このアカウントの証明書がありません。
+	the signing service is unreachable ({reason})	署名サービスに接続できません（{reason}）
+	the signing service rejected the user name or password	署名サービスがユーザー名またはパスワードを拒否しました
+	the signing service rejected the PIN	署名サービスが PIN を拒否しました
+	the signing service rejected the OTP (it may have expired)	署名サービスが OTP を拒否しました（有効期限が切れている可能性があります）
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	署名サービスが PIN または OTP を拒否しました（OTP の有効期限が切れている可能性があります）
+	the signing service refused to sign	署名サービスが署名を拒否しました
+	the signing service refused to list the certificates	署名サービスが証明書の一覧表示を拒否しました
+	the signing service refused to send the OTP	署名サービスが OTP の送信を拒否しました
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba のアカウントにはドメイン（Aruba がアカウントと一緒に提供する「dominio」）が必要です。入力してください
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	この署名サービスは使用できません: ブラウザーでの OAuth サインインが必要ですが、PdfCraft はまだ対応していません

@@ -3222,6 +3222,36 @@ fn signing_saving_trusting_and_commenting_afterwards() {
 }
 
 #[test]
+fn a_sign_job_signs_elsewhere_the_document_as_it_was_when_made() {
+    fn assert_send<T: Send>() {}
+    assert_send::<SignJob>();
+    let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
+    let digital_id = sign::pkcs12::open(&p12, "test").unwrap();
+    let certificate = digital_id.certificate.clone();
+    // After the test certificate's start date (2026-10-02).
+    let mut s = Session::new().with_clock(|| 1_800_000_000);
+    let id = s.open("fixture.pdf", None, Arc::new(fixture(2)), None).unwrap();
+    let opts = SignOptions { page: 1, rect: Some([20.0, 20.0, 180.0, 60.0]), reason: Some("Approved".into()), ..SignOptions::default() };
+    let job = s.sign_job(id, opts.clone()).unwrap();
+    // A comment added after the job was made is not in what it signs, and the session is untouched.
+    s.apply(id, rect_comment(0, [80.0, 80.0, 120.0, 120.0])).unwrap();
+    let signed = std::thread::spawn(move || job.run(&digital_id)).join().unwrap().unwrap();
+    assert!(s.get(id).unwrap().signatures.is_empty() && s.get(id).unwrap().dirty);
+    let mut t = Session::new().with_clock(|| 1_800_000_000);
+    t.set_trusted_certificates(vec![certificate]);
+    let tid = t.open("signed.pdf", None, signed, None).unwrap();
+    let doc = t.get(tid).unwrap();
+    let sig = &doc.signatures[0];
+    // The session's clock gave the signing time when the job was made.
+    assert_eq!((sig.status, sig.page, sig.date.as_deref()), (SignatureStatus::Valid, Some(1), Some("D:20270115080000Z")));
+    assert!(!doc.info.annotations.iter().any(|a| a.subtype == "Square"), "{:?}", doc.info.annotations);
+    // A date given is kept.
+    let dated = s.sign_job(id, SignOptions { date: "D:20270201090000Z".into(), ..opts.clone() }).unwrap();
+    assert_eq!(dated.opts.date, "D:20270201090000Z");
+    assert!(matches!(s.sign_job(DocId(u64::MAX), opts), Err(EditError::NoDocument)));
+}
+
+#[test]
 fn validated_signatures_without_layers_keep_their_appearance() {
     let p12 = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12")).unwrap();
     let digital_id = sign::pkcs12::open(&p12, "test").unwrap();

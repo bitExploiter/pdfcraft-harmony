@@ -2781,3 +2781,39 @@ theme	Appearance	Teema
 	field names can't contain a period: {name}	kenttien nimissä ei voi olla pistettä: {name}
 	two cells would both be named {name}	kahdella solulla olisi sama nimi {name}
 	a field named {name} already exists	kenttä nimeltä {name} on jo olemassa
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Allekirjoituspalvelu  ·  
+	Remote signing isn't available in this build	Etäallekirjoitus ei ole käytettävissä tässä versiossa
+	Remove "{name}" from this list? The certificate stays with the signing service.	Poistetaanko "{name}" tästä luettelosta? Varmenne jää allekirjoituspalveluun.
+	Remote signature (OTP)	Etäallekirjoitus (OTP)
+	Looking for certificates…	Etsitään varmenteita…
+	Find certificates	Etsi varmenteet
+	Signing…	Allekirjoitetaan…
+	Code sent	Koodi lähetetty
+	Challenge: {challenge}	Haaste: {challenge}
+	Service	Palvelu
+	Other provider (CSC API)	Muu palveluntarjoaja (CSC API)
+	Service address	Palvelun osoite
+	Domain	Toimialue
+	Required, given by Aruba with the account	Pakollinen, Aruba antaa sen tilin mukana
+	PIN	PIN
+	One-time code (OTP)	Kertakäyttökoodi (OTP)
+	Send code	Lähetä koodi
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Lähetetään koodia…
+	Choose where to save the signed file. The service signs it once you have.	Valitse, mihin allekirjoitettu tiedosto tallennetaan. Palvelu allekirjoittaa sen, kun olet valinnut.
+	Signing… Confirm the signature on your other device.	Allekirjoitetaan… Vahvista allekirjoitus toisella laitteellasi.
+	The document changed while it was being signed, so the signature wasn't saved.	Asiakirja muuttui allekirjoittamisen aikana, joten allekirjoitusta ei tallennettu.
+	The signing service lists no certificate for this account.	Allekirjoituspalvelussa ei ole tälle tilille yhtään varmennetta.
+	the signing service is unreachable ({reason})	allekirjoituspalveluun ei saada yhteyttä ({reason})
+	the signing service rejected the user name or password	allekirjoituspalvelu hylkäsi käyttäjänimen tai salasanan
+	the signing service rejected the PIN	allekirjoituspalvelu hylkäsi PIN-koodin
+	the signing service rejected the OTP (it may have expired)	allekirjoituspalvelu hylkäsi kertakäyttökoodin (se on voinut vanhentua)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	allekirjoituspalvelu hylkäsi PIN-koodin tai kertakäyttökoodin (kertakäyttökoodi on voinut vanhentua)
+	the signing service refused to sign	allekirjoituspalvelu kieltäytyi allekirjoittamasta
+	the signing service refused to list the certificates	allekirjoituspalvelu kieltäytyi luettelemasta varmenteita
+	the signing service refused to send the OTP	allekirjoituspalvelu kieltäytyi lähettämästä kertakäyttökoodia
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba-tili tarvitsee toimialueensa ("dominio", jonka Aruba antaa tilin mukana): kirjoita se
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	tätä allekirjoituspalvelua ei voi käyttää: se vaatii OAuth-kirjautumisen selaimessa, jota PdfCraft ei vielä tue

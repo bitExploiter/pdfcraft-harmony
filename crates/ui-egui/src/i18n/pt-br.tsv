@@ -2798,3 +2798,39 @@ theme	Appearance	Aparência
 	a table has 1 to {max} columns	uma tabela tem de 1 a {max} colunas
 	the first row number can be at most {max}	o número da primeira linha pode ser no máximo {max}
 	the area, the spacing and the column widths must be numbers, the spacing 0 or more and each width more than 0	a área, o espaçamento e as larguras das colunas devem ser números, o espaçamento 0 ou mais e cada largura maior que 0
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Serviço de assinatura  ·  
+	Remote signing isn't available in this build	A assinatura remota não está disponível nesta versão
+	Remove "{name}" from this list? The certificate stays with the signing service.	Remover "{name}" desta lista? O certificado continua no serviço de assinatura.
+	Remote signature (OTP)	Assinatura remota (OTP)
+	Looking for certificates…	Procurando certificados…
+	Find certificates	Procurar certificados
+	Signing…	Assinando…
+	Code sent	Código enviado
+	Challenge: {challenge}	Desafio: {challenge}
+	Service	Serviço
+	Other provider (CSC API)	Outro provedor (API CSC)
+	Service address	Endereço do serviço
+	Domain	Domínio
+	Required, given by Aruba with the account	Obrigatório, fornecido pela Aruba com a conta
+	PIN	PIN
+	One-time code (OTP)	Código de uso único (OTP)
+	Send code	Enviar código
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Enviando o código…
+	Choose where to save the signed file. The service signs it once you have.	Escolha onde salvar o arquivo assinado. O serviço o assina assim que você escolher.
+	Signing… Confirm the signature on your other device.	Assinando… Confirme a assinatura no seu outro dispositivo.
+	The document changed while it was being signed, so the signature wasn't saved.	O documento foi alterado enquanto era assinado, por isso a assinatura não foi salva.
+	The signing service lists no certificate for this account.	O serviço de assinatura não lista nenhum certificado para esta conta.
+	the signing service is unreachable ({reason})	o serviço de assinatura está inacessível ({reason})
+	the signing service rejected the user name or password	o serviço de assinatura recusou o nome de usuário ou a senha
+	the signing service rejected the PIN	o serviço de assinatura recusou o PIN
+	the signing service rejected the OTP (it may have expired)	o serviço de assinatura recusou o OTP (ele pode ter expirado)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	o serviço de assinatura recusou o PIN ou o OTP (o OTP pode ter expirado)
+	the signing service refused to sign	o serviço de assinatura se recusou a assinar
+	the signing service refused to list the certificates	o serviço de assinatura se recusou a listar os certificados
+	the signing service refused to send the OTP	o serviço de assinatura se recusou a enviar o OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	uma conta Aruba precisa do seu domínio (o "dominio" que a Aruba fornece com a conta): informe-o
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	este serviço de assinatura não pode ser usado: ele exige login OAuth em um navegador, que o PdfCraft ainda não suporta

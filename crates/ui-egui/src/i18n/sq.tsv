@@ -2500,3 +2500,39 @@ animation effects	Off	Joaktiv
 	field names can't contain a period: {name}	emrat e fushave nuk mund të përmbajnë pikë: {name}
 	two cells would both be named {name}	dy qeliza do të kishin të dyja emrin {name}
 	a field named {name} already exists	ekziston tashmë një fushë me emrin {name}
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Shërbimi i nënshkrimit  ·  
+	Remote signing isn't available in this build	Nënshkrimi në distancë nuk është i disponueshëm në këtë version
+	Remove "{name}" from this list? The certificate stays with the signing service.	Të hiqet "{name}" nga kjo listë? Certifikata mbetet te shërbimi i nënshkrimit.
+	Remote signature (OTP)	Nënshkrim në distancë (OTP)
+	Looking for certificates…	Po kërkohen certifikatat…
+	Find certificates	Gjej certifikatat
+	Signing…	Po nënshkruhet…
+	Code sent	Kodi u dërgua
+	Challenge: {challenge}	Sfida: {challenge}
+	Service	Shërbimi
+	Other provider (CSC API)	Ofrues tjetër (API CSC)
+	Service address	Adresa e shërbimit
+	Domain	Domeni
+	Required, given by Aruba with the account	E detyrueshme, jepet nga Aruba bashkë me llogarinë
+	PIN	PIN
+	One-time code (OTP)	Kod njëpërdorimësh (OTP)
+	Send code	Dërgo kodin
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Po dërgohet kodi…
+	Choose where to save the signed file. The service signs it once you have.	Zgjidhni ku të ruhet skedari i nënshkruar. Shërbimi e nënshkruan sapo ta keni zgjedhur.
+	Signing… Confirm the signature on your other device.	Po nënshkruhet… Konfirmoni nënshkrimin në pajisjen tuaj tjetër.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokumenti ndryshoi ndërsa po nënshkruhej, prandaj nënshkrimi nuk u ruajt.
+	The signing service lists no certificate for this account.	Shërbimi i nënshkrimit nuk liston asnjë certifikatë për këtë llogari.
+	the signing service is unreachable ({reason})	shërbimi i nënshkrimit nuk është i arritshëm ({reason})
+	the signing service rejected the user name or password	shërbimi i nënshkrimit refuzoi emrin e përdoruesit ose fjalëkalimin
+	the signing service rejected the PIN	shërbimi i nënshkrimit refuzoi PIN-in
+	the signing service rejected the OTP (it may have expired)	shërbimi i nënshkrimit refuzoi OTP-në (mund të ketë skaduar)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	shërbimi i nënshkrimit refuzoi PIN-in ose OTP-në (OTP-ja mund të ketë skaduar)
+	the signing service refused to sign	shërbimi i nënshkrimit refuzoi të nënshkruajë
+	the signing service refused to list the certificates	shërbimi i nënshkrimit refuzoi të listojë certifikatat
+	the signing service refused to send the OTP	shërbimi i nënshkrimit refuzoi të dërgojë OTP-në
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	një llogari Aruba ka nevojë për domenin e saj ("dominio" që Aruba jep bashkë me llogarinë): futeni
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	ky shërbim nënshkrimi nuk mund të përdoret: kërkon hyrje me OAuth në një shfletues, të cilën PdfCraft ende nuk e mbështet

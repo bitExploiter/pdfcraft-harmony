@@ -1,5 +1,6 @@
 # PDF specification and standards parity
 
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** minor (§12.8: remote signing with an OTP, partial) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-14 · **Change:** minor (§12.4.4: page transitions and display times read) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 
 How much of ISO 32000-2 (PDF 2.0) and the PDF subset standards PdfCraft implements, set against
@@ -101,7 +102,7 @@ are borrowed; PDF 2.0 additions and most subset standards are missing. **150–2
 | Capability | Acrobat | PdfCraft |
 |---|---|---|
 | Sub-filters `adbe.pkcs7.detached`, `ETSI.CAdES.detached`; read `adbe.pkcs7.sha1`, `adbe.x509.rsa_sha1` | yes | yes |
-| PAdES B-B | yes | yes (PKCS #12, macOS Keychain, Windows store with PIN) |
+| PAdES B-B | yes | yes (PKCS #12, macOS Keychain, Windows store with PIN; remote signing services, partial, below) |
 | PAdES B-T (signature timestamp), document timestamps | yes, with configured TSA | partial: works when a TSA is given; no timestamp-server preferences |
 | PAdES B-LT, B-LTA (DSS/VRI, OCSP/CRL) | yes, fetched online | partial: evidence supplied by the caller; no online fetching |
 | DocMDP certification | yes | yes |
@@ -111,6 +112,7 @@ are borrowed; PDF 2.0 additions and most subset standards are missing. **150–2
 | Validation: chain, key usage, EKU, critical extensions, changes after signing, signed version | yes | yes; name constraints and issuer critical extensions missing |
 | Trust: own store, OS store, AATL, EUTL | yes | own store only; AATL out of scope; OS and EUTL planned |
 | Smart cards and tokens (PKCS #11, CryptoTokenKit) | yes | Windows CNG store (with PIN prompt) only |
+| Remote (cloud) signing services, authorized with an OTP | yes (Cloud Signature Consortium providers) | partial: CSC API v2 (v1 tolerated) signed in with user name and password, and Aruba ARSS; only the digest leaves the computer and each returned signature is verified. No OAuth sign-in, challenge shown while signing, several signatures on one OTP or timestamps from the service; not in the web build; tested against in-process services, not a real provider (`sign.cloud-signatures`) |
 
 ## Subset standards
 
@@ -130,6 +132,7 @@ are borrowed; PDF 2.0 additions and most subset standards are missing. **150–2
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | minor | §12.8: remote signing services (CSC API with user-name and password sign-in, Aruba ARSS) sign PAdES B-B with an OTP; partial, see the new row |
 | 2026-10-14 | minor | §12.4.4: `/Trans` and `/Dur` read into `DocInfo::transitions` and reported by `doc_info` |
 | 2026-10-11 | minor | §7.6.4: encrypted files we write open in Acrobat (#774, fixed by #836) |
 | 2026-10-10 | major | Created from the code, `vendor/README.md` and `parity/acrobat-features.toml`, against ISO 32000-2 and Acrobat Pro 26.002.21931's documented capabilities |

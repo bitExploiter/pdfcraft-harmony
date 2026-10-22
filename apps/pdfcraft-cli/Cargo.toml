@@ -20,7 +20,8 @@ pdfcraft-audit = { workspace = true }
 pdfcraft-cos = { workspace = true }
 pdfcraft-preflight = { workspace = true }
 pdfcraft-automation = { workspace = true }
-pdfcraft-platform = { workspace = true }
+# `https`: remote signing's network (`https::transport()`), handed to the automation tools.
+pdfcraft-platform = { workspace = true, features = ["https"] }
 base64 = "0.22"
 
 [dev-dependencies]

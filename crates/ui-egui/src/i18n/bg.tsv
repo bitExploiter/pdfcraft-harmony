@@ -2478,3 +2478,40 @@ animation effects	Off	Изключени
 	field names can't contain a period: {name}	имената на полетата не може да съдържат точка: {name}
 	two cells would both be named {name}	две клетки биха имали едно и също име {name}
 	a field named {name} already exists	вече съществува поле с име {name}
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Услуга за подписване  ·  
+	Remote signing isn't available in this build	Отдалеченото подписване не е налично в тази версия
+	Remove "{name}" from this list? The certificate stays with the signing service.	Да се премахне ли „{name}“ от този списък? Сертификатът остава в услугата за подписване.
+	Remote signature (OTP)	Отдалечен подпис (OTP)
+	Looking for certificates…	Търсене на сертификати…
+	Find certificates	Намиране на сертификати
+	Signing…	Подписване…
+	Code sent	Кодът е изпратен
+	Challenge: {challenge}	Предизвикателство: {challenge}
+	Service	Услуга
+	Other provider (CSC API)	Друг доставчик (CSC API)
+	Service address	Адрес на услугата
+	Domain	Домейн
+	Required, given by Aruba with the account	Задължително, дава се от Aruba с акаунта
+	PIN	ПИН
+	One-time code (OTP)	Еднократен код (OTP)
+	Send code	Изпращане на код
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Изпращане на кода…
+	Choose where to save the signed file. The service signs it once you have.	Изберете къде да се запази подписаният файл. Услугата ще го подпише, след като го направите.
+	Signing… Confirm the signature on your other device.	Подписване… Потвърдете подписа на другото си устройство.
+	The document changed while it was being signed, so the signature wasn't saved.	Документът се промени, докато се подписваше, затова подписът не беше запазен.
+	The signing service lists no certificate for this account.	Услугата за подписване не показва нито един сертификат за този акаунт.
+	the signing service is unreachable ({reason})	услугата за подписване е недостъпна ({reason})
+	the signing service rejected the user name or password	услугата за подписване отхвърли потребителското име или паролата
+	the signing service rejected the PIN	услугата за подписване отхвърли ПИН кода
+	the signing service rejected the OTP (it may have expired)	услугата за подписване отхвърли OTP кода (може да е изтекъл)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	услугата за подписване отхвърли ПИН кода или OTP кода (OTP кодът може да е изтекъл)
+	the signing service refused to sign	услугата за подписване отказа да подпише
+	the signing service refused to list the certificates	услугата за подписване отказа да изброи сертификатите
+	the signing service refused to send the OTP	услугата за подписване отказа да изпрати OTP кода
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	акаунтът в Aruba изисква своя домейн („dominio“, който Aruba предоставя заедно с акаунта): въведете го
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	тази услуга за подписване не може да се използва: тя изисква вход с OAuth в браузър, който PdfCraft все още не поддържа
+	Another file dialog is still open. Finish with it first.	Друг прозорец за избор на файл все още е отворен. Първо приключете с него.

@@ -3058,6 +3058,25 @@ pub struct PreparedDocument {
     document: Document,
 }
 
+/// A signature to make away from the session ([`Session::sign_job`]): the document as it was
+/// when signing was chosen, and how to sign it. A key that is slow to answer (a remote signing
+/// service authorizing a one-time password) signs on a worker thread, and the interface stays
+/// responsive meanwhile.
+pub struct SignJob {
+    cos: pdfcraft_cos::Document,
+    opts: SignOptions,
+}
+
+impl SignJob {
+    /// Sign with `id` and return the signed file. The caller saves it and then calls
+    /// [`Session::mark_signed`], after checking the document wasn't edited since the job was
+    /// made: those edits aren't in the signed file. A panic is returned as an error, so a
+    /// worker thread always reports back.
+    pub fn run(&self, id: &pdfcraft_sign::DigitalId) -> Result<Arc<Vec<u8>>, EditError> {
+        Ok(Arc::new(guard(|| pdfcraft_sign::sign(&self.cos, id, &self.opts)).map_err(EditError::Sign)??))
+    }
+}
+
 impl OpenContext {
     /// Prepare a document without mutating the session that supplied this context.
     pub fn prepare_open(
@@ -5053,15 +5072,22 @@ impl Session {
 
     /// Sign the document's current state with `id` (Use a certificate ▸ Digitally sign). Returns
     /// the signed file; the caller saves it and then calls [`Session::mark_signed`]. An empty
-    /// `opts.date` takes the session clock.
-    pub fn sign(&self, doc: DocId, id: &pdfcraft_sign::DigitalId, mut opts: SignOptions) -> Result<Arc<Vec<u8>>, EditError> {
+    /// `opts.date` takes the session clock. This is [`Self::sign_job`] run at once.
+    pub fn sign(&self, doc: DocId, id: &pdfcraft_sign::DigitalId, opts: SignOptions) -> Result<Arc<Vec<u8>>, EditError> {
+        self.sign_job(doc, opts)?.run(id)
+    }
+
+    /// Capture what signing the document's current state with `opts` needs, for
+    /// [`SignJob::run`] to sign away from the session. An empty `opts.date` takes the session
+    /// clock now, so the signing time is when the user chose to sign.
+    pub fn sign_job(&self, doc: DocId, mut opts: SignOptions) -> Result<SignJob, EditError> {
         let d = self.get(doc).ok_or(EditError::NoDocument)?;
         // Encrypted documents are signed under their permissions (the signer checks them).
         let editor = d.editor.as_ref().ok_or_else(|| EditError::ReadOnly(d.read_only_reason.clone().unwrap_or_default()))?;
         if opts.date.is_empty() {
             opts.date = self.signing_date();
         }
-        Ok(Arc::new(pdfcraft_sign::sign(&editor.cos, id, &opts)?))
+        Ok(SignJob { cos: editor.cos.clone(), opts })
     }
 
     /// [`Session::sign`], embedding an RFC 3161 signature timestamp (PAdES B-T) produced by

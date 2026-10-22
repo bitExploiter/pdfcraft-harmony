@@ -122,6 +122,12 @@ pub struct Automation {
     renderers: HashMap<DocId, (Arc<Vec<u8>>, PageRenderer)>,
     /// Extracted page text, under one memory budget across all open documents.
     texts: TextCache,
+    /// The network remote signing goes through, when the host gave one.
+    remote: Option<Arc<dyn pdfcraft_engine::sign::remote::HttpTransport>>,
+    /// The `remote:` ids (as `remote::reference` writes them) whose code `sign_remote_send_otp`
+    /// had the service send, until a signature with it succeeds: it goes under the object it was
+    /// sent for (`Secrets::otp_sent`). The latest few.
+    remote_sent: Vec<String>,
     /// The paragraphs of the last `text_paragraphs` listing of each page, so a paragraph number
     /// keeps naming that paragraph after edits regroup the page (#2516).
     listed: HashMap<(DocId, usize), Vec<BlockKey>>,
@@ -144,6 +150,8 @@ impl Automation {
             roots: None,
             renderers: HashMap::new(),
             texts: TextCache::default(),
+            remote: None,
+            remote_sent: Vec::new(),
             listed: HashMap::new(),
             evicted: HashSet::new(),
         }
@@ -177,6 +185,21 @@ impl Automation {
     pub fn with_wall_clock(mut self, clock: fn() -> i64, utc_offset: fn() -> i64) -> Self {
         self.session = std::mem::take(&mut self.session).with_wall_clock(clock, utc_offset);
         self
+    }
+
+    /// Let the remote signing tools (`sign_remote_ids`, `sign_remote_send_otp`, and
+    /// `sign_document` with a `remote:` id) reach signing services through `transport`. This
+    /// crate opens no socket of its own: without a transport those tools fail, saying the host
+    /// didn't enable network access.
+    pub fn with_remote_transport(mut self, transport: Arc<dyn pdfcraft_engine::sign::remote::HttpTransport>) -> Self {
+        self.remote = Some(transport);
+        self
+    }
+
+    /// Whether the host gave remote signing a network ([`with_remote_transport`](Self::with_remote_transport)):
+    /// only then can a tool reach past this computer.
+    pub fn remote_enabled(&self) -> bool {
+        self.remote.is_some()
     }
 
     pub fn session(&self) -> &Session {
@@ -897,6 +920,8 @@ impl Automation {
                 let (ids, unusable): (Vec<Value>, Vec<Value>) = (Vec::new(), Vec::new());
                 json!({ "count": ids.len(), "ids": ids, "unusable": unusable })
             }
+            "sign_remote_ids" => self.sign_remote_ids(&a)?,
+            "sign_remote_send_otp" => self.sign_remote_send_otp(&a)?,
             "sign_trust" => self.sign_trust(&a)?,
             "comment_mark" => self.comment_mark(&a)?,
             "comment_lock" => self.comment_lock(&a)?,

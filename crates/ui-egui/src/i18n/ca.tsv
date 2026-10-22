@@ -2772,3 +2772,39 @@ theme	Appearance	Aspecte
 	field names can't contain a period: {name}	els noms dels camps no poden contenir cap punt: {name}
 	two cells would both be named {name}	dues cel·les es dirien {name}
 	a field named {name} already exists	ja existeix un camp anomenat {name}
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Servei de signatura  ·  
+	Remote signing isn't available in this build	La signatura remota no està disponible en aquesta versió
+	Remove "{name}" from this list? The certificate stays with the signing service.	Vols eliminar "{name}" d'aquesta llista? El certificat continua al servei de signatura.
+	Remote signature (OTP)	Signatura remota (OTP)
+	Looking for certificates…	S'estan cercant certificats…
+	Find certificates	Cerca certificats
+	Signing…	S'està signant…
+	Code sent	Codi enviat
+	Challenge: {challenge}	Repte: {challenge}
+	Service	Servei
+	Other provider (CSC API)	Un altre proveïdor (API CSC)
+	Service address	Adreça del servei
+	Domain	Domini
+	Required, given by Aruba with the account	Obligatori, el dona Aruba amb el compte
+	PIN	PIN
+	One-time code (OTP)	Codi d'un sol ús (OTP)
+	Send code	Envia el codi
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	S'està enviant el codi…
+	Choose where to save the signed file. The service signs it once you have.	Tria on vols desar el fitxer signat. El servei el signarà quan ho hagis triat.
+	Signing… Confirm the signature on your other device.	S'està signant… Confirma la signatura a l'altre dispositiu.
+	The document changed while it was being signed, so the signature wasn't saved.	El document ha canviat mentre es signava, així que la signatura no s'ha desat.
+	The signing service lists no certificate for this account.	El servei de signatura no mostra cap certificat per a aquest compte.
+	the signing service is unreachable ({reason})	no es pot accedir al servei de signatura ({reason})
+	the signing service rejected the user name or password	el servei de signatura ha rebutjat el nom d'usuari o la contrasenya
+	the signing service rejected the PIN	el servei de signatura ha rebutjat el PIN
+	the signing service rejected the OTP (it may have expired)	el servei de signatura ha rebutjat l'OTP (pot haver caducat)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	el servei de signatura ha rebutjat el PIN o l'OTP (l'OTP pot haver caducat)
+	the signing service refused to sign	el servei de signatura s'ha negat a signar
+	the signing service refused to list the certificates	el servei de signatura s'ha negat a llistar els certificats
+	the signing service refused to send the OTP	el servei de signatura s'ha negat a enviar l'OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	un compte d'Aruba necessita el seu domini (el "dominio" que Aruba dona amb el compte): introdueix-lo
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	aquest servei de signatura no es pot fer servir: necessita iniciar la sessió amb OAuth en un navegador, cosa que PdfCraft encara no admet

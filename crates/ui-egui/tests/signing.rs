@@ -4,7 +4,10 @@ use egui::{Pos2, pos2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::{NodeT, Queryable};
 use pdfcraft_engine::SignatureStatus;
-use pdfcraft_ui_egui::{Dialog, PdfCraftApp, QuickTool, RightPanel, SignStep};
+use pdfcraft_sign::SignError;
+use pdfcraft_sign::remote::mock::{self, MockService};
+use pdfcraft_sign::remote::{HttpResponse, HttpTransport, Protocol};
+use pdfcraft_ui_egui::{Dialog, NewIdSource, PdfCraftApp, QuickTool, RemoteAccountDraft, RemoteNeeds, RemoteOtp, RightPanel, SignStep};
 
 const FIXTURE: &[u8] = b"%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
@@ -259,7 +262,7 @@ fn certifying_without_a_visible_signature() {
     {
         let d = h.state_mut().sign_draft.as_mut().unwrap();
         assert_eq!((d.rect, d.certify), (None, Some(2)));
-        d.new_id.create = false;
+        d.new_id.source = NewIdSource::File;
         d.new_id.file = p12.into();
         d.new_id.file_password = "test".into();
     }
@@ -499,6 +502,7 @@ fn os_store_identities_are_not_persisted() {
             email: String::new(),
             expires: "2030.01.01".into(),
             unusable: None,
+            remote: None,
         });
     }
     let saved = app.persist();
@@ -524,6 +528,7 @@ fn windows_store_identity_does_not_ask_for_a_file_password() {
         email: String::new(),
         expires: "2030.01.01".into(),
         unusable: None,
+        remote: None,
     });
     let draft = h.state_mut().sign_draft.as_mut().unwrap();
     draft.step = SignStep::Choose;
@@ -554,6 +559,7 @@ fn long_digital_id_names_stay_inside_the_picker() {
         email: String::new(),
         expires: "2030.01.01".into(),
         unusable: None,
+        remote: None,
     });
     h.state_mut().sign_draft.as_mut().unwrap().step = SignStep::Choose;
     h.run_steps(3);
@@ -591,6 +597,7 @@ fn an_unusable_id_is_shown_with_its_reason_and_cannot_be_chosen() {
         email: String::new(),
         expires: String::new(),
         unusable: Some("its private key can't be opened: the key is missing from its key store (Windows error 0x80090016)".into()),
+        remote: None,
     });
     h.state_mut().start_signing(0, None, None, None);
     h.run_steps(3);
@@ -611,6 +618,7 @@ fn an_unusable_id_is_shown_with_its_reason_and_cannot_be_chosen() {
         email: String::new(),
         expires: "2030.01.01".into(),
         unusable: None,
+        remote: None,
     });
     h.state_mut().start_signing(0, None, None, None);
     h.run_steps(3);
@@ -630,7 +638,7 @@ fn an_imported_digital_id_can_be_removed() {
     h.run_steps(2);
     {
         let d = h.state_mut().sign_draft.as_mut().unwrap();
-        d.new_id.create = false;
+        d.new_id.source = NewIdSource::File;
         d.new_id.file = p12.to_string_lossy().into_owned();
         d.new_id.file_password = "test".into();
     }
@@ -660,4 +668,845 @@ fn an_imported_digital_id_can_be_removed() {
     // With no IDs left the dialog offers to configure one.
     assert_eq!(h.state().sign_draft.as_ref().map(|d| d.step), Some(SignStep::Configure));
     h.get_by_label("Configure a Digital ID for Signing");
+}
+
+/// The app's network for remote signatures: a CSC v2 signing service in memory. Requests run in
+/// place (`run_inline`), so each answer is in by the next frame.
+fn remote_harness(dir: std::path::PathBuf) -> (Harness<'static, PdfCraftApp>, std::sync::Arc<MockService>) {
+    let mock = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let mut h = harness(dir);
+    h.state_mut().remote_transport = Some(mock.clone());
+    h.state_mut().run_inline = true;
+    (h, mock)
+}
+
+fn type_into(h: &mut Harness<'static, PdfCraftApp>, label: &str, text: &str) {
+    field(h, label).click();
+    h.run_steps(1);
+    field(h, label).type_text(text);
+    h.run_steps(1);
+}
+
+/// Configure ▸ Remote signature (OTP) for the mock's CSC account, typed as a user would, and
+/// Find certificates: the dialog is back at Choose with them listed.
+fn find_remote_certificates(h: &mut Harness<'static, PdfCraftApp>) {
+    h.state_mut().start_signing(0, Some([20.0, 20.0, 180.0, 60.0]), None, None);
+    h.run_steps(3);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().step, SignStep::Configure);
+    h.get_by_label("Remote signature (OTP)").click();
+    h.run_steps(3);
+    // Aruba is offered first, with its address filled in; a CSC provider's must be typed.
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().new_id.remote.address, pdfcraft_sign::remote::ARSS_ENDPOINT);
+    h.get_by_label("Domain");
+    h.get_by_label("Other provider (CSC API)").click();
+    h.run_steps(3);
+    assert!(h.state().sign_draft.as_ref().unwrap().new_id.remote.address.is_empty());
+    assert!(h.query_by_label("Domain").is_none(), "only Aruba has a domain");
+    type_into(h, "Service address", mock::CSC_V2_URL);
+    type_into(h, "Username", mock::USER);
+    type_into(h, "Password", mock::PASSWORD);
+    h.get_by_label("Find certificates").click();
+    h.run_steps(4);
+}
+
+#[test]
+fn a_remote_csc_identity_is_found_sends_its_code_and_signs_with_pin_and_otp() {
+    let dir = dir();
+    let (mut h, mock) = remote_harness(dir.clone());
+    // A wrong password at Find certificates says so and adds nothing.
+    h.state_mut().start_signing(0, None, None, None);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.new_id.source = NewIdSource::Remote;
+        d.new_id.remote = RemoteAccountDraft {
+            service: Protocol::Csc,
+            address: mock::CSC_V2_URL.into(),
+            user: mock::USER.into(),
+            domain: String::new(),
+            password: "not it".into(),
+        };
+    }
+    // The dialog grows to the remote fields over a few frames (egui centres it from the last
+    // frame's size): let it settle before clicking.
+    h.run_steps(5);
+    h.get_by_label("Find certificates").click();
+    h.run_steps(3);
+    h.get_by_label("the signing service rejected the user name or password");
+    assert!(h.state().digital_ids.is_empty());
+    h.state_mut().dialog = None;
+    h.run_steps(2);
+
+    find_remote_certificates(&mut h);
+    let s = h.state();
+    let d = s.sign_draft.as_ref().unwrap();
+    assert_eq!((d.step, d.selected), (SignStep::Choose, Some(0)));
+    assert!(d.new_id.remote.password.is_empty(), "the service password is dropped once used");
+    // The RSA key (PIN and a code sent by SMS) and the P-256 key (a code from an app); not the disabled one.
+    let ids: Vec<_> = s.digital_ids.iter().map(|e| (e.path.as_str(), e.name.as_str(), e.remote)).collect();
+    let rsa = format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={}", mock::RSA);
+    let p256 = format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={}", mock::P256);
+    assert_eq!(
+        ids,
+        [
+            (rsa.as_str(), "Mario Rossi", Some(RemoteNeeds { pin: true, otp: RemoteOtp::Sent, confirm: false, unless_code: false })),
+            (p256.as_str(), "Mario Rossi", Some(RemoteNeeds { pin: false, otp: RemoteOtp::Typed, confirm: false, unless_code: false }))
+        ]
+    );
+    assert_eq!(h.get_all_by_label("Mario Rossi").count(), 2);
+
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    h.get_by_label("Sign as \"Mario Rossi\"");
+    assert_eq!(h.query_all_by_label("Digital ID password").count(), 0, "the service password, not a file's");
+    for label in ["Password", "PIN", "One-time code (OTP)"] {
+        field(&h, label);
+    }
+    // Send code: the service sends a new code.
+    let before = mock.current_otp();
+    type_into(&mut h, "Password", mock::PASSWORD);
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("Code sent");
+    assert_ne!(mock.current_otp(), before);
+    type_into(&mut h, "PIN", mock::PIN);
+    type_into(&mut h, "One-time code (OTP)", &mock.current_otp());
+    h.get_by_label("Sign").click();
+    h.run_steps(6);
+
+    let s = h.state();
+    assert_eq!(s.dialog, None, "{:?}", s.sign_draft.as_ref().and_then(|d| d.error.clone()));
+    assert!(dir.join("contract_signed.pdf").exists());
+    let doc = s.session.get(s.views[0].id).unwrap();
+    assert_eq!(doc.name, "contract_signed.pdf");
+    assert!(!doc.dirty && doc.can_undo().is_none(), "saved and marked signed");
+    let sig = doc.signatures.iter().find(|x| x.signed).expect("signed");
+    assert_eq!((sig.status, sig.page), (SignatureStatus::Unknown, Some(0)));
+    assert_eq!(sig.certificate.as_ref().map(|c| &c.raw), mock.certificate(mock::RSA).map(|c| c.raw).as_ref());
+    assert_eq!(s.right, Some(RightPanel::Signatures));
+    // The file on disk is the one in the session, and trusting the service's certificate validates it.
+    assert_eq!(std::fs::read(dir.join("contract_signed.pdf")).unwrap(), *doc.bytes);
+    h.state_mut().trust_certificate(mock.certificate(mock::RSA).unwrap());
+    let s = h.state();
+    assert_eq!(s.session.get(s.views[0].id).unwrap().signatures[0].status, SignatureStatus::Valid);
+}
+
+#[test]
+fn a_wrong_one_time_code_is_shown_and_the_dialog_stays_until_the_right_one() {
+    let dir = dir();
+    let (mut h, mock) = remote_harness(dir.clone());
+    find_remote_certificates(&mut h);
+    // The P-256 key: a code from an app, so no PIN and nothing to send.
+    h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("PIN").is_none() && h.query_by_label("Send code").is_none());
+    type_into(&mut h, "Password", mock::PASSWORD);
+    type_into(&mut h, "One-time code (OTP)", "000000");
+    h.get_by_label("Sign").click();
+    h.run_steps(4);
+    h.get_by_label("the signing service rejected the OTP (it may have expired)");
+    let s = h.state();
+    assert_eq!((s.dialog, s.sign_draft.as_ref().map(|d| d.step)), (Some(Dialog::Sign), Some(SignStep::SignAs)));
+    assert!(!dir.join("contract_signed.pdf").exists());
+    assert!(!s.session.get(s.views[0].id).unwrap().is_signed());
+    // The next code signs (the wrong try spent the one before).
+    h.state_mut().sign_draft.as_mut().unwrap().otp = mock.current_otp();
+    h.run_steps(1);
+    h.get_by_label("Sign").click();
+    h.run_steps(6);
+    assert_eq!(h.state().dialog, None);
+    assert!(dir.join("contract_signed.pdf").exists());
+    let s = h.state();
+    let sig = s.session.get(s.views[0].id).unwrap().signatures.iter().find(|x| x.signed).cloned().expect("signed");
+    assert_eq!(sig.certificate.map(|c| c.raw), mock.certificate(mock::P256).map(|c| c.raw));
+}
+
+/// A transport that holds the requests to one method (`hold`) until they are let through, so
+/// the dialog can be seen while the service works.
+struct Held {
+    mock: std::sync::Arc<MockService>,
+    hold: &'static str,
+    open: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl HttpTransport for Held {
+    fn post(&self, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<HttpResponse, SignError> {
+        if url.ends_with(self.hold) {
+            for _ in 0..3000 {
+                if self.open.load(std::sync::atomic::Ordering::SeqCst) {
+                    break;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+        }
+        self.mock.post(url, headers, body)
+    }
+}
+
+#[test]
+fn while_the_service_works_the_dialog_says_so_and_waits() {
+    let dir = dir();
+    let (mut h, mock) = remote_harness(dir.clone());
+    // Find certificates.
+    let listed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    h.state_mut().remote_transport = Some(std::sync::Arc::new(Held { mock: mock.clone(), hold: "credentials/list", open: listed.clone() }));
+    h.state_mut().run_inline = false;
+    h.state_mut().start_signing(0, Some([20.0, 20.0, 180.0, 60.0]), None, None);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.new_id.source = NewIdSource::Remote;
+        d.new_id.remote = RemoteAccountDraft {
+            service: Protocol::Csc,
+            address: mock::CSC_V2_URL.into(),
+            user: mock::USER.into(),
+            domain: String::new(),
+            password: mock::PASSWORD.into(),
+        };
+    }
+    h.run_steps(5);
+    h.get_by_label("Find certificates").click();
+    h.run_steps(3);
+    h.get_by_label("Looking for certificates…");
+    assert!(h.get_by_label("Find certificates").accesskit_node().is_disabled());
+    assert!(h.get_by_label("Use a Digital ID from a file").accesskit_node().is_disabled(), "the choice waits too");
+    listed.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..400 {
+        h.run_steps(1);
+        if !h.state().digital_ids.is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    assert_eq!(h.state().digital_ids.len(), 2);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().step, SignStep::Choose);
+    h.run_steps(3);
+    // Send code (the RSA key's code comes by SMS, which this service sends on getChallenge).
+    let sent = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    h.state_mut().remote_transport = Some(std::sync::Arc::new(Held { mock: mock.clone(), hold: "credentials/getChallenge", open: sent.clone() }));
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    h.state_mut().sign_draft.as_mut().unwrap().password = mock::PASSWORD.into();
+    h.run_steps(4);
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("Sending the code…");
+    for button in ["Send code", "Sign", "Back"] {
+        assert!(h.get_by_label(button).accesskit_node().is_disabled(), "{button}");
+    }
+    sent.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..400 {
+        h.run_steps(1);
+        if h.query_by_label("Code sent").is_some() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.get_by_label("Code sent");
+    assert!(h.query_by_label("Sending the code…").is_none());
+    h.get_by_label("Back").click();
+    h.run_steps(3);
+    // Sign.
+    let open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    h.state_mut().remote_transport = Some(std::sync::Arc::new(Held { mock: mock.clone(), hold: "signatures/signHash", open: open.clone() }));
+    h.state_mut().run_inline = false;
+    h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.password = mock::PASSWORD.into();
+        d.otp = mock.current_otp();
+    }
+    h.run_steps(1);
+    h.get_by_label("Sign").click();
+    h.run_steps(3);
+    h.get_by_label("Signing…");
+    assert!(h.get_by_label("Sign").accesskit_node().is_disabled() && h.get_by_label("Back").accesskit_node().is_disabled());
+    // What is being signed is settled: nothing in the dialog changes, and no picker opens.
+    for control in ["Choose image…", "Name", "Signer's name"] {
+        assert!(h.get_by_label(control).accesskit_node().is_disabled(), "{control}");
+    }
+    assert!(field(&h, "Reason").accesskit_node().is_disabled() && field(&h, "One-time code (OTP)").accesskit_node().is_disabled());
+    assert!(!h.get_by_label("Cancel").accesskit_node().is_disabled(), "the dialog can always be closed");
+    assert_eq!(h.state().dialog, Some(Dialog::Sign));
+    open.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..400 {
+        h.run_steps(1);
+        if h.state().dialog.is_none() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let s = h.state();
+    assert_eq!(s.dialog, None, "{:?}", s.sign_draft.as_ref().and_then(|d| d.error.clone()));
+    assert!(dir.join("contract_signed.pdf").exists());
+    assert!(s.session.get(s.views[0].id).unwrap().is_signed());
+}
+
+/// An answer that comes back too late is never saved: not over an edit made meanwhile (it isn't
+/// in the signed file), and not into a dialog closed meanwhile.
+#[test]
+fn a_late_signature_is_not_saved_over_an_edit_or_into_a_closed_dialog() {
+    let dir = dir();
+    let (mut h, mock) = remote_harness(dir.clone());
+    find_remote_certificates(&mut h);
+    let open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    h.state_mut().remote_transport = Some(std::sync::Arc::new(Held { mock: mock.clone(), hold: "signatures/signHash", open: open.clone() }));
+    h.state_mut().run_inline = false;
+    h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    let sign = |h: &mut Harness<'static, PdfCraftApp>| {
+        {
+            let d = h.state_mut().sign_draft.as_mut().unwrap();
+            d.password = mock::PASSWORD.into();
+            d.otp = mock.current_otp();
+        }
+        h.run_steps(4);
+        h.get_by_label("Sign").click();
+        h.run_steps(3);
+        h.get_by_label("Signing…");
+    };
+    // An edit while the service signs: the signed file lacks it, so it isn't saved.
+    sign(&mut h);
+    let id = h.state().views[0].id;
+    h.state_mut().session.apply(id, pdfcraft_engine::Edit::SetInfo { key: "Title".into(), value: "Changed".into() }).unwrap();
+    open.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..400 {
+        h.run_steps(1);
+        if h.state().sign_draft.as_ref().is_none_or(|d| d.error.is_some()) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run_steps(3);
+    h.get_by_label("The document changed while it was being signed, so the signature wasn't saved.");
+    assert_eq!(h.state().dialog, Some(Dialog::Sign));
+    assert!(!dir.join("contract_signed.pdf").exists());
+    assert!(!h.state().session.get(id).unwrap().is_signed() && h.state().session.get(id).unwrap().dirty, "the edit is kept");
+    // The dialog closed while the service signs: nothing is saved when it answers.
+    open.store(false, std::sync::atomic::Ordering::SeqCst);
+    let before = mock.requests().len();
+    sign(&mut h);
+    h.get_by_label("Cancel").click();
+    h.run_steps(2);
+    assert_eq!(h.state().dialog, None);
+    open.store(true, std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..400 {
+        if mock.requests().iter().skip(before).any(|r| r.url.ends_with("signatures/signHash")) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    // The worker checks the signature and answers just after: give it time to.
+    for _ in 0..50 {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(mock.requests().iter().skip(before).any(|r| r.url.ends_with("signatures/signHash")), "the service did sign");
+    assert_eq!(h.state().dialog, None);
+    assert!(!dir.join("contract_signed.pdf").exists());
+    assert!(!h.state().session.get(id).unwrap().is_signed());
+}
+
+#[test]
+fn without_a_network_remote_ids_are_greyed_with_the_reason() {
+    let mut h = harness(dir());
+    let reference = format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={}", mock::RSA);
+    h.state_mut().digital_ids.push(pdfcraft_ui_egui::DigitalIdEntry {
+        path: reference,
+        name: "Mario Rossi".into(),
+        issuer: "Mock Trust Services".into(),
+        email: String::new(),
+        expires: "2035.01.01".into(),
+        unusable: None,
+        remote: Some(RemoteNeeds { pin: true, otp: RemoteOtp::Sent, confirm: false, unless_code: false }),
+    });
+    h.state_mut().start_signing(0, None, None, None);
+    h.run_steps(3);
+    let d = h.state().sign_draft.as_ref().unwrap();
+    assert_eq!((d.step, d.selected), (SignStep::Choose, None), "shown, but not chosen");
+    let reason = "Signing service  ·  Remote signing isn't available in this build";
+    assert!(h.output().shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == reason)), "the row says why");
+    h.get_by_label("Mario Rossi").click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(2);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().step, SignStep::Choose);
+    // Configure offers it greyed, saying why.
+    h.get_by_label("Configure New Digital ID").click();
+    h.run_steps(3);
+    h.get_by_label("Remote signing isn't available in this build");
+    assert!(h.get_by_label("Remote signature (OTP)").accesskit_node().is_disabled());
+    h.get_by_label("Remote signature (OTP)").click();
+    h.run_steps(2);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().new_id.source, NewIdSource::Create);
+    // Reached anyway (automation): Find certificates stays off, and Send code and Sign say why.
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.new_id.source = NewIdSource::Remote;
+        d.step = SignStep::Configure;
+    }
+    h.run_steps(2);
+    assert!(h.get_by_label("Find certificates").accesskit_node().is_disabled());
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        (d.step, d.selected, d.password, d.otp) = (SignStep::SignAs, Some(0), "pw".into(), "123456".into());
+    }
+    h.run_steps(3);
+    for button in ["Send code", "Sign"] {
+        h.get_by_label(button).click();
+        h.run_steps(3);
+        assert_eq!(h.state().sign_draft.as_ref().unwrap().error.as_deref(), Some("Remote signing isn't available in this build"), "{button}");
+        h.get_by_label("Remote signing isn't available in this build");
+        h.state_mut().sign_draft.as_mut().unwrap().error = None;
+        h.run_steps(2);
+    }
+    assert_eq!(h.state().dialog, Some(Dialog::Sign));
+    assert!(!h.state().session.get(h.state().views[0].id).unwrap().is_signed());
+}
+
+#[test]
+fn remote_ids_persist_with_what_they_ask_for_but_never_a_secret() {
+    let (mut h, mock) = remote_harness(dir());
+    find_remote_certificates(&mut h);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    // Secrets typed but not used: still nowhere in the settings.
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.password = mock::PASSWORD.into();
+        d.pin = mock::PIN.into();
+        d.otp = "917263".into();
+    }
+    h.run_steps(1);
+    let saved = h.state().persist();
+    for secret in [mock::PASSWORD, mock::PIN, "917263"] {
+        assert!(!saved.contains(secret), "{secret:?} in {saved}");
+    }
+    let settings: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let ids = settings["digital_ids"].as_array().unwrap();
+    assert_eq!(ids.len(), 2);
+    assert_eq!(ids[0]["remote"], serde_json::json!({ "pin": true, "otp": "sent" }));
+    assert_eq!(ids[1]["remote"], serde_json::json!({ "pin": false, "otp": "typed" }));
+    // After a restart the IDs are back, and Sign as asks for the same things.
+    let mut fresh = harness(dir());
+    fresh.state_mut().remote_transport = Some(mock.clone());
+    fresh.state_mut().restore(&saved);
+    assert_eq!(fresh.state().digital_ids, h.state().digital_ids);
+    fresh.state_mut().start_signing(0, None, None, None);
+    fresh.run_steps(3);
+    fresh.get_by_label("Continue").click();
+    fresh.run_steps(3);
+    for label in ["Password", "PIN", "One-time code (OTP)", "Send code"] {
+        fresh.get_by_label(label);
+    }
+    // A remote ID is removed like a file ID; its certificate stays with the service.
+    fresh.get_by_label("Back").click();
+    fresh.run_steps(3);
+    fresh.get_by_label("Remove").click();
+    fresh.run_steps(4);
+    fresh.get_by_label("Remove \"Mario Rossi\" from this list? The certificate stays with the signing service.");
+    fresh.get_by_label("Remove").click();
+    fresh.run_steps(3);
+    assert_eq!(fresh.state().digital_ids.len(), 1);
+}
+
+/// What is typed for one digital ID never goes to another: not a digital ID file's password to a
+/// signing service, and not one remote ID's PIN, code or "Code sent" to the next.
+#[test]
+fn secrets_typed_for_one_id_never_reach_another() {
+    use base64::Engine as _;
+    const FILE_PASSWORD: &str = "only-for-the-p12-file";
+    let (mut h, mock) = remote_harness(dir());
+    find_remote_certificates(&mut h);
+    let p12 = concat!(env!("CARGO_MANIFEST_DIR"), "/../sign/tests/data/ec-p256.p12");
+    let id = pdfcraft_engine::sign::pkcs12::open(&std::fs::read(p12).unwrap(), "test").unwrap();
+    let file = h.state_mut().add_digital_id(p12, &id.certificate);
+    let file_name = h.state().digital_ids[file].name.clone();
+    h.run_steps(3);
+    // The file's password, typed in its Sign as, then Back to the service's RSA key.
+    h.get_by_label(&file_name).click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    type_into(&mut h, "Digital ID password", FILE_PASSWORD);
+    h.get_by_label("Back").click();
+    h.run_steps(3);
+    h.get_all_by_label("Mario Rossi").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().password, "", "the file's password is not the service's");
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("the signing service rejected the user name or password");
+    let basic = base64::engine::general_purpose::STANDARD.encode(format!("{}:{FILE_PASSWORD}", mock::USER));
+    for r in mock.requests() {
+        let sent = format!("{:?} {}", r.headers, r.body_text());
+        assert!(!sent.contains(FILE_PASSWORD) && !sent.contains(&basic), "{} carried the file's password", r.url);
+    }
+    // One remote ID's PIN, code and Code sent, then Back to the other.
+    type_into(&mut h, "Password", mock::PASSWORD);
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("Code sent");
+    type_into(&mut h, "PIN", mock::PIN);
+    type_into(&mut h, "One-time code (OTP)", &mock.current_otp());
+    h.get_by_label("Back").click();
+    h.run_steps(3);
+    h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    let d = h.state().sign_draft.as_ref().unwrap();
+    assert_eq!((d.password.as_str(), d.pin.as_str(), d.otp.as_str(), d.otp_note.as_deref()), ("", "", "", None));
+    assert!(h.query_by_label("Code sent").is_none(), "no code was sent for this one");
+    // Back to the same ID keeps what was typed for it.
+    type_into(&mut h, "Password", mock::PASSWORD);
+    h.get_by_label("Back").click();
+    h.run_steps(3);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().password, mock::PASSWORD);
+}
+
+/// Escape, or a click beside the dialog, closes Sign like Cancel: the password, PIN, code and the
+/// account password being configured are gone with it.
+#[test]
+fn closing_the_sign_dialog_any_way_forgets_its_secrets() {
+    let (mut h, _) = remote_harness(dir());
+    find_remote_certificates(&mut h);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    type_into(&mut h, "Password", mock::PASSWORD);
+    type_into(&mut h, "PIN", mock::PIN);
+    type_into(&mut h, "One-time code (OTP)", "917263");
+    h.key_press(egui::Key::Escape);
+    h.run_steps(3);
+    // A field takes the first Escape (it gives up focus); the dialog the next.
+    if h.state().dialog.is_some() {
+        h.key_press(egui::Key::Escape);
+        h.run_steps(3);
+    }
+    assert_eq!(h.state().dialog, None);
+    assert!(h.state().sign_draft.is_none(), "the secrets stayed in the closed dialog's draft");
+    // Configure ▸ Remote signature, the account password typed, then a click beside the dialog.
+    h.state_mut().start_signing(0, None, None, None);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        d.step = SignStep::Configure;
+        d.new_id.source = NewIdSource::Remote;
+        d.new_id.remote.password = mock::PASSWORD.into();
+    }
+    h.run_steps(5);
+    let beside = pos2(8.0, 890.0);
+    h.hover_at(beside);
+    h.run_steps(1);
+    h.drag_at(beside);
+    h.run_steps(1);
+    h.drop_at(beside);
+    h.run_steps(3);
+    assert_eq!(h.state().dialog, None);
+    assert!(h.state().sign_draft.is_none());
+}
+
+/// A certificate whose signatures are approved on the user's phone says so while the service
+/// waits for that, instead of a bare "Signing…". One whose phone is the alternative to a code
+/// doesn't when a code was typed: no confirmation is asked then.
+#[test]
+fn a_signature_confirmed_on_another_device_says_so_while_it_waits() {
+    for unless_code in [false, true] {
+        let dir = dir();
+        let (mut h, mock) = remote_harness(dir.clone());
+        find_remote_certificates(&mut h);
+        let p256 = h.state().digital_ids[1].remote.unwrap();
+        h.state_mut().digital_ids[1].remote = Some(RemoteNeeds { confirm: true, unless_code, ..p256 });
+        let open = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        h.state_mut().remote_transport = Some(std::sync::Arc::new(Held { mock: mock.clone(), hold: "signatures/signHash", open: open.clone() }));
+        h.state_mut().run_inline = false;
+        h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+        h.run_steps(2);
+        h.get_by_label("Continue").click();
+        h.run_steps(3);
+        {
+            let d = h.state_mut().sign_draft.as_mut().unwrap();
+            d.password = mock::PASSWORD.into();
+            d.otp = mock.current_otp();
+        }
+        h.run_steps(1);
+        h.get_by_label("Sign").click();
+        h.run_steps(3);
+        let (said, not_said) = ("Signing… Confirm the signature on your other device.", "Signing…");
+        let (said, not_said) = if unless_code { (not_said, said) } else { (said, not_said) };
+        h.get_by_label(said);
+        assert!(h.query_by_label(not_said).is_none(), "unless_code {unless_code}");
+        open.store(true, std::sync::atomic::Ordering::SeqCst);
+        for _ in 0..400 {
+            h.run_steps(1);
+            if h.state().dialog.is_none() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert_eq!(h.state().dialog, None);
+        assert!(dir.join("contract_signed.pdf").exists());
+        // Kept with the ID; an ID without it writes nothing new to the settings.
+        let saved: serde_json::Value = serde_json::from_str(&h.state().persist()).unwrap();
+        assert_eq!(saved["digital_ids"][0]["remote"], serde_json::json!({ "pin": true, "otp": "sent" }));
+        let mut kept = serde_json::json!({ "pin": false, "otp": "typed", "confirm": true });
+        if unless_code {
+            kept["unless_code"] = serde_json::json!(true);
+        }
+        assert_eq!(saved["digital_ids"][1]["remote"], kept);
+    }
+}
+
+/// A PIN and a code by SMS or from an app, the app's first: the code Send code had sent signs,
+/// under the SMS the service sent it for, not the app's (which the service would refuse it under).
+#[test]
+fn a_code_sent_by_sms_signs_where_the_app_comes_first() {
+    let dir = dir();
+    let (mut h, mock) = remote_harness(dir.clone());
+    mock.set_auth(
+        mock::RSA,
+        "PIN AND (APP XOR SMS)",
+        serde_json::json!([{ "type": "Password", "id": "PIN", "label": "PIN" }, { "type": "ChallengeResponse", "id": "SMS", "label": "SMS code" },
+                           { "type": "Password", "id": "APP", "generator": "totp", "label": "App code" }]),
+    );
+    find_remote_certificates(&mut h);
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    type_into(&mut h, "Password", mock::PASSWORD);
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("Code sent");
+    type_into(&mut h, "PIN", mock::PIN);
+    type_into(&mut h, "One-time code (OTP)", &mock.current_otp());
+    h.get_by_label("Sign").click();
+    h.run_steps(6);
+    let s = h.state();
+    assert_eq!(s.dialog, None, "{:?}", s.sign_draft.as_ref().and_then(|d| d.error.clone()));
+    assert!(dir.join("contract_signed.pdf").exists());
+    let authorized = mock.requests().into_iter().rfind(|r| r.url.ends_with("/credentials/authorize")).unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&authorized.body).unwrap();
+    assert_eq!(body["authData"][1]["id"], "SMS");
+}
+
+/// Aruba, the default service: its domain is required and reaches the account, its code is sent
+/// by SMS, and the signature it makes is saved and validates.
+#[test]
+fn an_aruba_identity_is_found_with_its_domain_sends_the_sms_and_signs() {
+    let dir = dir();
+    let mock = std::sync::Arc::new(MockService::arss().unwrap());
+    let mut h = harness(dir.clone());
+    h.state_mut().remote_transport = Some(mock.clone());
+    h.state_mut().run_inline = true;
+    h.state_mut().start_signing(0, Some([20.0, 20.0, 180.0, 60.0]), None, None);
+    h.run_steps(3);
+    h.get_by_label("Remote signature (OTP)").click();
+    h.run_steps(5);
+    // Aruba's address is filled in and can be changed: the mock answers at another one.
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().new_id.remote.address, pdfcraft_sign::remote::ARSS_ENDPOINT);
+    h.state_mut().sign_draft.as_mut().unwrap().new_id.remote.address = mock::ARSS_URL.into();
+    h.run_steps(1);
+    type_into(&mut h, "Username", mock::USER);
+    type_into(&mut h, "Password", mock::PASSWORD);
+    // Aruba refuses an account without its domain ("Invalid Parameters"): Find certificates, and
+    // Enter in the password, wait for it, and the empty field says where it comes from.
+    assert!(h.get_by_label("Find certificates").accesskit_node().is_disabled());
+    let hint = "Required, given by Aruba with the account";
+    assert!(h.output().shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.job.text == hint)), "the hint shows");
+    field(&h, "Password").click();
+    h.run_steps(1);
+    h.key_press(egui::Key::Enter);
+    h.run_steps(3);
+    h.get_by_label("Find certificates").click();
+    h.run_steps(3);
+    assert!(mock.requests().is_empty(), "nothing was asked without the domain");
+    assert!(h.state().digital_ids.is_empty());
+    assert_eq!(h.state().sign_draft.as_ref().unwrap().error, None, "nor tried");
+    type_into(&mut h, "Domain", mock::DOMAIN);
+    h.run_steps(2);
+    assert!(!h.get_by_label("Find certificates").accesskit_node().is_disabled());
+    h.get_by_label("Find certificates").click();
+    h.run_steps(4);
+    let account = mock.account();
+    let rsa = pdfcraft_sign::remote::reference(&account, mock::RSA);
+    let s = h.state();
+    let d = s.sign_draft.as_ref().unwrap();
+    assert_eq!((d.step, d.selected, d.error.as_deref()), (SignStep::Choose, Some(0), None));
+    let ids: Vec<_> = s.digital_ids.iter().map(|e| (e.path.clone(), e.remote)).collect();
+    let needs = Some(RemoteNeeds { pin: false, otp: RemoteOtp::Sent, confirm: false, unless_code: false });
+    assert_eq!(ids, [(rsa.clone(), needs), (pdfcraft_sign::remote::reference(&account, mock::P256), needs)]);
+    assert!(rsa.contains("domain=frtest"), "{rsa}");
+
+    h.get_by_label("Continue").click();
+    h.run_steps(3);
+    assert!(h.query_by_label("PIN").is_none(), "Aruba asks for no PIN");
+    type_into(&mut h, "Password", mock::PASSWORD);
+    let before = mock.current_otp();
+    h.get_by_label("Send code").click();
+    h.run_steps(3);
+    h.get_by_label("Code sent");
+    assert_ne!(mock.current_otp(), before, "the SMS carries a new code");
+    // A wrong code: Aruba's own reason, and the dialog stays.
+    type_into(&mut h, "One-time code (OTP)", "000000");
+    h.get_by_label("Sign").click();
+    h.run_steps(4);
+    h.get_by_label("the signing service refused to sign: Invalid OTP (code 0001)");
+    assert_eq!(h.state().dialog, Some(Dialog::Sign));
+    h.state_mut().sign_draft.as_mut().unwrap().otp = mock.current_otp();
+    h.run_steps(1);
+    h.get_by_label("Sign").click();
+    h.run_steps(6);
+    let s = h.state();
+    assert_eq!(s.dialog, None, "{:?}", s.sign_draft.as_ref().and_then(|d| d.error.clone()));
+    let doc = s.session.get(s.views[0].id).unwrap();
+    let sig = doc.signatures.iter().find(|x| x.signed).expect("signed");
+    assert_eq!(sig.status, SignatureStatus::Unknown);
+    assert_eq!(sig.certificate.as_ref().map(|c| &c.raw), mock.certificate(mock::RSA).map(|c| c.raw).as_ref());
+    assert_eq!(std::fs::read(dir.join("contract_signed.pdf")).unwrap(), *doc.bytes);
+    // Every request named the account with its domain; only the digest was sent to sign.
+    let signhash: Vec<_> = mock.requests().into_iter().filter(|r| r.body_text().contains("signhash")).collect();
+    assert_eq!(signhash.len(), 2);
+    assert!(signhash.iter().all(|r| r.body_text().contains("<typeOtpAuth>frtest</typeOtpAuth>")));
+}
+
+/// A signing service's refusals read in the interface language: the sign crate's sentence for a
+/// wrong password, PIN or code, no network, an Aruba account without its domain (what the
+/// service or the network adds stays as it came). Signing against the mock keeps the catalog's
+/// sentences the sign crate's own.
+#[test]
+fn a_signing_services_refusals_read_in_the_interface_language() {
+    let (mut h, mock) = remote_harness(dir());
+    find_remote_certificates(&mut h);
+    h.state_mut().set_option("language", "it").unwrap();
+    h.run_steps(3);
+    // A wrong code (the P-256 key's comes from an app).
+    h.get_all_by_label("Mario Rossi").nth(1).unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continua").click();
+    h.run_steps(3);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        (d.password, d.otp) = (mock::PASSWORD.into(), "000000".into());
+    }
+    h.run_steps(1);
+    h.get_by_label("Firma").click();
+    h.run_steps(4);
+    h.get_by_label("il servizio di firma ha rifiutato l'OTP (potrebbe essere scaduto)");
+    // A wrong password.
+    h.state_mut().sign_draft.as_mut().unwrap().password = "not it".into();
+    h.run_steps(1);
+    h.get_by_label("Firma").click();
+    h.run_steps(4);
+    h.get_by_label("il servizio di firma ha rifiutato il nome utente o la password");
+    // A wrong PIN with the code (the RSA key's): CSC v2 doesn't say which of the two was wrong.
+    h.get_by_label("Indietro").click();
+    h.run_steps(3);
+    h.get_all_by_label("Mario Rossi").next().unwrap().click();
+    h.run_steps(2);
+    h.get_by_label("Continua").click();
+    h.run_steps(3);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        (d.password, d.pin, d.otp) = (mock::PASSWORD.into(), "0000".into(), mock.current_otp());
+    }
+    h.run_steps(1);
+    h.get_by_label("Firma").click();
+    h.run_steps(4);
+    h.get_by_label("il servizio di firma ha rifiutato il PIN o l'OTP (l'OTP potrebbe essere scaduto)");
+    // No network: the frame is translated, the network's reason is as it came.
+    h.state_mut().remote_transport = Some(std::sync::Arc::new(Unreachable));
+    h.get_by_label("Firma").click();
+    h.run_steps(4);
+    h.get_by_label("il servizio di firma non è raggiungibile (connection refused)");
+    // Aruba's refusal: the frame, then Aruba's own words.
+    let arss = std::sync::Arc::new(MockService::arss().unwrap());
+    h.state_mut().remote_transport = Some(arss.clone());
+    h.state_mut().dialog = None;
+    h.run_steps(2);
+    let reference = pdfcraft_sign::remote::reference(&arss.account(), mock::RSA);
+    h.state_mut().digital_ids = vec![pdfcraft_ui_egui::DigitalIdEntry {
+        path: reference,
+        name: "Mario Rossi".into(),
+        issuer: "Mock Trust Services".into(),
+        email: String::new(),
+        expires: "2035.01.01".into(),
+        unusable: None,
+        remote: Some(RemoteNeeds { pin: false, otp: RemoteOtp::Sent, confirm: false, unless_code: false }),
+    }];
+    h.state_mut().start_signing(0, None, None, None);
+    {
+        let d = h.state_mut().sign_draft.as_mut().unwrap();
+        (d.step, d.password, d.otp) = (SignStep::SignAs, mock::PASSWORD.into(), "000000".into());
+    }
+    h.run_steps(3);
+    h.get_by_label("Firma").click();
+    h.run_steps(4);
+    h.get_by_label("il servizio di firma ha rifiutato di firmare: Invalid OTP (code 0001)");
+    // An Aruba ID saved without its domain: said before anything is sent.
+    let before = arss.requests().len();
+    let account = pdfcraft_sign::remote::Account { domain: None, ..arss.account() };
+    h.state_mut().digital_ids[0].path = pdfcraft_sign::remote::reference(&account, mock::RSA);
+    h.state_mut().sign_draft.as_mut().unwrap().error = None;
+    h.run_steps(2);
+    h.get_by_label("Invia codice").click();
+    h.run_steps(4);
+    h.get_by_label("un account Aruba richiede il suo dominio (quello che Aruba fornisce con l'account): inseriscilo");
+    assert_eq!(arss.requests().len(), before);
+}
+
+/// A network that never connects.
+struct Unreachable;
+
+impl HttpTransport for Unreachable {
+    fn post(&self, _url: &str, _headers: &[(&str, &str)], _body: &[u8]) -> Result<HttpResponse, SignError> {
+        Err(SignError::Crypto("connection refused".into()))
+    }
+}
+
+/// Settings this version can't wholly read lose only what can't be read: a remote ID whose needs
+/// it doesn't know (a later version's, or edited by hand) asks for everything, and an entry that
+/// isn't one is left out alone, not with every other digital ID.
+#[test]
+fn unreadable_saved_ids_lose_only_what_cannot_be_read() {
+    let reference = format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={}", mock::RSA);
+    let id = |path: &str, remote: serde_json::Value| {
+        let mut e = serde_json::json!({ "path": path, "name": "Mario Rossi", "issuer": "Mock", "email": "", "expires": "2035.01.01" });
+        if !remote.is_null() {
+            e["remote"] = remote;
+        }
+        e
+    };
+    let saved = serde_json::json!({ "digital_ids": [
+        id("/ids/mario.p12", serde_json::Value::Null),
+        id(&reference, serde_json::json!({ "pin": false, "otp": "push" })),
+        id(&reference, serde_json::json!({})),
+        id(&reference, serde_json::json!("sms")),
+        42,
+        { "path": "/ids/nameless.p12" },
+        id(&reference, serde_json::json!({ "pin": false, "otp": "typed", "confirm": true, "later": 1 })),
+    ] });
+    let mut h = harness(dir());
+    h.state_mut().restore(&saved.to_string());
+    let ids: Vec<_> = h.state().digital_ids.iter().map(|e| (e.path.as_str(), e.remote)).collect();
+    let everything = Some(RemoteNeeds { pin: true, otp: RemoteOtp::Sent, confirm: false, unless_code: false });
+    assert_eq!(
+        ids,
+        [
+            ("/ids/mario.p12", None),
+            (reference.as_str(), everything),
+            (reference.as_str(), everything),
+            (reference.as_str(), everything),
+            (reference.as_str(), Some(RemoteNeeds { pin: false, otp: RemoteOtp::Typed, confirm: true, unless_code: false })),
+        ]
+    );
+    // And they are saved again, so the next start has them too.
+    let again: serde_json::Value = serde_json::from_str(&h.state().persist()).unwrap();
+    assert_eq!(again["digital_ids"].as_array().map(Vec::len), Some(5));
 }

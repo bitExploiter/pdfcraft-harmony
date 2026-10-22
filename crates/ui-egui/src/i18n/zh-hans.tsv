@@ -2479,3 +2479,40 @@ animation effects	Off	关
 	field names can't contain a period: {name}	字段名称不能包含句点：{name}
 	two cells would both be named {name}	两个单元格的名称都会是 {name}
 	a field named {name} already exists	已存在名为 {name} 的字段
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	签名服务 · 
+	Remote signing isn't available in this build	此版本不支持远程签名
+	Remove "{name}" from this list? The certificate stays with the signing service.	从此列表中移除“{name}”？证书仍保留在签名服务中。
+	Remote signature (OTP)	远程签名 (OTP)
+	Looking for certificates…	正在查找证书…
+	Find certificates	查找证书
+	Signing…	正在签名…
+	Code sent	验证码已发送
+	Challenge: {challenge}	质询：{challenge}
+	Service	服务
+	Other provider (CSC API)	其他提供商 (CSC API)
+	Service address	服务地址
+	Domain	域
+	Required, given by Aruba with the account	必填，由 Aruba 随账户提供
+	PIN	PIN
+	One-time code (OTP)	一次性验证码 (OTP)
+	Send code	发送验证码
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	正在发送验证码…
+	Choose where to save the signed file. The service signs it once you have.	请选择签名文件的保存位置。选好后，服务才会签名。
+	Signing… Confirm the signature on your other device.	正在签名… 请在您的另一台设备上确认签名。
+	The document changed while it was being signed, so the signature wasn't saved.	签名期间文档已更改，因此未保存签名。
+	The signing service lists no certificate for this account.	签名服务未列出此账户的任何证书。
+	the signing service is unreachable ({reason})	无法连接签名服务（{reason}）
+	the signing service rejected the user name or password	签名服务拒绝了用户名或密码
+	the signing service rejected the PIN	签名服务拒绝了 PIN
+	the signing service rejected the OTP (it may have expired)	签名服务拒绝了 OTP（可能已过期）
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	签名服务拒绝了 PIN 或 OTP（OTP 可能已过期）
+	the signing service refused to sign	签名服务拒绝签名
+	the signing service refused to list the certificates	签名服务拒绝列出证书
+	the signing service refused to send the OTP	签名服务拒绝发送 OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba 账户需要其域（Aruba 随账户提供的“dominio”）：请输入
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	无法使用此签名服务：它需要在浏览器中进行 OAuth 登录，而 PdfCraft 尚不支持
+	Another file dialog is still open. Finish with it first.	另一个文件对话框仍处于打开状态。请先完成该操作。

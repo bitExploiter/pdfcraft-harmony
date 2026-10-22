@@ -392,6 +392,8 @@ fn app_creator<'a>(
             app.motion.source = Some(motion::source());
         }
         app.update_source = Some(std::sync::Arc::new(updates::latest_release));
+        // Remote signature (OTP): only when the user signs with a remote ID, to the service they configured.
+        app.remote_transport = Some(pdfcraft_platform::https::transport());
         app.printer_source = Some(pdfcraft_ui_egui::system_printers());
         app.os_key_store_ids = cfg!(any(target_os = "macos", target_os = "windows"));
         #[cfg(target_os = "macos")]

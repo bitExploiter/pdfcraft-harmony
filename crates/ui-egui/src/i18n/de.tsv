@@ -2516,3 +2516,39 @@ animation effects	Off	Aus
 	field names can't contain a period: {name}	Feldnamen dürfen keinen Punkt enthalten: {name}
 	two cells would both be named {name}	zwei Zellen hätten beide den Namen {name}
 	a field named {name} already exists	ein Feld namens {name} ist bereits vorhanden
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Signaturdienst  ·  
+	Remote signing isn't available in this build	Fernsignatur ist in diesem Build nicht verfügbar
+	Remove "{name}" from this list? The certificate stays with the signing service.	„{name}“ aus dieser Liste entfernen? Das Zertifikat bleibt beim Signaturdienst.
+	Remote signature (OTP)	Fernsignatur (OTP)
+	Looking for certificates…	Zertifikate werden gesucht…
+	Find certificates	Zertifikate suchen
+	Signing…	Wird signiert…
+	Code sent	Code gesendet
+	Challenge: {challenge}	Abfrage: {challenge}
+	Service	Dienst
+	Other provider (CSC API)	Anderer Anbieter (CSC-API)
+	Service address	Adresse des Dienstes
+	Domain	Domäne
+	Required, given by Aruba with the account	Erforderlich, wird von Aruba mit dem Konto vergeben
+	PIN	PIN
+	One-time code (OTP)	Einmalcode (OTP)
+	Send code	Code senden
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Code wird gesendet…
+	Choose where to save the signed file. The service signs it once you have.	Wähle, wo die signierte Datei gespeichert wird. Der Dienst signiert sie, sobald du das getan hast.
+	Signing… Confirm the signature on your other device.	Wird signiert… Bestätigen Sie die Signatur auf Ihrem anderen Gerät.
+	The document changed while it was being signed, so the signature wasn't saved.	Das Dokument wurde während des Signierens geändert, daher wurde die Signatur nicht gespeichert.
+	The signing service lists no certificate for this account.	Der Signaturdienst führt für dieses Konto kein Zertifikat.
+	the signing service is unreachable ({reason})	der Signaturdienst ist nicht erreichbar ({reason})
+	the signing service rejected the user name or password	der Signaturdienst hat den Benutzernamen oder das Passwort abgelehnt
+	the signing service rejected the PIN	der Signaturdienst hat die PIN abgelehnt
+	the signing service rejected the OTP (it may have expired)	der Signaturdienst hat das OTP abgelehnt (es ist möglicherweise abgelaufen)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	der Signaturdienst hat die PIN oder das OTP abgelehnt (das OTP ist möglicherweise abgelaufen)
+	the signing service refused to sign	der Signaturdienst hat das Signieren abgelehnt
+	the signing service refused to list the certificates	der Signaturdienst hat das Auflisten der Zertifikate abgelehnt
+	the signing service refused to send the OTP	der Signaturdienst hat das Senden des OTP abgelehnt
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	ein Aruba-Konto braucht seine Domäne (die „dominio“, die Aruba mit dem Konto vergibt): gib sie ein
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	dieser Signaturdienst kann nicht verwendet werden: Er erfordert eine OAuth-Anmeldung im Browser, die PdfCraft noch nicht unterstützt

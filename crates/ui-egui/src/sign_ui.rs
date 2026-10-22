@@ -3,13 +3,15 @@
 //! Sign as dialogs, the Signatures panel, and the signature message bar.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use egui::{Align, Color32, CornerRadius, Layout, Pos2, Rect, Stroke, vec2};
 use pdfcraft_engine::sign::{self, Appearance, AppearanceLabels, Certificate, DigitalId, Name, PrivateKey};
-use pdfcraft_engine::{SignOptions, SignatureImage, SignatureInfo, SignatureStatus};
+use pdfcraft_engine::{DocId, SignOptions, SignatureImage, SignatureInfo, SignatureStatus};
 
 use crate::canvas::{DocView, PageXform, Snapshot, SnapshotKind};
 use crate::fill_sign::SavedSig;
+use crate::remote_sign_ui::{Redacted, RemoteAccountDraft, RemoteBusy, RemoteNeeds};
 use crate::theme::{self, Tokens};
 use crate::{PdfCraftApp, icons, widgets};
 
@@ -26,13 +28,37 @@ pub struct DigitalIdEntry {
     /// greyed with the reason, and never selectable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unusable: Option<String>,
+    /// A signing service's certificate (a `remote:` path): what Sign as asks for besides the
+    /// service password, kept so it is known after a restart without signing in first.
+    #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "crate::remote_sign_ui::saved_needs")]
+    pub remote: Option<RemoteNeeds>,
+}
+
+impl DigitalIdEntry {
+    /// A Keychain or Windows store identity: listed from the OS again at every signing, so it is
+    /// neither stored with the settings nor removed from the list here.
+    pub fn in_os_key_store(&self) -> bool {
+        self.path.starts_with("keychain:") || self.path.starts_with("windows:")
+    }
+
+    /// A signing service's certificate (Remote signature (OTP)).
+    pub fn is_remote(&self) -> bool {
+        self.path.starts_with("remote:")
+    }
+
+    /// Whether it can be chosen: it has no reason not to sign, and a remote one needs a build
+    /// that can reach the service (`remote_signing`).
+    pub(crate) fn usable(&self, remote_signing: bool) -> bool {
+        self.unusable.is_none() && (remote_signing || !self.is_remote())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SignStep {
     /// Sign with a Digital ID: pick one.
     Choose,
-    /// Configure a Digital ID for signing: from a file or a new self-signed one.
+    /// Configure a Digital ID for signing: from a file, a new self-signed one, or a signing
+    /// service's.
     Configure,
     /// Sign as "Name": appearance, password, Sign.
     SignAs,
@@ -42,10 +68,20 @@ pub enum SignStep {
 pub const KEY_ALGORITHMS: [(&str, &str); 4] =
     [("2048-bit RSA", "rsa2048"), ("3072-bit RSA", "rsa3072"), ("4096-bit RSA", "rsa4096"), ("256-bit ECDSA (P-256)", "p256")];
 
-#[derive(Clone, Debug, PartialEq)]
+/// Where Configure a Digital ID takes the new ID from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NewIdSource {
+    /// Use a Digital ID from a file.
+    File,
+    /// Create a self-signed ID, saved to a password-protected file.
+    Create,
+    /// The certificates of an account with a signing service (Remote signature (OTP)).
+    Remote,
+}
+
+#[derive(Clone, PartialEq)]
 pub struct NewIdDraft {
-    /// `true`: create a self-signed ID; `false`: use an ID from a file.
-    pub create: bool,
+    pub source: NewIdSource,
     pub name: String,
     pub unit: String,
     pub organization: String,
@@ -57,12 +93,15 @@ pub struct NewIdDraft {
     /// Use a Digital ID from a file: its path and password.
     pub file: String,
     pub file_password: String,
+    /// Remote signature: the account with the signing service. The password only signs in to
+    /// list the certificates; it is never stored.
+    pub remote: RemoteAccountDraft,
 }
 
 impl Default for NewIdDraft {
     fn default() -> Self {
         Self {
-            create: true,
+            source: NewIdSource::Create,
             name: String::new(),
             unit: String::new(),
             organization: String::new(),
@@ -73,7 +112,29 @@ impl Default for NewIdDraft {
             confirm: String::new(),
             file: String::new(),
             file_password: String::new(),
+            remote: RemoteAccountDraft::default(),
         }
+    }
+}
+
+// By hand, so the passwords never print. Every field is named, so a new one is decided on too.
+impl std::fmt::Debug for NewIdDraft {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self { source, name, unit, organization, email, country, key, password, confirm, file, file_password, remote } = self;
+        f.debug_struct("NewIdDraft")
+            .field("source", source)
+            .field("name", name)
+            .field("unit", unit)
+            .field("organization", organization)
+            .field("email", email)
+            .field("country", country)
+            .field("key", key)
+            .field("password", &Redacted(password))
+            .field("confirm", &Redacted(confirm))
+            .field("file", file)
+            .field("file_password", &Redacted(file_password))
+            .field("remote", remote)
+            .finish()
     }
 }
 
@@ -91,7 +152,7 @@ pub enum SignGraphic {
 }
 
 /// The signing dialogs' state.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct SignDraft {
     pub page: usize,
     /// The signature rectangle (user space); `None`: invisible.
@@ -102,7 +163,16 @@ pub struct SignDraft {
     pub certify: Option<u8>,
     pub step: SignStep,
     pub selected: Option<usize>,
+    /// The digital ID file's password, or a remote ID's signing service password.
     pub password: String,
+    /// A remote ID's PIN and one-time password, for this signature only.
+    pub pin: String,
+    pub otp: String,
+    /// What Send code got the service to do ("Code sent", or a challenge to answer).
+    pub otp_note: Option<String>,
+    /// The digital ID Sign as last showed ([`DigitalIdEntry::path`]): the one the password, PIN
+    /// and code were typed for ([`SignDraft::secrets_for`]).
+    pub(crate) secrets_of: Option<String>,
     pub reason: String,
     pub location: String,
     pub appearance: Appearance,
@@ -115,18 +185,71 @@ pub struct SignDraft {
     pub confirm_remove: Option<usize>,
 }
 
+// By hand, so the password, PIN and code never print. Every field is named, so a new one is
+// decided on too.
+impl std::fmt::Debug for SignDraft {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self {
+            page,
+            rect,
+            field,
+            certify,
+            step,
+            selected,
+            password,
+            pin,
+            otp,
+            otp_note,
+            secrets_of,
+            reason,
+            location,
+            appearance,
+            graphic,
+            image,
+            new_id,
+            error,
+            confirm_remove,
+        } = self;
+        f.debug_struct("SignDraft")
+            .field("page", page)
+            .field("rect", rect)
+            .field("field", field)
+            .field("certify", certify)
+            .field("step", step)
+            .field("selected", selected)
+            .field("password", &Redacted(password))
+            .field("pin", &Redacted(pin))
+            .field("otp", &Redacted(otp))
+            .field("otp_note", otp_note)
+            .field("secrets_of", secrets_of)
+            .field("reason", reason)
+            .field("location", location)
+            .field("appearance", appearance)
+            .field("graphic", graphic)
+            .field("image", image)
+            .field("new_id", new_id)
+            .field("error", error)
+            .field("confirm_remove", confirm_remove)
+            .finish()
+    }
+}
+
 impl SignDraft {
     /// Starts at Choose when there are IDs to show (even only unusable ones, so their reasons
-    /// are seen), with the first usable one selected.
-    fn new(page: usize, rect: Option<[f64; 4]>, field: Option<String>, certify: Option<u8>, ids: &[DigitalIdEntry]) -> Self {
+    /// are seen), with the first usable one selected (`remote_signing`: remote IDs can sign).
+    fn new(page: usize, rect: Option<[f64; 4]>, field: Option<String>, certify: Option<u8>, ids: &[DigitalIdEntry], remote_signing: bool) -> Self {
         Self {
             page,
             rect,
             field,
             certify,
             step: if ids.is_empty() { SignStep::Configure } else { SignStep::Choose },
-            selected: ids.iter().position(|e| e.unusable.is_none()),
+            selected: ids.iter().position(|e| e.usable(remote_signing)),
             password: String::new(),
+            pin: String::new(),
+            otp: String::new(),
+            otp_note: None,
+            secrets_of: None,
             reason: String::new(),
             location: String::new(),
             appearance: Appearance::default(),
@@ -137,6 +260,31 @@ impl SignDraft {
             confirm_remove: None,
         }
     }
+
+    /// Sign as shows the ID at `path`. What was typed for another one (before Back) is forgotten:
+    /// a digital ID file's password, or one service's password, PIN or code, never goes to
+    /// another file, service or account. A draft not yet shown for an ID keeps what it holds.
+    fn secrets_for(&mut self, path: &str) {
+        if self.secrets_of.as_deref() == Some(path) {
+            return;
+        }
+        if self.secrets_of.is_some() {
+            self.password.clear();
+            self.pin.clear();
+            self.otp.clear();
+            self.otp_note = None;
+        }
+        self.secrets_of = Some(path.to_string());
+    }
+}
+
+/// What Sign as signs with ([`PdfCraftApp::sign_request`]).
+pub(crate) struct SignRequest {
+    pub(crate) doc: DocId,
+    /// The dialog as it was when Sign was clicked.
+    pub(crate) draft: SignDraft,
+    pub(crate) entry: DigitalIdEntry,
+    pub(crate) opts: SignOptions,
 }
 
 /// What a page asks of the signing flow.
@@ -249,6 +397,7 @@ pub fn entry_for(path: &str, c: &Certificate) -> DigitalIdEntry {
         email: c.subject.email().unwrap_or("").to_string(),
         expires: format!("{:04}.{:02}.{:02}", c.not_after.year, c.not_after.month, c.not_after.day),
         unusable: None,
+        remote: None,
     }
 }
 
@@ -262,6 +411,7 @@ fn entry_unusable(u: &sign::windows::Unusable) -> DigitalIdEntry {
         email: String::new(),
         expires: String::new(),
         unusable: Some(u.reason.clone()),
+        remote: None,
     }
 }
 
@@ -275,7 +425,9 @@ impl PdfCraftApp {
     /// Start signing: the rectangle (or field) is known; show Sign with a Digital ID.
     pub fn start_signing(&mut self, page: usize, rect: Option<[f64; 4]>, field: Option<String>, certify: Option<u8>) {
         self.refresh_os_key_store_ids();
-        let mut draft = SignDraft::new(page, rect, field, certify, &self.digital_ids);
+        // A fresh dialog never takes the answer to an earlier one's request.
+        self.remote_task = None;
+        let mut draft = SignDraft::new(page, rect, field, certify, &self.digital_ids, self.remote_transport.is_some());
         draft.graphic = match &self.sign_graphic {
             SignGraphic::FillSign if self.signature.is_none() => SignGraphic::Name,
             g => g.clone(),
@@ -289,7 +441,7 @@ impl PdfCraftApp {
 
     /// List OS key store signing identities (after the file-based IDs).
     fn refresh_os_key_store_ids(&mut self) {
-        self.digital_ids.retain(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:"));
+        self.digital_ids.retain(|e| !e.in_os_key_store());
         #[cfg(target_os = "macos")]
         if self.os_key_store_ids {
             match sign::keychain::identities(None) {
@@ -335,18 +487,20 @@ impl PdfCraftApp {
     }
 
     /// Take the digital ID file at `index` off the list (issue #1396). The file itself stays on
-    /// disk. Keychain and Windows store IDs belong to the OS and are listed again on every
-    /// signing, so they can't be removed here. The open dialog's selection follows the list.
+    /// disk, and a remote ID's certificate with its service. Keychain and Windows store IDs
+    /// belong to the OS and are listed again on every signing, so they can't be removed here.
+    /// The open dialog's selection follows the list.
     pub fn remove_digital_id(&mut self, index: usize) -> bool {
-        if self.digital_ids.get(index).is_none_or(|e| e.path.starts_with("keychain:") || e.path.starts_with("windows:")) {
+        if self.digital_ids.get(index).is_none_or(DigitalIdEntry::in_os_key_store) {
             return false;
         }
         self.digital_ids.remove(index);
+        let remote_signing = self.remote_transport.is_some();
         if let Some(d) = self.sign_draft.as_mut() {
             d.confirm_remove = None;
             d.selected = match d.selected {
                 Some(s) if s > index => Some(s - 1),
-                Some(s) if s == index => self.digital_ids.iter().position(|e| e.unusable.is_none()),
+                Some(s) if s == index => self.digital_ids.iter().position(|e| e.usable(remote_signing)),
                 s => s,
             };
             if self.digital_ids.is_empty() {
@@ -408,32 +562,47 @@ impl PdfCraftApp {
 
     /// Sign as …: open the ID, sign, save the signed file (Save As), and show it.
     fn finish_signing(&mut self) -> Result<(), String> {
-        // What's typed in a form field is signed with the document (#166). A rejected value keeps
-        // the dialog open; the notice says why.
-        if !self.commit_form_typing() {
-            return Err(String::new());
-        }
-        let Some((_, doc_id)) = self.active_ids() else { return Err("no document".into()) };
-        let d = self.sign_draft.clone().ok_or("nothing to sign")?;
-        let entry = d.selected.and_then(|i| self.digital_ids.get(i)).filter(|e| e.unusable.is_none()).cloned().ok_or("Choose a digital ID.")?;
+        let SignRequest { doc, draft, entry, opts } = self.sign_request()?;
         let id = if entry.path.starts_with("keychain:") {
             keychain_id(&entry.path)?
         } else if entry.path.starts_with("windows:") {
             windows_id(&entry.path)?
         } else {
             let bytes = std::fs::read(&entry.path).map_err(|e| format!("{}: {e}", entry.path))?;
-            sign::pkcs12::open(&bytes, &d.password).map_err(|e| match e {
+            sign::pkcs12::open(&bytes, &draft.password).map_err(|e| match e {
                 sign::SignError::WrongPassword => "The password is incorrect.".to_string(),
                 e => e.to_string(),
             })?
         };
+        // The document is signed once the user has chosen where to save it.
+        self.save_signed(doc, draft.graphic, move |app| {
+            // Sign what was typed while the save panel was open, too (#166); a refused value
+            // has said why already.
+            if !app.commit_typing_in(doc) {
+                return Err(String::new());
+            }
+            app.session.sign(doc, &id, opts).map_err(|e| e.to_string())
+        })
+    }
+
+    /// What every signing takes from Sign as: the document, the dialog, the chosen ID and the
+    /// options to sign with. The form typing in progress is committed first, as it is signed too.
+    pub(crate) fn sign_request(&mut self) -> Result<SignRequest, String> {
+        // What's typed in a form field is signed with the document (#166). A rejected value keeps
+        // the dialog open; the notice says why.
+        if !self.commit_form_typing() {
+            return Err(String::new());
+        }
+        let Some((_, doc)) = self.active_ids() else { return Err("no document".into()) };
+        let d = self.sign_draft.clone().ok_or("nothing to sign")?;
+        let remote_signing = self.remote_transport.is_some();
+        let entry = d.selected.and_then(|i| self.digital_ids.get(i)).filter(|e| e.usable(remote_signing)).cloned().ok_or("Choose a digital ID.")?;
         let some = |s: &str| (!s.trim().is_empty()).then(|| s.trim().to_string());
         // Only a visible signature shows its graphic.
         let graphic = match self.graphic_sig(&d.graphic) {
             Some(saved) if d.rect.is_some() || d.field.is_some() => Some(saved.graphic().ok_or("The saved signature has nothing to draw.")?),
             _ => None,
         };
-        let choice = d.graphic.clone();
         let opts = SignOptions {
             field: d.field.clone(),
             page: d.page,
@@ -447,35 +616,29 @@ impl PdfCraftApp {
             graphic,
             ..SignOptions::default()
         };
-        // Signing saves, as in Acrobat: choose where (a cancelled save cancels signing). The
-        // document is signed once the user has chosen.
-        let name = self.session.get(doc_id).map(|d| d.name.clone()).unwrap_or_default();
-        let stem = name.trim_end_matches(".pdf").trim_end_matches(".PDF").to_string();
+        Ok(SignRequest { doc, draft: d, entry, opts })
+    }
+
+    /// Signing saves, as in Acrobat: choose where (a cancelled save cancels signing), then
+    /// `sign` and write the signed file there, and show it. `sign` runs once the user has
+    /// chosen. A remote ID asks where first too, and its service signs after that
+    /// ([`Self::start_remote_signing`]). `choice` is the graphic signed with, remembered for next
+    /// time.
+    pub(crate) fn save_signed(
+        &mut self,
+        doc_id: DocId,
+        choice: SignGraphic,
+        sign: impl FnOnce(&mut Self) -> Result<Arc<Vec<u8>>, String> + Send + 'static,
+    ) -> Result<(), String> {
         let sign_and_save = move |app: &mut Self, path: PathBuf| -> Result<(), String> {
-            // Sign what was typed while the save panel was open, too (#166); a refused value
-            // has said why already.
-            if !app.commit_typing_in(doc_id) {
-                return Err(String::new());
-            }
-            let signed = app.session.sign(doc_id, &id, opts).map_err(|e| e.to_string())?;
-            crate::editing::write_atomically(&path.to_string_lossy(), signed.as_slice()).map_err(|e| format!("Could not save: {e}"))?;
-            // Our own write is not a change on disk to reload (#431).
-            #[cfg(not(target_arch = "wasm32"))]
-            app.watch.known_now(doc_id, &path.to_string_lossy());
-            app.session.mark_signed(doc_id, signed, Some(path.to_string_lossy().into_owned())).map_err(|e| e.to_string())?;
-            app.sign_graphic = choice;
-            if let Some(view) = app.views.iter_mut().find(|v| v.id == doc_id) {
-                view.invalidate_content();
-            }
-            app.right = Some(crate::RightPanel::Signatures);
-            app.notify_fmt("Signed and saved to {path}", &[("path", &path.display().to_string())]);
-            Ok(())
+            let signed = sign(app)?;
+            app.write_signed(doc_id, choice, &path, signed)
         };
         match self.save_override.clone() {
             Some(p) => sign_and_save(self, PathBuf::from(p)),
             #[cfg(not(target_arch = "wasm32"))]
             None => {
-                let dialog = rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem}_signed.pdf"));
+                let dialog = self.signed_save_dialog(doc_id);
                 // The signature's page, rectangle and field refer to the document as it is now:
                 // the pick is dropped (with a notice) if it is edited or switched away from
                 // meanwhile. Once the picker shows, the dialog closes; an error from here on
@@ -491,10 +654,35 @@ impl PdfCraftApp {
             }
             #[cfg(target_arch = "wasm32")]
             None => {
-                let _ = (stem, sign_and_save);
+                let _ = sign_and_save;
                 Err(String::new())
             }
         }
+    }
+
+    /// The Save picker for a signed copy of `doc`: `<name>_signed.pdf`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn signed_save_dialog(&self, doc: DocId) -> rfd::AsyncFileDialog {
+        let name = self.session.get(doc).map(|d| d.name.clone()).unwrap_or_default();
+        let stem = name.trim_end_matches(".pdf").trim_end_matches(".PDF");
+        rfd::AsyncFileDialog::new().add_filter("PDF", &["pdf"]).set_file_name(format!("{stem}_signed.pdf"))
+    }
+
+    /// Write the `signed` file of `doc_id` to `path`, mark the document signed and show it.
+    /// `choice` is the graphic signed with, remembered for next time.
+    pub(crate) fn write_signed(&mut self, doc_id: DocId, choice: SignGraphic, path: &std::path::Path, signed: Arc<Vec<u8>>) -> Result<(), String> {
+        crate::editing::write_atomically(&path.to_string_lossy(), signed.as_slice()).map_err(|e| format!("Could not save: {e}"))?;
+        // Our own write is not a change on disk to reload (#431).
+        #[cfg(not(target_arch = "wasm32"))]
+        self.watch.known_now(doc_id, &path.to_string_lossy());
+        self.session.mark_signed(doc_id, signed, Some(path.to_string_lossy().into_owned())).map_err(|e| e.to_string())?;
+        self.sign_graphic = choice;
+        if let Some(view) = self.views.iter_mut().find(|v| v.id == doc_id) {
+            view.invalidate_content();
+        }
+        self.right = Some(crate::RightPanel::Signatures);
+        self.notify_fmt("Signed and saved to {path}", &[("path", &path.display().to_string())]);
+        Ok(())
     }
 
     /// The saved signature or image `g` stands for (`None`: the name).
@@ -658,9 +846,16 @@ fn title(ui: &mut egui::Ui, text: &str) {
     ui.add_space(8.0);
 }
 
+/// What the dialog is waiting for, above its buttons.
+fn busy_note(ui: &mut egui::Ui, t: &Tokens, text: &str) {
+    ui.label(egui::RichText::new(text).color(t.text_muted));
+    ui.add_space(4.0);
+}
+
 fn error(ui: &mut egui::Ui, err: &Option<String>) {
     if let Some(e) = err.as_ref().filter(|e| !e.is_empty()) {
-        ui.colored_label(Color32::from_rgb(0xD7, 0x37, 0x3F), tl!(e));
+        // A catalog key, or what a signing service said: in the interface language either way.
+        ui.colored_label(Color32::from_rgb(0xD7, 0x37, 0x3F), crate::remote_sign_ui::said(e));
         ui.add_space(4.0);
     }
 }
@@ -670,12 +865,13 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
     ui.label(tl!("Choose the digital ID that you want to use for signing:"));
     ui.add_space(6.0);
     let ids = app.digital_ids.clone();
+    let remote_signing = app.remote_transport.is_some();
     let Some(d) = app.sign_draft.as_mut() else { return true };
     let mut close = false;
     egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
         for (i, e) in ids.iter().enumerate() {
             let selected = d.selected == Some(i);
-            let usable = e.unusable.is_none();
+            let usable = e.usable(remote_signing);
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 52.0), egui::Sense::click());
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::RadioButton, usable, selected, &e.name));
             let fill = if selected {
@@ -701,10 +897,14 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
                 tl!("Keychain  ·  ").to_string()
             } else if e.path.starts_with("windows:") {
                 tl!("Windows store  ·  ").to_string()
+            } else if e.is_remote() {
+                tl!("Signing service  ·  ").to_string()
             } else {
                 String::new()
             };
-            let sub = match &e.unusable {
+            // A remote ID in a build with no network for it says so, like an unusable store ID.
+            let unusable = e.unusable.clone().or_else(|| (!usable).then(|| tl!("Remote signing isn't available in this build").to_string()));
+            let sub = match &unusable {
                 Some(reason) => format!("{store}{reason}"),
                 None => format!(
                     "{store}{email}{issued}{issuer}{expires}{date}",
@@ -736,10 +936,16 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
         }
     });
     ui.add_space(10.0);
-    // Remove takes a digital ID file off the list after asking (#1396); OS key store IDs stay.
+    // Remove takes a digital ID file (or a remote ID) off the list after asking (#1396); OS key
+    // store IDs stay.
     let mut remove = None;
     if let Some(e) = d.confirm_remove.and_then(|i| ids.get(i)) {
-        ui.label(crate::i18n::fmt(tl!("Remove \"{name}\" from this list? The file itself is not deleted."), &[("name", &e.name)]));
+        let question = if e.is_remote() {
+            tl!("Remove \"{name}\" from this list? The certificate stays with the signing service.")
+        } else {
+            tl!("Remove \"{name}\" from this list? The file itself is not deleted.")
+        };
+        ui.label(crate::i18n::fmt(question, &[("name", &e.name)]));
         ui.horizontal(|ui| {
             if widgets::pill_button(ui, tl!("Remove"), true).clicked() {
                 remove = d.confirm_remove;
@@ -750,7 +956,7 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
         });
         ui.add_space(10.0);
     }
-    let removable = d.selected.filter(|&i| ids.get(i).is_some_and(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")));
+    let removable = d.selected.filter(|&i| ids.get(i).is_some_and(|e| !e.in_os_key_store()));
     ui.horizontal(|ui| {
         if widgets::pill_button(ui, tl!("Configure New Digital ID"), false).clicked() {
             d.step = SignStep::Configure;
@@ -777,17 +983,34 @@ fn choose(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
 
 fn configure(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
     title(ui, "Configure a Digital ID for Signing");
+    let busy = app.remote_busy();
+    let remote_signing = app.remote_transport.is_some();
     let Some(d) = app.sign_draft.as_mut() else { return true };
     let mut close = false;
     let mut go = false;
     // Browse… is desktop-only.
     #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
     let mut browse = false;
-    widgets::radio_value(ui, &mut d.new_id.create, false, tl!("Use a Digital ID from a file"));
-    widgets::radio_value(ui, &mut d.new_id.create, true, tl!("Create a new Digital ID (self-signed, saved to a password-protected file)"));
+    ui.add_enabled_ui(busy.is_none(), |ui| {
+        widgets::radio_value(ui, &mut d.new_id.source, NewIdSource::File, tl!("Use a Digital ID from a file"));
+        widgets::radio_value(
+            ui,
+            &mut d.new_id.source,
+            NewIdSource::Create,
+            tl!("Create a new Digital ID (self-signed, saved to a password-protected file)"),
+        );
+        ui.add_enabled_ui(remote_signing, |ui| widgets::radio_value(ui, &mut d.new_id.source, NewIdSource::Remote, tl!("Remote signature (OTP)")));
+    });
+    if !remote_signing {
+        ui.label(egui::RichText::new(tl!("Remote signing isn't available in this build")).small().color(t.text_muted));
+    }
     ui.add_space(8.0);
     let n = &mut d.new_id;
-    if n.create {
+    if n.source == NewIdSource::Remote {
+        if crate::remote_sign_ui::account_fields(ui, &mut n.remote) && busy.is_none() {
+            go = true;
+        }
+    } else if n.source == NewIdSource::Create {
         egui::Grid::new("new-id").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
             for (label, value) in [
                 (tl!("Name"), &mut n.name),
@@ -838,32 +1061,48 @@ fn configure(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
         });
     }
     ui.add_space(6.0);
+    if busy == Some(RemoteBusy::Finding) {
+        busy_note(ui, t, tl!("Looking for certificates…"));
+    }
     error(ui, &d.error);
+    let source = d.new_id.source;
+    let complete = d.new_id.remote.complete();
     ui.horizontal(|ui| {
-        if !app.digital_ids.is_empty() && widgets::pill_button(ui, tl!("Back"), false).clicked() {
+        if !app.digital_ids.is_empty() && ui.add_enabled_ui(busy.is_none(), |ui| widgets::pill_button(ui, tl!("Back"), false)).inner.clicked() {
             d.step = SignStep::Choose;
             d.error = None;
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if widgets::pill_button(ui, if d.new_id.create { tl!("Save") } else { tl!("Continue") }, true).clicked() {
+            let (label, can) = match source {
+                NewIdSource::Create => (tl!("Save"), true),
+                NewIdSource::File => (tl!("Continue"), true),
+                NewIdSource::Remote => (tl!("Find certificates"), remote_signing && complete),
+            };
+            if ui.add_enabled_ui(can && busy.is_none(), |ui| widgets::pill_button(ui, label, true)).inner.clicked() {
                 go = true;
             }
+            // Cancel stays: closing the dialog drops the answer of a request still running.
             if widgets::pill_button(ui, tl!("Cancel"), false).clicked() {
                 close = true;
             }
         });
     });
     if go {
-        let create = app.sign_draft.as_ref().is_some_and(|d| d.new_id.create);
-        let result = if create { app.create_digital_id() } else { app.import_digital_id() };
+        // Find certificates answers on a later frame (or at once, in tests), into the draft.
+        let result = match source {
+            NewIdSource::Remote => app.find_remote_ids().map(|()| None),
+            NewIdSource::Create => app.create_digital_id().map(Some),
+            NewIdSource::File => app.import_digital_id().map(Some),
+        };
         let Some(d) = app.sign_draft.as_mut() else { return true };
         match result {
-            Ok(i) => {
+            Ok(Some(i)) => {
                 d.selected = Some(i);
                 d.step = SignStep::Choose;
                 d.error = None;
                 d.new_id = NewIdDraft::default();
             }
+            Ok(None) => {}
             Err(e) => d.error = Some(e),
         }
     }
@@ -980,6 +1219,7 @@ fn preview(
 
 fn sign_as(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
     let ids = app.digital_ids.clone();
+    let busy = app.remote_busy();
     // The time as the signature will show it (signing takes the session clock then).
     let date = sign::pdf::display_date(&app.session.signing_date());
     let Some(d) = app.sign_draft.as_mut() else { return true };
@@ -994,112 +1234,138 @@ fn sign_as(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
             &[("verb", if d.certify.is_some() { tl!("Certify") } else { tl!("Sign") }), ("name", &entry.name)],
         ),
     );
-    let in_os_key_store = entry.path.starts_with("keychain:") || entry.path.starts_with("windows:");
+    d.secrets_for(&entry.path);
+    let in_os_key_store = entry.in_os_key_store();
+    // A remote ID asks for its service password and what its signatures need besides.
+    let remote = entry.is_remote().then(|| entry.remote.unwrap_or(RemoteNeeds::UNKNOWN));
     let mut close = false;
     let mut go = false;
+    let mut send_code = false;
     #[cfg(not(target_arch = "wasm32"))]
     let mut pick = false;
-    if d.rect.is_some() || d.field.is_some() {
-        ui.label(egui::RichText::new(tl!("Appearance")).font(theme::semibold(12.5)));
-        let graphic = graphic_of(app.signature.as_ref(), &d.graphic);
-        let (labels, in_english) = appearance_labels(crate::i18n::current());
-        let lines = detail_lines(&d.appearance, &labels, &entry.name, &d.reason, &d.location, &date);
-        preview(ui, t, &entry.name, &d.appearance, &lines, graphic.as_ref(), &mut app.sign_graphic_preview);
-        if in_english && d.appearance.labels {
-            ui.label(
-                egui::RichText::new(tl!("The labels are in English: the signature's font can't draw them in this language."))
+    // While the Save picker shows and the service works, what it signs is settled: nothing here
+    // changes until it answers.
+    ui.add_enabled_ui(busy.is_none(), |ui| {
+        if d.rect.is_some() || d.field.is_some() {
+            ui.label(egui::RichText::new(tl!("Appearance")).font(theme::semibold(12.5)));
+            let graphic = graphic_of(app.signature.as_ref(), &d.graphic);
+            let (labels, in_english) = appearance_labels(crate::i18n::current());
+            let lines = detail_lines(&d.appearance, &labels, &entry.name, &d.reason, &d.location, &date);
+            preview(ui, t, &entry.name, &d.appearance, &lines, graphic.as_ref(), &mut app.sign_graphic_preview);
+            if in_english && d.appearance.labels {
+                ui.label(
+                    egui::RichText::new(tl!("The labels are in English: the signature's font can't draw them in this language."))
+                        .small()
+                        .color(t.text_muted),
+                );
+            }
+            ui.horizontal_wrapped(|ui| {
+                let a = &mut d.appearance;
+                ui.add(widgets::checkbox(&mut a.name, tl!("Name")));
+                ui.add(widgets::checkbox(&mut a.date, tl!("Date")));
+                ui.add(widgets::checkbox(&mut a.reason, tl!("Reason")));
+                ui.add(widgets::checkbox(&mut a.location, tl!("Location")));
+                ui.add(widgets::checkbox(&mut a.distinguished_name, tl!("Distinguished name")));
+                ui.add(widgets::checkbox(&mut a.labels, tl!("Labels")));
+            });
+            // Acrobat: Configure Signature Appearance, Text, Draw or Image.
+            ui.horizontal_wrapped(|ui| {
+                ui.label(tl!("Graphic"));
+                widgets::radio_value(ui, &mut d.graphic, SignGraphic::Name, tl!("Signer's name"));
+                ui.add_enabled_ui(app.signature.is_some(), |ui| {
+                    if ui.add(widgets::radio(d.graphic == SignGraphic::FillSign, tl!("Fill & Sign signature"))).clicked() {
+                        d.graphic = SignGraphic::FillSign;
+                    }
+                });
+                ui.add_enabled_ui(d.image.is_some(), |ui| {
+                    if ui.add(widgets::radio(matches!(d.graphic, SignGraphic::Image(_)), tl!("Image"))).clicked()
+                        && let Some(image) = &d.image
+                    {
+                        d.graphic = SignGraphic::Image(image.clone());
+                    }
+                });
+                #[cfg(not(target_arch = "wasm32"))]
+                if widgets::pill_button(ui, tl!("Choose image…"), false).clicked() {
+                    pick = true;
+                }
+            });
+            ui.add_space(6.0);
+        } else {
+            ui.label(egui::RichText::new(tl!("The signature will be invisible.")).color(t.text_muted));
+        }
+        egui::Grid::new("sign-as").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
+            if d.certify.is_some() {
+                ui.label(tl!("Permitted actions after certifying"));
+                let mut p = d.certify.unwrap_or(2);
+                let label = |p: u8| match p {
+                    1 => tl!("No changes allowed"),
+                    3 => tl!("Annotations, form fill-in, and digital signatures"),
+                    _ => tl!("Form fill-in and digital signatures"),
+                };
+                egui::ComboBox::from_id_salt("certify-p").selected_text(label(p)).width(300.0).show_ui(ui, |ui| {
+                    for v in [1u8, 2, 3] {
+                        ui.selectable_value(&mut p, v, label(v));
+                    }
+                });
+                d.certify = Some(p);
+                ui.end_row();
+            }
+            let l = ui.label(tl!("Reason"));
+            ui.add(crate::widgets::line(&mut d.reason).hint_text(tl!("Optional")).desired_width(260.0)).labelled_by(l.id);
+            ui.end_row();
+            let l = ui.label(tl!("Location"));
+            ui.add(crate::widgets::line(&mut d.location).hint_text(tl!("Optional")).desired_width(260.0)).labelled_by(l.id);
+            ui.end_row();
+            if in_os_key_store {
+                ui.label("");
+                ui.label(
+                    egui::RichText::new(if entry.path.starts_with("windows:") {
+                        tl!("The key is in the Windows certificate store, which may ask to allow PdfCraft to use it.")
+                    } else {
+                        tl!("The key is in the macOS Keychain, which may ask to allow PdfCraft to use it.")
+                    })
                     .small()
                     .color(t.text_muted),
-            );
-        }
-        ui.horizontal_wrapped(|ui| {
-            let a = &mut d.appearance;
-            ui.add(widgets::checkbox(&mut a.name, tl!("Name")));
-            ui.add(widgets::checkbox(&mut a.date, tl!("Date")));
-            ui.add(widgets::checkbox(&mut a.reason, tl!("Reason")));
-            ui.add(widgets::checkbox(&mut a.location, tl!("Location")));
-            ui.add(widgets::checkbox(&mut a.distinguished_name, tl!("Distinguished name")));
-            ui.add(widgets::checkbox(&mut a.labels, tl!("Labels")));
-        });
-        // Acrobat: Configure Signature Appearance, Text, Draw or Image.
-        ui.horizontal_wrapped(|ui| {
-            ui.label(tl!("Graphic"));
-            widgets::radio_value(ui, &mut d.graphic, SignGraphic::Name, tl!("Signer's name"));
-            ui.add_enabled_ui(app.signature.is_some(), |ui| {
-                if ui.add(widgets::radio(d.graphic == SignGraphic::FillSign, tl!("Fill & Sign signature"))).clicked() {
-                    d.graphic = SignGraphic::FillSign;
+                );
+                ui.end_row();
+            } else if let Some(needs) = remote {
+                (go, send_code) = crate::remote_sign_ui::secret_rows(ui, d, needs, busy.is_some());
+            } else {
+                let l = ui.label(tl!("Digital ID password"));
+                let r = ui.add(crate::widgets::line(&mut d.password).password(true).desired_width(200.0)).labelled_by(l.id);
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    go = true;
                 }
-            });
-            ui.add_enabled_ui(d.image.is_some(), |ui| {
-                if ui.add(widgets::radio(matches!(d.graphic, SignGraphic::Image(_)), tl!("Image"))).clicked()
-                    && let Some(image) = &d.image
-                {
-                    d.graphic = SignGraphic::Image(image.clone());
-                }
-            });
-            #[cfg(not(target_arch = "wasm32"))]
-            if widgets::pill_button(ui, tl!("Choose image…"), false).clicked() {
-                pick = true;
+                ui.end_row();
             }
         });
-        ui.add_space(6.0);
-    } else {
-        ui.label(egui::RichText::new(tl!("The signature will be invisible.")).color(t.text_muted));
-    }
-    egui::Grid::new("sign-as").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
-        if d.certify.is_some() {
-            ui.label(tl!("Permitted actions after certifying"));
-            let mut p = d.certify.unwrap_or(2);
-            let label = |p: u8| match p {
-                1 => tl!("No changes allowed"),
-                3 => tl!("Annotations, form fill-in, and digital signatures"),
-                _ => tl!("Form fill-in and digital signatures"),
-            };
-            egui::ComboBox::from_id_salt("certify-p").selected_text(label(p)).width(300.0).show_ui(ui, |ui| {
-                for v in [1u8, 2, 3] {
-                    ui.selectable_value(&mut p, v, label(v));
-                }
-            });
-            d.certify = Some(p);
-            ui.end_row();
-        }
-        let l = ui.label(tl!("Reason"));
-        ui.add(crate::widgets::line(&mut d.reason).hint_text(tl!("Optional")).desired_width(260.0)).labelled_by(l.id);
-        ui.end_row();
-        let l = ui.label(tl!("Location"));
-        ui.add(crate::widgets::line(&mut d.location).hint_text(tl!("Optional")).desired_width(260.0)).labelled_by(l.id);
-        ui.end_row();
-        if in_os_key_store {
-            ui.label("");
-            ui.label(
-                egui::RichText::new(if entry.path.starts_with("windows:") {
-                    tl!("The key is in the Windows certificate store, which may ask to allow PdfCraft to use it.")
-                } else {
-                    tl!("The key is in the macOS Keychain, which may ask to allow PdfCraft to use it.")
-                })
-                .small()
-                .color(t.text_muted),
-            );
-        } else {
-            let l = ui.label(tl!("Digital ID password"));
-            let r = ui.add(crate::widgets::line(&mut d.password).password(true).desired_width(200.0)).labelled_by(l.id);
-            if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                go = true;
-            }
-        }
-        ui.end_row();
     });
+    if let Some(note) = d.otp_note.as_ref().filter(|_| remote.is_some()) {
+        ui.label(egui::RichText::new(note).small().color(t.text_muted));
+    }
     ui.add_space(6.0);
+    match busy {
+        Some(RemoteBusy::Sending) => busy_note(ui, t, tl!("Sending the code…")),
+        Some(RemoteBusy::Choosing) => busy_note(ui, t, tl!("Choose where to save the signed file. The service signs it once you have.")),
+        // The service waits (up to a minute) for the user to approve on their phone: always, or
+        // only when no code was typed, which it takes instead.
+        Some(RemoteBusy::Signing) if remote.is_some_and(|n| n.confirms(!d.otp.trim().is_empty())) => {
+            busy_note(ui, t, tl!("Signing… Confirm the signature on your other device."))
+        }
+        Some(RemoteBusy::Signing) => busy_note(ui, t, tl!("Signing…")),
+        Some(RemoteBusy::Finding) | None => {}
+    }
     error(ui, &d.error);
     ui.horizontal(|ui| {
-        if widgets::pill_button(ui, tl!("Back"), false).clicked() {
+        if ui.add_enabled_ui(busy.is_none(), |ui| widgets::pill_button(ui, tl!("Back"), false)).inner.clicked() {
             d.step = SignStep::Choose;
             d.error = None;
         }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if widgets::pill_button(ui, tl!("Sign"), true).clicked() {
+            if ui.add_enabled_ui(busy.is_none(), |ui| widgets::pill_button(ui, tl!("Sign"), true)).inner.clicked() {
                 go = true;
             }
+            // Cancel stays: closing the dialog drops the answer of a signature still running.
             if widgets::pill_button(ui, tl!("Cancel"), false).clicked() {
                 close = true;
             }
@@ -1109,12 +1375,23 @@ fn sign_as(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tokens) -> bool {
     if pick {
         app.pick_sign_graphic_image();
     }
+    if send_code
+        && let Err(e) = app.send_remote_code()
+        && let Some(d) = app.sign_draft.as_mut()
+    {
+        d.error = Some(e);
+    }
     if go {
-        match app.finish_signing() {
-            Ok(()) => {
+        // A remote ID asks where to save, then signs on a worker thread: the dialog stays, saying
+        // so, until the service answers.
+        let signed = if remote.is_some() { app.start_remote_signing().map(|()| false) } else { app.finish_signing().map(|()| true) };
+        match signed {
+            Ok(true) => {
                 app.sign_draft = None;
                 return true;
             }
+            // Answered at once (tests): saved, and the dialog already closed.
+            Ok(false) => return app.sign_draft.is_none(),
             Err(e) => {
                 if let Some(d) = app.sign_draft.as_mut() {
                     d.error = Some(e);
@@ -1500,7 +1777,7 @@ mod tests {
     fn create_in(dir: &std::path::Path) -> Result<PathBuf, String> {
         let mut app = PdfCraftApp::new();
         app.export_dir_override = Some(dir.to_string_lossy().into_owned());
-        let mut draft = SignDraft::new(0, None, None, None, &[]);
+        let mut draft = SignDraft::new(0, None, None, None, &[], false);
         // P-256 keeps the test fast.
         let key = KEY_ALGORITHMS.iter().position(|k| k.1 == "p256").unwrap();
         draft.new_id =
@@ -1588,7 +1865,15 @@ mod tests {
     }
 
     fn listed(path: &str, name: &str) -> DigitalIdEntry {
-        DigitalIdEntry { path: path.into(), name: name.into(), issuer: String::new(), email: String::new(), expires: String::new(), unusable: None }
+        DigitalIdEntry {
+            path: path.into(),
+            name: name.into(),
+            issuer: String::new(),
+            email: String::new(),
+            expires: String::new(),
+            unusable: None,
+            remote: None,
+        }
     }
 
     /// Issue #1396: an imported ID can be taken off the list (its file stays), the dialog's
@@ -1600,7 +1885,7 @@ mod tests {
         std::fs::write(&file, b"not opened").unwrap();
         let mut app = PdfCraftApp::new();
         app.digital_ids = vec![listed("windows:abc", "Store"), listed(&file.to_string_lossy(), "Old"), listed("/ids/new.p12", "New")];
-        let mut draft = SignDraft::new(0, None, None, None, &app.digital_ids);
+        let mut draft = SignDraft::new(0, None, None, None, &app.digital_ids, false);
         draft.selected = Some(2);
         draft.confirm_remove = Some(1);
         app.sign_draft = Some(draft);
@@ -1621,6 +1906,28 @@ mod tests {
         fresh.restore(&app.persist());
         assert!(fresh.digital_ids.is_empty(), "the removal survives a restart: {:?}", fresh.digital_ids);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The dialogs' drafts hold the service password, the PIN, the code and digital ID file
+    /// passwords: `Debug` says whether each was typed, never what (as the sign crate's `Secrets`).
+    #[test]
+    fn the_signing_drafts_print_none_of_their_secrets() {
+        let mut d = SignDraft::new(0, None, None, None, &[], true);
+        (d.password, d.pin, d.otp, d.reason) = ("service-pw".into(), "pin-4711".into(), "otp-917263".into(), "Approved".into());
+        let n = &mut d.new_id;
+        (n.password, n.confirm, n.file_password) = ("new-id-pw".into(), "new-id-confirm".into(), "file-pw".into());
+        (n.remote.user, n.remote.password) = ("mario.rossi".into(), "account-pw".into());
+        let secrets = ["service-pw", "pin-4711", "otp-917263", "new-id-pw", "new-id-confirm", "file-pw", "account-pw"];
+        for printed in [format!("{d:?}"), format!("{d:#?}"), format!("{:?}", d.new_id), format!("{:?}", d.new_id.remote)] {
+            for secret in secrets {
+                assert!(!printed.contains(secret), "{secret} in {printed}");
+            }
+            assert!(printed.contains("mario.rossi") && printed.contains("<redacted>"), "the rest prints: {printed}");
+        }
+        assert!(format!("{d:?}").contains("Approved"));
+        // Nothing typed reads so.
+        let empty = format!("{:?}", SignDraft::new(0, None, None, None, &[], true));
+        assert!(empty.contains("pin: \"\"") && !empty.contains("<redacted>"), "{empty}");
     }
 
     /// The labels a signature is stamped with are all in the interface language, or all in

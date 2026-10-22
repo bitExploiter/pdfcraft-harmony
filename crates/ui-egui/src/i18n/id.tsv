@@ -2751,3 +2751,39 @@ theme	Appearance	Tampilan
 	field names can't contain a period: {name}	nama kolom tidak boleh berisi titik: {name}
 	two cells would both be named {name}	dua sel akan sama-sama bernama {name}
 	a field named {name} already exists	kolom bernama {name} sudah ada
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Layanan tanda tangan  ·  
+	Remote signing isn't available in this build	Tanda tangan jarak jauh tidak tersedia di versi ini
+	Remove "{name}" from this list? The certificate stays with the signing service.	Hapus "{name}" dari daftar ini? Sertifikat tetap tersimpan di layanan tanda tangan.
+	Remote signature (OTP)	Tanda tangan jarak jauh (OTP)
+	Looking for certificates…	Mencari sertifikat…
+	Find certificates	Cari sertifikat
+	Signing…	Menandatangani…
+	Code sent	Kode terkirim
+	Challenge: {challenge}	Tantangan: {challenge}
+	Service	Layanan
+	Other provider (CSC API)	Penyedia lain (API CSC)
+	Service address	Alamat layanan
+	Domain	Domain
+	Required, given by Aruba with the account	Wajib, diberikan oleh Aruba bersama akun
+	PIN	PIN
+	One-time code (OTP)	Kode sekali pakai (OTP)
+	Send code	Kirim kode
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Mengirim kode…
+	Choose where to save the signed file. The service signs it once you have.	Pilih tempat menyimpan file yang ditandatangani. Layanan akan menandatanganinya setelah Anda memilih.
+	Signing… Confirm the signature on your other device.	Menandatangani… Konfirmasikan tanda tangan di perangkat Anda yang lain.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokumen berubah saat sedang ditandatangani, sehingga tanda tangan tidak disimpan.
+	The signing service lists no certificate for this account.	Layanan tanda tangan tidak mencantumkan sertifikat apa pun untuk akun ini.
+	the signing service is unreachable ({reason})	layanan tanda tangan tidak dapat dijangkau ({reason})
+	the signing service rejected the user name or password	layanan tanda tangan menolak nama pengguna atau kata sandi
+	the signing service rejected the PIN	layanan tanda tangan menolak PIN
+	the signing service rejected the OTP (it may have expired)	layanan tanda tangan menolak OTP (mungkin sudah kedaluwarsa)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	layanan tanda tangan menolak PIN atau OTP (OTP mungkin sudah kedaluwarsa)
+	the signing service refused to sign	layanan tanda tangan menolak untuk menandatangani
+	the signing service refused to list the certificates	layanan tanda tangan menolak untuk menampilkan daftar sertifikat
+	the signing service refused to send the OTP	layanan tanda tangan menolak untuk mengirim OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	akun Aruba memerlukan domainnya ("dominio" yang diberikan Aruba bersama akun): masukkan domain tersebut
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	layanan tanda tangan ini tidak dapat digunakan: memerlukan masuk OAuth di browser, yang belum didukung PdfCraft

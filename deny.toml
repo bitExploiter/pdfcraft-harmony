@@ -39,11 +39,14 @@ allow-git = ["https://github.com/storytold/craft-libs", "https://github.com/stor
 [advisories]
 yanked = "warn"
 ignore = [
-    # Marvin (RSA private-key timing side channel, no fixed `rsa` release). pdfcraft-sign uses
-    # `rsa` only for public-key signature verification, which the advisory does not affect; RSA
+    # Marvin (RSA private-key timing side channel, no fixed `rsa` release). What pdfcraft-sign
+    # ships uses `rsa` only for public-key operations (signature verification, and telling a
+    # remote signature over the bare digest apart), which the advisory does not affect; RSA
     # private-key operations use aws-lc-rs on native targets and are refused in the browser
-    # (ADR-0009). Revisit when a fixed `rsa` ships.
-    { id = "RUSTSEC-2023-0071", reason = "rsa is used for verification only (ADR-0009)" },
+    # (ADR-0009). The one private-key use is the test-only `remote::mock` (feature `mock`, turned
+    # on by dev-dependencies alone), which signs with a throwaway key to imitate a faulty signing
+    # service. Revisit when a fixed `rsa` ships.
+    { id = "RUSTSEC-2023-0071", reason = "rsa verifies only in shipped code (ADR-0009); the test-only remote::mock signs with a throwaway key" },
     # proc-macro-error is unmaintained (no vulnerability). It reaches the tree as a proc macro of
     # winprint's fmt-derive (craft-print's Windows spooler), so it runs at compile time on Windows
     # and is not in the binary.

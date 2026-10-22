@@ -1,5 +1,6 @@
 # Where PdfCraft falls short of Acrobat Pro
 
+> **Last reviewed:** 2026-10-21 · **Last updated:** 2026-10-21 · **Change:** minor (gap 10: remote signing with an OTP is partial; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (gap 6 #3673: Character encoding CJK mapping routes corrected; no readiness re-estimate)
 
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-19 · **Change:** minor (gap 2: composite fonts with `/ToUnicode /Identity-H` read as Unicode, hayro-interpret patch 44; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -202,14 +203,20 @@ update the numbers.
 - **Missing:** PKCS #11 tokens and smart cards on macOS and Linux; timestamp-server preferences;
   fetching OCSP/CRL online for LTV; FieldMDP and locking fields on signing; the OS trust store; EU
   Trusted Lists; signature graphics and saved appearances; compare signed version; signing in the
-  browser.
+  browser. Remote signing with an OTP ("firma remota": the Cloud Signature Consortium API signed
+  in with user name and password, and Aruba ARSS) works on the desktop and through the tools, but
+  lacks OAuth sign-in, showing a challenge while signing, several signatures on one OTP,
+  timestamps from the service and the web build, and has been tried only against in-process mock
+  services, never a real provider.
 - **Evidence:** `sign.pkcs11`, `sign.timestamp-servers`, `sign.field-mdp`, `sign.os-trust`,
   `sign.eutl` planned; `sign.pades-bt`, `sign.ltv`, `sign.ocsp-crl` partial (caller-supplied
-  evidence). Users ask for Acrobat-like validation
+  evidence); `sign.cloud-signatures` partial (tier N/A, not counted). Users ask for Acrobat-like
+  validation
   ([#824](https://github.com/storytold/pdfcraft/issues/824),
   [#775](https://github.com/storytold/pdfcraft/issues/775),
   [#718](https://github.com/storytold/pdfcraft/issues/718)).
-- **Impact:** government and legal users sign with tokens and need B-LT/B-LTA.
+- **Impact:** government and legal users sign with tokens or remote signing services and need
+  B-LT/B-LTA.
 - **Estimate:** 40–70 h; tokens need hardware to test. **Doc:** [pdf-spec-parity.md](pdf-spec-parity.md).
 
 ### 11. Accessibility: only text-only automatic structure creation
@@ -397,6 +404,7 @@ update the numbers.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | minor | Gap 10: remote signing with an OTP (CSC API with user-name and password sign-in, Aruba ARSS) is partial (`sign.cloud-signatures`, tier N/A); still missing there: OAuth sign-in, a challenge shown while signing, several signatures on one OTP, timestamps from the service, the web build and a test against a real provider. Estimates unchanged. |
 | 2026-10-19 | minor | Gap 2: a Type 0 font whose `/ToUnicode` is the name `/Identity-H` or `/Identity-V` (WSCAD) reads its codes as Unicode, so such pages have text to select, find and edit (hayro-interpret patch 44, `view.render-cid-fonts`). Estimates unchanged. |
 | 2026-10-15 | minor | Gap 21: the side-by-side view had already shipped; the Compare panel filters text changes and visual differences. Estimate 10–20 h → 8–16 h |
 | 2026-10-20 | minor | Gap 6 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections, or a predefined non-Identity CMap; negative and indirect-reference regressions and a read-only automation test passed after failing before the fix. Per-glyph validation and embedded-font extraction remain separate. Scores and estimates unchanged. |

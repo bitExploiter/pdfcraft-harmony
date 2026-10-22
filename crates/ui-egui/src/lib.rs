@@ -61,6 +61,7 @@ mod marks_ui;
 mod measure_ui;
 mod ocr_ui;
 mod optimize_ui;
+mod remote_sign_ui;
 mod search_ui;
 mod sign_ui;
 mod stamps_ui;
@@ -76,7 +77,8 @@ mod object_ui;
 pub use create_ui::Clip;
 pub use link_ui::LinkDraft;
 pub use optimize_ui::{OptimizeDraft, OptimizeTab};
-pub use sign_ui::{DigitalIdEntry, SignDraft, SignGraphic, SignStep};
+pub use remote_sign_ui::{RemoteAccountDraft, RemoteNeeds, RemoteOtp};
+pub use sign_ui::{DigitalIdEntry, NewIdSource, SignDraft, SignGraphic, SignStep};
 mod autoscroll;
 mod bidi;
 pub mod bulk_fields;
@@ -568,6 +570,11 @@ pub struct PdfCraftApp {
     /// How to ask for the latest release (the desktop app sets it; see `updates`).
     pub update_source: Option<updates::UpdateSource>,
     pub(crate) updates: updates::Updates,
+    /// The network a remote signature (OTP) talks to its signing service through (the desktop
+    /// app sets it; this crate has no network code). Without it remote IDs are greyed.
+    pub remote_transport: Option<std::sync::Arc<dyn pdfcraft_engine::sign::remote::HttpTransport>>,
+    /// The request to a signing service the Sign dialog is waiting for.
+    pub(crate) remote_task: Option<remote_sign_ui::RemoteTask>,
     /// Lists the Print dialog's printers in the background (the desktop app sets it; see
     /// [`PrinterSource`]).
     pub printer_source: Option<PrinterSource>,
@@ -975,6 +982,8 @@ impl PdfCraftApp {
             dialog: None,
             update_source: None,
             updates: updates::Updates::default(),
+            remote_transport: None,
+            remote_task: None,
             printer_source: None,
             options_source: None,
             print_tasks: print_ui::PrintTasks::default(),
@@ -2409,8 +2418,9 @@ impl PdfCraftApp {
             "signature_image": match &self.signature { Some(s @ fill_sign::SavedSig::Image(_)) => Some(s), _ => None },
             "initials": self.initials,
             "sign_graphic": self.sign_graphic,
-            // macOS Keychain and Windows store identities are read from their OS key stores each time.
-            "digital_ids": self.digital_ids.iter().filter(|e| !e.path.starts_with("keychain:") && !e.path.starts_with("windows:")).collect::<Vec<_>>(),
+            // macOS Keychain and Windows store identities are read from their OS key stores each
+            // time. Remote IDs are kept: their reference and what they ask for, never a secret.
+            "digital_ids": self.digital_ids.iter().filter(|e| !e.in_os_key_store()).collect::<Vec<_>>(),
             "trusted": trusted,
             "custom_stamps": stamps_ui::encode(&self.custom_stamps),
             "javascript": self.session.javascript(),
@@ -2594,8 +2604,9 @@ impl PdfCraftApp {
         }
         // An unreadable choice (a damaged image) falls back to the name.
         self.sign_graphic = serde_json::from_value(v["sign_graphic"].clone()).unwrap_or_default();
-        if let Ok(ids) = serde_json::from_value::<Vec<DigitalIdEntry>>(v["digital_ids"].clone()) {
-            self.digital_ids = ids;
+        // One by one: an entry this version can't read is left out alone, not with the others.
+        if let Some(ids) = v["digital_ids"].as_array() {
+            self.digital_ids = ids.iter().filter_map(|e| serde_json::from_value::<DigitalIdEntry>(e.clone()).ok()).collect();
         }
         self.custom_stamps = stamps_ui::decode(&v["custom_stamps"]);
         self.custom_actions = actions_ui::decode(&v["actions"]);
@@ -3278,6 +3289,7 @@ impl eframe::App for PdfCraftApp {
             }
         }
         self.poll_updates();
+        self.poll_remote_sign();
         self.poll_print();
         // Shortcuts deferred last frame: the text field has taken that frame's typing since.
         let deferred = std::mem::take(&mut self.deferred_commands);

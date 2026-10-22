@@ -2820,3 +2820,39 @@ certificate	Version	Verze
 	field names can't contain a period: {name}	názvy polí nesmějí obsahovat tečku: {name}
 	two cells would both be named {name}	dvě buňky by se jmenovaly {name}
 	a field named {name} already exists	pole s názvem {name} už existuje
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Podpisová služba  ·  
+	Remote signing isn't available in this build	Vzdálené podepisování není v tomto sestavení k dispozici
+	Remove "{name}" from this list? The certificate stays with the signing service.	Odebrat „{name}“ z tohoto seznamu? Certifikát zůstane u podpisové služby.
+	Remote signature (OTP)	Vzdálený podpis (OTP)
+	Looking for certificates…	Hledání certifikátů…
+	Find certificates	Najít certifikáty
+	Signing…	Podepisování…
+	Code sent	Kód odeslán
+	Challenge: {challenge}	Výzva: {challenge}
+	Service	Služba
+	Other provider (CSC API)	Jiný poskytovatel (CSC API)
+	Service address	Adresa služby
+	Domain	Doména
+	Required, given by Aruba with the account	Povinné, poskytuje ji Aruba spolu s účtem
+	PIN	PIN kód
+	One-time code (OTP)	Jednorázový kód (OTP)
+	Send code	Odeslat kód
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Odesílání kódu…
+	Choose where to save the signed file. The service signs it once you have.	Zvolte, kam uložit podepsaný soubor. Služba ho podepíše, jakmile to uděláte.
+	Signing… Confirm the signature on your other device.	Podepisování… Potvrďte podpis na svém druhém zařízení.
+	The document changed while it was being signed, so the signature wasn't saved.	Dokument se během podepisování změnil, proto podpis nebyl uložen.
+	The signing service lists no certificate for this account.	Podpisová služba pro tento účet neuvádí žádný certifikát.
+	the signing service is unreachable ({reason})	podpisová služba není dostupná ({reason})
+	the signing service rejected the user name or password	podpisová služba odmítla uživatelské jméno nebo heslo
+	the signing service rejected the PIN	podpisová služba odmítla PIN kód
+	the signing service rejected the OTP (it may have expired)	podpisová služba odmítla OTP (možná vypršela jeho platnost)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	podpisová služba odmítla PIN kód nebo OTP (platnost OTP možná vypršela)
+	the signing service refused to sign	podpisová služba odmítla podepsat
+	the signing service refused to list the certificates	podpisová služba odmítla vypsat certifikáty
+	the signing service refused to send the OTP	podpisová služba odmítla odeslat OTP
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	účet Aruba potřebuje svou doménu („dominio“, kterou Aruba poskytuje spolu s účtem): zadejte ji
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	tuto podpisovou službu nelze použít: vyžaduje přihlášení OAuth v prohlížeči, které PdfCraft zatím nepodporuje

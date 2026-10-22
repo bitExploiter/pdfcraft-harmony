@@ -2513,3 +2513,39 @@ animation effects	Off	Өшірулі
 	field names can't contain a period: {name}	өріс атауларында нүкте болмауы керек: {name}
 	two cells would both be named {name}	екі ұяшықтың да атауы {name} болар еді
 	a field named {name} already exists	{name} атты өріс бар
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Қолтаңба қызметі  ·  
+	Remote signing isn't available in this build	Қашықтан қол қою бұл нұсқада қолжетімсіз
+	Remove "{name}" from this list? The certificate stays with the signing service.	«{name}» осы тізімнен алып тасталсын ба? Сертификат қолтаңба қызметінде қалады.
+	Remote signature (OTP)	Қашықтан қол қою (OTP)
+	Looking for certificates…	Сертификаттар ізделуде…
+	Find certificates	Сертификаттарды табу
+	Signing…	Қол қойылуда…
+	Code sent	Код жіберілді
+	Challenge: {challenge}	Сұрау: {challenge}
+	Service	Қызмет
+	Other provider (CSC API)	Басқа провайдер (CSC API)
+	Service address	Қызмет мекенжайы
+	Domain	Домен
+	Required, given by Aruba with the account	Міндетті, Aruba тіркелгімен бірге береді
+	PIN	PIN-код
+	One-time code (OTP)	Бір реттік код (OTP)
+	Send code	Код жіберу
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Код жіберілуде…
+	Choose where to save the signed file. The service signs it once you have.	Қол қойылған файлды қайда сақтау керектігін таңдаңыз. Таңдағаннан кейін қызмет оған қол қояды.
+	Signing… Confirm the signature on your other device.	Қол қойылуда… Қолтаңбаны басқа құрылғыңызда растаңыз.
+	The document changed while it was being signed, so the signature wasn't saved.	Қол қою кезінде құжат өзгерді, сондықтан қолтаңба сақталмады.
+	The signing service lists no certificate for this account.	Қолтаңба қызметі бұл тіркелгі үшін ешбір сертификат көрсетпейді.
+	the signing service is unreachable ({reason})	қолтаңба қызметіне қосылу мүмкін емес ({reason})
+	the signing service rejected the user name or password	қолтаңба қызметі пайдаланушы атын немесе құпиясөзді қабылдамады
+	the signing service rejected the PIN	қолтаңба қызметі PIN-кодты қабылдамады
+	the signing service rejected the OTP (it may have expired)	қолтаңба қызметі OTP кодын қабылдамады (оның мерзімі өтіп кеткен болуы мүмкін)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	қолтаңба қызметі PIN-кодты немесе OTP кодын қабылдамады (OTP кодының мерзімі өтіп кеткен болуы мүмкін)
+	the signing service refused to sign	қолтаңба қызметі қол қоюдан бас тартты
+	the signing service refused to list the certificates	қолтаңба қызметі сертификаттар тізімін беруден бас тартты
+	the signing service refused to send the OTP	қолтаңба қызметі OTP кодын жіберуден бас тартты
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	Aruba тіркелгісіне оның домені қажет (Aruba тіркелгімен бірге беретін «dominio»): оны енгізіңіз
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	бұл қолтаңба қызметін пайдалану мүмкін емес: ол браузерде OAuth арқылы кіруді талап етеді, ал PdfCraft оны әлі қолдамайды

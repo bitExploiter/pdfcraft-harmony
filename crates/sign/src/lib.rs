@@ -4,6 +4,8 @@
 //!   primitives (RSA private-key operations use aws-lc-rs on native targets, ADR-0009).
 //! - [`pdf`]: signature fields in a document — listing and validating them, and signing
 //!   (PAdES B-B, `ETSI.CAdES.detached`) with an incremental save.
+//! - [`remote`]: keys held by a signing service (CSC API, Aruba ARSS), authorized per signature
+//!   with a one-time password; the transport is the caller's.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
@@ -17,6 +19,7 @@ pub mod keychain;
 pub mod keys;
 pub mod pdf;
 pub mod pkcs12;
+pub mod remote;
 pub mod revocation;
 mod rsa_pad;
 pub mod timestamp;

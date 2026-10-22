@@ -9,9 +9,11 @@ Agent control for PdfCraft: a headless tool table over the engine, and an opt-in
 
 ```rust
 let mut a = Automation::new().with_root("/work")?;      // optional: confine all paths
+Automation::new().with_remote_transport(transport)      // optional: the network remote signing uses
+a.remote_enabled()                                       // it was given one (MCP then marks the remote tools open-world)
 let doc = a.call("doc_open", &json!({ "path": "in.pdf" }))?;   // Vec<Content>
 a.write_output("page1.png", &png)?;                      // save a result yourself, under the same root rules
-tools() -> Vec<ToolDef>                                  // name, title, description, input_schema, read_only, destructive, command
+tools() -> Vec<ToolDef>                                  // name, title, description, input_schema, read_only, destructive, open_world, command
 mcp::McpServer::new(a).serve(stdin, stdout)?             // newline-delimited JSON-RPC 2.0
 ```
 
@@ -34,6 +36,72 @@ its undo/redo history.
 - `doc_close` refuses to drop unsaved changes unless `discard_changes: true`. `doc_save` writes atomically, incrementally in place, and in full for a new path. Atomic output writes call `sync_all` on the staging file before replacing the destination. A write or sync error leaves the destination intact, removes staging and leaves the document dirty for retry. A filesystem that does not support syncing returns an error; there is no unsynced fallback. This flushes file contents, but does not guarantee persistence of the parent-directory rename across power loss.
 - With a root set, every read and write path must resolve inside it (symlinks and `..` included). Relative paths resolve inside the root, and `..` is resolved by name before the check. Every path outside the root gets the same refusal (`<path> is outside the allowed directory <root>`), whether or not it exists, so a confined agent can't probe the rest of the disk; on Windows another network share or device path (`\\host\share`, `\\?\UNC\…`, `\\.\…`) is refused without being contacted. "Not found" and other filesystem errors are reported only for paths inside the root. Tools that write several files into a folder name them after the document or input file, with separators, colons and control characters replaced by `_`, so a name can't lead them out of the folder. The root itself must be a folder.
 - `Automation::with_automation_roots` holds a read folder and a write folder (`pdfcraft-cli mcp --automation-read-root DIR --automation-write-root DIR`, see [docs/mcp.md](../../docs/mcp.md)). Reads must lie inside the read root and writes inside the write root, links followed. A root left out grants none of its access. Refusals read `automation path rejected: outside the read root <root>: <path>`. It applies on top of `with_root`.
+
+## Remote signing
+
+`sign_remote_ids`, `sign_remote_send_otp` and `sign_document` with a `remote:` id sign with a key
+held by a signing service ("firma remota"), each signature authorized with a one-time password
+(OTP). The signature is built here and the service is sent only the digest of what is signed: the
+document never leaves the computer, and every signature the service returns is verified against
+its certificate before it is used. Two protocols, from `pdfcraft-sign`'s `remote` module: the Cloud
+Signature Consortium API (`protocol: "csc"`: v2, v1 tolerated, sign-in with user name and password;
+a service that only offers OAuth is refused) and Aruba Remote Sign Server (`protocol: "arss"`).
+
+1. `sign_remote_ids {protocol, url, user, password, domain?, hsm?}` signs in and returns
+   `{count, ids: [{id, name, issuer, email, expires, pin, otp, auth, certificate}]}`. `id` is the
+   `remote:csc?…` or `remote:arss?…` reference: the service, user and credential, no secret. `pin`
+   says a static PIN is asked; `otp` is `none`, `typed` (an authenticator app or token) or `sent`
+   (the service sends it); `auth` is the service's own description of each value (`id`, `type`,
+   `label`, `format`, and `role`: `pin`, `otp` or `confirm`). `url` is required for CSC (the base
+   address, ending in `/csc/v2` or `/csc/v1`) and defaults to Aruba's endpoint for ARSS; `domain`
+   and `hsm` are Aruba's, and `domain` (the "dominio" Aruba gives with the account) is required
+   there: Aruba answers a listing without it "Invalid Parameters", so it is refused before any
+   request, as is a `remote:arss` id without one. `user`, `domain` and `hsm` are trimmed, as they
+   are checked. Addresses must be `https://`; plain `http://` only to this computer.
+2. `sign_remote_send_otp {id, password}` has the service send the code by SMS or a call:
+   `{sent: true}`, or `{challenge}` to show the user's device. Each code authorizes one signature,
+   and a new one replaces the last. Asking for a code that comes from an app is refused. The
+   session remembers the id until a signature with it succeeds, so `sign_document` puts the code
+   under the object it was sent for: of an SMS and an app offered as alternatives, the SMS (a code
+   nobody had sent goes under the first).
+3. `sign_document {doc, id: "remote:…", password, otp, pin?, out, …}` signs as with any digital ID.
+   The ID is opened after the rest of the call has checked out, so a wrong page or `out` costs no
+   sign-in (a CSC sign-in is only revoked by signing). The engine can't check a
+   signature's preconditions without signing, so for a remote ID the signature is first made in
+   memory with a throwaway P-256 key and dropped: a field that isn't there or is already signed,
+   the document's permissions, a pending security change or a graphic it can't draw are refused
+   before the service is asked. That rehearsal sends nothing and writes nothing; it costs one more
+   signature computed here, about an incremental save of the document (measured: under a
+   millisecond for a small file, about 40 ms for a 20 MB one), next to the requests the real one
+   makes. `pin` and `otp` are refused with any other kind of ID.
+
+The password, PIN and OTP are ordinary tool arguments, like a `.p12` password (so
+`pdfcraft-cli run … password=…` puts the password in the process arguments, and a `--script` file
+keeps it on disk; `run` keeps a digits-only value such as `password=123456` a string). PdfCraft
+never stores or logs them, and no result or error quotes them. Every value passed on to the
+service is at most 1 KiB, and a `remote:` id is checked like `sign_remote_ids`' own arguments.
+
+Errors the caller fixes by changing the call are `InvalidArgs`: a user name, password, PIN or
+OTP the service turned down, a PIN, OTP or Aruba domain left out, a code asked for that the
+service doesn't send, a credential the account doesn't have (CSC's `invalid_request` to
+`credentials/info`) or that can't sign, an account with no certificate PdfCraft can sign with.
+Every Aruba refusal (`status KO`) is `InvalidArgs` too, even one that is the service's own doing:
+its codes aren't documented, and the ones seen are about what the call sent. An unreachable
+service, an OAuth-only one, an oversized answer, a refusal of a request PdfCraft built (CSC's
+`invalid_request` anywhere else), or a signature that doesn't verify is `Failed`. The sign crate
+words these errors and says which is which (`remote::fault_of`); this crate only maps its
+verdict. `sign_remote_ids` is not
+read-only for MCP: a refused password counts towards the service locking the account, so it is
+not advertised as safe to retry either. A `remote:` id is not a path, so `--root` and the
+automation roots don't apply to it, and they don't confine the network either.
+
+**Network.** This crate opens no socket. `Automation::with_remote_transport` hands it one
+(`pdfcraft_sign::remote::HttpTransport`): `pdfcraft-cli run` passes
+`pdfcraft_platform::https::transport()`, which checks HTTPS against the system's certificate
+authorities and never follows a redirect, and `pdfcraft-cli mcp` passes it only with
+`--remote-signing` (`batch` never). Without a transport the three calls fail with "remote
+signing needs network access, which this host did not enable". The tests sign with the in-process
+services of `pdfcraft_sign::remote::mock` (feature `mock`).
 
 ## Text search and cache limits
 
@@ -104,7 +172,7 @@ or fill colour. Names, rectangles, rotations and captions require the single-fie
 
 `pdfcraft-cli mcp --compact` (or `McpServer::with_compact(true)`) keeps `tools/list` short for agents with small context budgets. It lists only the core tools (`mcp::COMPACT_CORE_TOOLS`: open, info, save, close, render, text extract and find, combine, split, undo) plus the common command/inspection/preview tools and two meta tools: `tool_search` (optional `query` and `category`, the name prefix; or `name` for one tool's full `input_schema`) and `tool_call` (`name` and `arguments`, run through the same `Automation::call`). `tools/call` by name keeps working for every tool, and the server instructions mention the meta tools. Without the flag nothing changes.
 
-Implemented: `initialize` (protocol 2025-06-18, 2025-03-26, 2024-11-05), `ping`, `tools/list` (with `readOnlyHint`/`destructiveHint` annotations), `tools/call` (JSON results also returned as `structuredContent`; images as `image/png`), and `resources/list`, `resources/templates/list` and `resources/read`. The resources expose the open documents read-only: `pdfcraft://doc/{doc}/info` (JSON), `…/text`, `…/page/{page}/text` and `…/page/{page}/image{?dpi}` (PNG, 1–600 dpi). Tool failures come back as `isError: true` results, so the agent can read and recover from them.
+Implemented: `initialize` (protocol 2025-06-18, 2025-03-26, 2024-11-05), `ping`, `tools/list` (with `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint` annotations; `openWorldHint` is true only when the automation has remote signing's network, as `pdfcraft-cli mcp --remote-signing` gives it, and then for the three remote signing tools below and for `tool_call`, which can run them; without it no tool is open-world, `sign_document` with a local ID included), `tools/call` (JSON results also returned as `structuredContent`; images as `image/png`), and `resources/list`, `resources/templates/list` and `resources/read`. The resources expose the open documents read-only: `pdfcraft://doc/{doc}/info` (JSON), `…/text`, `…/page/{page}/text` and `…/page/{page}/image{?dpi}` (PNG, 1–600 dpi). Tool failures come back as `isError: true` results, so the agent can read and recover from them.
 
 ### From an installed release
 

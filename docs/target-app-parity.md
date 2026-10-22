@@ -1,5 +1,6 @@
 # PdfCraft parity with Adobe Acrobat Pro
 
+> **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-21 · **Change:** minor (scope: cloud signatures are partial but stay uncounted; numbers unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M12 #3673: Character encoding CJK mapping routes corrected; scores and estimates unchanged)
 
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-13 · **Change:** minor (localization ≈59% → ≈68%; weighted readiness 49.25 → 49.7 ≈ 50%) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -12,8 +13,10 @@ summarizes it; [gaps.md](gaps.md) lists every shortfall one by one; the deep-div
 
 **Scope.** Parity means the *offline* feature set of Acrobat Pro. Adobe's cloud services (Document
 Cloud storage, Acrobat Sign requests, shared review, the AI Assistant, Adobe Express, the Adobe
-Approved Trust List) are out of scope: 23 such features are tracked as `na` in
-`parity/acrobat-features.toml` and excluded from every percentage.
+Approved Trust List) are out of scope: 23 such features have the `N/A` tier in
+`parity/acrobat-features.toml` and are excluded from every percentage. 22 of them are `na`; cloud
+signatures (`sign.cloud-signatures`) is `partial`, because PdfCraft signs with remote signing
+services itself, but stays uncounted.
 
 ## Headline
 
@@ -294,6 +297,7 @@ licensed OCR or AI model.
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-21 | minor | Scope: `sign.cloud-signatures` moved from `na` to `partial` (remote signing with an OTP: CSC API, Aruba ARSS) and keeps the `N/A` tier, so it moves no percentage and the 23 excluded features stay 23 |
 | 2026-10-20 | minor | M12 #3673: the Character encoding rule accepts Identity-H/V fonts with Adobe CJK collections, or a predefined non-Identity CMap, while rejecting unknown names and foreign registries. Synthetic checker and read-only automation regressions passed after failing before the fix; per-glyph mapping validation and embedded-font extraction remain separate. Breadth, readiness and hours unchanged. |
 | 2026-10-12 | minor | Exclusive image crops resize with their pixels across nested states, intervening operators and content streams; shared clips remain fixed. Synthetic engine/tool regressions and private image save/reopen checks; estimates unchanged. |
 | 2026-10-11 | minor | Web printing shipped (gap 4): Hardware, Platforms and L Print text updated. Text only: scores, readiness and hours not re-judged |

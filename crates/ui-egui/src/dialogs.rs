@@ -25,6 +25,12 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
     if app.dialog != Some(Dialog::WordCount) {
         app.word_count_draft.cancel();
     }
+    // The Sign dialog closed, whichever way (Cancel, Escape, a click beside it): its draft goes,
+    // and with it every password, PIN and code typed in it. A request still running answers no one.
+    if app.dialog != Some(Dialog::Sign) && (app.sign_draft.is_some() || app.remote_task.is_some()) {
+        app.sign_draft = None;
+        app.remote_task = None;
+    }
     if app.dialog != Some(Dialog::FieldTable) {
         app.field_table_draft = None;
     }

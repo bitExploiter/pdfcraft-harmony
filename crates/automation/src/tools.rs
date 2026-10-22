@@ -18,6 +18,10 @@ pub struct ToolDef {
     pub read_only: bool,
     /// May remove content or overwrite files.
     pub destructive: bool,
+    /// Reaches past this computer once the host gives it a network: the remote signing tools
+    /// talk to the signing service a call names. Without one they can't, and the MCP server
+    /// then reports no tool as open-world ([`crate::Automation::remote_enabled`]).
+    pub open_world: bool,
     /// The registry command this tool automates, if any.
     pub command: Option<&'static str>,
 }
@@ -80,11 +84,12 @@ struct T {
     description: &'static str,
     read_only: bool,
     destructive: bool,
+    open_world: bool,
     command: Option<&'static str>,
 }
 
 const fn t(name: &'static str, title: &'static str, description: &'static str) -> T {
-    T { name, title, description, read_only: false, destructive: false, command: None }
+    T { name, title, description, read_only: false, destructive: false, open_world: false, command: None }
 }
 
 impl T {
@@ -94,6 +99,10 @@ impl T {
     }
     const fn destructive(mut self) -> Self {
         self.destructive = true;
+        self
+    }
+    const fn open_world(mut self) -> Self {
+        self.open_world = true;
         self
     }
     const fn cmd(mut self, id: &'static str) -> Self {
@@ -108,6 +117,7 @@ impl T {
             input_schema,
             read_only: self.read_only,
             destructive: self.destructive,
+            open_world: self.open_world,
             command: self.command,
         }
     }
@@ -736,13 +746,16 @@ pub fn tools() -> Vec<ToolDef> {
             .ro()
             .cmd("sign.digital")
             .with(schema(json!({}), &[])),
-        t("sign_document", "Sign a document", "Sign with a digital ID (a .p12/.pfx path, or on macOS a Keychain identity: \"keychain:<common name or fingerprint>\" from sign_keychain_ids, or on Windows a store identity: \"windows:<common name or fingerprint>\" from sign_windows_ids) and save the signed file to `out` (signing always saves, as in Acrobat; the document then shows the signed file). Sign an existing empty signature field (`field`), or a new one on `page` at `rect` (omit rect for an invisible signature). certify: no_changes, form_fill or comments makes a certification signature. graphic shows a picture where the signer's name would be large (Acrobat: Configure Signature Appearance): {\"image\": path} (PNG or JPEG), {\"text\": name} (typed in the Fill & Sign script font) or {\"strokes\": [[[x, y], …], …]} (y up, the drawing pad 1 wide); it needs a visible signature. appearance chooses what a visible signature shows (default: name, date and labels; reason, location and distinguished_name are off unless turned on). labels gives the words of its labels, e.g. in another language (default English: \"Digitally signed by\", \"DN: \", \"Reason: \", \"Location: \", \"Date: \"; include the separator); each must be in Western European characters (Windows-1252), the only ones the signature's font draws, or the call is refused naming the label and character. PAdES B-B, SHA-256 (SHA-384 for P-384 keys).")
+        t("sign_document", "Sign a document", "Sign with a digital ID (a .p12/.pfx path, or on macOS a Keychain identity: \"keychain:<common name or fingerprint>\" from sign_keychain_ids, or on Windows a store identity: \"windows:<common name or fingerprint>\" from sign_windows_ids, or a remote signing service's: a \"remote:…\" id from sign_remote_ids, with password the service password, otp the one-time password, which authorizes this one signature, and pin when sign_remote_ids reports pin: true; only the digest leaves the computer) and save the signed file to `out` (signing always saves, as in Acrobat; the document then shows the signed file). Sign an existing empty signature field (`field`), or a new one on `page` at `rect` (omit rect for an invisible signature). certify: no_changes, form_fill or comments makes a certification signature. graphic shows a picture where the signer's name would be large (Acrobat: Configure Signature Appearance): {\"image\": path} (PNG or JPEG), {\"text\": name} (typed in the Fill & Sign script font) or {\"strokes\": [[[x, y], …], …]} (y up, the drawing pad 1 wide); it needs a visible signature. appearance chooses what a visible signature shows (default: name, date and labels; reason, location and distinguished_name are off unless turned on). labels gives the words of its labels, e.g. in another language (default English: \"Digitally signed by\", \"DN: \", \"Reason: \", \"Location: \", \"Date: \"; include the separator); each must be in Western European characters (Windows-1252), the only ones the signature's font draws, or the call is refused naming the label and character. PAdES B-B, SHA-256 (SHA-384 for P-384 keys).")
             .cmd("sign.digital")
+            .open_world()
             .with(schema(
                 json!({
                     "doc": doc(),
-                    "id": { "type": "string", "description": "Digital ID file (.p12 / .pfx), keychain: reference on macOS, or windows: reference on Windows." },
-                    "password": { "type": "string" },
+                    "id": { "type": "string", "description": "Digital ID file (.p12 / .pfx), keychain: reference on macOS, windows: reference on Windows, or remote: id from sign_remote_ids." },
+                    "password": { "type": "string", "description": "The .p12 password, or for a remote: id the signing service password (never stored)." },
+                    "pin": { "type": "string", "description": "remote: id only: the signature PIN, when sign_remote_ids reports pin: true." },
+                    "otp": { "type": "string", "description": "remote: id only: the one-time password (from sign_remote_send_otp when otp is sent, or an authenticator app or token when typed)." },
                     "field": { "type": "string" },
                     "page": { "type": "integer", "minimum": 1 },
                     "rect": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
@@ -789,6 +802,30 @@ pub fn tools() -> Vec<ToolDef> {
                     "out": { "type": "string", "description": "Where to save the signed document." },
                 }),
                 &["doc", "id", "out"],
+            )),
+        t("sign_remote_ids", "List remote signing certificates", "Sign in to a remote signing service (firma remota: the key stays with the service, and each signature is authorized with a one-time password) and list the account's certificates that can sign: the remote: id sign_document takes, name, issuer, email, expires, and what a signature asks for: pin (a static PIN), otp (none; typed: read from an authenticator app or token; sent: have sign_remote_send_otp send it first) and auth (the service's own description of each value). protocol csc is the Cloud Signature Consortium API (v2, or v1) at url, its base address ending in /csc/v2 or /csc/v1, signed in with user and password (services that only offer OAuth sign-in aren't supported yet); protocol arss is Aruba Remote Sign Server (url defaults to Aruba's endpoint; domain, required, is the OTP domain, the \"dominio\" Aruba gives with the account; hsm its HSM type when Aruba gives one). url must be https:// (plain http:// only to this computer). The password goes only to the service and is never stored, and a refused one counts towards the service locking the account: don't retry it unchanged. Needs network access, which the host enables (pdfcraft-cli run does; pdfcraft-cli mcp only with --remote-signing).")
+            .cmd("sign.digital")
+            .open_world()
+            .with(schema(
+                json!({
+                    "protocol": { "type": "string", "enum": ["csc", "arss"] },
+                    "url": { "type": "string", "maxLength": 1024, "description": "csc: the CSC API base address (required). arss: the endpoint, default Aruba's." },
+                    "user": { "type": "string", "minLength": 1, "maxLength": 1024 },
+                    "password": { "type": "string", "minLength": 1, "description": "The signing service password (never stored)." },
+                    "domain": { "type": "string", "maxLength": 1024, "description": "arss only, and required there: the OTP domain (typeOtpAuth, the \"dominio\") Aruba gives with the account." },
+                    "hsm": { "type": "string", "maxLength": 1024, "description": "arss only: the HSM type (typeHSM), when Aruba gives one." },
+                }),
+                &["protocol", "user", "password"],
+            )),
+        t("sign_remote_send_otp", "Send a remote signing OTP", "Have the signing service of a remote: id (from sign_remote_ids) send the one-time password for the next sign_document, by SMS or a call: for an id whose otp is sent. A code typed from an app or token needs no sending, and asking is refused. Each code authorizes one signature, and sending a new one replaces the last; sign_document with the same id puts it under the value it was sent for (an SMS rather than an app, when either would do). Returns {sent: true}, or {challenge} to show the user when the service answers with a challenge their device turns into the code. The password goes only to the service and is never stored. Needs network access, like sign_remote_ids.")
+            .cmd("sign.digital")
+            .open_world()
+            .with(schema(
+                json!({
+                    "id": { "type": "string", "description": "A remote: id from sign_remote_ids." },
+                    "password": { "type": "string", "minLength": 1, "description": "The signing service password (never stored)." },
+                }),
+                &["id", "password"],
             )),
         t("sign_trust", "Trust certificates", "Add certificates (.cer/.crt/.pem/.der, a .p7b/.p7c bundle, or the certificates in a .p12 with `password`) to the trusted certificates used to validate signatures, or clear the list (clear: true). Every open document is revalidated. Returns the trusted list.").with(schema(
             json!({ "paths": { "type": "array", "items": { "type": "string" } }, "password": { "type": "string" }, "clear": { "type": "boolean" } }),

@@ -2514,3 +2514,39 @@ animation effects	Off	Ki
 	field names can't contain a period: {name}	a mezőnevek nem tartalmazhatnak pontot: {name}
 	two cells would both be named {name}	két cella neve is {name} lenne
 	a field named {name} already exists	már van {name} nevű mező
+
+# Remote signature (OTP): Sign dialog
+	Signing service  ·  	Aláírási szolgáltatás  ·  
+	Remote signing isn't available in this build	A távoli aláírás ebben a változatban nem érhető el
+	Remove "{name}" from this list? The certificate stays with the signing service.	Eltávolítja a(z) „{name}” elemet erről a listáról? A tanúsítvány az aláírási szolgáltatásnál marad.
+	Remote signature (OTP)	Távoli aláírás (OTP)
+	Looking for certificates…	Tanúsítványok keresése…
+	Find certificates	Tanúsítványok megkeresése
+	Signing…	Aláírás folyamatban…
+	Code sent	Kód elküldve
+	Challenge: {challenge}	Kihívás: {challenge}
+	Service	Szolgáltatás
+	Other provider (CSC API)	Más szolgáltató (CSC API)
+	Service address	Szolgáltatás címe
+	Domain	Tartomány
+	Required, given by Aruba with the account	Kötelező, az Aruba adja a fiókkal együtt
+	PIN	PIN-kód
+	One-time code (OTP)	Egyszer használatos kód (OTP)
+	Send code	Kód küldése
+
+# Remote signature (OTP): what the dialog and the signing services say
+	Sending the code…	Kód küldése folyamatban…
+	Choose where to save the signed file. The service signs it once you have.	Válaszd ki, hová mentsük az aláírt fájlt. A szolgáltatás azután írja alá, hogy kiválasztottad.
+	Signing… Confirm the signature on your other device.	Aláírás folyamatban… Erősítse meg az aláírást a másik eszközén.
+	The document changed while it was being signed, so the signature wasn't saved.	A dokumentum aláírás közben megváltozott, ezért az aláírás nem lett mentve.
+	The signing service lists no certificate for this account.	Az aláírási szolgáltatás nem sorol fel tanúsítványt ehhez a fiókhoz.
+	the signing service is unreachable ({reason})	az aláírási szolgáltatás nem érhető el ({reason})
+	the signing service rejected the user name or password	az aláírási szolgáltatás elutasította a felhasználónevet vagy a jelszót
+	the signing service rejected the PIN	az aláírási szolgáltatás elutasította a PIN-kódot
+	the signing service rejected the OTP (it may have expired)	az aláírási szolgáltatás elutasította az OTP-t (lehet, hogy lejárt)
+	the signing service rejected the PIN or the OTP (the OTP may have expired)	az aláírási szolgáltatás elutasította a PIN-kódot vagy az OTP-t (lehet, hogy az OTP lejárt)
+	the signing service refused to sign	az aláírási szolgáltatás megtagadta az aláírást
+	the signing service refused to list the certificates	az aláírási szolgáltatás megtagadta a tanúsítványok listázását
+	the signing service refused to send the OTP	az aláírási szolgáltatás megtagadta az OTP elküldését
+	an Aruba account needs its domain (the "dominio" Aruba gives with the account): enter it	egy Aruba-fióknak szüksége van a tartományára (a „dominio”, amelyet az Aruba a fiókkal együtt ad): add meg
+	this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet	ez az aláírási szolgáltatás nem használható: böngészőben történő OAuth-bejelentkezést igényel, amelyet a PdfCraft még nem támogat

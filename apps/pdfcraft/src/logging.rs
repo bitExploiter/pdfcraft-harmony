@@ -10,12 +10,14 @@
 //! Levels: `info` for PdfCraft's own crates, `warn` for everything else (wgpu and naga are
 //! chatty). `RUST_LOG` replaces that with env_logger-style directives: `debug`,
 //! `warn,pdfcraft_render=trace`, `wgpu_core=info`. A directive ending in `*` matches every target
-//! that starts with it (`pdfcraft*=debug`).
+//! that starts with it (`pdfcraft*=debug`). Whatever it says, the HTTP stack remote signing
+//! goes through ([`WIRE_TARGETS`]) logs at most `debug`: its `trace` dumps the bytes on the wire
+//! before TLS, the Authorization header and access tokens included, unredacted.
 //!
 //! Records logged before the settings directory is known are kept (up to [`MAX_PENDING`]) and
 //! written once the file is attached. Writing never panics: a file that can't be created or
-//! written leaves standard error as the only sink. Never log the control-channel token or a
-//! document password.
+//! written leaves standard error as the only sink. Never log the control-channel token, a
+//! document password or a signing service's password, PIN or OTP.
 
 use std::fs::File;
 use std::io::Write;
@@ -35,6 +37,12 @@ pub const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 pub const MAX_PENDING: usize = 512;
 /// The built-in filter when `RUST_LOG` is unset or empty.
 pub const DEFAULT_FILTER: &str = "warn,pdfcraft*=info";
+/// The HTTP stack's crates (and their modules), which log at most [`WIRE_MAX`] whatever the
+/// filter says: at `trace`, ureq and ureq-proto write every request and answer as it goes over
+/// the wire, headers and bodies unredacted, and rustls traces the handshake around them.
+pub const WIRE_TARGETS: [&str; 3] = ["ureq", "ureq_proto", "rustls"];
+/// The most [`WIRE_TARGETS`] log: ureq's `debug` leaves out the headers that hold secrets.
+pub const WIRE_MAX: LevelFilter = LevelFilter::Debug;
 
 /// Per-target level filter parsed from env_logger-style directives.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -66,15 +74,28 @@ impl Filter {
         f
     }
 
-    /// The level that applies to `target` (the most specific matching directive wins).
+    /// The level that applies to `target` (the most specific matching directive wins), at most
+    /// [`WIRE_MAX`] for the HTTP stack.
     pub fn level_for(&self, target: &str) -> LevelFilter {
-        self.directives.iter().filter(|(name, _)| matches(name, target)).max_by_key(|(name, _)| name.len()).map_or(self.default, |(_, level)| *level)
+        let level = self
+            .directives
+            .iter()
+            .filter(|(name, _)| matches(name, target))
+            .max_by_key(|(name, _)| name.len())
+            .map_or(self.default, |(_, level)| *level);
+        if is_wire(target) { level.min(WIRE_MAX) } else { level }
     }
 
-    /// The most verbose level any target can reach (for `log::set_max_level`).
+    /// The most verbose level any target can reach (for `log::set_max_level`). A directive
+    /// naming only the HTTP stack reaches [`WIRE_MAX`] at most.
     pub fn max(&self) -> LevelFilter {
-        self.directives.iter().map(|(_, level)| *level).fold(self.default, Ord::max)
+        self.directives.iter().map(|(name, level)| if is_wire(name) { (*level).min(WIRE_MAX) } else { *level }).fold(self.default, Ord::max)
     }
+}
+
+/// `target` (or a directive's name without a `*`) is one of [`WIRE_TARGETS`] or a module of one.
+fn is_wire(target: &str) -> bool {
+    WIRE_TARGETS.iter().any(|w| matches(w, target))
 }
 
 fn parse_level(s: &str) -> Option<LevelFilter> {
@@ -458,6 +479,43 @@ mod tests {
         assert!(!text.contains("too chatty") && !text.contains("below info"), "{text}");
         assert!(logger.enabled(&log::Metadata::builder().level(log::Level::Info).target("pdfcraft_ui_egui").build()));
         assert!(!logger.enabled(&log::Metadata::builder().level(log::Level::Info).target("naga").build()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// ureq-proto traces each request's bytes before TLS (`Authorization: Basic …` included);
+    /// no `RUST_LOG` lets that reach the file or standard error, and the stack's `debug` stays.
+    #[test]
+    fn the_http_stacks_wire_dump_is_never_logged() {
+        use log::Log;
+        for spec in ["trace", "ureq_proto=trace", "ureq_proto::util=trace", "ureq=trace,ureq_proto=trace", "ureq*=trace", "rustls", "*=trace"] {
+            let f = Filter::parse(spec);
+            for target in ["ureq_proto::util", "ureq::unversioned::transport", "rustls::client::hs"] {
+                assert!(f.level_for(target) <= LevelFilter::Debug, "{spec}: {target}");
+            }
+        }
+        assert_eq!(Filter::parse("trace").level_for("ureq_proto::util"), LevelFilter::Debug);
+        assert_eq!(Filter::parse("ureq_proto=off").level_for("ureq_proto::util"), LevelFilter::Off);
+        // Nothing else is capped: a crate whose name only starts like one of them, PdfCraft's own.
+        assert_eq!(Filter::parse("trace").level_for("ureq_extra"), LevelFilter::Trace);
+        assert_eq!(Filter::parse("trace").level_for("pdfcraft_sign::remote"), LevelFilter::Trace);
+        // A directive naming only the HTTP stack doesn't raise the global maximum past debug.
+        assert_eq!(Filter::parse("warn,ureq_proto=trace,rustls::client=trace").max(), LevelFilter::Debug);
+        assert_eq!(Filter::parse("trace").max(), LevelFilter::Trace);
+
+        let dir = temp_dir("wire");
+        let logger = AppLogger::new(Filter::parse("trace"), false);
+        let path = logger.attach_dir(&dir).expect("attach");
+        let record = |level, target: &'static str, msg: &'static str| {
+            logger.log(&log::Record::builder().level(level).target(target).args(format_args!("{msg}")).build());
+        };
+        record(log::Level::Trace, "ureq_proto::util", "417574686f72697a6174696f6e3a204261736963 Authorization: Basic bWFyaW86c2VjcmV0");
+        record(log::Level::Trace, "rustls::client::hs", "handshake bytes");
+        record(log::Level::Debug, "ureq_proto::client", "POST /csc/v2/info");
+        record(log::Level::Trace, "pdfcraft_sign", "still traced");
+        let text = read(&path);
+        assert!(!text.contains("Authorization") && !text.contains("bWFyaW86c2VjcmV0") && !text.contains("handshake bytes"), "{text}");
+        assert!(text.contains("ureq_proto::client: POST /csc/v2/info\n") && text.contains("pdfcraft_sign: still traced\n"), "{text}");
+        assert!(!logger.enabled(&log::Metadata::builder().level(log::Level::Trace).target("ureq_proto::util").build()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

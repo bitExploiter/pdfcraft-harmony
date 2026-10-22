@@ -534,6 +534,11 @@ fn tool_table_is_well_formed() {
             assert!(pdfcraft_engine::commands::command(c).is_some(), "{} names unregistered command {c}", t.name);
         }
     }
+    // The tools that reach a signing service say so, and none claims to leave everything as it
+    // was: a refused sign-in counts towards the service locking the account.
+    let open: Vec<&str> = all.iter().filter(|t| t.open_world).map(|t| t.name).collect();
+    assert_eq!(open, ["sign_document", "sign_remote_ids", "sign_remote_send_otp"]);
+    assert!(all.iter().filter(|t| t.open_world).all(|t| !t.read_only));
 }
 
 #[test]
@@ -5419,6 +5424,499 @@ fn digital_ids_signing_and_validation_through_tools() {
     assert_eq!(ok(&mut a, "sign_list", json!({ "doc": doc }))["signatures"][0]["status"], "valid");
 }
 
+/// The one signature of `doc`: intact, and "unknown" only because nobody trusts the service's
+/// certificate authority.
+fn assert_intact_and_untrusted(a: &mut Automation, doc: u64) {
+    let list = ok(a, "sign_list", json!({ "doc": doc }));
+    assert_eq!((list["count"].as_u64(), list["signed"].as_u64()), (Some(1), Some(1)), "{list}");
+    let s = &list["signatures"][0];
+    assert_eq!((s["status"].as_str(), s["signer"].as_str()), (Some("unknown"), Some("Mario Rossi")), "{s}");
+    let details: Vec<&str> = s["details"].as_array().unwrap().iter().map(|d| d.as_str().unwrap()).collect();
+    assert!(details.iter().any(|d| d.contains("identity is unknown")), "{details:?}");
+    assert!(!details.iter().any(|d| d.contains("altered") || d.contains("corrupt") || d.contains("not valid")), "{details:?}");
+}
+
+/// `auto` with `service` as the network and the clock in October 2026, while `remote::mock`'s
+/// certificates are valid (2000 to 2099).
+fn remote_auto(dir: &Path, service: &std::sync::Arc<pdfcraft_sign::remote::mock::MockService>) -> Automation {
+    remote_auto_on(dir, service.clone())
+}
+
+/// [`remote_auto`] on any network.
+fn remote_auto_on(dir: &Path, network: std::sync::Arc<dyn pdfcraft_sign::remote::HttpTransport>) -> Automation {
+    Automation::new().with_root(dir).unwrap().with_clock(|| 1_792_000_000).with_remote_transport(network)
+}
+
+fn invalid_args(e: ToolError) -> String {
+    match e {
+        ToolError::InvalidArgs(m) => m,
+        other => panic!("expected InvalidArgs, got {other:?}"),
+    }
+}
+
+/// The message of a failure the caller can't fix by changing the call.
+fn failure(e: ToolError) -> String {
+    match e {
+        ToolError::Failed(m) => m,
+        other => panic!("expected Failed, got {other:?}"),
+    }
+}
+
+/// `text` has `secret` as a word of its own: an OTP's digits inside a longer run of letters and
+/// digits (a fingerprint, a serial number) are a coincidence, not the code quoted.
+fn quotes(text: &str, secret: &str) -> bool {
+    text.match_indices(secret).any(|(i, _)| {
+        let before = text.get(..i).and_then(|t| t.chars().next_back());
+        let after = text.get(i + secret.len()..).and_then(|t| t.chars().next());
+        !before.is_some_and(|c| c.is_ascii_alphanumeric()) && !after.is_some_and(|c| c.is_ascii_alphanumeric())
+    })
+}
+
+/// No text PdfCraft gave back quotes the service password, the PIN or any of the `otps` used.
+fn assert_no_secret(said: &[String], otps: &[String]) {
+    use pdfcraft_sign::remote::mock;
+    assert!(!otps.is_empty());
+    for text in said {
+        assert!(!text.contains(mock::PASSWORD) && !text.contains(mock::PIN), "{text}");
+        for otp in otps {
+            assert!(!quotes(text, otp), "{otp} in {text}");
+        }
+    }
+}
+
+/// Remote signing with a CSC API service (`remote::mock`, in process), end to end: list the
+/// account's certificates, have the code sent, sign with the remote: id, password, PIN and OTP,
+/// and validate. A wrong password, PIN left out, wrong OTP, and a code asked for that is never
+/// sent are the caller's to fix (InvalidArgs) and write nothing. Only digests reach the service,
+/// and no result or error carries a secret.
+#[test]
+fn remote_signing_with_a_csc_service_through_tools() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    let dir = workdir("remote-csc");
+    let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let mut a = remote_auto(&dir, &service);
+    let mut said: Vec<String> = Vec::new();
+
+    let account = json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD });
+    let listed = ok(&mut a, "sign_remote_ids", account.clone());
+    said.push(listed.to_string());
+    // The service's disabled key isn't offered.
+    assert_eq!(listed["count"], 2, "{listed}");
+    let (rsa, p256) = (&listed["ids"][0], &listed["ids"][1]);
+    let rsa_id = rsa["id"].as_str().unwrap().to_string();
+    assert!(rsa_id.starts_with("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential=rsa-2048"), "{rsa_id}");
+    assert_eq!((rsa["name"].as_str(), rsa["email"].as_str()), (Some("Mario Rossi"), Some("mario.rossi@example.com")));
+    // Issued by the service's CA, which a CSC "chain" goes on to.
+    assert_eq!(rsa["issuer"], service.intermediate().subject.display_name());
+    assert_eq!(rsa["certificate"]["self_signed"], false);
+    assert_eq!(rsa["expires"], rsa["certificate"]["valid_to"]);
+    assert_eq!((rsa["pin"].as_bool(), rsa["otp"].as_str()), (Some(true), Some("sent")));
+    let auth: Vec<(&str, &str)> = rsa["auth"].as_array().unwrap().iter().map(|o| (o["id"].as_str().unwrap(), o["role"].as_str().unwrap())).collect();
+    assert_eq!(auth, [("PIN", "pin"), ("OTP", "otp")]);
+    assert_eq!((rsa["auth"][1]["type"].as_str(), rsa["auth"][1]["label"].as_str()), (Some("ChallengeResponse"), Some("SMS code")));
+    assert_eq!((p256["pin"].as_bool(), p256["otp"].as_str()), (Some(false), Some("typed")));
+    let mut wrong_password = account.clone();
+    wrong_password["password"] = json!("not the password");
+    let e = invalid_args(err(&mut a, "sign_remote_ids", wrong_password));
+    assert_eq!(e, "the signing service rejected the user name or password");
+
+    // The SMS code is sent; an app's code isn't, and asking for it is the caller's mistake.
+    let before = service.current_otp();
+    assert_eq!(ok(&mut a, "sign_remote_send_otp", json!({ "id": rsa_id, "password": mock::PASSWORD })), json!({ "sent": true }));
+    assert_ne!(service.current_otp(), before, "a new code was sent");
+    let e = invalid_args(err(&mut a, "sign_remote_send_otp", json!({ "id": p256["id"], "password": mock::PASSWORD })));
+    assert!(e.contains("authenticator app"), "{e}");
+    said.push(e);
+
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let sign = |pin: Option<&str>, otp: &str, out: &str| json!({ "doc": doc, "id": rsa_id, "password": mock::PASSWORD, "pin": pin, "otp": otp, "page": 1, "rect": [20, 200, 180, 250], "reason": "Approved", "out": out });
+    // A call that is wrong anyway never signs in.
+    let asked = service.requests().len();
+    let mut off_the_page = sign(Some(mock::PIN), &service.current_otp(), "remote.pdf");
+    off_the_page["page"] = json!(9);
+    assert_eq!(invalid_args(err(&mut a, "sign_document", off_the_page)), "page 9 does not exist");
+    assert_eq!(service.requests().len(), asked);
+    // Nor does one the document refuses: the signature is tried out with a local key first.
+    let mut no_field = sign(Some(mock::PIN), &service.current_otp(), "remote.pdf");
+    no_field["field"] = json!("Nope");
+    assert_eq!(failure(err(&mut a, "sign_document", no_field)), "there is no signature field \"Nope\"");
+    assert_eq!(service.requests().len(), asked);
+    // Refused before anything is authorized: the code stays good.
+    let e = invalid_args(err(&mut a, "sign_document", sign(None, &service.current_otp(), "no-pin.pdf")));
+    assert_eq!(e, "this certificate needs its PIN to sign: enter it");
+    said.push(e);
+    let wrong = format!("{:06}", (service.current_otp().parse::<u32>().unwrap() + 1) % 1_000_000);
+    let mut otps = vec![wrong.clone(), service.current_otp()];
+    let e = invalid_args(err(&mut a, "sign_document", sign(Some(mock::PIN), &wrong, "wrong-otp.pdf")));
+    assert_eq!(e, "the signing service rejected the PIN or the OTP (the OTP may have expired)");
+    said.push(e);
+    assert!(!dir.join("no-pin.pdf").exists() && !dir.join("wrong-otp.pdf").exists());
+    assert_eq!(ok(&mut a, "sign_list", json!({ "doc": doc }))["count"], 0);
+
+    // The refused try spent that code: a new one signs.
+    ok(&mut a, "sign_remote_send_otp", json!({ "id": rsa_id, "password": mock::PASSWORD }));
+    otps.push(service.current_otp());
+    let r = ok(&mut a, "sign_document", sign(Some(mock::PIN), &service.current_otp(), "remote.pdf"));
+    said.push(r.to_string());
+    assert_eq!((r["signature"]["status"].as_str(), r["signature"]["page"].as_u64()), (Some("unknown"), Some(1)), "{r}");
+    assert!(std::fs::read(dir.join("remote.pdf")).unwrap().starts_with(&fixture(3)), "an incremental update");
+    assert_intact_and_untrusted(&mut a, doc);
+    // The file carries the chain to the service's root, which is all there is to trust.
+    let chain: Vec<&str> = r["signature"]["chain"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+    assert!(chain.contains(&service.intermediate().display_name().as_str()), "{chain:?}");
+    std::fs::write(dir.join("service-root.cer"), &service.root().raw).unwrap();
+    ok(&mut a, "sign_trust", json!({ "paths": ["service-root.cer"] }));
+    assert_eq!(ok(&mut a, "sign_list", json!({ "doc": doc }))["signatures"][0]["status"], "valid");
+    // A field that is signed already costs no sign-in either.
+    let asked = service.requests().len();
+    let mut again = sign(Some(mock::PIN), &service.current_otp(), "again.pdf");
+    again["field"] = r["signature"]["field"].clone();
+    let e = failure(err(&mut a, "sign_document", again));
+    assert!(e.contains("is already signed"), "{e}");
+    assert_eq!(service.requests().len(), asked);
+    assert!(!dir.join("again.pdf").exists());
+
+    // Requests carry digests and certificates' ids, never the document.
+    assert!(service.requests().iter().all(|r| r.body.len() < 4096 && !r.body_text().contains("%PDF")));
+    assert_no_secret(&said, &otps);
+}
+
+/// Remote signing with Aruba's ARSS (in process): its listing needs the account's domain, the
+/// OTP comes by SMS, and its refusals (a wrong password, a wrong OTP) are the caller's to fix.
+#[test]
+fn remote_signing_with_aruba_through_tools() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    let dir = workdir("remote-arss");
+    let service = std::sync::Arc::new(MockService::arss().unwrap());
+    let mut a = remote_auto(&dir, &service);
+    let account = json!({ "protocol": "arss", "url": mock::ARSS_URL, "user": mock::USER, "password": mock::PASSWORD, "domain": mock::DOMAIN });
+    // Aruba answers an account without its domain "Invalid Parameters": it isn't asked.
+    let mut no_domain = account.clone();
+    no_domain.as_object_mut().unwrap().remove("domain");
+    assert_eq!(invalid_args(err(&mut a, "sign_remote_ids", no_domain)), pdfcraft_sign::remote::NEEDS_DOMAIN);
+    assert!(service.requests().is_empty());
+    let listed = ok(&mut a, "sign_remote_ids", account.clone());
+    assert_eq!(listed["count"], 2, "{listed}");
+    let rsa = &listed["ids"][0];
+    let rsa_id = rsa["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        rsa_id,
+        "remote:arss?user=mario.rossi&credential=rsa-2048&domain=frtest&url=https%3A%2F%2Farss.example%2FArubaSignService%2FArubaSignService"
+    );
+    assert_eq!((rsa["pin"].as_bool(), rsa["otp"].as_str()), (Some(false), Some("sent")));
+    let mut said = vec![listed.to_string()];
+    let mut wrong_password = account.clone();
+    wrong_password["password"] = json!("not the password");
+    let e = invalid_args(err(&mut a, "sign_remote_ids", wrong_password));
+    assert_eq!(e, "the signing service refused to list the certificates: Invalid Credentials");
+    said.push(e);
+
+    assert_eq!(ok(&mut a, "sign_remote_send_otp", json!({ "id": rsa_id, "password": mock::PASSWORD })), json!({ "sent": true }));
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let sign = |otp: &str, out: &str| json!({ "doc": doc, "id": rsa_id, "password": mock::PASSWORD, "otp": otp, "out": out });
+    let wrong = format!("{:06}", (service.current_otp().parse::<u32>().unwrap() + 1) % 1_000_000);
+    let mut otps = vec![wrong.clone(), service.current_otp()];
+    let e = invalid_args(err(&mut a, "sign_document", sign(&wrong, "wrong-otp.pdf")));
+    assert_eq!(e, "the signing service refused to sign: Invalid OTP (code 0001)");
+    said.push(e);
+    assert!(!dir.join("wrong-otp.pdf").exists());
+
+    ok(&mut a, "sign_remote_send_otp", json!({ "id": rsa_id, "password": mock::PASSWORD }));
+    otps.push(service.current_otp());
+    let r = ok(&mut a, "sign_document", sign(&service.current_otp(), "remote.pdf"));
+    said.push(r.to_string());
+    assert_eq!((r["signature"]["status"].as_str(), r["signature"]["visible"].as_bool()), (Some("unknown"), Some(false)), "{r}");
+    assert!(dir.join("remote.pdf").is_file());
+    assert_intact_and_untrusted(&mut a, doc);
+    assert_no_secret(&said, &otps);
+}
+
+/// A CSC credential that takes a code by SMS or from an app, one or the other: the code
+/// `sign_remote_send_otp` had sent goes under the SMS, which the service sent it for, whichever
+/// comes first; one nobody had sent (an app's), under the first.
+#[test]
+fn a_remote_code_sent_by_sms_signs_under_the_sms() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    for (expression, first) in [("PIN AND (APP XOR SMS)", "APP"), ("PIN AND (SMS XOR APP)", "SMS")] {
+        let dir = workdir("remote-sms-or-app");
+        let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+        service.set_auth(
+            mock::RSA,
+            expression,
+            json!([{ "type": "Password", "id": "PIN", "label": "PIN" }, { "type": "ChallengeResponse", "id": "SMS", "label": "SMS code" },
+                   { "type": "Password", "id": "APP", "generator": "totp", "label": "App code" }]),
+        );
+        let mut a = remote_auto(&dir, &service);
+        let account = json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD });
+        let id = ok(&mut a, "sign_remote_ids", account)["ids"][0]["id"].as_str().unwrap().to_string();
+        let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+        let sign = |otp: String, out: &str| json!({ "doc": doc, "id": id, "password": mock::PASSWORD, "pin": mock::PIN, "otp": otp, "out": out });
+        // The last code authorization carried, by object.
+        let coded = || {
+            let r = service.requests().into_iter().rfind(|r| r.url.ends_with("/credentials/authorize")).unwrap();
+            let body: Value = serde_json::from_slice(&r.body).unwrap();
+            body["authData"].as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap().to_string()).filter(|id| id != "PIN").collect::<Vec<_>>()
+        };
+        ok(&mut a, "sign_remote_send_otp", json!({ "id": id, "password": mock::PASSWORD }));
+        ok(&mut a, "sign_document", sign(service.current_otp(), "sms.pdf"));
+        assert_eq!(coded(), ["SMS"], "{expression}");
+        // That code is spent; the app's next one is nobody's sent code.
+        let doc_b = ok(&mut a, "doc_open", json!({ "path": "b.pdf" }))["doc"].as_u64().unwrap();
+        let mut app = sign(service.current_otp(), "app.pdf");
+        app["doc"] = json!(doc_b);
+        ok(&mut a, "sign_document", app);
+        assert_eq!(coded(), [first], "{expression}");
+    }
+}
+
+/// The user name and Aruba's domain are trimmed as they are checked: " frtest " reaches Aruba,
+/// and the id that comes back, as "frtest".
+#[test]
+fn remote_ids_trim_the_user_name_and_the_domain() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    let dir = workdir("remote-trimmed");
+    let service = std::sync::Arc::new(MockService::arss().unwrap());
+    let mut a = remote_auto(&dir, &service);
+    let spaced = |s: &str| format!(" {s} ");
+    let account =
+        json!({ "protocol": "arss", "url": mock::ARSS_URL, "user": spaced(mock::USER), "password": mock::PASSWORD, "domain": spaced(mock::DOMAIN) });
+    let listed = ok(&mut a, "sign_remote_ids", account);
+    assert_eq!(
+        listed["ids"][0]["id"],
+        "remote:arss?user=mario.rossi&credential=rsa-2048&domain=frtest&url=https%3A%2F%2Farss.example%2FArubaSignService%2FArubaSignService"
+    );
+    let body = service.requests().pop().unwrap().body_text();
+    assert!(body.contains("<typeOtpAuth>frtest</typeOtpAuth><user>mario.rossi</user>"), "{body}");
+}
+
+/// Without a transport from the host, every remote call fails saying so, and nothing is
+/// written. Arguments are checked first either way, without any network: a CSC service needs
+/// its url, an address must be https, Aruba's fields are Aruba's and its domain is required, a
+/// remote id needs the service password, and a PIN or OTP means nothing to a local digital ID.
+#[test]
+fn remote_signing_needs_the_hosts_network_and_good_arguments() {
+    use pdfcraft_sign::remote::{self, mock};
+    let dir = workdir("remote-off");
+    let mut a = auto(&dir);
+    let off = ToolError::Failed("remote signing needs network access, which this host did not enable".into());
+    let id = format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={}", mock::RSA);
+    let account = json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD });
+    assert_eq!(err(&mut a, "sign_remote_ids", account), off);
+    assert_eq!(err(&mut a, "sign_remote_send_otp", json!({ "id": id, "password": mock::PASSWORD })), off);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let signing = json!({ "doc": doc, "id": id, "password": mock::PASSWORD, "pin": mock::PIN, "otp": "123456", "out": "remote.pdf" });
+    assert_eq!(err(&mut a, "sign_document", signing), off);
+    assert!(!dir.join("remote.pdf").exists());
+
+    let user = (mock::USER, mock::PASSWORD);
+    for (tool, args, expected) in [
+        ("sign_remote_ids", json!({ "protocol": "csc", "user": user.0, "password": user.1 }), "protocol csc needs url"),
+        ("sign_remote_ids", json!({ "protocol": "pkcs11", "user": user.0, "password": user.1 }), "unknown protocol \"pkcs11\""),
+        (
+            "sign_remote_ids",
+            json!({ "protocol": "csc", "url": "http://rssp.example/csc/v2", "user": user.0, "password": user.1 }),
+            "plain http:// is allowed only to this computer",
+        ),
+        (
+            "sign_remote_ids",
+            json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": user.0, "password": user.1, "domain": mock::DOMAIN }),
+            "domain and hsm are for protocol arss",
+        ),
+        ("sign_remote_ids", json!({ "protocol": "arss", "user": " ", "password": user.1 }), "user must not be empty"),
+        ("sign_remote_ids", json!({ "protocol": "arss", "user": user.0, "password": "", "domain": mock::DOMAIN }), "needs password"),
+        ("sign_remote_ids", json!({ "protocol": "arss", "user": user.0, "password": user.1 }), remote::NEEDS_DOMAIN),
+        ("sign_remote_ids", json!({ "protocol": "arss", "user": user.0, "password": user.1, "domain": " " }), remote::NEEDS_DOMAIN),
+        ("sign_remote_send_otp", json!({ "id": "remote:arss?user=mario.rossi&credential=rsa-2048", "password": user.1 }), remote::NEEDS_DOMAIN),
+        (
+            "sign_document",
+            json!({ "doc": doc, "id": "remote:arss?user=mario.rossi&credential=rsa-2048", "password": user.1, "otp": "123456", "out": "remote.pdf" }),
+            remote::NEEDS_DOMAIN,
+        ),
+        ("sign_remote_send_otp", json!({ "id": "a.pdf", "password": user.1 }), "id must be a remote: id"),
+        ("sign_remote_send_otp", json!({ "id": "remote:csc?user=mario.rossi&credential=x", "password": user.1 }), "it has no url"),
+        ("sign_document", json!({ "doc": doc, "id": id, "otp": "123456", "out": "remote.pdf" }), "needs password"),
+        (
+            "sign_document",
+            json!({ "doc": doc, "id": "ada.p12", "password": "secret12", "otp": "123456", "out": "x.pdf" }),
+            "pin and otp are for a remote: id",
+        ),
+    ] {
+        let e = invalid_args(err(&mut a, tool, args.clone()));
+        assert!(e.contains(expected), "{tool} {args}: {e}");
+    }
+}
+
+/// A network on which every signing service is unreachable.
+struct Unreachable;
+
+impl pdfcraft_sign::remote::HttpTransport for Unreachable {
+    fn post(&self, _: &str, _: &[(&str, &str)], _: &[u8]) -> Result<pdfcraft_sign::remote::HttpResponse, pdfcraft_sign::SignError> {
+        Err(pdfcraft_sign::SignError::Crypto("connection refused".into()))
+    }
+}
+
+/// `service`, except that `credentials/getChallenge` is refused as `invalid_request`: the
+/// credential is the account's, so what the service turned down is what PdfCraft built.
+struct RefusesChallenge(std::sync::Arc<pdfcraft_sign::remote::mock::MockService>);
+
+impl pdfcraft_sign::remote::HttpTransport for RefusesChallenge {
+    fn post(&self, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<pdfcraft_sign::remote::HttpResponse, pdfcraft_sign::SignError> {
+        if url.ends_with("/credentials/getChallenge") {
+            return Ok(pdfcraft_sign::remote::HttpResponse {
+                status: 400,
+                body: br#"{"error":"invalid_request","error_description":"Invalid parameter authObjectID"}"#.to_vec(),
+            });
+        }
+        self.0.post(url, headers, body)
+    }
+}
+
+/// What the service, or the way to it, gets wrong is `Failed`: unreachable, OAuth-only, an
+/// answer too large to read, a refusal of a request PdfCraft built, a signature over another
+/// digest (nothing is written). What the caller got wrong is `InvalidArgs` whichever protocol
+/// says it: a credential the account doesn't have or that can't sign, a blank user name in a
+/// remote: id, an overlong value (never quoted). None of those reach the service.
+#[test]
+fn remote_signing_tells_the_services_failures_from_the_callers() {
+    use pdfcraft_sign::remote::mock::{self, Fault, MockService};
+    let dir = workdir("remote-failures");
+    let csc = |credential: &str| format!("remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=mario.rossi&credential={credential}");
+    let arss = |credential: &str| {
+        format!(
+            "remote:arss?user=mario.rossi&credential={credential}&domain=frtest&url=https%3A%2F%2Farss.example%2FArubaSignService%2FArubaSignService"
+        )
+    };
+    let account = json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD });
+    let signing = |doc: u64, id: &str, otp: &str| json!({ "doc": doc, "id": id, "password": mock::PASSWORD, "pin": mock::PIN, "otp": otp, "out": "remote.pdf" });
+
+    let mut a = remote_auto_on(&dir, std::sync::Arc::new(Unreachable));
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let down = "the signing service is unreachable (connection refused)";
+    assert_eq!(failure(err(&mut a, "sign_remote_ids", account.clone())), down);
+    assert_eq!(failure(err(&mut a, "sign_remote_send_otp", json!({ "id": csc(mock::RSA), "password": mock::PASSWORD }))), down);
+    assert_eq!(failure(err(&mut a, "sign_document", signing(doc, &csc(mock::RSA), "123456"))), down);
+
+    for (fault, message) in [
+        (Fault::OauthOnly, "this signing service can't be used: it needs OAuth sign-in in a browser, which PdfCraft doesn't support yet"),
+        (Fault::Oversized, "the signing service's answer is larger than 1 MiB, so it wasn't read"),
+    ] {
+        let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+        service.fail(fault);
+        let mut a = remote_auto(&dir, &service);
+        assert_eq!(failure(err(&mut a, "sign_remote_ids", account.clone())), message, "{fault:?}");
+        let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+        assert_eq!(failure(err(&mut a, "sign_document", signing(doc, &csc(mock::P256), &service.current_otp()))), message, "{fault:?}");
+    }
+
+    // CSC's invalid_request about a credential the account has is about what PdfCraft sent.
+    let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let mut a = remote_auto_on(&dir, std::sync::Arc::new(RefusesChallenge(service.clone())));
+    assert_eq!(
+        failure(err(&mut a, "sign_remote_send_otp", json!({ "id": csc(mock::RSA), "password": mock::PASSWORD }))),
+        "the signing service refused the request (invalid_request): Invalid parameter authObjectID"
+    );
+    assert!(service.requests().iter().any(|r| r.url.ends_with("/credentials/info")));
+
+    // A signature over another digest is never used, on either protocol.
+    for (service, id) in [(MockService::csc_v2().unwrap(), csc(mock::P256)), (MockService::arss().unwrap(), arss(mock::RSA))] {
+        let service = std::sync::Arc::new(service);
+        service.fail(Fault::WrongDigest);
+        let mut a = remote_auto(&dir, &service);
+        let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+        let mut args = signing(doc, &id, &service.current_otp());
+        args["pin"] = Value::Null;
+        let e = failure(err(&mut a, "sign_document", args));
+        assert!(e.starts_with("the signing service's signature does not match the certificate"), "{e}");
+        assert!(!dir.join("remote.pdf").exists());
+    }
+
+    // The caller's mistakes, the same on both protocols.
+    for (service, id) in [(MockService::csc_v2().unwrap(), csc("nope")), (MockService::arss().unwrap(), arss("nope"))] {
+        let service = std::sync::Arc::new(service);
+        let mut a = remote_auto(&dir, &service);
+        let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+        let e = invalid_args(err(&mut a, "sign_document", signing(doc, &id, &service.current_otp())));
+        assert!(e.contains("Invalid parameter credentialID") || e.contains("no certificate nope"), "{e}");
+        if id.starts_with("remote:csc") {
+            let e = invalid_args(err(&mut a, "sign_remote_send_otp", json!({ "id": id, "password": mock::PASSWORD })));
+            assert_eq!(e, "the signing service refused to describe the certificate nope (invalid_request): Invalid parameter credentialID");
+        }
+    }
+    let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let mut a = remote_auto(&dir, &service);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    let e = invalid_args(err(&mut a, "sign_document", signing(doc, &csc(mock::DISABLED), &service.current_otp())));
+    assert!(e.starts_with("the signing service's certificate disabled can't sign"), "{e}");
+    let asked = service.requests().len();
+    let blank_user = "remote:csc?url=https%3A%2F%2Frssp.example%2Fcsc%2Fv2&user=%20&credential=rsa-2048";
+    assert_eq!(invalid_args(err(&mut a, "sign_document", signing(doc, blank_user, &service.current_otp()))), "user must not be empty");
+    let long = "7".repeat(1025);
+    assert_eq!(invalid_args(err(&mut a, "sign_document", signing(doc, &csc(mock::RSA), &long))), "otp is longer than 1024 bytes");
+    let mut long_user = account.clone();
+    long_user["user"] = json!(long);
+    assert_eq!(invalid_args(err(&mut a, "sign_remote_ids", long_user)), "user is longer than 1024 bytes");
+    assert_eq!(
+        invalid_args(err(&mut a, "sign_remote_send_otp", json!({ "id": csc(&long), "password": mock::PASSWORD }))),
+        "credential is longer than 1024 bytes"
+    );
+    assert_eq!(service.requests().len(), asked);
+}
+
+/// `service`, except that `credentials/getChallenge` answers with a challenge to show (200)
+/// instead of sending the code out of band (204).
+struct Challenging(std::sync::Arc<pdfcraft_sign::remote::mock::MockService>);
+
+impl pdfcraft_sign::remote::HttpTransport for Challenging {
+    fn post(&self, url: &str, headers: &[(&str, &str)], body: &[u8]) -> Result<pdfcraft_sign::remote::HttpResponse, pdfcraft_sign::SignError> {
+        let r = self.0.post(url, headers, body)?;
+        Ok(if url.ends_with("/credentials/getChallenge") && r.status == 204 {
+            pdfcraft_sign::remote::HttpResponse { status: 200, body: br#"{"challenge":"7Q2X-K4"}"#.to_vec() }
+        } else {
+            r
+        })
+    }
+}
+
+/// A service that answers the request for a code with a challenge: `sign_remote_send_otp`
+/// returns it for the user's device, instead of `sent`.
+#[test]
+fn a_remote_challenge_is_returned_to_show() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    let dir = workdir("remote-challenge");
+    let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let mut a = remote_auto_on(&dir, std::sync::Arc::new(Challenging(service.clone())));
+    let listed = ok(&mut a, "sign_remote_ids", json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD }));
+    let rsa = listed["ids"].as_array().unwrap().iter().find(|i| i["otp"] == "sent").unwrap()["id"].clone();
+    assert_eq!(ok(&mut a, "sign_remote_send_otp", json!({ "id": rsa, "password": mock::PASSWORD })), json!({ "challenge": "7Q2X-K4" }));
+    assert!(service.requests().iter().any(|r| r.url.ends_with("/credentials/getChallenge")));
+}
+
+/// A remote: id names no file, so it isn't resolved against --root or the automation read
+/// root: signing with one works where no such path could be read.
+#[test]
+fn a_remote_id_is_not_a_path_under_the_roots() {
+    use pdfcraft_sign::remote::mock::{self, MockService};
+    let base = workdir("remote-roots");
+    for d in ["in", "out"] {
+        std::fs::create_dir_all(base.join(d)).unwrap();
+    }
+    std::fs::rename(base.join("a.pdf"), base.join("in/a.pdf")).unwrap();
+    let service = std::sync::Arc::new(MockService::csc_v2().unwrap());
+    let roots = pdfcraft_automation::file_access::AutomationRoots::new(Some(&base.join("in")), Some(&base.join("out"))).unwrap();
+    let mut a = remote_auto(&base, &service).with_automation_roots(roots);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "in/a.pdf" }))["doc"].as_u64().unwrap();
+    let listed = ok(&mut a, "sign_remote_ids", json!({ "protocol": "csc", "url": mock::CSC_V2_URL, "user": mock::USER, "password": mock::PASSWORD }));
+    let p256 = listed["ids"].as_array().unwrap().iter().find(|i| i["otp"] == "typed").unwrap()["id"].clone();
+    // A code from an app: nothing to send.
+    let r = ok(
+        &mut a,
+        "sign_document",
+        json!({ "doc": doc, "id": p256, "password": mock::PASSWORD, "otp": service.current_otp(), "out": "out/signed.pdf" }),
+    );
+    assert_eq!(r["signature"]["status"], "unknown");
+    assert!(base.join("out/signed.pdf").is_file());
+}
+
 /// The decoded text of every visible signature appearance (Helvetica forms) in a signed file.
 fn signature_appearances(path: &Path) -> String {
     use pdfcraft_cos::{Document, ObjRef, Object};
@@ -6957,15 +7455,42 @@ fn conventions_core_tools_preserve_root_and_batch_errors() {
     assert_eq!(before["result"], run(&mut s, "doc_info", json!({"doc":doc}))["result"]);
 }
 
+/// Both modes, with and without remote signing's network. Only with it do the remote signing
+/// tools, and `tool_call` which can run them, reach past this computer; without it no tool does.
 #[cfg(feature = "mcp")]
 #[test]
 fn conventions_annotations_and_strict_keys_in_both_modes() {
-    for compact in [false, true] {
-        let mut s = McpServer::new(Automation::new()).with_compact(compact);
+    for (compact, network) in [(false, false), (true, false), (false, true), (true, true)] {
+        let automation = Automation::new();
+        let automation = if network {
+            automation.with_remote_transport(std::sync::Arc::new(pdfcraft_sign::remote::mock::MockService::csc_v2().unwrap()))
+        } else {
+            automation
+        };
+        assert_eq!(automation.remote_enabled(), network);
+        let mut s = McpServer::new(automation).with_compact(compact);
         let r = rpc(&mut s, 1, "tools/list", json!({}));
         let tools = r["result"]["tools"].as_array().unwrap();
         for name in ["command_list", "command_run", "command_batch", "doc_inspect", "render_preview"] {
             assert!(tools.iter().any(|t| t["name"] == name), "missing {name}");
+        }
+        let hints = |name: &str| tools.iter().find(|t| t["name"] == name).map(|t| t["annotations"].clone()).unwrap();
+        let open: Vec<&str> = tools.iter().filter(|t| t["annotations"]["openWorldHint"] == true).map(|t| t["name"].as_str().unwrap()).collect();
+        if compact {
+            // tool_call can run the remote signing tools, when they have a network.
+            assert_eq!(open, if network { vec!["tool_call"] } else { vec![] }, "network {network}");
+            let r = rpc(&mut s, 3, "tools/call", json!({"name":"tool_search","arguments":{"name":"sign_remote_ids"}}));
+            let found = &r["result"]["structuredContent"]["tool"];
+            assert_eq!((found["open_world"].as_bool(), found["read_only"].as_bool()), (Some(network), Some(false)), "{r}");
+        } else {
+            let remote = ["sign_document", "sign_remote_ids", "sign_remote_send_otp"];
+            assert_eq!(open, if network { remote.to_vec() } else { vec![] }, "network {network}");
+            for name in remote {
+                let h = hints(name);
+                let (open, read_only, idempotent) = (h["openWorldHint"].as_bool(), h["readOnlyHint"].as_bool(), h["idempotentHint"].as_bool());
+                assert_eq!((open, read_only, idempotent), (Some(network), Some(false), Some(false)), "{name}");
+            }
+            assert_eq!(hints("doc_open")["openWorldHint"], false);
         }
         for tool in tools {
             for hint in ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] {

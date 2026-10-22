@@ -480,6 +480,35 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A remote signature waits while a picker is showing: it asks where to save first, and that
+    /// Save picker would be refused. Nothing goes to the service, so the one-time code is unspent.
+    #[test]
+    fn a_remote_signature_waits_for_a_picker_that_is_showing() {
+        use pdfcraft_sign::remote::mock::{self, MockService};
+        let mut app = PdfCraftApp::new();
+        let bytes = app.session.create_blank(300.0, 400.0, 1).unwrap();
+        app.open_bytes("blank.pdf", None, bytes.as_ref().clone()).unwrap();
+        let service = Arc::new(MockService::csc_v2().unwrap());
+        app.remote_transport = Some(service.clone());
+        app.run_inline = true;
+        app.digital_ids.push(crate::DigitalIdEntry {
+            path: pdfcraft_sign::remote::reference(&service.account(), mock::P256),
+            name: "Mario Rossi".into(),
+            issuer: String::new(),
+            email: String::new(),
+            expires: String::new(),
+            unusable: None,
+            remote: Some(crate::RemoteNeeds { pin: false, otp: crate::RemoteOtp::Typed, confirm: false, unless_code: false }),
+        });
+        app.start_signing(0, None, None, None);
+        let d = app.sign_draft.as_mut().unwrap();
+        (d.step, d.password, d.otp) = (crate::SignStep::SignAs, mock::PASSWORD.into(), service.current_otp());
+        app.pickers.showing.store(true, Ordering::SeqCst);
+        assert_eq!(app.start_remote_signing(), Err("Another file dialog is still open. Finish with it first.".to_string()));
+        assert!(service.requests().is_empty(), "nothing went to the service, so the code is unspent");
+        assert!(app.remote_task.is_none());
+    }
+
     #[test]
     fn a_follow_up_that_asks_again_gets_its_picker_before_a_request_that_came_first() {
         let mut app = PdfCraftApp::new();

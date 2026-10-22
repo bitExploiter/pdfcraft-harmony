@@ -76,6 +76,20 @@ pub fn pkcs1_verify(n: &[u8], e: &[u8], alg: DigestAlg, digest: &[u8], sig: &[u8
     Ok(false)
 }
 
+/// Whether `sig` is EMSA-PKCS1-v1_5 padding around the bare `digest`, with no `DigestInfo`:
+/// what a signing service writes when it pads the digest it is sent as if that were the
+/// `DigestInfo`. Never a valid signature (it doesn't say which hash it uses), only the diagnosis
+/// of one that [`pkcs1_verify`] refused (`remote`).
+pub fn pkcs1_bare(n: &[u8], e: &[u8], digest: &[u8], sig: &[u8]) -> Result<bool, SignError> {
+    let Some(em) = encoded_message(n, e, sig, &mut Vec::new())? else { return Ok(false) };
+    let Some(ps) = em.len().checked_sub(digest.len() + 3).filter(|ps| *ps >= 8) else { return Ok(false) };
+    let mut expected = vec![0x00, 0x01];
+    expected.extend(std::iter::repeat_n(0xFF, ps));
+    expected.push(0x00);
+    expected.extend_from_slice(digest);
+    Ok(expected == em)
+}
+
 /// MGF1 (RFC 8017 §B.2.1).
 fn mgf1(hash: DigestAlg, seed: &[u8], len: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(len + hash.output_len());
