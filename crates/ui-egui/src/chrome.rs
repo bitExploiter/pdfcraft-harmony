@@ -683,7 +683,10 @@ pub fn right_rail(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         .and_then(|r| r.inner);
                     let continuous = view.continuous();
                     let scroll_icon = if continuous { "scroll-continuous" } else { "scroll-normal" };
-                    if icons::button(ui, scroll_icon, 32.0, false, tl!("Continuous scrolling")).clicked() {
+                    // Like the layout button, the label names what a click selects, so it also tells
+                    // which mode is on without relying on the icon.
+                    let scroll_label = if continuous { tl!("Turn off continuous scrolling") } else { tl!("Turn on continuous scrolling") };
+                    if icons::button(ui, scroll_icon, 32.0, false, scroll_label).clicked() {
                         page_display = Some("view.continuous");
                     }
                     let next_layout = match view.layout {

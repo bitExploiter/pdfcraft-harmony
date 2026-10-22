@@ -1069,7 +1069,15 @@ fn rail_continuous_button_toggles_without_changing_page_layout_or_document() {
         ok(&mut h, &c, "ui.set", json!({"key": "layout", "value": layout}));
         let base_layout = h.state().views[0].layout;
         for expected in [true, false, true, false] {
-            ok(&mut h, &c, "ui.click", json!({"label": "Continuous scrolling"}));
+            // The label names what a click selects, so it tells the current mode without the icon.
+            let (label, other) = if expected {
+                ("Turn on continuous scrolling", "Turn off continuous scrolling")
+            } else {
+                ("Turn off continuous scrolling", "Turn on continuous scrolling")
+            };
+            let shown = ok(&mut h, &c, "ui.inspect", json!({"query": other}));
+            assert!(!shown["widgets"].as_array().unwrap().iter().any(|w| w["label"] == other && w["clickable"] == true));
+            ok(&mut h, &c, "ui.click", json!({"label": label}));
             assert_eq!(h.state().views[0].continuous(), expected);
             assert_eq!(h.state().views[0].layout, base_layout);
         }
