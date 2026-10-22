@@ -1600,6 +1600,7 @@ mod tests {
             "JavaScript",
             "ZIP",
             "Text",
+            "Token  ·  ",
             "Index",
             "Metadata",
             "metadata",
