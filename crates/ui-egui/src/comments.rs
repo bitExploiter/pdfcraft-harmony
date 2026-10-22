@@ -1461,10 +1461,8 @@ fn paint_stroke(painter: &egui::Painter, cx: &PageCx<'_>, tool: &CommentTool, po
 /// ends' mean pressure, with a round dab at every point so segments join without gaps.
 fn paint_pressure_ink(painter: &egui::Painter, cx: &PageCx<'_>, points: &[[f64; 2]], pressure: &[f32]) {
     let style = cx.prefs.style(CommentTool::Ink);
-    let zoom = cx.xf.rect.width() / cx.xf.pw.max(1.0);
     let color = color32(style.color);
-    let width = |p: f32| (pdfcraft_engine::pressure_width(style.width, f64::from(p)) as f32 * zoom).max(0.5);
-    let samples: Vec<(Pos2, f32)> = points.iter().zip(pressure).map(|(p, f)| (cx.to_screen(*p), width(*f))).collect();
+    let samples: Vec<(Pos2, f32)> = points.iter().zip(pressure).map(|(p, f)| (cx.to_screen(*p), pressure_px(cx.xf, style.width, *f))).collect();
     for pair in samples.windows(2) {
         if let [(a, wa), (b, wb)] = pair {
             painter.line_segment([*a, *b], Stroke::new((wa + wb) / 2.0, color));
@@ -1473,6 +1471,12 @@ fn paint_pressure_ink(painter: &egui::Painter, cx: &PageCx<'_>, points: &[[f64; 
     for (at, w) in &samples {
         painter.circle_filled(*at, w / 2.0, color);
     }
+}
+
+/// The on-screen width of a pen point pressed at `pressure` in a drawing `width` points wide,
+/// as the saved appearance draws it (never thinner than half a pixel, so it stays visible).
+fn pressure_px(xf: &PageXform, width: f64, pressure: f32) -> f32 {
+    (pdfcraft_engine::pressure_width(width, f64::from(pressure)) as f32 * xf.zoom()).max(0.5)
 }
 
 /// A drawn ink stroke with the pen pressure of each of its points, when it has them all.
@@ -2512,6 +2516,23 @@ mod tests {
         assert_eq!(with_pressure(ink(), &[]), ink());
         let line = drawn_shape(CommentTool::Line, &[[0.0, 0.0], [5.0, 5.0]]).unwrap();
         assert_eq!(with_pressure(line.clone(), &[0.25, 0.5]), line);
+    }
+
+    /// The live pen stroke is as wide on screen as its saved appearance will be, also in a view
+    /// turned a quarter, where the page's rectangle on screen has its sides swapped.
+    #[test]
+    fn a_pen_stroke_keeps_its_width_in_a_rotated_view() {
+        // A 200 × 400 page at zoom 2: 400 × 800 on screen upright, 800 × 400 turned.
+        let at = |rot: u16, size: egui::Vec2| PageXform { rect: Rect::from_min_size(Pos2::ZERO, size), rot, pw: 200.0, ph: 400.0 };
+        let near = |a: f32, b: f32| (a - b).abs() < 1e-4;
+        for (rot, size) in [(0, vec2(400.0, 800.0)), (90, vec2(800.0, 400.0)), (180, vec2(400.0, 800.0)), (270, vec2(800.0, 400.0))] {
+            let xf = at(rot, size);
+            let (full, half) = (pressure_px(&xf, 2.0, 1.0), pressure_px(&xf, 2.0, 0.5));
+            assert!(near(full, 4.0), "full pressure, view turned {rot}°: {full}");
+            assert!(near(half, 2.2), "half pressure, view turned {rot}°: {half}");
+        }
+        // Never thinner than half a pixel, however far out.
+        assert_eq!(pressure_px(&at(90, vec2(8.0, 4.0)), 2.0, 0.0), 0.5);
     }
 
     fn touch_of(id: u64, phase: egui::TouchPhase, force: Option<f32>) -> egui::Event {
