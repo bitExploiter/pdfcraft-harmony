@@ -81,15 +81,15 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
 
       - name: Test
         if: runner.os != 'Linux'
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
       - name: Test (with craft-fonts)
         if: runner.os == 'Linux'
-        run: cargo test --workspace
+        run: cargo test --locked --workspace
 
       - name: Layering
         if: runner.os == 'Linux'
@@ -101,7 +101,7 @@ jobs:
 
       - name: CLI without the MCP server still builds
         if: runner.os == 'Linux'
-        run: cargo check -p pdfcraft-cli --no-default-features
+        run: cargo check --locked -p pdfcraft-cli --no-default-features
 
   wasm:
     name: wasm32 check
