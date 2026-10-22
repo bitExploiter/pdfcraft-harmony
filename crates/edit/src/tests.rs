@@ -2337,17 +2337,28 @@ fn a_line_whose_operator_starts_the_next_stream_can_be_edited() {
 #[test]
 fn win_ansi_high_glyphs_use_helvetica_not_the_fallback_font() {
     // š ž Š Ž Œ Ÿ ƒ † ‰ (WinAnsi 0x80–0x9F) are standard-font glyphs (#347): no Type3 fallback.
-    let text = "Šumava žaba œuvre Ÿ ƒ † ‰ €";
-    let mut doc = text_page("BT /F2 10 Tf 72 600 Td (ab) Tj ET");
+    let text = "šž Š Ž Œ œ Ÿ ƒ † ‰ €"; // every character is a high-glyph WinAnsi run.
+    // F1 (Helvetica) can show every character; the line keeps the same font.
+    let mut doc = text_page("BT /F1 12 Tf 72 700 Td (Hello) Tj ET");
     let r = text::replace_line(&mut doc, 0, 0, text).unwrap();
-    assert_eq!(r.substituted.as_deref(), Some("Helvetica"));
+    assert_eq!(r.substituted.as_deref(), None);
     let lines = text::text_lines(&reopen(&doc), 0).unwrap();
     assert_eq!((lines[0].text.as_str(), lines[0].base_font.as_str()), (text, "Helvetica"));
+    // The replacement keeps the subset for "umava" and uses Helvetica for the high-glyph runs.
     let mut doc = text_page("BT /F2 10 Tf 72 600 Td (ab) Tj ET");
-    let r = text::replace_block(&mut doc, 0, 0, text).unwrap();
-    assert!(r.substituted.as_deref().is_none_or(|s| !s.contains("Type3")), "{:?}", r.substituted);
+    let r = text::replace_block(&mut doc, 0, 0, "Šumava žaba").unwrap();
+    assert_eq!(r.substituted.as_deref(), Some("Helvetica"));
     let lines = text::text_lines(&reopen(&doc), 0).unwrap();
-    assert_eq!(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" "), text);
+    assert_eq!(lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join(" "), "Šumava žaba");
+}
+
+#[test]
+fn a_missing_glyph_runs_keeps_spaces_between_runs() {
+    let mut doc = text_page("BT /F1 12 Tf 72 700 Td (Hello) Tj /F2 12 Tf ( ) Tj /F1 12 Tf (world) Tj ET");
+    assert_eq!(text::text_lines(&doc, 0).unwrap()[0].text, "Hello world");
+    text::replace_line(&mut doc, 0, 0, "Šumava žaba").unwrap();
+    let lines = text::text_lines(&reopen(&doc), 0).unwrap();
+    assert_eq!(lines[0].text, "Šumava žaba", "{}", lines[0].text);
 }
 
 #[test]
@@ -2357,12 +2368,39 @@ fn missing_glyphs_substitute_helvetica_and_impossible_text_is_refused() {
     let r = text::replace_line(&mut doc, 0, 0, "abc").unwrap();
     assert_eq!(r.substituted.as_deref(), Some("Helvetica"));
     let doc2 = reopen(&doc);
+    // The line path still falls back for the whole line; #2378 remains open.
     let lines = text::text_lines(&doc2, 0).unwrap();
-    assert_eq!((lines[0].text.as_str(), lines[0].base_font.as_str()), ("abc", "Helvetica"));
+    assert!(lines[0].text.as_str().starts_with("ab"), "{}", lines[0].text.as_str());
+    assert_eq!(lines[0].base_font.as_str(), "Helvetica");
+    let (joined, ops) = joined_ops(&doc2);
+    assert!(joined.contains("(abc)"), "{joined}");
+    assert!(ops.iter().any(|o| o.is("Tf") && o.name(0).is_some_and(|n| n == b"F2") && o.num(1) == Some(10.0)), "{joined}");
+    assert_eq!(
+        doc2.scan_objects()
+            .filter(|(_, o)| o.as_dict().is_some_and(|d| d.name(b"Subtype") == Some(b"Type1") && d.name(b"BaseFont") == Some(b"Helvetica")))
+            .count(),
+        1,
+        "exactly one Helvetica substitute"
+    );
     // Neither the standard font nor the craft-fonts Japanese faces have this emoji.
     let mut doc = text_page("BT /F1 12 Tf 72 700 Td (Hello) Tj ET");
     assert!(text::replace_line(&mut doc, 0, 0, "\u{1f4a9}").is_err());
     assert!(text::replace_line(&mut doc, 0, 5, "x").is_err(), "no such line");
+}
+
+#[test]
+fn a_paragraph_with_a_missing_glyph_keeps_the_source_subset_for_the_runs_it_has() {
+    let mut doc = text_page("BT /F2 10 Tf 72 700 Td (ab) Tj ET\nBT /F2 10 Tf 72 688 Td (Other) Tj ET");
+    let before = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(before.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["ab Other"]);
+    text::replace_block(&mut doc, 0, 0, "abc Other").unwrap();
+    let doc = reopen(&doc);
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks.iter().map(|b| b.text.as_str()).collect::<Vec<_>>(), ["abc Other"]);
+    let (joined, ops) = joined_ops(&doc);
+    assert!(joined.contains("/PCEdHelv 10 Tf"), "{joined}");
+    let tf_runs: Vec<&str> = ops.iter().filter_map(|o| o.name(0).and_then(|n| std::str::from_utf8(n).ok())).collect();
+    assert!(tf_runs.contains(&"F2") && tf_runs.contains(&"PCEdHelv"), "{tf_runs:?}");
 }
 
 #[test]

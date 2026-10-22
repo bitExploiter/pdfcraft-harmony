@@ -55,7 +55,7 @@ impl Family {
         }
     }
 
-    fn from_base(base: &[u8]) -> (Family, bool, bool) {
+    pub fn from_base(base: &[u8]) -> (Family, bool, bool) {
         let s = String::from_utf8_lossy(base);
         let family = if s.starts_with("Times") {
             Family::Times
