@@ -3321,14 +3321,21 @@ impl eframe::App for PdfCraftApp {
         for view in &mut self.views {
             view.begin_render_frame();
         }
-        // The window shows the active document's name (or title, if it asks for that).
+        // The window shows the active document's name (or title, if it asks for that), with •
+        // while it has unsaved changes, as the other Craft apps write it (#3640).
+        let dirty = self.active.and_then(|i| self.views.get(i)).and_then(|v| self.session.get(v.id)).is_some_and(|d| d.dirty);
         let title = self
             .active
             .and_then(|i| crate::canvas::tab_label(self, i))
             .or_else(|| self.combine_showing().then(|| tl!("Combine files").to_owned()))
-            .map_or_else(|| "PdfCraft".to_owned(), |name| format!("{name} — PdfCraft"));
+            .map_or_else(|| "PdfCraft".to_owned(), |name| if dirty { format!("{name} • — PdfCraft") } else { format!("{name} — PdfCraft") });
         if title != self.window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            // eframe's web runner ignores Title: set the page's own, which an embedding host reads.
+            #[cfg(target_arch = "wasm32")]
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                document.set_title(&title);
+            }
             self.window_title = title;
         }
         if self.full_screen && self.active.is_some() {
