@@ -169,12 +169,28 @@ pub(crate) fn ensure_turkish_dr(doc: &mut Document) {
     let mut dr = doc.resolve(&dr_entry).as_dict().cloned().unwrap_or_default();
     let Some(fonts_entry) = dr.get(b"Font").cloned() else { return };
     let mut fonts = doc.resolve(&fonts_entry).as_dict().cloned().unwrap_or_default();
+    const STANDARD_TEXT_FONTS: &[&[u8]] = &[
+        b"Helvetica",
+        b"Helvetica-Bold",
+        b"Helvetica-Oblique",
+        b"Helvetica-BoldOblique",
+        b"Times-Roman",
+        b"Times-Bold",
+        b"Times-Italic",
+        b"Times-BoldItalic",
+        b"Courier",
+        b"Courier-Bold",
+        b"Courier-Oblique",
+        b"Courier-BoldOblique",
+    ];
     let mut changed = false;
     for (name, font_obj) in fonts.clone().iter() {
         let Some(mut fd) = doc.resolve(font_obj).as_dict().cloned() else { continue };
         if fd.name(b"Subtype") == Some(b"Type1")
             && fd.name(b"Encoding") == Some(b"WinAnsiEncoding")
-            && !matches!(fd.name(b"BaseFont"), Some(b"ZapfDingbats" | b"Symbol"))
+            && !fd.contains(b"FontDescriptor")
+            && !fd.contains(b"Widths")
+            && fd.name(b"BaseFont").is_some_and(|b| STANDARD_TEXT_FONTS.contains(&b))
         {
             fd.set(b"Encoding".to_vec(), pdfcraft_fonts::turkish_encoding());
             if let Some(r) = font_obj.as_ref() {
