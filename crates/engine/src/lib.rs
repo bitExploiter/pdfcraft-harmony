@@ -2565,7 +2565,8 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
                 pdfcraft_forms::set_button_icon(doc, name, img, px)?;
                 let som = pdfcraft_xfa::fields_by_som(doc).into_iter().find(|(_, n)| n == name).map(|(s, _)| s).unwrap_or_else(|| name.clone());
                 let path = match cx.xfa.as_deref() {
-                    Some(tpl) => pdfcraft_xfa::data_path(tpl, &som),
+                    Some(tpl) => pdfcraft_xfa::data_path(tpl, pdfcraft_xfa::data_of(doc).as_ref(), &som)
+                        .ok_or_else(|| EditError::Invalid(format!("{name}: this field is bound to no data, so it keeps no picture")))?,
                     None => pdfcraft_xfa::som_to_path(&som),
                 };
                 let r =
