@@ -3862,6 +3862,40 @@ fn named_layers_show_beside_comments_that_need_appearances() {
 }
 
 #[test]
+fn named_layers_show_beside_fields_the_viewer_draws() {
+    // A text field without an appearance makes the display copy for its own sake; the
+    // signature's state is drawn into that same copy.
+    use pdfcraft_cos::{Lexer, ObjRef, Object};
+    let (signer, anchor) = test_identity();
+    let mut cos = pdfcraft_cos::Document::open(Arc::new(named_layer_signable_fixture())).unwrap();
+    let field = cos.add(
+        Lexer::new(
+            b"<< /Type /Annot /Subtype /Widget /FT /Tx /T (name) /V (Test Signer) /DA (/F1 12 Tf 0 g) /Rect [20 20 380 40] /F 4 /P 3 0 R >>",
+            0,
+        )
+        .object()
+        .unwrap(),
+    );
+    let both = Object::Array(vec![Object::Ref(ObjRef::new(4, 0)), Object::Ref(field)]);
+    cos.update_dict(ObjRef::new(3, 0), |page| page.set(b"Annots".to_vec(), both.clone())).unwrap();
+    let resources = Lexer::new(b"<< /Font << /F1 13 0 R >> >>", 0).object().unwrap();
+    cos.update_dict(ObjRef::new(5, 0), |form| {
+        form.set(b"Fields".to_vec(), both);
+        form.set(b"DR".to_vec(), resources);
+    })
+    .unwrap();
+    let signed = Arc::new(sign_prepared(&mut cos, &signer, "D:20261002120000+01'00'"));
+    let mut s = Session::new().with_clock(|| 1_800_000_000);
+    let id = s.open("filled.pdf", None, signed, None).unwrap();
+    s.set_trusted_certificates(vec![anchor]);
+    let shown = pdfcraft_cos::Document::open(s.get(id).unwrap().display.clone()).unwrap();
+    assert!(shown.get(field).as_dict().is_some_and(|d| d.contains(b"AP")), "the field's appearance is in the same copy");
+    assert!(s.get(id).unwrap().signatures[0].verdict_shown);
+    let green = pixels_near(&displayed_pixels(&s, id), VALID_GREEN);
+    assert!(green > 500, "{green} green pixels");
+}
+
+#[test]
 fn a_metadata_edit_keeps_the_regenerated_state() {
     let (mut s, id) = trusted_named_layer_session();
     s.apply(id, Edit::SetInfo { key: "Title".into(), value: "Contract".into() }).unwrap();
