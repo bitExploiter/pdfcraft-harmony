@@ -302,8 +302,8 @@ impl PageText {
     /// newspaper columns) share a row and are separated by a tab, so a pasted table lands in
     /// spreadsheet cells. Rows of right-to-left text put their pieces right to left. When any
     /// selected glyph does not run horizontally (CJK vertical writing, turned text, a page shown
-    /// turned by `/Rotate`) rows mean nothing, and the lines come out one per row in reading order
-    /// instead.
+    /// turned by `/Rotate`), or sits in a column of upright CJK glyphs placed one per baseline,
+    /// rows mean nothing, and the lines come out one per row in reading order instead.
     pub fn column_text(&self, glyphs: &[usize]) -> String {
         // The selected glyphs of each line, with their box: (glyphs, bbox).
         let mut lines: Vec<(Vec<usize>, [f32; 4])> = Vec::new();
@@ -321,8 +321,24 @@ impl PageText {
                 }
             }
         }
+        // Whether the selected glyphs of one line stack down a column, as the layout reads an
+        // upright CJK column written one glyph per baseline (#3712). Such a glyph runs
+        // horizontally, so its direction does not give the column away.
+        let stacked = |members: &[usize]| {
+            let mut column = members.iter().filter_map(|&i| self.glyphs.get(i));
+            let Some(mut upper) = column.next() else { return false };
+            let Some(mut lower) = column.next() else { return false };
+            loop {
+                if !stacks_vertically(upper, lower) {
+                    return false;
+                }
+                let Some(next) = column.next() else { return true };
+                (upper, lower) = (lower, next);
+            }
+        };
         // Within the layout's own tolerance for reading a glyph as unturned.
-        let vertical = glyphs.iter().any(|&i| self.glyphs.get(i).is_some_and(|g| g.direction[1].abs() > WORD_GAP));
+        let turned = glyphs.iter().any(|&i| self.glyphs.get(i).is_some_and(|g| g.direction[1].abs() > WORD_GAP));
+        let vertical = turned || lines.iter().any(|(members, _)| stacked(members));
         let piece = |members: &[usize]| {
             let mut s = String::new();
             let mut prev: Option<usize> = None;
@@ -1873,6 +1889,13 @@ mod tests {
         assert_eq!(text.find("慢慢上山"), vec![16..20]);
         // Three lines, one per column.
         assert_eq!(text.line_of, [0; 7].iter().copied().chain([1; 7]).chain([2; 7]).collect::<Vec<u32>>());
+        // A rectangle around all three columns copies them in reading order, not as one row.
+        let all = text.glyphs_in([460.0, 735.0, 516.0, 830.0]);
+        assert_eq!(all, (0..21).collect::<Vec<_>>());
+        assert_eq!(text.column_text(&all), columns.join("\n"));
+        // A rectangle around the rightmost column copies just that column.
+        let right = text.glyphs_in([494.0, 735.0, 516.0, 830.0]);
+        assert_eq!(text.column_text(&right), columns[0]);
     }
 
     #[test]
