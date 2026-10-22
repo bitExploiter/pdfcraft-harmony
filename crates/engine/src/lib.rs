@@ -2197,11 +2197,11 @@ fn add_annotation(s: &Shape) -> &'static str {
     }
 }
 
-/// Opened as owner, or nothing is restricted (no permissions password was set): security may
-/// be changed, as in Acrobat.
+/// Opened as owner (with the permissions password, or a file without one): security may be
+/// changed, as in Acrobat. `/P` granting everything is no proof that there is no permissions
+/// password (#2956).
 fn unrestricted(p: &pdfcraft_cos::Permissions) -> bool {
-    const ALL: i32 = 0b1111_0011_1100; // bits 3–6 and 9–12
-    p.owner || p.bits & ALL == ALL
+    p.owner
 }
 
 /// Whether the opening password allows an edit (§7.6.4.2, Table 22).
@@ -2807,13 +2807,13 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
         Edit::Protect(p) => {
             p.validate()?;
             let seed = cx.entropy();
-            // Without a permissions password nothing is restricted, so the owner password is a
-            // random one nobody needs.
-            let random_owner: String = cx.entropy().iter().map(|b| format!("{b:02x}")).collect();
+            // Without a permissions password nothing is restricted: the open password is the owner
+            // password too, so whoever opens the file may change its security (#2956). Not an
+            // empty one: opening without a password would authenticate as owner (#603).
             let params = pdfcraft_cos::NewEncryption {
                 algorithm: p.algorithm,
                 user_password: p.open_password.as_deref().unwrap_or(""),
-                owner_password: p.permissions_password.as_deref().unwrap_or(&random_owner),
+                owner_password: p.permissions_password.as_deref().or(p.open_password.as_deref()).unwrap_or(""),
                 permissions: p.permission_bits(),
                 encrypt_metadata: p.encrypt_metadata,
                 seed,
