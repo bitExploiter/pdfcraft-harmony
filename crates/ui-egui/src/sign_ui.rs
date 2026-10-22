@@ -735,6 +735,9 @@ impl PdfCraftApp {
                 self.session.set_reading_colors(new, self.reading_colors);
                 let Some(doc) = self.session.get(new) else { return };
                 let mut view = DocView::new(new, &doc.info, self.view_defaults);
+                if self.full_screen {
+                    view.enter_presentation();
+                }
                 view.snapshot = Some(Snapshot { kind: SnapshotKind::Revision, revision: n, from });
                 self.views.push(view);
                 self.active = Some(self.views.len() - 1);
@@ -784,6 +787,9 @@ impl PdfCraftApp {
                 self.session.set_reading_colors(new, self.reading_colors);
                 let Some(doc) = self.session.get(new) else { return };
                 let mut view = DocView::new(new, &doc.info, self.view_defaults);
+                if self.full_screen {
+                    view.enter_presentation();
+                }
                 view.snapshot = Some(Snapshot { kind: SnapshotKind::SignedVersion, revision, from });
                 self.views.push(view);
                 self.active = Some(self.views.len() - 1);
@@ -1295,8 +1301,10 @@ pub(crate) fn banner(sigs: &[SignatureInfo]) -> Option<(&'static str, Color32, &
     if signed.is_empty() {
         return None;
     }
+    // A valid certification heads the bar only when every signature is valid: it says nothing
+    // about the signatures added after it, so their problems come first.
     if let Some(c) = signed.iter().find(|s| s.certify.is_some())
-        && c.status == SignatureStatus::Valid
+        && signed.iter().all(|s| s.status == SignatureStatus::Valid)
     {
         let by = c.certificate.as_ref().map(|x| {
             let org = x.subject.organization().map(|o| format!(", {o}")).unwrap_or_default();
@@ -1844,5 +1852,93 @@ mod tests {
         h.run();
         assert!(h.query_by_label("/usr/lib/token.so").is_none(), "Remove took it off the list");
         assert!(h.state().pkcs11_modules.is_empty());
+    }
+
+    /// The labels a signature is stamped with are all in the interface language, or all in
+    /// English when the signature's font can't draw them there (or the language is right to
+    /// left): never a mix, and never a label signing would refuse.
+    #[test]
+    fn appearance_labels_are_translated_or_all_english() {
+        use crate::i18n::{Lang, tr};
+        let english = AppearanceLabels::default();
+        assert_eq!(appearance_labels(Lang::EN), (english.clone(), false));
+        for code in ["de", "es", "fr", "it", "pt-br", "pl", "tr", "sl", "hu"] {
+            let lang = Lang::from_code(code).unwrap();
+            let (labels, in_english) = appearance_labels(lang);
+            assert!(!in_english, "{code}: {labels:?}");
+            for ((field, ours), (_, source)) in labels.fields().into_iter().zip(english.fields()) {
+                assert_eq!(ours, tr(lang, source), "{code}: {field}");
+            }
+        }
+        let (de, _) = appearance_labels(Lang::from_code("de").unwrap());
+        assert_eq!((de.signed_by.as_str(), de.reason.as_str()), ("Digital signiert von", "Grund: "));
+        for code in ["zh-hans", "zh-hant", "ja", "ru", "uk", "bg", "kk", "el", "te", "cs", "lt", "ar"] {
+            assert_eq!(appearance_labels(Lang::from_code(code).unwrap()), (english.clone(), true), "{code}");
+        }
+        for lang in Lang::all() {
+            let (labels, in_english) = appearance_labels(lang);
+            assert_eq!(labels.first_undrawable(), None, "{}: signing would refuse {labels:?}", lang.code());
+            assert_eq!(in_english, lang != Lang::EN && labels == english, "{}", lang.code());
+        }
+    }
+
+    /// The preview's details are the stamp's: the label above the name, then each detail after
+    /// its label, in the words given, and only the values when the labels are off.
+    #[test]
+    fn preview_lines_use_the_labels_signing_stamps() {
+        let (de, _) = appearance_labels(crate::i18n::Lang::from_code("de").unwrap());
+        let all = Appearance { reason: true, location: true, ..Appearance::default() };
+        let lines = detail_lines(&all, &de, "Ada", " Genehmigt ", "Berlin", "2026.10.14 09:30:00 Z");
+        assert_eq!(lines, ["Digital signiert von", "Ada", "Grund: Genehmigt", "Ort: Berlin", "Datum: 2026.10.14 09:30:00 Z"]);
+        let bare = Appearance { labels: false, ..all.clone() };
+        assert_eq!(detail_lines(&bare, &de, "Ada", "Genehmigt", "", "D"), ["Ada", "Genehmigt", "D"]);
+        let nothing = Appearance { name: false, date: false, ..all };
+        assert!(detail_lines(&nothing, &de, "Ada", "  ", "", "D").is_empty());
+    }
+
+    fn signature(certify: Option<u8>, status: SignatureStatus) -> SignatureInfo {
+        SignatureInfo {
+            field: "Signature".into(),
+            signed: true,
+            page: None,
+            rect: None,
+            visible: false,
+            signer: None,
+            certificate: None,
+            chain: Vec::new(),
+            date: None,
+            signing_time: None,
+            reason: None,
+            location: None,
+            contact: None,
+            sub_filter: None,
+            doc_timestamp: false,
+            certify,
+            revision: 1,
+            signed_len: 0,
+            digest: None,
+            algorithm: None,
+            timestamp: false,
+            timestamp_time: None,
+            status,
+            modification: sign::Modification::None,
+            details: Vec::new(),
+        }
+    }
+
+    /// A valid certification doesn't hide a later signature that is invalid or can't be checked:
+    /// the message bar names the problem, and says "Certified by" only when all are valid.
+    #[test]
+    fn the_message_bar_puts_a_signature_problem_before_the_certification() {
+        use SignatureStatus::{Invalid, Unknown, Valid};
+        let bar = |sigs: &[SignatureInfo]| banner(sigs).map(|b| (b.0, b.2));
+        let certified = signature(Some(2), Valid);
+        assert_eq!(bar(std::slice::from_ref(&certified)), Some(("badge-check", "Certified by {by}")));
+        assert_eq!(bar(&[certified.clone(), signature(None, Valid)]), Some(("badge-check", "Certified by {by}")));
+        assert_eq!(bar(&[certified.clone(), signature(None, Invalid)]), Some(("circle-x", "At least one signature is invalid.")));
+        assert_eq!(bar(&[certified, signature(None, Unknown)]), Some(("triangle-alert", "At least one signature has problems.")));
+        assert_eq!(bar(&[signature(Some(2), Unknown), signature(None, Valid)]), Some(("triangle-alert", "At least one signature has problems.")));
+        assert_eq!(bar(&[signature(None, Valid)]), Some(("circle-check", "Signed and all signatures are valid.")));
+        assert_eq!(bar(&[SignatureInfo { signed: false, ..signature(None, Invalid) }]), None);
     }
 }
