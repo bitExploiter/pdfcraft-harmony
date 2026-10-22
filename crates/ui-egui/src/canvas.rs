@@ -27,7 +27,10 @@ const TEXT_TAG: u64 = 1 << 62;
 const GRID_TAG: u64 = 1 << 61;
 /// Preview rasters tagged with this bit are converted to luminance on receipt, matching the
 /// monochrome print requested by Print ▸ Print in grayscale.
-const GRAYSCALE_TAG: u64 = 1 << 60;
+const GRAYSCALE_TAG: u64 = 1 << 59;
+// Each tag bit means one thing: when GRAYSCALE_TAG shared PRINT_TAG's bit (1 << 60), every
+// print preview came out grey, Print in grayscale or not.
+const _: () = assert!(GRAYSCALE_TAG & (PRINT_TAG | THUMB_TAG | TEXT_TAG | GRID_TAG) == 0);
 /// The tag of a raster that is out of date (shown until its replacement arrives).
 const STALE_TAG: u64 = u64::MAX;
 /// Pages whose raster would exceed this many device pixels on a side are drawn in tiles.
@@ -2038,7 +2041,7 @@ impl DocView {
             if self.errors.contains_key(&page) || !scale.is_finite() || scale <= 0.0 {
                 continue;
             }
-            let tag = scale_tag(scale) | PRINT_TAG | if self.grayscale { GRAYSCALE_TAG } else { 0 };
+            let tag = print_preview_tag(scale, self.grayscale);
             let fresh = self.print_pages.get(&page).is_some_and(|(have, _)| *have == tag);
             if !fresh {
                 self.frame_queue.push(RenderRequest { page, kind: RequestKind::Pixels, tile: None, scale, tag, preview: false });
@@ -2069,6 +2072,11 @@ fn anchored_scroll(point: Pos2, rel: Vec2, content: Vec2, viewport: Vec2) -> Vec
 /// The request tag for a raster at `scale`: equal tags mean the same scale (to 1/65536).
 fn scale_tag(scale: f32) -> u64 {
     (f64::from(scale) * 65536.0).round() as u64
+}
+
+/// The tag of a print-preview raster at `scale`; with `grayscale`, it is made luminance on receipt.
+fn print_preview_tag(scale: f32, grayscale: bool) -> u64 {
+    scale_tag(scale) | PRINT_TAG | if grayscale { GRAYSCALE_TAG } else { 0 }
 }
 
 /// The scale of a raster tagged by [`scale_tag`].
@@ -6183,6 +6191,45 @@ trailer << /Root 1 0 R >>
         assert!(view.waiting_since.is_empty(), "waiting bookkeeping is cleared");
         assert!(view.last_queue.is_empty() && !view.render_pending(), "queued demand is retired");
         assert!(view.frame_queue.is_empty() && view.frame_visible.is_empty() && view.thumb_demand.is_empty());
+    }
+
+    /// A colour print preview stays in colour: its tag must not read as grayscale. When
+    /// GRAYSCALE_TAG shared PRINT_TAG's bit, every preview came out grey.
+    #[test]
+    fn a_colour_print_preview_is_not_made_grey() {
+        for scale in [0.5, 1.0, 2.0, 7.25] {
+            let colour = print_preview_tag(scale, false);
+            assert_ne!(colour & PRINT_TAG, 0);
+            assert_eq!(colour & GRAYSCALE_TAG, 0, "scale {scale}");
+            assert_ne!(print_preview_tag(scale, true) & GRAYSCALE_TAG, 0, "scale {scale}");
+            assert_eq!(tag_scale(colour & !(PRINT_TAG | GRAYSCALE_TAG)), scale);
+        }
+    }
+
+    #[test]
+    fn print_preview_grayscale_tag_does_not_collide_with_print_tag() {
+        assert_eq!(
+            PRINT_TAG & GRAYSCALE_TAG,
+            0,
+            "PRINT_TAG and GRAYSCALE_TAG must use distinct bit masks to prevent color previews being forced to grayscale"
+        );
+    }
+
+    #[test]
+    fn print_preview_requests_distinguish_color_and_grayscale() {
+        let mut v_color = view(1, PageLayout::Single, true);
+        v_color.set_print_grayscale(false);
+        v_color.queue_print_previews(&[(0, 1.0)]);
+        let color_req = v_color.frame_queue.iter().find(|r| r.page == 0).expect("preview queued");
+        assert_eq!(color_req.tag & PRINT_TAG, PRINT_TAG, "must be tagged as print preview");
+        assert_eq!(color_req.tag & GRAYSCALE_TAG, 0, "color preview must not carry GRAYSCALE_TAG");
+
+        let mut v_gray = view(1, PageLayout::Single, true);
+        v_gray.set_print_grayscale(true);
+        v_gray.queue_print_previews(&[(0, 1.0)]);
+        let gray_req = v_gray.frame_queue.iter().find(|r| r.page == 0).expect("preview queued");
+        assert_eq!(gray_req.tag & PRINT_TAG, PRINT_TAG, "must be tagged as print preview");
+        assert_eq!(gray_req.tag & GRAYSCALE_TAG, GRAYSCALE_TAG, "grayscale preview must carry GRAYSCALE_TAG");
     }
 
     /// Edit text & images keeps its boxes while page input is blocked (the window unfocused, a
