@@ -12,7 +12,8 @@
 //! [`distinct`] renames each program to `PdfCraftPrint<n>`: the identity records of its `name`
 //! table, `/FontName` of its descriptors and `/BaseFont` of the fonts drawn with it (a subset keeps
 //! its tag, `AAAAAA+PdfCraftPrint1`). Glyphs, glyph numbers, cmaps, encodings, widths and
-//! `/ToUnicode` are not touched, so pages draw and extract as before.
+//! `/ToUnicode` are not touched, so pages draw and extract as before. A program that can't be
+//! read and rewritten keeps its old name everywhere.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -56,15 +57,16 @@ struct Found {
     descriptors: BTreeMap<ObjRef, ObjRef>,
 }
 
-/// `pdf` with every embedded TrueType or OpenType program renamed; `None` when it has none.
+/// `pdf` with every embedded TrueType or OpenType program renamed; `None` when it has none that
+/// can be.
 pub fn distinct(pdf: &[u8]) -> Result<Option<Vec<u8>>, PrintError> {
     let mut doc = Document::open(Arc::new(pdf.to_vec()))?;
-    let found = find(&doc);
+    let mut found = find(&doc);
+    // A program that can't be rewritten keeps its names in the PDF too: a viewer that can't load
+    // it either then still picks its substitute by the original name. The lookups below skip it.
+    found.programs.retain(|program, about| rename_program(&mut doc, *program, about));
     if found.programs.is_empty() {
         return Ok(None);
-    }
-    for (program, about) in &found.programs {
-        rename_program(&mut doc, *program, about);
     }
     for (descriptor, program) in &found.descriptors {
         let Some(about) = found.programs.get(program) else { continue };
@@ -149,19 +151,20 @@ fn subset_tag(name: &[u8]) -> Option<&[u8]> {
     (letters.iter().all(u8::is_ascii_uppercase) && plus == b"+").then_some(tag)
 }
 
-/// Rewrite the program with its `name` table renamed. A program that can't be decoded or isn't
-/// an sfnt with a readable `name` table stays as it is; its PDF names change all the same.
-fn rename_program(doc: &mut Document, program: ObjRef, about: &Program) {
+/// Rewrite the program with its `name` table renamed; whether it was. A program that can't be
+/// decoded or isn't an sfnt with a readable `name` table stays as it is.
+fn rename_program(doc: &mut Document, program: ObjRef, about: &Program) -> bool {
     let object = doc.get(program);
-    let Object::Stream(stream) = object.as_ref() else { return };
-    let Ok(bytes) = stream.decoded_within(MAX_PROGRAM) else { return };
-    let Some(renamed) = renamed_sfnt(&bytes, &about.name) else { return };
+    let Object::Stream(stream) = object.as_ref() else { return false };
+    let Ok(bytes) = stream.decoded_within(MAX_PROGRAM) else { return false };
+    let Some(renamed) = renamed_sfnt(&bytes, &about.name) else { return false };
     let mut dict = stream.dict.clone();
     dict.remove(b"DL");
     if about.true_type || dict.get(b"Length1").is_some() {
         dict.set(b"Length1".to_vec(), Object::Int(i64::try_from(renamed.len()).unwrap_or(i64::MAX)));
     }
     doc.set(program, Object::Stream(Stream::flate(dict, &renamed)));
+    true
 }
 
 fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {

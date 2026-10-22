@@ -157,6 +157,43 @@ fn other_platforms_and_pdfs_without_embedded_programs_spool_as_they_are() {
 }
 
 #[test]
+fn a_program_that_cannot_be_rewritten_keeps_its_name_in_the_pdf_too() {
+    // A viewer that can't load the program either picks a substitute by the PDF's name, so that
+    // name must still say Arial.
+    let mut doc = fixture(1);
+    let good = program_stream(&mut doc);
+    let mut d = Dict::new();
+    d.set(b"Length1".to_vec(), Object::Int(10));
+    let broken = doc.add(Object::Stream(Stream::flate(d, b"not a font")));
+    let good = true_type_font(&mut doc, "AAAAAA+ArialMT", good);
+    let broken = true_type_font(&mut doc, "BAAAAA+Arial-BoldMT", broken);
+    let mut fonts = Dict::new();
+    fonts.set(b"F1".to_vec(), Object::Ref(good));
+    fonts.set(b"F2".to_vec(), Object::Ref(broken));
+    let mut resources = Dict::new();
+    resources.set(b"Font".to_vec(), Object::Dict(fonts));
+    let page = pdfcraft_model::pages(&doc)[0].obj;
+    doc.update_dict(page, |d| d.set(b"Resources".to_vec(), Object::Dict(resources))).unwrap();
+    let pdf = write_full(&doc, &SaveOptions::default()).unwrap();
+
+    let names: Vec<_> = true_type_fonts(&spooled(&pdf, true)).into_iter().map(|f| (f.0, f.1, f.2 == b"not a font")).collect();
+    assert_eq!(
+        names,
+        [
+            ("AAAAAA+PdfCraftPrint1".to_owned(), "AAAAAA+PdfCraftPrint1".to_owned(), false),
+            ("BAAAAA+Arial-BoldMT".to_owned(), "BAAAAA+Arial-BoldMT".to_owned(), true),
+        ]
+    );
+    // With nothing it can rewrite, the PDF goes as it is.
+    let mut fonts = Dict::new();
+    fonts.set(b"F2".to_vec(), Object::Ref(broken));
+    let mut resources = Dict::new();
+    resources.set(b"Font".to_vec(), Object::Dict(fonts));
+    doc.update_dict(page, |d| d.set(b"Resources".to_vec(), Object::Dict(resources))).unwrap();
+    assert_eq!(distinct(&write_full(&doc, &SaveOptions::default()).unwrap()).unwrap(), None);
+}
+
+#[test]
 fn fonts_sharing_a_program_share_its_name_and_type0_fonts_follow_their_cidfont() {
     let mut doc = fixture(1);
     let program = program_stream(&mut doc);
