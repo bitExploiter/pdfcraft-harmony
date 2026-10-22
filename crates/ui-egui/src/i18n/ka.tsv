@@ -2759,3 +2759,27 @@ theme	Appearance	იერსახე
 	field names can't contain a period: {name}	ველის დასახელება წერტილს ვერ შეიცავს: {name}
 	two cells would both be named {name}	ორ უჯრას ერთი და იგივე დასახელება ექნებოდა: {name}
 	a field named {name} already exists	ველი დასახელებით {name} უკვე არსებობს
+	Always use my default zoom and page layout	ყოველთვის ჩემი ნაგულისხმევი მასშტაბისა და გვერდის განლაგების გამოყენება
+	Hide gaps to join page edges. Margins inside the PDF remain unchanged.	დამალეთ ღრეჩოები, რომ გვერდების კიდეები ერთმანეთს შეუერთდეს. PDF-ის შიგნით ველები არ იცვლება.
+	Larger thumbnails	უფრო დიდი ესკიზები
+	Layer options	შრის პარამეტრები
+	Mouse wheel scroll speed	თაგუნას ბორბლით გადახვევის სიჩქარე
+	Printer default	პრინტერის ნაგულისხმევი
+	Reading the printer's settings…	პრინტერის პარამეტრების წაკითხვა…
+	Remove {standard} identification	{standard} იდენტიფიკაციის წაშლა
+	Reset to Initial Visibility	საწყის ხილვადობაზე დაბრუნება
+	Reshape comment	კომენტარის ფორმის შეცვლა
+	Show gaps between pages	გვერდებს შორის ღრეჩოების ჩვენება
+	Shrink the page content to make room for the header and footer	გვერდის შიგთავსის შემცირება, რომ კოლონტიტულებისთვის ადგილი დარჩეს
+	Smaller thumbnails	უფრო პატარა ესკიზები
+	The document's security settings don't allow printing	დოკუმენტის უსაფრთხოების პარამეტრები დაბეჭდვას არ იძლევა
+	The signature's signed attributes have no content type, which CMS requires; it was read anyway.	ხელმოწერის ხელმოწერილ ატრიბუტებს შიგთავსის ტიპი არ აქვს, რასაც CMS მოითხოვს; ხელმოწერა მაინც წაიკითხა.
+	The signature's signed attributes have no message digest, so the signature does not cover the document.	ხელმოწერის ხელმოწერილ ატრიბუტებს შეტყობინების დაიჯესტი არ აქვს, ამიტომ ხელმოწერა დოკუმენტს არ მოიცავს.
+	The signature's signed attributes name a content type other than data, so it is not a signature of the document.	ხელმოწერის ხელმოწერილი ატრიბუტები „data“-სგან განსხვავებულ შიგთავსის ტიპს ასახელებს, ამიტომ ეს დოკუმენტის ხელმოწერა არ არის.
+	This file changed on disk. Reload it to see the new version; your unsaved changes will be lost.	ეს ფაილი დისკზე შეიცვალა. ახალი ვერსიის სანახავად ხელახლა ჩატვირთეთ; შეუნახავი ცვლილებები დაიკარგება.
+	This signature uses an RSA key shorter than 2048 bits, which is no longer considered strong enough for signatures. It still validates, but it should not be relied on.	ეს ხელმოწერა იყენებს 2048 ბიტზე მოკლე RSA გასაღებს, რომელიც ხელმოწერებისთვის საკმარისად მდგრადად აღარ ითვლება. ის მაინც ვალიდურია, მაგრამ მას არ უნდა დაეყრდნოთ.
+	Thumbnail size	ესკიზის ზომა
+	a table has 1 to {max} columns	ცხრილს 1-დან {max}-მდე სვეტი აქვს
+	a table has 1 to {max} rows	ცხრილს 1-დან {max}-მდე სტრიქონი აქვს
+	the area, the spacing and the column widths must be numbers, the spacing 0 or more and each width more than 0	ფართობი, დაშორება და სვეტების სიგანეები რიცხვები უნდა იყოს: დაშორება 0 ან მეტი, თითოეული სიგანე კი 0-ზე მეტი
+	the first row number can be at most {max}	პირველი სტრიქონის ნომერი მაქსიმუმ {max} შეიძლება იყოს
