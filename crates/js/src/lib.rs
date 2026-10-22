@@ -198,9 +198,54 @@ struct Host {
     fields: Arc<Vec<FieldState>>,
     changed: BTreeSet<usize>,
     alerts: Vec<String>,
+    alert_bytes: usize,
     console: Vec<String>,
+    console_bytes: usize,
     requests: Vec<Request>,
+    request_bytes: usize,
     doc: DocInfo,
+}
+
+impl Host {
+    fn push_alert(&mut self, msg: String) {
+        if self.alerts.len() < MAX_ALERTS {
+            let m = xfa::clip(msg);
+            if self.alert_bytes.saturating_add(m.len()) <= MAX_HOST_BYTES {
+                self.alert_bytes = self.alert_bytes.saturating_add(m.len());
+                self.alerts.push(m);
+            }
+        }
+    }
+
+    fn push_console(&mut self, line: String) {
+        if self.console.len() < MAX_CONSOLE {
+            let m = xfa::clip(line);
+            if self.console_bytes.saturating_add(m.len()) <= MAX_HOST_BYTES {
+                self.console_bytes = self.console_bytes.saturating_add(m.len());
+                self.console.push(m);
+            }
+        }
+    }
+
+    fn clear_console(&mut self) {
+        self.console.clear();
+        self.console_bytes = 0;
+    }
+
+    fn push_request(&mut self, req: Request) {
+        if self.requests.len() >= MAX_REQUESTS {
+            return;
+        }
+        let req_bytes: usize = match &req {
+            Request::Reset(names) => names.iter().map(String::len).sum(),
+            Request::LaunchUrl(u) | Request::Submit(u) | Request::Focus(u) => u.len(),
+            Request::Print | Request::GoToPage(_) | Request::Beep | Request::SaveAs => 0,
+        };
+        if self.request_bytes.saturating_add(req_bytes) <= MAX_HOST_BYTES {
+            self.request_bytes = self.request_bytes.saturating_add(req_bytes);
+            self.requests.push(req);
+        }
+    }
 }
 
 type Shared = RefCell<Host>;
@@ -218,7 +263,11 @@ fn text(v: &JsValue, ctx: &mut Context) -> JsResult<String> {
     if v.is_undefined() || v.is_null() {
         return Ok(String::new());
     }
-    Ok(v.to_string(ctx)?.to_std_string_escaped())
+    let s = v.to_string(ctx)?;
+    if s.len() > MAX_STRING_UNITS {
+        return Err(error(format!("string length exceeds {MAX_STRING_UNITS}")));
+    }
+    Ok(s.to_std_string_escaped())
 }
 
 fn arg(args: &[JsValue], i: usize) -> JsValue {
@@ -252,13 +301,26 @@ fn strings(v: &JsValue, ctx: &mut Context) -> JsResult<Vec<String>> {
             return Err(error(format!("array length exceeds {MAX_ARRAY_LENGTH}")));
         }
         let mut out = Vec::new();
+        let mut bytes = 0usize;
         for i in 0..n {
             let x = a.get(i, ctx)?;
-            out.push(text(&x, ctx)?);
+            let item = text(&x, ctx)?;
+            bytes = bytes.saturating_add(item.len());
+            if bytes > MAX_HOST_BYTES {
+                return Err(error(format!("array string bytes exceed {MAX_HOST_BYTES}")));
+            }
+            out.push(item);
         }
         return Ok(out);
     }
-    Ok(if v.is_undefined() || v.is_null() { Vec::new() } else { vec![text(v, ctx)?] })
+    if v.is_undefined() || v.is_null() {
+        return Ok(Vec::new());
+    }
+    let item = text(v, ctx)?;
+    if item.len() > MAX_HOST_BYTES {
+        return Err(error(format!("array string bytes exceed {MAX_HOST_BYTES}")));
+    }
+    Ok(vec![item])
 }
 
 fn colour(c: &Option<Vec<String>>, ctx: &mut Context) -> JsValue {
@@ -438,7 +500,7 @@ fn field_object(ctx: &mut Context, name: &str) -> JsObject {
         Ok(JsValue::undefined())
     }
     fn set_focus(_: &JsValue, _: &[JsValue], name: &JsString, c: &mut Context) -> JsResult<JsValue> {
-        host(c)?.borrow_mut().requests.push(Request::Focus(name.to_std_string_escaped()));
+        host(c)?.borrow_mut().push_request(Request::Focus(name.to_std_string_escaped()));
         Ok(JsValue::undefined())
     }
 
@@ -492,12 +554,12 @@ fn get_nth_field_name(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsRes
 
 fn reset_form(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let names = strings(&arg(args, 0), ctx)?;
-    host(ctx)?.borrow_mut().requests.push(Request::Reset(names));
+    host(ctx)?.borrow_mut().push_request(Request::Reset(names));
     Ok(JsValue::undefined())
 }
 
 fn print(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
-    host(ctx)?.borrow_mut().requests.push(Request::Print);
+    host(ctx)?.borrow_mut().push_request(Request::Print);
     Ok(JsValue::undefined())
 }
 
@@ -510,7 +572,7 @@ fn submit_form(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsV
         }
         _ => text(&a, ctx)?,
     };
-    host(ctx)?.borrow_mut().requests.push(Request::Submit(url));
+    host(ctx)?.borrow_mut().push_request(Request::Submit(xfa::clip(url)));
     Ok(JsValue::undefined())
 }
 
@@ -532,7 +594,7 @@ fn page_num_set(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<Js
     let last = h.doc.num_pages.saturating_sub(1);
     let p = (n.max(0.0) as usize).min(last);
     h.doc.page = p;
-    h.requests.push(Request::GoToPage(p));
+    h.push_request(Request::GoToPage(p));
     Ok(JsValue::undefined())
 }
 
@@ -551,19 +613,19 @@ fn message(v: &JsValue, key: &str, ctx: &mut Context) -> JsResult<String> {
 
 fn alert(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let m = message(&arg(args, 0), "cMsg", ctx)?;
-    host(ctx)?.borrow_mut().alerts.push(m);
+    host(ctx)?.borrow_mut().push_alert(m);
     // The OK button.
     Ok(JsValue::from(1))
 }
 
 fn beep(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
-    host(ctx)?.borrow_mut().requests.push(Request::Beep);
+    host(ctx)?.borrow_mut().push_request(Request::Beep);
     Ok(JsValue::undefined())
 }
 
 fn launch_url(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let u = message(&arg(args, 0), "cURL", ctx)?;
-    host(ctx)?.borrow_mut().requests.push(Request::LaunchUrl(u));
+    host(ctx)?.borrow_mut().push_request(Request::LaunchUrl(xfa::clip(u)));
     Ok(JsValue::undefined())
 }
 
@@ -574,12 +636,12 @@ fn response(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
 
 fn println(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let m = text(&arg(args, 0), ctx)?;
-    host(ctx)?.borrow_mut().console.push(m);
+    host(ctx)?.borrow_mut().push_console(m);
     Ok(JsValue::undefined())
 }
 
 fn console_clear(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
-    host(ctx)?.borrow_mut().console.clear();
+    host(ctx)?.borrow_mut().clear_console();
     Ok(JsValue::undefined())
 }
 
@@ -1018,6 +1080,19 @@ const MAX_PRINTF_OUTPUT_BYTES: usize = 1 << 20;
 /// Longest array read item by item (`resetForm`, a field's `value` or colours). A sparse array's
 /// length costs the script nothing but the host one string per item; real lists are tiny.
 const MAX_ARRAY_LENGTH: u64 = 1 << 20;
+/// Longest string converted to the host or built by `repeat` / `padStart` / `padEnd` / `join`, in
+/// UTF-16 code units.
+pub(crate) const MAX_STRING_UNITS: usize = 4 << 20;
+/// Most string bytes copied into a host collection (`strings()`, `alerts`, `console`, `requests`).
+pub const MAX_HOST_BYTES: usize = 1 << 20;
+/// Most alerts one script run may record.
+pub const MAX_ALERTS: usize = xfa::MAX_ALERTS;
+/// Most console lines one script run may record.
+pub const MAX_CONSOLE: usize = xfa::MAX_CONSOLE;
+/// Most viewer requests one script run may record.
+pub const MAX_REQUESTS: usize = 1_000;
+/// Largest `ArrayBuffer` or `SharedArrayBuffer` a script may allocate, in bytes.
+const MAX_BUFFER_BYTES: u64 = 16 << 20;
 /// Deepest nesting of `(`, `[` and `{`.
 const MAX_BRACKET_DEPTH: usize = 64;
 /// Longest run of prefix operators (`!`, `~`, `+`, `-`).
@@ -1128,16 +1203,209 @@ pub fn run_shared(script: &str, event: &Event, doc: &DocInfo, fields: Arc<Vec<Fi
     run_here(script, event, doc, fields, doc_scripts, limits)
 }
 
-fn run_here(script: &str, event: &Event, doc: &DocInfo, fields: Arc<Vec<FieldState>>, doc_scripts: &[String], limits: Limits) -> Outcome {
-    let mut ctx = Context::default();
+struct SandboxHooks;
+
+impl boa_engine::context::HostHooks for SandboxHooks {
+    fn ensure_can_compile_strings(
+        &self,
+        _realm: boa_engine::realm::Realm,
+        parameters: &[JsString],
+        body: &JsString,
+        _direct: bool,
+        _context: &mut Context,
+    ) -> JsResult<()> {
+        let mut total_units = 0usize;
+        for part in parameters.iter().chain(std::iter::once(body)) {
+            total_units = total_units.saturating_add(part.len());
+            if total_units > MAX_SCRIPT_BYTES {
+                return Err(error(format!("the script is too long ({} KiB; the limit is {} KiB)", total_units / 1024, MAX_SCRIPT_BYTES / 1024)));
+            }
+        }
+        let mut total_bytes = 0usize;
+        let mut params = Vec::with_capacity(parameters.len());
+        for p in parameters {
+            let s = p.to_std_string_escaped();
+            total_bytes = total_bytes.saturating_add(s.len());
+            if total_bytes > MAX_SCRIPT_BYTES {
+                return Err(error(format!("the script is too long ({} KiB; the limit is {} KiB)", total_bytes / 1024, MAX_SCRIPT_BYTES / 1024)));
+            }
+            if let Some(why) = refuse(&s) {
+                return Err(error(why));
+            }
+            params.push(s);
+        }
+        let body_str = body.to_std_string_escaped();
+        total_bytes = total_bytes.saturating_add(body_str.len());
+        if total_bytes > MAX_SCRIPT_BYTES {
+            return Err(error(format!("the script is too long ({} KiB; the limit is {} KiB)", total_bytes / 1024, MAX_SCRIPT_BYTES / 1024)));
+        }
+        if let Some(why) = refuse(&body_str) {
+            return Err(error(why));
+        }
+        if !params.is_empty() {
+            let combined = format!("({}){{\n{body_str}\n}}", params.join(","));
+            if let Some(why) = refuse(&combined) {
+                return Err(error(why));
+            }
+        }
+        Ok(())
+    }
+
+    fn max_buffer_size(&self, _context: &mut Context) -> u64 {
+        MAX_BUFFER_BYTES
+    }
+}
+
+fn string_repeat(this: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    if this.is_null_or_undefined() {
+        return Err(error("String.prototype.repeat called on null or undefined"));
+    }
+    let s = this.to_string(ctx)?;
+    let n = arg(args, 0).to_number(ctx)?;
+    if n < 0.0 || n.is_infinite() {
+        return Err(JsNativeError::range().with_message("repeat count must be non-negative and finite").into());
+    }
+    let count = if n.is_nan() { 0usize } else { n.trunc() as usize };
+    if count == 0 || s.is_empty() {
+        return Ok(js_string!().into());
+    }
+    let total = s.len().checked_mul(count).ok_or_else(|| JsNativeError::range().with_message(format!("string length exceeds {MAX_STRING_UNITS}")))?;
+    if total > MAX_STRING_UNITS {
+        return Err(JsNativeError::range().with_message(format!("string length exceeds {MAX_STRING_UNITS}")).into());
+    }
+    let unit_vec: Vec<u16> = s.iter().collect();
+    let mut out = Vec::with_capacity(total);
+    for _ in 0..count {
+        out.extend_from_slice(&unit_vec);
+    }
+    Ok(JsString::from(&out[..]).into())
+}
+
+fn string_pad(this: &JsValue, args: &[JsValue], start: bool, ctx: &mut Context) -> JsResult<JsValue> {
+    if this.is_null_or_undefined() {
+        return Err(error("String.prototype.pad called on null or undefined"));
+    }
+    let s = this.to_string(ctx)?;
+    let max_len = arg(args, 0).to_length(ctx)? as usize;
+    if max_len <= s.len() {
+        return Ok(s.into());
+    }
+    let filler = match args.get(1) {
+        Some(v) if !v.is_undefined() => v.to_string(ctx)?,
+        _ => js_string!(" "),
+    };
+    if filler.is_empty() {
+        return Ok(s.into());
+    }
+    if max_len > MAX_STRING_UNITS {
+        return Err(JsNativeError::range().with_message(format!("string length exceeds {MAX_STRING_UNITS}")).into());
+    }
+    let fill_len = max_len - s.len();
+    let filler_units: Vec<u16> = filler.iter().collect();
+    let mut out = Vec::with_capacity(max_len);
+    if !start {
+        out.extend(s.iter());
+    }
+    let mut remaining = fill_len;
+    while remaining > 0 {
+        let take = remaining.min(filler_units.len());
+        out.extend_from_slice(&filler_units[..take]);
+        remaining -= take;
+    }
+    if start {
+        out.extend(s.iter());
+    }
+    Ok(JsString::from(&out[..]).into())
+}
+
+fn string_pad_start(this: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    string_pad(this, args, true, ctx)
+}
+
+fn string_pad_end(this: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    string_pad(this, args, false, ctx)
+}
+
+fn array_join(this: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    if this.is_null_or_undefined() {
+        return Err(error("Array.prototype.join called on null or undefined"));
+    }
+    let o = this.to_object(ctx)?;
+    let len = o.get(js_string!("length"), ctx)?.to_length(ctx)?;
+    if len > MAX_ARRAY_LENGTH {
+        return Err(JsNativeError::range().with_message(format!("array length exceeds {MAX_ARRAY_LENGTH}")).into());
+    }
+    let sep = match args.first() {
+        Some(v) if !v.is_undefined() => v.to_string(ctx)?,
+        _ => js_string!(","),
+    };
+    if len == 0 {
+        return Ok(js_string!().into());
+    }
+    let total_sep = (len as usize).saturating_sub(1).saturating_mul(sep.len());
+    if total_sep > MAX_STRING_UNITS {
+        return Err(JsNativeError::range().with_message(format!("string length exceeds {MAX_STRING_UNITS}")).into());
+    }
+    let mut units = Vec::new();
+    for k in 0..len {
+        if k > 0 && !sep.is_empty() {
+            units.extend(sep.iter());
+        }
+        let el = o.get(k, ctx)?;
+        if !el.is_null_or_undefined() && &el != this {
+            let s = el.to_string(ctx)?;
+            if units.len().saturating_add(s.len()) > MAX_STRING_UNITS {
+                return Err(JsNativeError::range().with_message(format!("string length exceeds {MAX_STRING_UNITS}")).into());
+            }
+            units.extend(s.iter());
+        }
+    }
+    Ok(JsString::from(&units[..]).into())
+}
+
+fn array_to_locale_string(this: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    array_join(this, &[], ctx)
+}
+
+fn install_intrinsic_limits(ctx: &mut Context) -> JsResult<()> {
+    let str_proto = ctx.intrinsics().constructors().string().prototype();
+    for (name, len, f) in [
+        ("repeat", 1, NativeFunction::from_fn_ptr(string_repeat)),
+        ("padStart", 1, NativeFunction::from_fn_ptr(string_pad_start)),
+        ("padEnd", 1, NativeFunction::from_fn_ptr(string_pad_end)),
+    ] {
+        let func = FunctionObjectBuilder::new(ctx.realm(), f).name(JsString::from(name)).length(len).build();
+        str_proto.set(JsString::from(name), func, false, ctx)?;
+    }
+    let arr_proto = ctx.intrinsics().constructors().array().prototype();
+    for (name, len, f) in
+        [("join", 1, NativeFunction::from_fn_ptr(array_join)), ("toLocaleString", 0, NativeFunction::from_fn_ptr(array_to_locale_string))]
+    {
+        let func = FunctionObjectBuilder::new(ctx.realm(), f).name(JsString::from(name)).length(len).build();
+        arr_proto.set(JsString::from(name), func, false, ctx)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn sandbox_context(limits: Limits) -> Context {
+    let mut ctx = boa_engine::context::ContextBuilder::new().host_hooks(std::rc::Rc::new(SandboxHooks)).build().unwrap_or_default();
     ctx.runtime_limits_mut().set_loop_iteration_limit(limits.loop_iterations);
     ctx.runtime_limits_mut().set_recursion_limit(limits.recursion);
+    let _ = install_intrinsic_limits(&mut ctx);
+    ctx
+}
+
+fn run_here(script: &str, event: &Event, doc: &DocInfo, fields: Arc<Vec<FieldState>>, doc_scripts: &[String], limits: Limits) -> Outcome {
+    let mut ctx = sandbox_context(limits);
     ctx.insert_data(RefCell::new(Host {
         fields,
         changed: BTreeSet::new(),
         alerts: Vec::new(),
+        alert_bytes: 0,
         console: Vec::new(),
+        console_bytes: 0,
         requests: Vec::new(),
+        request_bytes: 0,
         doc: doc.clone(),
     }));
     let mut out = Outcome { rc: true, value: event.value.clone(), change: event.change.clone(), ..Default::default() };

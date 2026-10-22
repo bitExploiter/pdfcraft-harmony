@@ -217,6 +217,7 @@ pub(crate) struct XHost {
     pub(crate) nodes: Vec<HNode>,
     pub(crate) effects: Vec<XfaEffect>,
     pub(crate) console: Vec<String>,
+    console_bytes: usize,
     pub(crate) doc: XfaDoc,
     added: usize,
     /// Index of `this`.
@@ -246,6 +247,7 @@ impl XHost {
             nodes,
             effects: Vec::new(),
             console: Vec::new(),
+            console_bytes: 0,
             doc: doc.clone(),
             added: 0,
             current,
@@ -265,6 +267,14 @@ impl XHost {
     pub(crate) fn push(&mut self, e: XfaEffect) {
         let e = match e {
             XfaEffect::MessageBox(m) => XfaEffect::MessageBox(clip(m)),
+            XfaEffect::LaunchUrl(u) => XfaEffect::LaunchUrl(clip(u)),
+            XfaEffect::ResetData(mut names) => {
+                names.truncate(MAX_EFFECTS);
+                for n in &mut names {
+                    *n = clip(std::mem::take(n));
+                }
+                XfaEffect::ResetData(names)
+            }
             XfaEffect::SetValue { som, value } => {
                 let (value, cut) = clip_value(value);
                 if cut {
@@ -314,9 +324,10 @@ impl XHost {
     }
 
     pub(crate) fn print(&mut self, line: String) {
-        if self.console.len() >= MAX_CONSOLE {
+        if self.console.len() >= MAX_CONSOLE || self.console_bytes.saturating_add(line.len()) > crate::MAX_HOST_BYTES {
             self.dropped_console += 1;
         } else {
+            self.console_bytes = self.console_bytes.saturating_add(line.len());
             self.console.push(line);
         }
     }
@@ -1465,7 +1476,7 @@ pub(crate) fn warm_up() {
     static WARM: std::sync::Once = std::sync::Once::new();
     // `call_once_force`: a poisoned `Once` (a panic while warming up) only means warming up again.
     WARM.call_once_force(|_| {
-        let mut ctx = Context::default();
+        let mut ctx = crate::sandbox_context(Limits::default());
         let _ = ctx.eval(Source::from_bytes(b"(function () { return eval('0'); }).call({})"));
     });
 }
@@ -1473,9 +1484,7 @@ pub(crate) fn warm_up() {
 /// `started` is called once the engine is ready: a time limit on the script runs from then.
 pub(crate) fn run_here(script: &str, event: &XfaEvent, doc: &XfaDoc, root: XfaNode, limits: Limits, started: &dyn Fn()) -> XfaOutcome {
     warm_up();
-    let mut ctx = Context::default();
-    ctx.runtime_limits_mut().set_loop_iteration_limit(limits.loop_iterations);
-    ctx.runtime_limits_mut().set_recursion_limit(limits.recursion);
+    let mut ctx = crate::sandbox_context(limits);
     let host_state = XHost::new(root, &event.target, doc);
     let current = host_state.current;
     ctx.insert_data(RefCell::new(host_state));
