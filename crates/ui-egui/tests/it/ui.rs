@@ -1540,7 +1540,9 @@ fn the_edit_panel_keeps_the_add_update_remove_menu() {
 /// being drawn under the page number field.
 #[test]
 fn short_window_rail_buttons_scroll_clear_of_page_navigation() {
-    let (width, height) = (1000.0, 560.0);
+    // Tall enough for the navigation cluster, including the layout and scrolling toggles,
+    // plus one panel button; still short enough that the other buttons must scroll.
+    let (width, height) = (1000.0, 630.0);
     let mut h = Harness::builder().with_size(egui::vec2(width, height)).build_eframe(|_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
