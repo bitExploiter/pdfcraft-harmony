@@ -294,7 +294,6 @@ kind = "translation"
 usage = "Romanian UI strings, compiled in by crates/ui-egui/src/i18n/mod.rs"
 sha256 = "18d4beda8495d7f0b91f0dc0a52c2248d9ce6fb3f4e3de0d51f42235eaab7aa8"
 
-
 [[asset]]
 path = "crates/ui-egui/src/i18n/fi.tsv"
 title = "Finnish interface translation catalog"
@@ -3335,6 +3334,8 @@ kind = "font"
 usage = "Fill & Sign typed signatures and initials: the typed name's glyph outlines, drawn as filled paths (the font file itself is not embedded in PDFs)"
 sha256 = "21808625578fe8d8cd10cb684be546dca077b27cd03a53a2f1ec11dc743c924c"
 
+
+
 [[asset]]
 path = "packaging/macos/dmg/background.svg"
 title = "PdfCraft macOS DMG window background"
@@ -3345,7 +3346,6 @@ licence_file = "assets/app-icon/LICENSE.txt"
 kind = "image"
 usage = "Finder window of the macOS DMG; rendered to background.tiff by packaging/macos/dmg/generate.py"
 sha256 = "e8b9ea9d5e64b7b741c977543c1693825e77d5c4c579eeb674bf5dcd3764cd8a"
-
 
 [[asset]]
 path = "packaging/macos/dmg/background.tiff"
