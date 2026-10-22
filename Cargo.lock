@@ -4389,6 +4389,7 @@ dependencies = [
  "pdfcraft-model",
  "pdfcraft-platform",
  "pdfcraft-render",
+ "pdfcraft-testkit",
  "pdfcraft-xfa",
  "png 0.18.1",
  "pollster 1.0.1",

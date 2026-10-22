@@ -507,6 +507,9 @@ pub struct PdfCraftApp {
     /// Documents and view). Continuous scrolling at fit width by default, which never snaps
     /// between pages.
     pub view_defaults: canvas::ViewDefaults,
+    /// Show the ordinary AcroForm field reminder; dismissing it persists across sessions.
+    /// Security, repair, signature and XFA notices are independent of this preference.
+    pub show_form_field_reminder: bool,
     /// The unit page sizes and margins are shown in (Preferences ▸ Documents and view).
     pub units: units::Unit,
     /// The Preferences ▸ Date format box while it's being edited, or while it holds an invalid
@@ -941,6 +944,7 @@ impl PdfCraftApp {
             mode: Mode::AllTools,
             default_mode: Mode::AllTools,
             view_defaults: Default::default(),
+            show_form_field_reminder: true,
             units: Default::default(),
             date_format_draft: None,
             mode_override: None,
@@ -2426,6 +2430,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["show_form_field_reminder"] = serde_json::Value::Bool(self.show_form_field_reminder);
         v["organize_zoom"] = serde_json::json!(self.organize_zoom);
         // Canonical names survive changes to the order of PAPERS and do not depend on UI language.
         v["print_paper"] = serde_json::json!(pdfcraft_engine::print::PAPERS.get(self.print_draft.paper).map(|(name, _)| *name));
@@ -2505,6 +2510,9 @@ impl PdfCraftApp {
         }
         if let Some(on) = v["highlight_fields"].as_bool() {
             self.view_defaults.highlight_fields = on;
+        }
+        if let Some(show) = v["show_form_field_reminder"].as_bool() {
+            self.show_form_field_reminder = show;
         }
         if let Some(closed) = v["comments_panel_closed"].as_bool() {
             self.comments_panel_closed = closed;
@@ -2665,6 +2673,13 @@ impl PdfCraftApp {
             }
             ("default-mode", _) => {
                 self.default_mode = Mode::parse(value).ok_or("default-mode must be all, read, edit, convert or sign")?;
+            }
+            ("form-reminder", _) => {
+                self.show_form_field_reminder = match value {
+                    "on" | "true" => true,
+                    "off" | "false" => false,
+                    _ => return Err("form-reminder must be on or off".to_string()),
+                };
             }
             ("date-format", _) => self.session.set_date_format(value)?,
             ("date-language", _) => self.session.set_date_language(Some(value).filter(|v| *v != "auto"))?,
