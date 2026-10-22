@@ -14,11 +14,12 @@
 //! Covers come from the page content — `re` rectangles and single closed `m`/`l` subpaths whose
 //! four corners form an axis-aligned rectangle in user space (#1510), filled opaquely, and a
 //! thick opaque stroke along one axis (a "marker" line) — and from the annotations: an opaque
-//! `/Highlight` dark enough to hide the text under it (#2385).
+//! `/Highlight` dark enough to hide the text under it (#2385), and an opaque filled `/Square`
+//! likewise (#2854).
 //!
 //! Detection limits (documented, not hidden): other filled paths, slanted or bent strokes,
 //! shadings and patterns are not considered; a cover drawn with a translucent ExtGState
-//! (`/ca`, `/CA < 1`) or a highlight with `/CA < 1` is not flagged; annotation rectangles are
+//! (`/ca`, `/CA < 1`) or a highlight or square with `/CA < 1` is not flagged; annotation rectangles are
 //! compared in unrotated user space, so pages with `/Rotate` may misalign; covers inside form
 //! XObjects are found, but only text drawn directly in the page content is checked under them,
 //! so text inside a form XObject is not audited; a `/Highlight` is judged by its own
@@ -124,12 +125,12 @@ pub fn audit_redactions(doc: &Document) -> Result<Vec<AuditFinding>, AuditError>
                 }
             }
         }
-        // 2. Redact annotations that were never applied, and highlights dark enough to hide the
-        // text under them (annotations are drawn over the page's content).
+        // 2. Redact annotations that were never applied, and highlights and filled squares dark
+        // enough to hide the text under them (annotations are drawn over the page's content).
         for mark in annots(doc, &page.dict)? {
             let (kind, hides) = match mark.kind {
                 Mark::Redact => (FindingKind::UnappliedMark, None),
-                Mark::Highlight(rgb) => (FindingKind::CoveredText, Some(rgb)),
+                Mark::Highlight(rgb) | Mark::Square(rgb) => (FindingKind::CoveredText, Some(rgb)),
             };
             let covered = joined(
                 lines
@@ -232,6 +233,8 @@ enum Mark {
     Redact,
     /// An opaque highlight, with its color.
     Highlight([f64; 3]),
+    /// An opaque filled square, with its interior color (`/IC`).
+    Square([f64; 3]),
 }
 
 struct Annot {
@@ -243,9 +246,9 @@ struct Annot {
     kind: Mark,
 }
 
-/// The `/Redact` annotations on a page, and the `/Highlight` ones shown opaque with a color
-/// (unrotated user space). A missing `/Annots` means no marks; a malformed one fails the audit
-/// rather than silently passing.
+/// The `/Redact` annotations on a page, and the `/Highlight` and filled `/Square` ones shown
+/// opaque with a color (unrotated user space). A missing `/Annots` means no marks; a malformed
+/// one fails the audit rather than silently passing.
 fn annots(doc: &Document, page: &Dict) -> Result<Vec<Annot>, AuditError> {
     let Some(a) = page.get(b"Annots") else { return Ok(Vec::new()) };
     let resolved = doc.resolve(a);
@@ -271,21 +274,31 @@ fn annots(doc: &Document, page: &Dict) -> Result<Vec<Annot>, AuditError> {
         if flags & (2 | 32) != 0 {
             continue;
         }
+        // The color the annotation paints opaquely: a highlight's `/C`, a square's interior `/IC`.
+        // `None`: no color (drawn transparent), or `/CA` below 1.
+        let opaque = |key: &[u8]| -> Option<[f64; 3]> {
+            let alpha = dict.get(b"CA").and_then(|a| doc.resolve(a).as_f64()).unwrap_or(1.0);
+            let rgb = match nums(key).as_slice() {
+                [g] => [*g, *g, *g],
+                [r, g, b] => [*r, *g, *b],
+                [c, m, y, k] => [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)],
+                _ => return None,
+            };
+            if alpha.is_nan() || alpha < 1.0 || rgb.iter().any(|v| !v.is_finite()) {
+                return None;
+            }
+            Some(rgb.map(|v| v.clamp(0.0, 1.0)))
+        };
         let kind = match dict.name(b"Subtype") {
             Some(b"Redact") => Mark::Redact,
-            Some(b"Highlight") => {
-                let alpha = dict.get(b"CA").and_then(|a| doc.resolve(a).as_f64()).unwrap_or(1.0);
-                let rgb = match nums(b"C").as_slice() {
-                    [g] => [*g, *g, *g],
-                    [r, g, b] => [*r, *g, *b],
-                    [c, m, y, k] => [(1.0 - c) * (1.0 - k), (1.0 - m) * (1.0 - k), (1.0 - y) * (1.0 - k)],
-                    _ => continue, // no color: drawn transparent
-                };
-                if alpha.is_nan() || alpha < 1.0 || rgb.iter().any(|v| !v.is_finite()) {
-                    continue;
-                }
-                Mark::Highlight(rgb.map(|v| v.clamp(0.0, 1.0)))
-            }
+            Some(b"Highlight") => match opaque(b"C") {
+                Some(rgb) => Mark::Highlight(rgb),
+                None => continue,
+            },
+            Some(b"Square") => match opaque(b"IC") {
+                Some(rgb) => Mark::Square(rgb),
+                None => continue,
+            },
             _ => continue,
         };
         let v = nums(b"Rect");
