@@ -314,7 +314,7 @@ update the numbers.
 - **Evidence:** [localization.md](localization.md) §Arabic; `misc.rtl-ui` planned. Korean *text* —
   Hangul in the interface fallback, viewer substitution, renderer and the editor's Type 3
   replacement — shipped with the `Kore` craft face ([korean-text-support.md](korean-text-support.md));
-  what remains here is the `ko` catalog itself and RTL.
+  what remains here are the `ko`, Hindi and Indonesian catalogs and RTL.
 - **Estimate:** 25–45 h (Arabic RTL 20–35, three catalogs 8–12 plus review). **Doc:**
   [localization-parity.md](localization-parity.md).
 
@@ -400,7 +400,7 @@ update the numbers.
 
 | Date | Change | Summary |
 |---|---|---|
-| 2026-10-22 | minor | Gap 14: Korean text support (craft face `Kore`, viewer substitution, editor Type 3, renderer) shipped and documented in korean-text-support.md; the gap now covers only the `ko` catalog and RTL |
+| 2026-10-22 | minor | Gap 14: Korean text support (craft face `Kore`, viewer substitution, editor Type 3, renderer) shipped and documented in korean-text-support.md; the gap now covers the `ko`, Hindi and Indonesian catalogs and RTL |
 | 2026-10-19 | minor | Gap 2: a Type 0 font whose `/ToUnicode` is the name `/Identity-H` or `/Identity-V` (WSCAD) reads its codes as Unicode, so such pages have text to select, find and edit (hayro-interpret patch 44, `view.render-cid-fonts`). Estimates unchanged. |
 | 2026-10-15 | minor | Gap 21: the side-by-side view had already shipped; the Compare panel filters text changes and visual differences. Estimate 10–20 h → 8–16 h |
 | 2026-10-20 | minor | Gap 6 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections, or a predefined non-Identity CMap; negative and indirect-reference regressions and a read-only automation test passed after failing before the fix. Per-glyph validation and embedded-font extraction remain separate. Scores and estimates unchanged. |
