@@ -108,6 +108,28 @@ fn text_tool_drafts_grow_for_latin_and_arabic() {
 }
 
 #[test]
+fn new_text_is_as_wide_as_what_is_typed() {
+    let mut h = harness();
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(2);
+    let point = at(&h, 40.0, 300.0);
+    click(&mut h, point);
+    h.event(egui::Event::Text("Hi".into()));
+    h.run_steps(4);
+    let draft = h.state().views[0].content.draft.as_ref().unwrap();
+    let typed = draft.rect[2] - draft.rect[0];
+    assert!(typed < 40.0, "two letters don't need the default 200-point box: {typed}");
+    h.event(egui::Event::Text(" and more words".into()));
+    h.run_steps(4);
+    let grown = h.state().views[0].content.draft.as_ref().unwrap().rect;
+    assert!(grown[2] - grown[0] > typed + 20.0, "the box grows with the text");
+    h.get_by_label("Done adding text").click();
+    h.run_steps(3);
+    let pdfcraft_engine::AddedContent::Text(saved) = &added(&h)[0].content else { panic!() };
+    assert!((saved.rect[2] - saved.rect[0] - (grown[2] - grown[0])).abs() < 1.0, "the item keeps the width it had while typing");
+}
+
+#[test]
 fn text_tool_single_click_retypes_added_text_without_another_item() {
     for command in ["edit.text", "edit.edit_text"] {
         for (original, replacement) in [("Original", "Replacement"), ("سلام", "سلام عليكم ورحمة الله")] {

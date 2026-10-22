@@ -508,9 +508,14 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             draft.rect = source;
         } else {
             let natural = ctx.fonts_mut(|f| f.layout_no_wrap(draft.text.clone(), font.clone(), Color32::BLACK).size().x) as f64 / zoom as f64;
-            let width = natural.max(pdfcraft_engine::added_text_width(&text)) + 2.0;
+            // The text edit keeps a margin of its own (about 8 screen points) inside its width, and the caret needs a
+            // little room: with less than that the last character wraps onto a second line.
+            let width = natural.max(pdfcraft_engine::added_text_width(&text)) + f64::from(10.0 / zoom.max(0.01));
             let available = page_width - source[0];
-            let width = width.max(source[2] - source[0]).min(available.max(1.0));
+            // New text is as wide as what is typed, not as the default box the click made (which
+            // had to be shortened every time); retyped text keeps at least its box's width.
+            let width = if draft.index.is_some() { width.max(source[2] - source[0]) } else { width.max(draft.style.size) };
+            let width = width.min(available.max(1.0));
             draft.rect = [source[0], source[1], source[0] + width, source[3]];
             draft.rect = pdfcraft_engine::added_text_rect(&AddedText { rect: draft.rect, ..text.clone() });
         }
@@ -547,6 +552,11 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             if t.focus {
                 resp.request_focus();
                 t.focus = false;
+            }
+            // The box is as wide as the text: it grows a frame after a character arrives, so ask for that
+            // frame, or the last character waits on the next event wrapped onto a second line.
+            if resp.changed() {
+                ui.ctx().request_repaint();
             }
             let buttons = egui::Frame::NONE
                 .fill(tokens.card)
