@@ -6487,10 +6487,11 @@ fn object_scale_refuses_invalid_or_clipping_edits_atomically() {
     assert_eq!(page_content_bytes(&doc, 0), before);
 }
 
-/// PDF 1.7 graphics-state operators belong outside BT/ET, even when readers tolerate them.
+/// Graphics operators stay outside BT/ET; marked-content and text pairs nest independently.
 fn assert_transform_text_context(doc: &Document) {
     let mut in_text = false;
     let mut depth = 0;
+    let mut marked = Vec::new();
     for op in pdfcraft_content::parse(&page_content_bytes(doc, 0)).ops {
         match op.op.as_slice() {
             b"BT" => {
@@ -6499,8 +6500,11 @@ fn assert_transform_text_context(doc: &Document) {
             }
             b"ET" => {
                 assert!(in_text);
+                assert_ne!(marked.last(), Some(&true), "marked content opened inside BT crosses ET");
                 in_text = false;
             }
+            b"BDC" | b"BMC" => marked.push(in_text),
+            b"EMC" => assert_eq!(marked.pop(), Some(in_text), "marked content crosses a text boundary"),
             b"q" | b"Q" | b"cm" => {
                 assert!(!in_text, "special graphics operator inside text: {:?}", op.op);
                 if op.is("q") {
@@ -6516,6 +6520,7 @@ fn assert_transform_text_context(doc: &Document) {
     }
     assert!(!in_text);
     assert_eq!(depth, 0);
+    assert!(marked.is_empty());
 }
 
 #[test]
@@ -6653,7 +6658,7 @@ fn object_rotation_retyped_line_count_uses_current_visible_pivot() {
     }
 }
 
-/// ActualText wrappers remain byte-identical while all enclosed glyph shows transform.
+/// Outer ActualText wrappers survive; inner wrappers are refused without changing PDF bytes.
 #[test]
 fn object_rotation_actual_text_preserves_markup_and_neighbours() {
     for (named, inside) in [(false, false), (false, true), (true, false), (true, true)] {
@@ -6674,6 +6679,15 @@ fn object_rotation_actual_text_preserves_markup_and_neighbours() {
         let before = text::text_blocks(&doc, 0).unwrap();
         let index = before.iter().position(|b| b.editor_text == "Logical label").unwrap();
         let target = ObjectTarget { kind: ObjectKind::Text, index };
+        assert_transform_text_context(&doc);
+        if inside {
+            let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+            assert!(rotate_object(&mut doc, 0, target, 30.0).is_err());
+            assert_eq!(write_full(&doc, &SaveOptions::default()).unwrap(), bytes);
+            assert!(scale_object(&mut doc, 0, target, 1.25, [40.0, 400.0]).is_err());
+            assert_eq!(write_full(&doc, &SaveOptions::default()).unwrap(), bytes);
+            continue;
+        }
         rotate_object(&mut doc, 0, target, 30.0).unwrap();
         scale_object(&mut doc, 0, target, 1.25, [40.0, 400.0]).unwrap();
         let doc = reopen(&doc);
@@ -6692,4 +6706,37 @@ fn object_rotation_actual_text_preserves_markup_and_neighbours() {
             assert!(a.rect.iter().zip(b.rect).all(|(a, b)| (a - b).abs() < 1e-6));
         }
     }
+}
+
+/// Nested BMC/BDC spans (including MCIDs) cannot be split or duplicated by a transform.
+#[test]
+fn object_transforms_refuse_inner_marked_content_without_mutation() {
+    for wrapper in ["/Artifact BMC", "/Span << /MCID 0 >> BDC", "/Span << /ActualText (Selected) >> BDC"] {
+        let mut doc = text_page(&format!("/Document BMC BT /F1 12 Tf 40 400 Td /Span BMC {wrapper} (Selected) Tj EMC EMC ET EMC"));
+        let target = ObjectTarget { kind: ObjectKind::Text, index: 0 };
+        assert_transform_text_context(&doc);
+        let bytes = write_full(&doc, &SaveOptions::default()).unwrap();
+        let err = rotate_object(&mut doc, 0, target, 30.0).unwrap_err().to_string();
+        assert!(err.contains("marked content"), "{err}");
+        assert_eq!(write_full(&doc, &SaveOptions::default()).unwrap(), bytes);
+        assert!(scale_object(&mut doc, 0, target, 1.25, [40.0, 400.0]).is_err());
+        assert_eq!(write_full(&doc, &SaveOptions::default()).unwrap(), bytes);
+    }
+}
+
+/// A completed inner span elsewhere in the text object must not block an unrelated show.
+#[test]
+fn object_rotation_after_closed_marked_content_preserves_nesting() {
+    let mut doc = text_page("BT /F1 12 Tf 40 600 Td /Artifact BMC (Before) Tj EMC 0 -200 Td (Selected) Tj ET");
+    let before = text::text_blocks(&doc, 0).unwrap();
+    let index = before.iter().position(|b| b.text == "Selected").unwrap();
+    let target = ObjectTarget { kind: ObjectKind::Text, index };
+    rotate_object(&mut doc, 0, target, 30.0).unwrap();
+    scale_object(&mut doc, 0, target, 1.25, [40.0, 400.0]).unwrap();
+    let doc = reopen(&doc);
+    assert_transform_text_context(&doc);
+    let after = text::text_blocks(&doc, 0).unwrap();
+    let old = before.iter().find(|b| b.text == "Before").unwrap();
+    let new = after.iter().find(|b| b.text == "Before").unwrap();
+    assert!(old.rect.iter().zip(new.rect).all(|(a, b)| (a - b).abs() < 1e-6));
 }

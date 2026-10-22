@@ -3127,6 +3127,7 @@ fn vertical_encoding(doc: &Document, font: &Dict) -> Result<bool, EditError> {
 /// Transform only the chosen paragraph's show operators. Close the text object before
 /// q/cm/Q (ISO 32000-1, 8.2), then restore both text matrices on re-entry (9.4).
 /// The line matrix and numeric TJ advance retain following text and T* positioning.
+/// Marked content opened inside a text object is refused to avoid crossing or duplicating tags.
 pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, transform: Matrix) -> Result<(), EditError> {
     let p = page_dict(doc, page)?;
     let streams = content_streams(doc, &p.dict);
@@ -3141,6 +3142,26 @@ pub(crate) fn transform_block(doc: &mut Document, page: usize, index: usize, tra
     // Logical ActualText spans also list BDC/EMC boundaries. Keep those untouched;
     // only glyph-show operations need a transform patch (including every show in a span).
     selected.retain(|i| ops.get(*i).is_some_and(|op| matches!(op.op.as_slice(), b"Tj" | b"TJ" | b"'" | b"\"")));
+
+    // Inserting ET/BT inside an inner BMC/BDC would cross its matching EMC.
+    // Do not close/reopen those spans: that can duplicate MCIDs or ActualText.
+    // Refuse before touching the document; spans surrounding BT/ET remain supported.
+    let mut in_text = false;
+    let mut marked = Vec::new();
+    for (i, op) in ops.iter().enumerate() {
+        match op.op.as_slice() {
+            b"BT" => in_text = true,
+            b"ET" => in_text = false,
+            b"BMC" | b"BDC" => marked.push(in_text),
+            b"EMC" => {
+                marked.pop();
+            }
+            _ => {}
+        }
+        if selected.contains(&i) && marked.last() == Some(&true) {
+            return Err(EditError::Invalid("text inside marked content opened within a text object cannot be rotated or scaled".into()));
+        }
+    }
 
     let shown = interpret(doc, &ops, &res, &mut HashMap::new(), &mut Carry::new(), None, None)?;
     // ET commits accumulated text clipping. Splitting anywhere in such a text object

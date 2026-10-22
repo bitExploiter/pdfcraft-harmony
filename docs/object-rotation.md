@@ -20,7 +20,10 @@ item. This does not add selection or editing of individual objects inside a Form
 or rotation of a mixed multi-selection. Added items with inherited surrounding
 transforms or non-uniform placement are refused rather than repositioned. Text
 in a text object containing a clipping path, or with vertical writing, is refused
-without changing the document. A scanned picture of text remains a picture.
+without changing the document. Rotation and scaling also refuse marked-content
+spans opened inside a text object: splitting or duplicating those tags could
+corrupt accessibility metadata. Spans surrounding text objects remain supported.
+A scanned picture of text remains a picture.
 
 Scaling keeps the existing angle. Extremely small/large results are refused
 without changing the document (added text remains within the existing 1–500 pt
@@ -60,4 +63,7 @@ retain added-object rotation through indirect metadata, retyping and save/reopen
 Additional regressions cover changed line counts after retyping rotated text,
 inline and named ActualText spans inside and outside text objects, and the live
 added-text move preview through pointer release and raster redraw. ActualText
-markup and neighboring text survive rotation, scaling and save/reopen.
+markup surrounding text objects and neighboring text survive rotation, scaling
+and save/reopen. Inner marked-content spans (BMC/BDC, including MCIDs) are refused
+without changing the saved bytes. A closed inner span does not prevent transforming
+a later, unmarked paragraph.

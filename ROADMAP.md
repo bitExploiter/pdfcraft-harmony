@@ -693,4 +693,4 @@ Newest first: the date, what moved, and the new overall estimate.
 
 - **2026-10-18 (renderer, hayro patches 19/35):** A mesh shading (types 4–7) is sampled over its own triangles instead of the whole path: a BricsCAD plan with 310 one-triangle `sh` fills took 2 s per 1024 px tile at every zoom (and hit the 20 s watchdog on a busy machine); now about 70 ms, so zooming into dense topology drawings stays fluid. Estimates unchanged.
 
-- 2026-10-22 (PR #3544): Refresh against upstream d5047aa4; adapt text transforms to resource-aware fallible interpretation and retain both upstream and transform regression tests. Fill the feature labels in all 33 current catalogs. Estimates unchanged.
+- 2026-10-22 (PR #3544): Refresh against upstream d5047aa4; adapt text transforms to resource-aware fallible interpretation and retain both upstream and transform regression tests. Fill the feature labels in all 33 current catalogs. Refuse rotations/scales inside inner marked-content spans atomically; outer ActualText remains supported. Estimates unchanged.
