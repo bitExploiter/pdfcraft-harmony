@@ -495,6 +495,14 @@ impl Automation {
         if !(4.0..=300.0).contains(&size) {
             return Err(ToolError::InvalidArgs("font_size must be 4–300 pt".into()));
         }
+        let requested_border = a.opt_num("border")?;
+        if requested_border.is_some() && !matches!(kind, "text" | "date") {
+            return Err(ToolError::InvalidArgs("border is only for type text or date".into()));
+        }
+        let border = requested_border.unwrap_or(0.0);
+        if !(0.0..=12.0).contains(&border) {
+            return Err(ToolError::InvalidArgs("border must be 0–12 pt".into()));
+        }
         if let Some(path) = a.opt_str("path")? {
             if !matches!(kind, "signature" | "initials") || a.opt_str("text")?.is_some() {
                 return Err(ToolError::InvalidArgs("path is only for an image signature or initials; pass either path or text".into()));
@@ -521,8 +529,9 @@ impl Automation {
         let text_at = |t: &str| {
             let w = (pdfcraft_engine::annot_text::text_width(t, size) + 8.0).clamp(20.0, 600.0);
             let h = size * 1.2 + 6.0;
-            let rect = pdfcraft_engine::text_box_at(i64::from(info.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]]);
-            Shape::Typewriter { rect, font_size: size }
+            let [x0, y0, x1, y1] = pdfcraft_engine::text_box_at(i64::from(info.rotation), at, w, h).unwrap_or([at[0], at[1] - h, at[0] + w, at[1]]);
+            // A border goes around the box, so the text sits where it would without one.
+            Shape::Typewriter { rect: [x0 - border, y0 - border, x1 + border, y1 + border], font_size: size }
         };
         let (shape, contents) = match kind {
             "text" => {
@@ -564,7 +573,10 @@ impl Automation {
                 (Shape::Mark { rect: mark.rect_at(at, i64::from(info.rotation)), mark }, String::new())
             }
         };
-        let style = Style::default_for(&shape);
+        let mut style = Style::default_for(&shape);
+        if matches!(shape, Shape::Typewriter { .. }) {
+            style.width = border;
+        }
         self.apply(a, Edit::AddAnnotation(NewAnnotation { page, shape, style, contents, author }))
     }
 
