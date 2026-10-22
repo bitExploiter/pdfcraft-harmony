@@ -59,7 +59,9 @@ impl<'a> Recipe<'a> {
 
     fn accepts(&self, path: &Path) -> bool {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
-        extension == "pdf" || (self.steps.contains(&"convert") && pdfcraft_engine::CONVERTIBLE.contains(&extension.as_str()))
+        extension == "pdf"
+            || (self.steps.contains(&"convert")
+                && (pdfcraft_engine::CONVERTIBLE.contains(&extension.as_str()) || pdfcraft_engine::is_office_extension(&extension)))
     }
 
     fn process(&self, path: &Path) -> Result<(Arc<Vec<u8>>, Vec<Value>)> {
