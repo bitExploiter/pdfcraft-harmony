@@ -691,7 +691,7 @@ fn signing_with_keychain_identities() {
     let restore = || {
         let mut args = vec!["list-keychains", "-d", "user", "-s"];
         args.extend(saved.iter().map(String::as_str));
-        sec(&args);
+        sec(&args)
     };
     restore();
     // Everything that can fail runs before the clean-up below.
@@ -714,9 +714,10 @@ fn signing_with_keychain_identities() {
         }
     }));
     // The list first: it is what outlives the test if deleting the keychain goes wrong.
-    restore();
+    let restored = restore();
     sec(&["delete-keychain", k]);
     let _ = std::fs::remove_dir_all(&dir);
+    assert!(restored.status.success(), "the keychain search list wasn't restored: {}", String::from_utf8_lossy(&restored.stderr));
     result.unwrap();
 }
 
@@ -742,7 +743,7 @@ fn keychain_identities_carry_their_issuers() {
         let mut args = vec!["list-keychains", "-d", "user", "-s"];
         args.extend(saved.iter().map(String::as_str));
         args.extend(extra);
-        sec(&args);
+        sec(&args)
     };
     // macOS finds an identity's issuers in the keychains on the search list.
     set_list(Some(k));
@@ -772,9 +773,10 @@ fn keychain_identities_carry_their_issuers() {
         assert_eq!(id.chain.iter().map(|c| &c.raw).collect::<Vec<_>>(), file.chain.iter().map(|c| &c.raw).collect::<Vec<_>>());
     }));
     // The list first: it is what outlives the test if deleting the keychain goes wrong.
-    set_list(None);
+    let restored = set_list(None);
     sec(&["delete-keychain", k]);
     let _ = std::fs::remove_dir_all(&dir);
+    assert!(restored.status.success(), "the keychain search list wasn't restored: {}", String::from_utf8_lossy(&restored.stderr));
     result.unwrap();
 }
 
