@@ -49,6 +49,11 @@ pub struct Candidate {
 /// points along its sides (#2942: a cell drawn with a midpoint on each vertical side).
 const MAX_RECT_POINTS: usize = 16;
 
+/// Maximum rectangle inputs examined for combs and boxes, and maximum combined drawn/existing
+/// rectangle inputs examined for check-box labels. Count inputs before filtering or deduplication:
+/// repeated or irrelevant rectangles must not defeat the bound on pairwise comparisons.
+pub const MAX_DETECTION_BOXES: usize = 2000;
+
 /// The rectangles and horizontal segments a page draws (stroked or filled), in user space.
 #[derive(Default)]
 struct DetectionPath {
@@ -319,7 +324,11 @@ fn sort_reading_order<T>(mut items: Vec<T>, rect_of: impl Fn(&T) -> [f64; 4]) ->
 fn checkbox_label(words: &[Word], rect: [f64; 4], boxes: &[[f64; 4]], used: &mut std::collections::HashSet<usize>) -> String {
     let h = (rect[3] - rect[1]).max(8.0);
     let same_line_word = |r: [f64; 4]| (mid(r) - mid(rect)).abs() < h.max(10.0) * 0.7;
-    let same_line_box = |b: [f64; 4]| (mid(b) - mid(rect)).abs() < h.max(b[3] - b[1]).max(10.0) * 0.7;
+    let same_line_box = |b: [f64; 4]| {
+        #[cfg(test)]
+        work_bound_tests::record_comparison();
+        (mid(b) - mid(rect)).abs() < h.max(b[3] - b[1]).max(10.0) * 0.7
+    };
     let has_content = |w: &Word| !clean(&w.text).is_empty();
     let prev_box_x2 =
         boxes.iter().copied().filter(|b| *b != rect && same_line_box(*b) && b[2] <= rect[0] + 1.0).map(|b| b[2]).fold(f64::NEG_INFINITY, f64::max);
@@ -336,11 +345,12 @@ fn checkbox_label(words: &[Word], rect: [f64; 4], boxes: &[[f64; 4]], used: &mut
     left_words.sort_by(|a, b| a.1.rect[0].total_cmp(&b.1.rect[0]));
     let mut left_picked: Vec<(usize, &Word)> = Vec::new();
     let mut x = rect[0];
+    let mut has_word = false;
     for (i, w) in left_words.into_iter().rev() {
-        let has_word = left_picked.iter().any(|(_, pw)| has_content(pw));
         if x - w.rect[2] > 24.0 || w.text.chars().all(|c| c == '_') || (has_word && w.text.trim_end().ends_with(':')) {
             break;
         }
+        has_word |= has_content(w);
         left_picked.push((i, w));
         x = w.rect[0];
     }
@@ -366,11 +376,12 @@ fn checkbox_label(words: &[Word], rect: [f64; 4], boxes: &[[f64; 4]], used: &mut
     right_words.sort_by(|a, b| a.1.rect[0].total_cmp(&b.1.rect[0]));
     let mut right_picked: Vec<(usize, &Word)> = Vec::new();
     let mut x = rect[2];
+    let mut has_word = false;
     for (i, w) in right_words {
-        let has_word = right_picked.iter().any(|(_, pw)| has_content(pw));
         if w.rect[0] - x > 24.0 || w.text.chars().all(|c| c == '_') || (has_word && (next_box_x0 - w.rect[2]).max(0.0) < w.rect[0] - x) {
             break;
         }
+        has_word |= has_content(w);
         right_picked.push((i, w));
         x = w.rect[2];
     }
@@ -417,6 +428,8 @@ fn combs(boxes: &[[f64; 4]]) -> Vec<([f64; 4], usize)> {
         .collect();
     // `b` comes right after `a` in a row: same size, its left edge on a's right edge.
     let follows = |a: &[f64; 4], b: &[f64; 4]| {
+        #[cfg(test)]
+        work_bound_tests::record_comparison();
         (b[0] - a[2]).abs() <= 1.0 && (b[1] - a[1]).abs() <= 0.5 && (b[3] - a[3]).abs() <= 0.5 && ((b[2] - b[0]) - (a[2] - a[0])).abs() <= 0.5
     };
     let mut out = Vec::new();
@@ -441,9 +454,23 @@ fn combs(boxes: &[[f64; 4]]) -> Vec<([f64; 4], usize)> {
 
 /// Propose fields for a page. `existing` are the page's widget rectangles (no candidate
 /// overlaps them); names are unique against `taken`.
+///
+/// Box detection considers only the first [`MAX_DETECTION_BOXES`] drawn rectangles in input
+/// order, and check-box labelling considers at most that many drawn/existing rectangles combined.
+/// Limits apply before pairwise comb/overlap/label work, not just to accepted candidates. This
+/// heuristic can return a partial set on unusually complex pages, like raster shape detection;
+/// the retained candidates are still returned in reading order. Every existing widget remains
+/// an overlap exclusion, even when it falls outside the label-detection budget.
 pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[String]) -> Vec<Candidate> {
+    // Bound the comb pass too: small squares qualify as comb cells, so limiting only the new
+    // check-box loop would still leave quadratic work on all of a hostile page's rectangles.
+    let boxes = shapes.boxes.get(..shapes.boxes.len().min(MAX_DETECTION_BOXES)).unwrap_or_default();
     let mut out: Vec<Candidate> = Vec::new();
-    let overlaps = |a: [f64; 4], b: [f64; 4]| a[0] < b[2] - 1.0 && b[0] < a[2] - 1.0 && a[1] < b[3] - 1.0 && b[1] < a[3] - 1.0;
+    let overlaps = |a: [f64; 4], b: [f64; 4]| {
+        #[cfg(test)]
+        work_bound_tests::record_comparison();
+        a[0] < b[2] - 1.0 && b[0] < a[2] - 1.0 && a[1] < b[3] - 1.0 && b[1] < a[3] - 1.0
+    };
     let push = |kind: Kind, rect: [f64; 4], label: String, out: &mut Vec<Candidate>| {
         if existing.iter().chain(out.iter().map(|c| &c.rect)).any(|e| overlaps(*e, rect)) {
             return;
@@ -461,7 +488,7 @@ pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[S
     }
     // Comb boxes (postcodes, dates, IBANs): one text field per row of cells, found before
     // check boxes so the cells don't each become one.
-    for (rect, cells) in combs(&shapes.boxes) {
+    for (rect, cells) in combs(boxes) {
         if labels.iter().any(|x| overlaps(x.rect, rect)) {
             continue;
         }
@@ -469,8 +496,10 @@ pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[S
         push(Kind::Comb { cells }, rect, l, &mut out);
     }
     // Small squares: check boxes, labelled by the nearer text to their right or left.
+    // `existing` contains geometry only: a small square widget of any type reserves its label.
+    // Cap examined inputs, not accepted boxes, so duplicates cannot keep this pass running.
     let mut checkboxes: Vec<[f64; 4]> = Vec::new();
-    for r in shapes.boxes.iter().chain(existing.iter()) {
+    for r in boxes.iter().chain(existing.iter()).take(MAX_DETECTION_BOXES) {
         let (w, h) = (r[2] - r[0], r[3] - r[1]);
         if (5.0..=20.0).contains(&w)
             && (5.0..=20.0).contains(&h)
@@ -487,7 +516,7 @@ pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[S
         push(Kind::CheckBox, *r, l, &mut out);
     }
     // Empty boxes big enough to write in: text fields inside them.
-    for r in &shapes.boxes {
+    for r in boxes {
         let (w, h) = (r[2] - r[0], r[3] - r[1]);
         let has_text = labels.iter().any(|x| overlaps(x.rect, *r));
         if w >= 40.0 && (12.0..=60.0).contains(&h) && !has_text {
@@ -512,7 +541,9 @@ pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[S
     }
     let mut out = sort_reading_order(out, |c| c.rect);
     // Unique names (Acrobat numbers repeats); unlabelled fields get Text1, Check Box1, …
-    let mut used: Vec<String> = taken.to_vec();
+    // A linear membership scan inside each suffix retry makes a page of unnamed squares
+    // cubic even after bounding the geometric passes.
+    let mut used: std::collections::HashSet<String> = taken.iter().cloned().collect();
     for c in &mut out {
         let base = if c.name.is_empty() {
             match c.kind {
@@ -528,8 +559,50 @@ pub fn detect(words: &[Word], shapes: &Shapes, existing: &[[f64; 4]], taken: &[S
             n += 1;
             name = format!("{base}{n}");
         }
-        used.push(name.clone());
+        used.insert(name.clone());
         c.name = name;
     }
     out
+}
+
+#[cfg(test)]
+mod work_bound_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    // Per-thread so the other detection tests can run concurrently. Count work rather than
+    // wall time: appending more hostile rectangles must not add pairwise comparisons.
+    thread_local! {
+        static COMPARISONS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record_comparison() {
+        COMPARISONS.set(COMPARISONS.get() + 1);
+    }
+
+    #[test]
+    fn rectangle_budget_bounds_comparisons_before_filtering() {
+        for duplicates in [false, true] {
+            for existing_only in [false, true] {
+                let boxes = (0..MAX_DETECTION_BOXES)
+                    .map(|i| {
+                        let x = if duplicates { 0.0 } else { i as f64 * 30.0 };
+                        [x, 0.0, x + 10.0, 10.0]
+                    })
+                    .collect();
+                let mut shapes = Shapes { boxes, rules: Vec::new() };
+                let run = |shapes: &Shapes| {
+                    if existing_only { detect(&[], &Shapes::default(), &shapes.boxes, &[]) } else { detect(&[], shapes, &[], &[]) }
+                };
+                COMPARISONS.set(0);
+                let expected = run(&shapes);
+                let bounded = COMPARISONS.get();
+                assert!(bounded > 0 && bounded <= 5 * MAX_DETECTION_BOXES * MAX_DETECTION_BOXES);
+                shapes.boxes.extend_from_within(..);
+                COMPARISONS.set(0);
+                assert_eq!(run(&shapes), expected);
+                assert_eq!(COMPARISONS.get(), bounded, "discarded inputs add no pairwise work");
+            }
+        }
+    }
 }

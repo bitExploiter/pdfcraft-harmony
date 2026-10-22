@@ -2842,6 +2842,12 @@ fn detection_names_check_boxes_from_the_nearer_neighbouring_label() {
         ["Monsieur", "Check Box1"]
     );
 
+    // Deliberate ambiguity: "[ ] 4pt Yes 3pt [ ] No" gives Yes to the closer box.
+    assert_eq!(
+        names_of(&[w("Yes", 114.0, 400.0, 134.0), w("No", 151.0, 400.0, 166.0)], &[[100.0, 400.0, 110.0, 410.0], [137.0, 400.0, 147.0, 410.0]]),
+        ["Check Box1", "Yes"]
+    );
+
     // A row heading ending with a colon ("Status: [ ] Single [ ] Married" or French
     // "Civilité : Monsieur [ ] Madame [ ]") does not beat or merge into the option label,
     // while a standalone "Married: [ ]" or "Date of birth : [ ]" still uses its prompt.
@@ -2875,6 +2881,47 @@ fn detection_names_check_boxes_from_the_nearer_neighbouring_label() {
 
     // A stray punctuation token right after the first box does not pull the next box's label in.
     assert_eq!(names_of(&[w(".", 158.0, 532.0, 160.0), w("Madame", 180.0, 532.0, 218.0)], &french_boxes), ["Check Box1", "Madame"]);
+}
+
+/// A hostile vector page can contain arbitrarily many small squares; detection must not run
+/// pairwise comb/overlap/neighbor work on all of them, nor cubic default-name lookup.
+#[test]
+fn detection_bounds_many_small_squares_before_pairwise_work() {
+    use crate::detect::*;
+    let boxes = (0..MAX_DETECTION_BOXES * 50)
+        .map(|i| {
+            let x = (i % 100) as f64 * 30.0;
+            let y = (i / 100) as f64 * 30.0;
+            [x, y, x + 10.0, y + 10.0]
+        })
+        .collect();
+    let shapes = Shapes { boxes, rules: Vec::new() };
+    let found = detect(&[], &shapes, &[], &["Check Box1".into(), "Check Box3".into()]);
+    assert_eq!(found.len(), MAX_DETECTION_BOXES);
+    assert!(found.iter().all(|c| c.kind == Kind::CheckBox));
+    assert_eq!(found.first().unwrap().name, "Check Box2");
+    assert_eq!(found.get(1).unwrap().name, "Check Box4");
+    assert_eq!(found.last().unwrap().name, format!("Check Box{}", MAX_DETECTION_BOXES + 2));
+    assert_eq!(found.iter().map(|c| &c.name).collect::<std::collections::HashSet<_>>().len(), found.len());
+    let prefix = Shapes { boxes: shapes.boxes.iter().take(MAX_DETECTION_BOXES).copied().collect(), rules: Vec::new() };
+    assert_eq!(found, detect(&[], &prefix, &[], &["Check Box1".into(), "Check Box3".into()]));
+}
+
+#[test]
+fn detection_box_budget_counts_rejected_inputs_and_keeps_existing_exclusions() {
+    use crate::detect::*;
+    let first = [0.0, 0.0, 10.0, 10.0];
+    let last = [30.0, 0.0, 40.0, 10.0];
+    // The final input at the limit is included; the next is not, even if earlier inputs are
+    // duplicates. A later input higher on the page stays outside the budget despite reading first.
+    let mut boxes = vec![first; MAX_DETECTION_BOXES - 1];
+    boxes.push(last);
+    boxes.push([60.0, 30.0, 70.0, 40.0]);
+    let shapes = Shapes { boxes, rules: Vec::new() };
+    assert_eq!(detect(&[], &shapes, &[], &[]).iter().map(|c| c.rect).collect::<Vec<_>>(), [first, last]);
+    let mut existing = vec![[90.0, 0.0, 100.0, 10.0]; MAX_DETECTION_BOXES];
+    existing.push(last);
+    assert_eq!(detect(&[], &shapes, &existing, &[]).iter().map(|c| c.rect).collect::<Vec<_>>(), [first]);
 }
 
 /// #3470: a form whose writer left the appearances to the viewer. Field A has an empty one,
