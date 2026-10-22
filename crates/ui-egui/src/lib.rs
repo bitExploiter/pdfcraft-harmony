@@ -581,6 +581,10 @@ pub struct PdfCraftApp {
     open_worker: Option<open_worker::OpenWorker>,
     #[cfg(not(target_arch = "wasm32"))]
     pending_opens: Vec<PendingOpen>,
+    /// Opens whose bytes are ready, held while a password prompt is up so a later
+    /// plain file cannot clear that prompt by finishing in the same poll.
+    #[cfg(not(target_arch = "wasm32"))]
+    ready_opens: Vec<(PendingOpen, open_worker::ResultKind)>,
     #[cfg(not(target_arch = "wasm32"))]
     next_open_token: u64,
     #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -945,6 +949,8 @@ impl PdfCraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             pending_opens: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
+            ready_opens: Vec::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             next_open_token: 0,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             open_prepare_gate: None,
@@ -1193,7 +1199,9 @@ impl PdfCraftApp {
             }
         }
         self.pending_opens = waiting;
-        for (pending, kind) in ready {
+        self.ready_opens.extend(ready);
+        while self.password_prompt.is_none() && !self.ready_opens.is_empty() {
+            let (pending, kind) = self.ready_opens.remove(0);
             self.finish_pending_open(pending, kind);
         }
     }
@@ -2007,14 +2015,7 @@ impl PdfCraftApp {
         let command = spec.id;
         self.ask_one(pickers::Ask::File(dialog), None, move |app, path| {
             let path = path.to_string_lossy().into_owned();
-            let before = app.views.len();
-            app.open_path(&path);
-            if let Some(prompt) = app.password_prompt.as_mut().filter(|p| p.path.as_deref() == Some(path.as_str())) {
-                // Encrypted: the tool runs once the password is in.
-                prompt.then = Some(command);
-            } else if app.views.len() > before && app.active.is_some() {
-                app.execute(command);
-            }
+            app.open_path_then(&path, Some(command));
         });
     }
 
