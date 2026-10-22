@@ -2538,6 +2538,25 @@ fn a_partial_rewrite_that_adds_a_row_keeps_the_neighbour() {
     }
 }
 
+/// Both paragraphs share one text object, with a blank line between them. The paragraph
+/// marker has to close before the neighbour, not after the shared `ET`.
+#[test]
+fn a_partial_rewrite_inside_one_text_object_keeps_the_neighbour() {
+    let src = "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj T* T* (Neighbor stays.) Tj ET";
+    let mut doc = text_page(src);
+    let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    assert_eq!(texts(&doc), ["Alpha first row. Alpha next row.", "Neighbor stays."], "the blank line is a paragraph break");
+    text::replace_block(&mut doc, 0, 0, "Alpha first row.\nTwo\nThree").unwrap();
+    let content = String::from_utf8_lossy(&page_content_bytes(&doc, 0)).into_owned();
+    assert_eq!(texts(&doc), ["Alpha first row. Two Three", "Neighbor stays."], "{content}");
+    for saved in [reopen(&doc), Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap()] {
+        assert_eq!(texts(&saved), ["Alpha first row. Two Three", "Neighbor stays."], "save joined the neighbour");
+        let mut again = saved;
+        text::replace_block(&mut again, 0, 0, "Alpha first row.\nTwo\nFour").unwrap();
+        assert_eq!(texts(&reopen(&again)), ["Alpha first row. Two Four", "Neighbor stays."]);
+    }
+}
+
 /// #2516's published steps: adding a row must not make the next edit-by-number rewrite Charlie.
 /// The issue also asks for a stable paragraph id. That is #2508, and this test does not add one.
 #[test]

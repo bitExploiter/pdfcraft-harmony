@@ -501,6 +501,10 @@ fn shared_scope(block: &TextBlock, lines: &[TextLine]) -> Option<usize> {
 /// append it after the stream). Closing at the next line's `BT` is too late when that line's
 /// region opened with `BDC` before the `BT`: the `EMC` would end the neighbour's region. Closing
 /// inside the rewritten operators leaves a kept source row outside the marker.
+///
+/// A neighbour in the same text object has no `BT` of its own. Closing after the shared `ET`
+/// would take that neighbour into the marker. The marker then opens after `BT` and closes
+/// before the neighbour's text, so `BT` and `ET` stay matched.
 fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option<(usize, Option<usize>, usize)> {
     let (start, next) = paragraph_span(block, lines)?;
     if let Some(region) = shared_scope(block, lines)
@@ -511,18 +515,32 @@ fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option
             return None;
         }
     }
+    let belongs: std::collections::HashSet<usize> = block.lines.iter().copied().collect();
     let end =
         block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|line| line.ops.iter().copied().chain(std::iter::once(line.origin.bt_op))).max()?;
-    let close = ops
+    let after_text = ops
         .iter()
         .enumerate()
         .skip(end.saturating_add(1))
         .find(|(_, op)| op.op.as_slice() == b"ET")
         .map(|(index, _)| index.saturating_add(1))
         .unwrap_or(ops.len());
+    let neighbour = lines
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| !belongs.contains(index))
+        .filter_map(|(_, line)| line.ops.iter().copied().filter(|op| *op > end).min())
+        .min();
+    if let Some(op) = neighbour.filter(|op| *op < after_text) {
+        let open = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|line| line.ops.iter().copied()).min()?;
+        // `BT` stays outside the marker. Both ends are inside the one text object.
+        if open > start {
+            return Some((open, None, op));
+        }
+    }
     // `None` is the next-line index: the close is after this paragraph's `ET`, not at the
     // following line's `BT`.
-    Some((start, None, close))
+    Some((start, None, after_text))
 }
 
 /// Rewrite visual rows while keeping the source style on each surviving character. Resource

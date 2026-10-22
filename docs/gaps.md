@@ -5,6 +5,7 @@
 
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-19 · **Change:** minor (gap 2: composite fonts with `/ToUnicode /Identity-H` read as Unicode, hayro-interpret patch 44; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-17 · **Last updated:** 2026-10-17 · **Change:** minor (gap 6: #2662 redaction audit counts a cover over one word of a long line; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (gap 3: #2517 a partial rewrite inside one text object keeps the next paragraph; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (gap 3: #2517 a partial rewrite keeps a kept row inside the paragraph and leaves the next marked region closed; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (gap 12: reading order is scored, not just word F1) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-14 · **Last updated:** 2026-10-14 · **Change:** minor (M1: raw-deflate fallback preserves decoding-limit errors; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
@@ -105,9 +106,10 @@ update the numbers.
   baseline is still replaced. A blank line stays a paragraph break. An explicit `TL` is the
   measured baseline gap, and growing a paragraph so its new row is one leading above the next
   one does not absorb that paragraph (#2517). A partial rewrite of the last paragraph keeps a
-  source row inside that paragraph, and does not close a following marked region early. A heading and smaller body lines (#1756), a
-  hanging-indent continuation (#2564), and cells in different columns (#1680, #2478) are still
-  grouped by the same geometry. Estimates are unchanged.
+  source row inside that paragraph, and does not close a following marked region early. Two
+  paragraphs that share one text object keep that boundary when the first is rewritten. A heading
+  and smaller body lines (#1756) and cells in different columns (#1680, #2478) are still grouped
+  by the same geometry. A row that a list item wraps onto stays with that item. Estimates are unchanged.
 
 - **Missing:** robust in-place editing of text PdfCraft didn't write: subset fonts without the
   needed glyphs, CJK and right-to-left text, rotated text, lists, superscript/subscript, keeping

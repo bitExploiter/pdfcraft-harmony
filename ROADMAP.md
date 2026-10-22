@@ -191,7 +191,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
-- **2026-10-18 (M7, #2517):** A partial rewrite of the last paragraph closes its marker after that paragraph's last `ET`, so a row left in the source stays in the paragraph. The extra marker is not added across two marked-content regions. Estimates unchanged.
+- **2026-10-22 (M7, #2517):** A partial rewrite of the last paragraph closes its marker after that paragraph's last `ET`, so a row left in the source stays in the paragraph. When the next paragraph shares the text object, the marker closes before that neighbour instead of after the shared `ET`. The extra marker is not added across two marked-content regions. Estimates unchanged.
 - **2026-10-15 (M7, #2517):** A blank line between paragraphs stays a paragraph break. An explicit `TL` is the measured baseline gap. Without one, three or more rows at a repeated step stay one paragraph, and a single wider gap stays a break. Adding a row, even when an earlier row is left in the source, does not absorb the next paragraph on a later edit. Estimates unchanged.
 
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.

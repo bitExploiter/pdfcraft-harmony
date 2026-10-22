@@ -1,5 +1,6 @@
 # PdfCraft roadmap: milestones and what's next
 
+> **Last reviewed:** 2026-10-22 · **Last updated:** 2026-10-22 · **Change:** minor (M7 #2517: a partial rewrite inside one text object closes its marker before the next paragraph; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-18 · **Last updated:** 2026-10-18 · **Change:** minor (M7 #2517: a partial rewrite keeps its marker around a kept row, and off the next marked region; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-15 · **Last updated:** 2026-10-15 · **Change:** minor (M7 #2517: a blank line stays a paragraph break; estimates unchanged) · **Target:** Adobe Acrobat Pro (Acrobat DC, continuous track 26.002.21931, macOS)
 > **Last reviewed:** 2026-10-20 · **Last updated:** 2026-10-20 · **Change:** minor (M12 #3673: Character encoding accepts Identity-H/V with Adobe CJK collections; estimates unchanged)
@@ -241,6 +242,7 @@ M2 (renderer), M7 (content editing), M10 (OCR and Office), M11 (Preflight and st
 
 | Date | Change | Summary |
 |---|---|---|
+| 2026-10-22 | minor | M7 #2517: a partial rewrite of two paragraphs that share one text object closes the marker before the neighbour, so a later edit does not delete it. Estimates unchanged. |
 | 2026-10-18 | minor | M7 #2517: a partial rewrite of the last paragraph closes its marker after the last `ET`, and does not close a following marked region early. Estimates unchanged. |
 | 2026-10-15 | minor | M7 #2517: a blank line between paragraphs stays a paragraph break, and growing the first paragraph does not absorb the next one. Estimates unchanged. |
 | 2026-10-20 | minor | M4: initial-view window and interface options resolve indirect boolean ViewerPreferences values; synthetic true/false and save/reopen regressions retain defaults for malformed entries. Estimates unchanged. |
