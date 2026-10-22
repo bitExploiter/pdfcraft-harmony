@@ -5737,6 +5737,7 @@ mod tests {
             name: None,
             in_reply_to: None,
             parent: None,
+            grouped: false,
             rect: [0.0; 4],
             color: None,
             index: 0,
