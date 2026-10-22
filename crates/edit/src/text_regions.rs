@@ -531,12 +531,26 @@ fn paragraph_marker(block: &TextBlock, lines: &[TextLine], ops: &[Op]) -> Option
         .filter(|(index, _)| !belongs.contains(index))
         .filter_map(|(_, line)| line.ops.iter().copied().filter(|op| *op > end).min())
         .min();
+    let open = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|line| line.ops.iter().copied()).min()?;
     if let Some(op) = neighbour.filter(|op| *op < after_text) {
-        let open = block.lines.iter().filter_map(|i| lines.get(*i)).flat_map(|line| line.ops.iter().copied()).min()?;
         // `BT` stays outside the marker. Both ends are inside the one text object.
         if open > start {
             return Some((open, None, op));
         }
+    }
+    // The last paragraph of a shared text object has no neighbour after it. Opening at the
+    // shared `BT` would take the preceding paragraph into the marker. Open at this paragraph's
+    // first operator instead, and close before the shared `ET`, so both ends stay inside it.
+    let preceding =
+        lines.iter().enumerate().filter(|(index, _)| !belongs.contains(index)).any(|(_, line)| line.ops.iter().any(|op| *op > start && *op < open));
+    if preceding {
+        if let Some(et) = after_text.checked_sub(1).filter(|index| ops.get(*index).is_some_and(|op| op.op.as_slice() == b"ET"))
+            && open > start
+            && open < et
+        {
+            return Some((open, None, et));
+        }
+        return None;
     }
     // `None` is the next-line index: the close is after this paragraph's `ET`, not at the
     // following line's `BT`.

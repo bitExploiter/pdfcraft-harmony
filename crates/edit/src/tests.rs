@@ -2557,6 +2557,31 @@ fn a_partial_rewrite_inside_one_text_object_keeps_the_neighbour() {
     }
 }
 
+/// The last paragraph of a shared text object has no neighbour after it. The marker still has
+/// to open after the preceding paragraph, not at the shared `BT`, or that paragraph joins it.
+#[test]
+fn a_partial_rewrite_of_the_last_paragraph_in_one_text_object_keeps_the_one_before_it() {
+    let src =
+        "BT /F1 12 Tf 14.4 TL 1 0 0 1 72 700 Tm (Alpha first row.) Tj T* (Alpha next row.) Tj T* T* (Neighbor stays.) Tj T* (Neighbor next.) Tj ET";
+    let mut doc = text_page(src);
+    let texts = |doc: &Document| text::text_blocks(doc, 0).unwrap().into_iter().map(|b| b.text).collect::<Vec<_>>();
+    assert_eq!(texts(&doc), ["Alpha first row. Alpha next row.", "Neighbor stays. Neighbor next."], "the blank line is a paragraph break");
+    text::replace_block(&mut doc, 0, 1, "Neighbor stays.\nChanged.").unwrap();
+    let content = page_content(&doc);
+    assert_eq!(texts(&doc), ["Alpha first row. Alpha next row.", "Neighbor stays. Changed."], "{content}");
+    let alpha = content.find("(Alpha first row.)").expect("the preceding paragraph");
+    let open = content.find("/P BMC").expect("marker");
+    assert!(alpha < open, "the marker swallowed the preceding paragraph: {content}");
+    let neighbour = content.find("(Neighbor stays.)").expect("the kept row");
+    assert!(open < neighbour, "the kept row is outside the marker: {content}");
+    for saved in [reopen(&doc), Document::open(Arc::new(write_full(&doc, &SaveOptions::default()).unwrap())).unwrap()] {
+        assert_eq!(texts(&saved), ["Alpha first row. Alpha next row.", "Neighbor stays. Changed."], "save joined the preceding paragraph");
+        let mut again = saved;
+        text::replace_block(&mut again, 0, 1, "Neighbor stays.\nEdited.").unwrap();
+        assert_eq!(texts(&reopen(&again)), ["Alpha first row. Alpha next row.", "Neighbor stays. Edited."]);
+    }
+}
+
 /// #2516's published steps: adding a row must not make the next edit-by-number rewrite Charlie.
 /// The issue also asks for a stable paragraph id. That is #2508, and this test does not add one.
 #[test]
