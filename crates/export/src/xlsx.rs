@@ -339,6 +339,7 @@ mod tests {
                 })
                 .collect(),
             images: Vec::new(),
+            background: None,
         }
     }
 
