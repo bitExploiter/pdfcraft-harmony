@@ -86,10 +86,27 @@ fn same_account(a: &str, me: &str) -> bool {
     a.eq_ignore_ascii_case(me)
 }
 
+/// The tools Windows ships that these checks run, by their path under `%SystemRoot%\System32`.
+#[cfg(windows)]
+const WHOAMI: &str = "whoami.exe";
+#[cfg(windows)]
+const POWERSHELL: &str = r"WindowsPowerShell\v1.0\powershell.exe";
+#[cfg(windows)]
+const ICACLS: &str = "icacls.exe";
+
+/// A tool Windows ships, started by its full path (review on #3956). Started by bare name, a
+/// `whoami.exe`, `powershell.exe` or `icacls.exe` found first (next to the app, or earlier on the
+/// search path) would answer instead, and `whoami`'s answer is what every check here trusts.
+#[cfg(windows)]
+fn system_tool(relative: &str) -> std::process::Command {
+    let root = std::env::var_os("SystemRoot").map_or_else(|| std::path::PathBuf::from(r"C:\Windows"), std::path::PathBuf::from);
+    std::process::Command::new(root.join("System32").join(relative))
+}
+
 /// The current user's SID (`whoami /user`).
 #[cfg(windows)]
 pub fn current_user_sid() -> std::io::Result<String> {
-    let out = std::process::Command::new("whoami").args(["/user", "/fo", "csv", "/nh"]).output()?;
+    let out = system_tool(WHOAMI).args(["/user", "/fo", "csv", "/nh"]).output()?;
     if !out.status.success() {
         return Err(std::io::Error::other("whoami /user failed"));
     }
@@ -140,7 +157,7 @@ fn replace_access_list(path: &std::path::Path, me: &str) -> std::io::Result<()> 
     const SCRIPT: &str = "$s = New-Object Security.AccessControl.FileSecurity; \
         $s.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;' + $env:PDFCRAFT_ACL_USER + ')(A;;FA;;;SY)', 'Access'); \
         [IO.File]::SetAccessControl($env:PDFCRAFT_ACL_PATH, $s)";
-    let out = std::process::Command::new("powershell")
+    let out = system_tool(POWERSHELL)
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env("PDFCRAFT_ACL_PATH", path)
         .env("PDFCRAFT_ACL_USER", me)
@@ -154,7 +171,7 @@ fn replace_access_list(path: &std::path::Path, me: &str) -> std::io::Result<()> 
 
 #[cfg(windows)]
 fn icacls(path: &std::path::Path, args: &[String]) -> std::io::Result<()> {
-    let out = std::process::Command::new("icacls").arg(path).args(args).output()?;
+    let out = system_tool(ICACLS).arg(path).args(args).output()?;
     if out.status.success() {
         Ok(())
     } else {
@@ -193,7 +210,7 @@ pub fn read_with_sddl(path: &std::path::Path, max: u64) -> std::io::Result<(Stri
     );
     // Bounded so the script's `[int]` and buffer stay small; a control file is far below this.
     let max = max.min(1 << 20);
-    let out = std::process::Command::new("powershell")
+    let out = system_tool(POWERSHELL)
         .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
         .env("PDFCRAFT_ACL_PATH", path)
         .env("PDFCRAFT_ACL_MAX", max.to_string())
@@ -213,10 +230,7 @@ pub fn sddl_of(path: &std::path::Path) -> std::io::Result<String> {
         describe_raw!(),
         "[Console]::Out.Write($sddl + [char]10)"
     );
-    let out = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
-        .env("PDFCRAFT_ACL_PATH", path)
-        .output()?;
+    let out = system_tool(POWERSHELL).args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT]).env("PDFCRAFT_ACL_PATH", path).output()?;
     let read = if out.status.success() { sddl_and_bytes(&String::from_utf8_lossy(&out.stdout)) } else { None };
     read.map(|(sddl, _)| sddl).ok_or_else(|| std::io::Error::other("PowerShell could not read the file's owner and access list"))
 }
@@ -257,6 +271,19 @@ mod tests {
         }
         // Inherit-only entries and deny entries don't grant access to the file itself.
         assert_eq!(foreign_access(&format!("O:{ME}D:(A;OICIIO;GA;;;CO)(D;;FA;;;BU)(A;;FA;;;{ME})"), ME), None);
+    }
+
+    /// Review on #3956: each tool is started by its full path in System32, never looked up by
+    /// name.
+    #[cfg(windows)]
+    #[test]
+    fn the_tools_are_started_from_system32() {
+        for tool in [WHOAMI, POWERSHELL, ICACLS] {
+            let command = system_tool(tool);
+            let path = std::path::Path::new(command.get_program());
+            assert!(path.is_absolute() && path.is_file(), "{path:?}");
+            assert!(path.to_string_lossy().to_ascii_lowercase().contains(r"\system32\"), "{path:?}");
+        }
     }
 
     #[test]
@@ -358,9 +385,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// An `OWNER RIGHTS` entry replaces what an owner may do implicitly. Granting only *write
-    /// owner* that way, the access list can't be replaced although the owner can still be set: the
-    /// file isn't taken as restricted.
+    /// A null access list (`NO_ACCESS_CONTROL`) lets every account use the file, so it is refused.
     #[cfg(windows)]
     #[test]
     fn a_file_with_no_access_list_is_refused() {
@@ -388,6 +413,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// An `OWNER RIGHTS` entry replaces what an owner may do implicitly. Granting only *write
+    /// owner* that way, the access list can't be replaced although the owner can still be set: the
+    /// file isn't taken as restricted.
     #[cfg(windows)]
     #[test]
     fn a_file_whose_access_list_cant_be_replaced_is_not_restricted() {
