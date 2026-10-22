@@ -923,6 +923,33 @@ fn the_place_on_the_page_reads_back_what_a_jump_set_with_and_without_page_gaps()
 }
 
 #[test]
+fn a_destination_saved_before_it_is_drawn_is_the_place_it_shows() {
+    // Saved between a bookmark or link and the next frame, the place must be where drawing the
+    // destination leaves the window's top: its point at the top (/XYZ), or a rectangle centred
+    // in the window (/FitR), not the point itself at the top.
+    use pdfcraft_render::DestView;
+    for (name, dest) in [
+        // The fixture's pages are 200 x 300 pt: both points are a third down page 3.
+        ("xyz", DestView::Xyz { left: None, top: Some(200.0), zoom: None }),
+        ("fitr", DestView::FitR { rect: [50.0, 180.0, 150.0, 220.0] }),
+    ] {
+        let dir = TempPdfs::new(&format!("dest-{name}"));
+        let file = dir.file("long.pdf", 5);
+        let mut h = session_harness(move |app| {
+            app.open_path(&file);
+        });
+        let app = h.state_mut();
+        let info = app.session.get(app.views[0].id).unwrap().info.clone();
+        app.views[0].go_to_dest(2, dest, &info);
+        let pending = app.views[0].position_in_page();
+        h.run_steps(4);
+        let drawn = h.state().views[0].position_in_page();
+        assert_eq!(h.state().views[0].current, 2, "{name}");
+        assert!((pending - drawn).abs() < 0.002, "{name}: saved {pending}, shown {drawn}");
+    }
+}
+
+#[test]
 fn a_tab_reloaded_from_disk_keeps_the_place_on_the_page_while_hidden() {
     // A file changed on disk replaces the tab's document. If that tab is not drawn again before
     // the session is saved, the place on the page must still be the reader's, not the page top.

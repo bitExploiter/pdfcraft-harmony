@@ -420,6 +420,9 @@ pub struct DocView {
     /// (fractions of the displayed page; `None` leaves that axis to `goto`) to put `rel` points
     /// from the viewport's top-left corner.
     goto_point: Option<(usize, Option<f32>, Option<f32>, Vec2)>,
+    /// The height `goto_point`'s page is displayed at, in points, as of when it was set: what
+    /// turns its point into the place at the window's top before it is drawn.
+    goto_point_height: f32,
     /// Pending keyboard scrolling, in points down (negative: up): ↓ / ↑, and Page Down /
     /// Page Up where the pages scroll.
     pub key_scroll: f32,
@@ -756,6 +759,7 @@ impl DocView {
             forward: Vec::new(),
             goto: None,
             goto_point: None,
+            goto_point_height: 0.0,
             key_scroll: 0.0,
             single_edges: None,
             flash: None,
@@ -1322,12 +1326,17 @@ impl DocView {
 
     /// Where the reader is within the current page: the fraction of its height above the window's
     /// top, as [`Self::goto`] takes it, so `goto = Some((current, position_in_page()))` comes back
-    /// to the same place (#2310). A jump not yet drawn counts as done; for a destination's point
-    /// (a bookmark's or link's `/XYZ` top, a rectangle shown), that is the point on the page the
-    /// reader was sent to.
+    /// to the same place (#2310). A jump not yet drawn counts as done: for a destination's point
+    /// (a bookmark's or link's `/XYZ` top, a rectangle centred), the place drawing it will leave
+    /// at the window's top, short of the scroll limits at the document's ends.
     pub fn position_in_page(&self) -> f32 {
         match (self.goto_point, self.goto) {
-            (Some((page, _, Some(fy), _)), _) if page == self.current => fy,
+            (Some((page, _, Some(fy), rel)), _) if page == self.current => {
+                // The inverse of drawing it: `fy` lands `rel.y` below the window's top.
+                let h = self.goto_point_height;
+                let top = if h > 0.0 { fy + (self.page_gap() - rel.y) / h } else { fy };
+                if top.is_finite() { top } else { fy }
+            }
             (_, Some((page, frac))) if page == self.current => frac,
             _ => self.top_in_page,
         }
@@ -1346,6 +1355,7 @@ impl DocView {
         let y = rect[1] * 0.5 + rect[3] * 0.5;
         let [fx, fy] = p.dest_fraction(Some(x), Some(y), self.rotation);
         self.goto_point = Some((self.current, fx, fy, vec2(self.viewport_w, self.viewport_h) / 2.0));
+        self.goto_point_height = self.display_size(p).1 * self.zoom * PT;
     }
 
     /// Go to a destination, a bookmark's or a link's (ISO 32000-2 §12.3.2.2): its page, scrolled
@@ -1406,6 +1416,7 @@ impl DocView {
         };
         if fx.is_some() || fy.is_some() {
             self.goto_point = Some((page, fx, fy, rel));
+            self.goto_point_height = self.display_size(p).1 * self.zoom * PT;
         }
     }
 
@@ -6923,13 +6934,17 @@ trailer << /Root 1 0 R >>
         };
         let mut v = view(3, PageLayout::Single, true);
         v.go_to_dest(2, DestView::Xyz { left: None, top: Some(300.0), zoom: None }, &info);
-        assert_eq!(v.position_in_page(), 0.25);
+        // A quarter down, at the window's top, which leaves the page gap above it.
+        let h = 400.0 * v.zoom * PT;
+        assert!((v.position_in_page() - (0.25 + GAP / h)).abs() < 1e-5, "{}", v.position_in_page());
         // No vertical position: the page's top, as the jump itself.
         v.go_to_dest(1, DestView::FitV { left: Some(75.0) }, &info);
         assert_eq!(v.position_in_page(), 0.0);
         (v.viewport_w, v.viewport_h) = (800.0, 600.0);
         v.go_to_dest(0, DestView::FitR { rect: [0.0, 300.0, 100.0, 350.0] }, &info);
-        assert!((v.position_in_page() - 75.0 / 400.0).abs() < 1e-4, "{}", v.position_in_page());
+        // The rectangle's centre (75/400 down) half a window (300 pt) below the window's top, at
+        // the zoom /FitR chose (8 pt per page point: 3200 pt for the page).
+        assert!((v.position_in_page() - (75.0 / 400.0 + (GAP - 300.0) / 3200.0)).abs() < 1e-4, "{}", v.position_in_page());
     }
 
     #[test]
