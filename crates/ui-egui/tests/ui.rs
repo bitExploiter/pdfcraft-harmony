@@ -922,6 +922,32 @@ fn files_and_quit_from_the_operating_system() {
 }
 
 #[test]
+fn files_opened_later_by_the_operating_system_use_the_existing_window() {
+    use pdfcraft_ui_egui::OsEvent;
+    let paths: Vec<_> = (0..2).map(|i| std::env::temp_dir().join(format!("pdfcraft-os-tabs-{}-{i}.pdf", std::process::id()))).collect();
+    for path in &paths {
+        std::fs::write(path, FIXTURE).unwrap();
+    }
+    let queue = std::rc::Rc::new(std::cell::RefCell::new(Vec::<OsEvent>::new()));
+    let q = queue.clone();
+    let mut h = harness(move |app| app.os_events = Some(Box::new(move || q.borrow_mut().drain(..).collect())));
+    for (i, path) in paths.iter().enumerate() {
+        queue.borrow_mut().push(OsEvent::Open(vec![path.to_string_lossy().into_owned()]));
+        support::wait_until(&mut h, "the operating system document opens", |app| app.views.len() == i + 1);
+        assert_eq!(h.state().views.len(), i + 1);
+        let active = h.state().active.unwrap();
+        let doc = h.state().session.get(h.state().views[active].id).unwrap();
+        assert_eq!(doc.path.as_deref(), path.to_str(), "the newly delivered document is active");
+    }
+    for (view, path) in h.state().views.iter().zip(&paths) {
+        assert_eq!(h.state().session.get(view.id).unwrap().path.as_deref(), path.to_str());
+    }
+    for path in paths {
+        std::fs::remove_file(path).unwrap();
+    }
+}
+
+#[test]
 fn default_workspace_mode_persists_and_tolerates_invalid_settings() {
     use pdfcraft_ui_egui::Mode;
     for mode in [Mode::AllTools, Mode::Read, Mode::Edit, Mode::Convert, Mode::Sign] {
