@@ -2495,6 +2495,8 @@ animation effects	Off	Desativados
 	Make properties default	Tornar propriedades padrão
 	Pages selected	Páginas selecionadas
 	Page properties	Propriedades da página
+# Opening an EPUB book (#493).
+	Converted from an EPUB book. Details lists how it was laid out and what was left out.	Convertido de um livro EPUB. Os detalhes mostram como foi diagramado e o que ficou de fora.
 
 # Remaining keys from the current catalog union, translated from their English meaning (2026-10-21).
 	 on page {label}	 na página {label}
