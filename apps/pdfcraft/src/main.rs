@@ -37,6 +37,8 @@ mod decorations;
 mod logging;
 #[cfg(target_os = "windows")]
 mod motion;
+#[cfg(target_os = "linux")]
+mod pen_display;
 mod reopen;
 mod settings;
 mod single_instance;
@@ -212,8 +214,14 @@ fn main() -> eframe::Result {
     }
     let files = rejoin_split_paths(files, |p| std::path::Path::new(p).is_file());
     let integrated = cfg!(target_os = "macos");
+    // Linux with a pen on Wayland: the window opens through Xwayland (src/pen_display.rs). Decided
+    // once, so the title bar below and a retry with OpenGL follow the same display server.
+    #[cfg(target_os = "linux")]
+    let through_xwayland = pen_display::choose_for_launch() == pen_display::Choice::Xwayland;
+    #[cfg(not(target_os = "linux"))]
+    let through_xwayland = false;
     // GNOME on Wayland leaves the window frame to the app (src/decorations.rs).
-    let window_controls = if cfg!(any(target_os = "macos", target_os = "windows")) { None } else { decorations::app_drawn() };
+    let window_controls = if cfg!(any(target_os = "macos", target_os = "windows")) { None } else { decorations::app_drawn(through_xwayland) };
     migrate_legacy_folders();
     // The log file stays in the data folder; opened after the arguments (so `--version` leaves
     // no file behind) and after the PrintCraft migration (which a fresh folder would block).
@@ -251,7 +259,7 @@ fn main() -> eframe::Result {
     let first = if choice == RendererChoice::Gl { eframe::Renderer::Glow } else { eframe::Renderer::Wgpu };
     let result = eframe::run_native(
         "PdfCraft",
-        native_options(launch.integrated, launch.window_controls.is_some(), first),
+        on_display(native_options(launch.integrated, launch.window_controls.is_some(), first), through_xwayland),
         app_creator(
             launch.clone(),
             Rc::clone(&started),
@@ -269,7 +277,7 @@ fn main() -> eframe::Result {
             log::error!("the GPU renderer (wgpu) didn't start: {e}. Starting with OpenGL instead; set PDFCRAFT_RENDERER=gl to skip wgpu.");
             eframe::run_native(
                 "PdfCraft",
-                native_options(launch.integrated, launch.window_controls.is_some(), eframe::Renderer::Glow),
+                on_display(native_options(launch.integrated, launch.window_controls.is_some(), eframe::Renderer::Glow), through_xwayland),
                 app_creator(
                     launch,
                     started,
@@ -335,6 +343,24 @@ fn native_options(integrated: bool, app_frame: bool, renderer: eframe::Renderer)
     if renderer == eframe::Renderer::Wgpu {
         configure_gpu(&mut native);
     }
+    native
+}
+
+/// Opens the window through Xwayland when `through_xwayland`, instead of on the display server
+/// winit would pick (src/pen_display.rs).
+#[cfg(target_os = "linux")]
+fn on_display(mut native: eframe::NativeOptions, through_xwayland: bool) -> eframe::NativeOptions {
+    use winit::platform::x11::EventLoopBuilderExtX11 as _;
+    if through_xwayland {
+        native.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_x11();
+        }));
+    }
+    native
+}
+
+#[cfg(not(target_os = "linux"))]
+fn on_display(native: eframe::NativeOptions, _through_xwayland: bool) -> eframe::NativeOptions {
     native
 }
 
@@ -868,6 +894,15 @@ mod tests {
         // Each run states its renderer rather than relying on eframe's default.
         assert_eq!(native_options(false, false, eframe::Renderer::Wgpu).renderer, eframe::Renderer::Wgpu);
         assert_eq!(native_options(false, false, eframe::Renderer::Glow).renderer, eframe::Renderer::Glow);
+    }
+
+    #[test]
+    fn only_a_launch_through_xwayland_changes_the_event_loop() {
+        use super::{native_options, on_display};
+        let native = || native_options(false, false, eframe::Renderer::Glow);
+        assert!(on_display(native(), false).event_loop_builder.is_none());
+        // Elsewhere the choice is never true, and the event loop is left alone.
+        assert_eq!(on_display(native(), true).event_loop_builder.is_some(), cfg!(target_os = "linux"));
     }
 
     #[test]
