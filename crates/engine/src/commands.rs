@@ -130,6 +130,7 @@ pub struct CommandSpec {
     pub icon: &'static str,
 }
 
+/// Short constructor for a [`CommandSpec`].
 const fn c(
     id: &'static str,
     label: &'static str,
@@ -403,6 +404,7 @@ pub const COMMANDS: &[CommandSpec] = &[
     c("help.about", "About PdfCraft", HELP, None, Nothing, "info"),
 ];
 
+/// Find a registered command specification by its ID.
 pub fn command(id: &str) -> Option<&'static CommandSpec> {
     COMMANDS.iter().find(|c| c.id == id)
 }

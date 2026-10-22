@@ -364,6 +364,7 @@ fn native_wayland(_: &eframe::CreationContext<'_>) -> bool {
     false
 }
 
+/// Create the eframe application instance with window state and OS event handlers configured.
 fn app_creator<'a>(
     launch: Launch,
     started: Rc<Cell<bool>>,
