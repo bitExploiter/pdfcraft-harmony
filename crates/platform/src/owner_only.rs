@@ -118,8 +118,7 @@ pub fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
     let me = current_user_sid()?;
     replace_access_list(path, &me)?;
     icacls(path, &["/setowner".into(), format!("*{me}")])?;
-    let (sddl, _) = read_with_sddl(path, 0)?;
-    still_foreign(&sddl, &me)
+    still_foreign(&sddl_of(path)?, &me)
 }
 
 /// `Err` naming the problem when the descriptor read back after restricting still isn't `me`'s
@@ -163,6 +162,16 @@ fn icacls(path: &std::path::Path, args: &[String]) -> std::io::Result<()> {
     }
 }
 
+/// PowerShell that turns `$raw`, a `RawSecurityDescriptor`, into `$sddl` as [`read_with_sddl`]
+/// describes it. No double quotes: the command line would strip them. An entry with no account (a
+/// custom entry) is written with none, and `foreign_access` refuses it.
+#[cfg(windows)]
+macro_rules! describe_raw {
+    () => {
+        "$sddl = 'O:' + $raw.Owner.Value;         if ($raw.DiscretionaryAcl -ne $null) { $sddl += 'D:'; foreach ($a in $raw.DiscretionaryAcl) {             $t = 'A'; if ([string]$a.AceType -like 'AccessDenied*') { $t = 'D' };             $f = ''; if ($a.AceFlags.HasFlag([Security.AccessControl.AceFlags]::InheritOnly)) { $f = 'IO' };             $sid = ''; if ($a.SecurityIdentifier) { $sid = $a.SecurityIdentifier.Value };             $sddl += '(' + $t + ';' + $f + ';' + $a.AccessMask + ';;;' + $sid + ')' } }; "
+    };
+}
+
 /// Open `path` shared for reading only, so that while it is open it can't be replaced, renamed or
 /// written, and read through that one handle both its security descriptor (owner and access list)
 /// and its first `max + 1` bytes. The descriptor checked is the one of the handle the bytes come
@@ -177,19 +186,11 @@ fn icacls(path: &std::path::Path, args: &[String]) -> std::io::Result<()> {
 /// Administrator's alias `LA` stands for a SID that depends on the machine.
 #[cfg(windows)]
 pub fn read_with_sddl(path: &std::path::Path, max: u64) -> std::io::Result<(String, Vec<u8>)> {
-    // No double quotes: the command line would strip them. An entry with no account (a custom
-    // entry) is written with none, and `foreign_access` refuses it.
-    const SCRIPT: &str = "$fs = [IO.File]::Open($env:PDFCRAFT_ACL_PATH, 'Open', 'Read', 'Read'); try { \
-        $raw = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList @($fs.GetAccessControl().GetSecurityDescriptorBinaryForm(), 0); \
-        $sddl = 'O:' + $raw.Owner.Value; \
-        if ($raw.DiscretionaryAcl -ne $null) { $sddl += 'D:'; foreach ($a in $raw.DiscretionaryAcl) { \
-            $t = 'A'; if ([string]$a.AceType -like 'AccessDenied*') { $t = 'D' }; \
-            $f = ''; if ($a.AceFlags.HasFlag([Security.AccessControl.AceFlags]::InheritOnly)) { $f = 'IO' }; \
-            $sid = ''; if ($a.SecurityIdentifier) { $sid = $a.SecurityIdentifier.Value }; \
-            $sddl += '(' + $t + ';' + $f + ';' + $a.AccessMask + ';;;' + $sid + ')' } }; \
-        $max = [int]$env:PDFCRAFT_ACL_MAX + 1; $buf = New-Object byte[] $max; $total = 0; \
-        while ($total -lt $max) { $n = $fs.Read($buf, $total, $max - $total); if ($n -le 0) { break }; $total += $n }; \
-        [Console]::Out.Write($sddl + [char]10 + [BitConverter]::ToString($buf, 0, $total)) } finally { $fs.Dispose() }";
+    const SCRIPT: &str = concat!(
+        "$fs = [IO.File]::Open($env:PDFCRAFT_ACL_PATH, 'Open', 'Read', 'Read'); try {         $raw = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList @($fs.GetAccessControl().GetSecurityDescriptorBinaryForm(), 0); ",
+        describe_raw!(),
+        "$max = [int]$env:PDFCRAFT_ACL_MAX + 1; $buf = New-Object byte[] $max; $total = 0;         while ($total -lt $max) { $n = $fs.Read($buf, $total, $max - $total); if ($n -le 0) { break }; $total += $n };         [Console]::Out.Write($sddl + [char]10 + [BitConverter]::ToString($buf, 0, $total)) } finally { $fs.Dispose() }"
+    );
     // Bounded so the script's `[int]` and buffer stay small; a control file is far below this.
     let max = max.min(1 << 20);
     let out = std::process::Command::new("powershell")
@@ -201,10 +202,23 @@ pub fn read_with_sddl(path: &std::path::Path, max: u64) -> std::io::Result<(Stri
     read.ok_or_else(|| std::io::Error::other("PowerShell could not read the file with its owner and access list"))
 }
 
-/// The security descriptor of `path` in SDDL form, owner included.
+/// The security descriptor of `path` as [`read_with_sddl`] writes it, read by name without opening
+/// the file's contents, so it works on a file that is open for writing (the app restricts its
+/// control file before writing the token through the handle it created).
 #[cfg(windows)]
 pub fn sddl_of(path: &std::path::Path) -> std::io::Result<String> {
-    read_with_sddl(path, 0).map(|(sddl, _)| sddl)
+    const SCRIPT: &str = concat!(
+        // Stop: a failed read (a missing file) must end the script with an error, not print `O:`.
+        "$ErrorActionPreference = 'Stop';         $raw = New-Object Security.AccessControl.RawSecurityDescriptor -ArgumentList @([IO.File]::GetAccessControl($env:PDFCRAFT_ACL_PATH).GetSecurityDescriptorBinaryForm(), 0); ",
+        describe_raw!(),
+        "[Console]::Out.Write($sddl + [char]10)"
+    );
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("PDFCRAFT_ACL_PATH", path)
+        .output()?;
+    let read = if out.status.success() { sddl_and_bytes(&String::from_utf8_lossy(&out.stdout)) } else { None };
+    read.map(|(sddl, _)| sddl).ok_or_else(|| std::io::Error::other("PowerShell could not read the file's owner and access list"))
 }
 
 /// [`read_with_sddl`]'s output: the SDDL, a newline, then the bytes as `[BitConverter]::ToString`
@@ -453,6 +467,10 @@ mod tests {
         // could rename or delete) isn't read, and so can't change between the check and the read.
         let writer = std::fs::OpenOptions::new().write(true).open(&file).unwrap();
         assert!(read_with_sddl(&file, 64).is_err(), "a file open for writing is not read");
+        // Restricting reads the descriptor alone, so it works on the file the app holds open to
+        // write the token through.
+        restrict_to_owner(&file).unwrap();
+        assert_eq!(foreign_access(&sddl_of(&file).unwrap(), &me), None);
         drop(writer);
         assert!(read_with_sddl(&file, 64).is_ok());
         let _ = std::fs::remove_dir_all(&dir);
