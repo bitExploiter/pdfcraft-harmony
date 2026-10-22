@@ -32,17 +32,21 @@ pub fn installed_directories() -> Vec<PathBuf> {
     }
 }
 
+/// The most files and folders one scan looks at, the roots it is given included.
+const MAX_ENTRIES: usize = 4096;
+
 /// Bounded, symlink-free scan. Only standalone, openly licensed, embeddable faces are listed.
 /// The caller controls roots (automation resolves confinement before calling this).
 pub fn discover(roots: &[PathBuf]) -> Vec<FontFile> {
     use std::io::Read;
-    let mut pending: Vec<_> = roots.iter().take(16).map(|r| (r.clone(), 0usize)).collect();
+    // Every root counts as an entry against the scan's budget, so that budget bounds the roots too.
+    let mut pending: Vec<_> = roots.iter().take(MAX_ENTRIES).map(|r| (r.clone(), 0usize)).collect();
     let mut files = Vec::new();
     let mut entries = 0usize;
     let mut budget = 64u64 << 20;
     let mut seen = std::collections::HashSet::new();
     while let Some((path, depth)) = pending.pop() {
-        if entries >= 4096 || budget == 0 {
+        if entries >= MAX_ENTRIES || budget == 0 {
             break;
         }
         entries += 1;
@@ -52,7 +56,7 @@ pub fn discover(roots: &[PathBuf]) -> Vec<FontFile> {
         }
         if meta.is_dir() && depth < 4 {
             if let Ok(children) = std::fs::read_dir(&path) {
-                let remaining = 4096usize.saturating_sub(entries.saturating_add(pending.len()));
+                let remaining = MAX_ENTRIES.saturating_sub(entries.saturating_add(pending.len()));
                 pending.extend(children.take(remaining).filter_map(Result::ok).map(|p| (p.path(), depth + 1)));
             }
         } else if meta.is_file() && meta.len() <= (16 << 20) && font_extension(&path) {

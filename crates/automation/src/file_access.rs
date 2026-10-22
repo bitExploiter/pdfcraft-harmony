@@ -1,15 +1,15 @@
 //! The folders automation may read and write.
 //!
 //! `pdfcraft-cli mcp --automation-read-root <dir> --automation-write-root <dir>` confines the
-//! files an agent's tools reach, with the names and wording VectorCraft uses. [`AutomationRoots`]
-//! holds the two folders. Every path a tool reads is checked with [`Access::Read`] and every path
+//! files an agent's tools reach, with the names and wording VectorCraft uses. Each flag may be
+//! given more than once: [`AutomationRoots`] holds the folders of each kind. Every path a tool reads is checked with [`Access::Read`] and every path
 //! it writes with [`Access::Write`], in `Automation::resolve`, which all of them go through:
 //!
 //! - The path is made absolute against the working directory, as the file system reads it. Its
 //!   links are followed: for a file that doesn't exist yet, the links of its nearest existing
 //!   folder, the rest of the path being plain names (`..` below a missing folder is refused, and so
 //!   is a link that leads nowhere).
-//! - The result must lie inside the root, compared by whole components (`/work2` isn't inside
+//! - The result must lie inside one of the roots of its kind, compared by whole components (`/work2` isn't inside
 //!   `/work`), without regard to case on Windows.
 //! - Read and write access are separate: a root given alone grants only its own kind of access.
 //!
@@ -28,11 +28,11 @@ pub enum Access {
     Write,
 }
 
-/// The folders automation may read and write; a root left out grants no access of its kind.
+/// The folders automation may read and write; no root of a kind grants no access of that kind.
 #[derive(Debug)]
 pub struct AutomationRoots {
-    read: Option<Root>,
-    write: Option<Root>,
+    read: Vec<Root>,
+    write: Vec<Root>,
 }
 
 #[derive(Debug)]
@@ -61,22 +61,29 @@ impl AutomationRoots {
     /// The roots `read` and `write`, which must be existing folders; `None` when neither is given
     /// (nothing is confined then).
     pub fn new(read: Option<&Path>, write: Option<&Path>) -> Result<Option<Arc<Self>>, String> {
-        if read.is_none() && write.is_none() {
+        let one = |p: Option<&Path>| p.map(Path::to_path_buf).into_iter().collect::<Vec<_>>();
+        Self::with_folders(&one(read), &one(write))
+    }
+
+    /// Every folder in `read` and in `write`, which must all be existing folders; `None` when both
+    /// lists are empty (nothing is confined then). A path is allowed when it lies inside any
+    /// folder of its kind.
+    pub fn with_folders(read: &[PathBuf], write: &[PathBuf]) -> Result<Option<Arc<Self>>, String> {
+        if read.is_empty() && write.is_empty() {
             return Ok(None);
         }
-        let read = read.map(|p| Root::open(p, Access::Read)).transpose()?;
-        let write = write.map(|p| Root::open(p, Access::Write)).transpose()?;
-        Ok(Some(Arc::new(Self { read, write })))
+        let open = |folders: &[PathBuf], access| folders.iter().map(|p| Root::open(p, access)).collect::<Result<Vec<_>, _>>();
+        Ok(Some(Arc::new(Self { read: open(read, Access::Read)?, write: open(write, Access::Write)? })))
     }
 
-    /// The read root, absolute with its links followed.
-    pub fn read_root(&self) -> Option<&Path> {
-        self.read.as_ref().map(|r| r.shown.as_path())
+    /// The read roots, each absolute with its links followed.
+    pub fn read_roots(&self) -> impl Iterator<Item = &Path> {
+        self.read.iter().map(|r| r.shown.as_path())
     }
 
-    /// The write root, absolute with its links followed.
-    pub fn write_root(&self) -> Option<&Path> {
-        self.write.as_ref().map(|r| r.shown.as_path())
+    /// The write roots, each absolute with its links followed.
+    pub fn write_roots(&self) -> impl Iterator<Item = &Path> {
+        self.write.iter().map(|r| r.shown.as_path())
     }
 
     /// May the file or folder at `path` be read (or written)? `Err` says why not.
@@ -87,24 +94,20 @@ impl AutomationRoots {
     /// [`check`](Self::check) for a path that was already put together from `shown` (the way the
     /// caller wrote it, which is what refusals quote).
     pub fn check_path(&self, shown: &str, target: &Path, access: Access) -> Result<(), String> {
-        let root = match access {
-            Access::Read => self.read.as_ref(),
-            Access::Write => self.write.as_ref(),
+        let (roots, kind) = match access {
+            Access::Read => (&self.read, "read"),
+            Access::Write => (&self.write, "write"),
         };
-        let Some(Root { resolved: folder, shown: root_shown }) = root else {
-            return match access {
-                Access::Read => Err(format!("automation filesystem access is not granted: read authority is absent: {shown}")),
-                Access::Write => Err(format!("automation filesystem access is not granted: write authority is absent: {shown}")),
-            };
-        };
-        if inside(&resolve(shown, target)?, folder) {
+        if roots.is_empty() {
+            return Err(format!("automation filesystem access is not granted: {kind} authority is absent: {shown}"));
+        }
+        let resolved = resolve(shown, target)?;
+        if roots.iter().any(|r| inside(&resolved, &r.resolved)) {
             return Ok(());
         }
-        let root = root_shown.display();
-        match access {
-            Access::Read => Err(format!("automation path rejected: outside the read root {root}: {shown}")),
-            Access::Write => Err(format!("automation path rejected: outside the write root {root}: {shown}")),
-        }
+        let list = roots.iter().map(|r| r.shown.display().to_string()).collect::<Vec<_>>().join(", ");
+        let plural = if roots.len() == 1 { "" } else { "s" };
+        Err(format!("automation path rejected: outside the {kind} root{plural} {list}: {shown}"))
     }
 }
 
@@ -230,6 +233,37 @@ mod tests {
         let e = roots.check(&s(base.join("in/a.pdf")), Access::Write).unwrap_err();
         assert!(e.contains("outside the write root"), "{e}");
         assert!(roots.check(&s(base.join("out/x.png")), Access::Read).unwrap_err().contains("outside the read root"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn a_path_may_lie_in_any_root_of_its_kind() {
+        let (base, _) = folders("several");
+        let read = [base.join("in"), base.join("in2")];
+        let write = [base.join("out"), base.join("outside")];
+        let roots = AutomationRoots::with_folders(&read, &write).unwrap().unwrap();
+        std::fs::write(base.join("in2/b.pdf"), "x").unwrap();
+        for ok in ["in/a.pdf", "in2/b.pdf", "in2/new.pdf"] {
+            assert_eq!(roots.check(&s(base.join(ok)), Access::Read), Ok(()), "{ok}");
+        }
+        for ok in ["out/x.png", "outside/x.png"] {
+            assert_eq!(roots.check(&s(base.join(ok)), Access::Write), Ok(()), "{ok}");
+        }
+        // Each kind keeps its own folders: a read root grants no writing and the reverse.
+        assert!(roots.check(&s(base.join("in2/b.pdf")), Access::Write).unwrap_err().contains("outside the write roots"));
+        assert!(roots.check(&s(base.join("out/x.png")), Access::Read).unwrap_err().contains("outside the read roots"));
+        // `in/sub/..` stays in `in`; `in/../outside` leaves the read roots.
+        let sep = std::path::MAIN_SEPARATOR;
+        assert_eq!(roots.check(&format!("{}{sep}..{sep}a.pdf", s(base.join("in/sub"))), Access::Read), Ok(()));
+        let e = roots.check(&format!("{}{sep}..{sep}outside{sep}secret.pdf", s(base.join("in"))), Access::Read).unwrap_err();
+        assert!(e.contains("outside the read roots") && e.contains("in2"), "the refusal names every root: {e}");
+        assert_eq!(roots.read_roots().count(), 2);
+        assert_eq!(roots.write_roots().count(), 2);
+        // A bad folder anywhere in a list is an error, never a root left out.
+        let bad = [base.join("in"), base.join("nope")];
+        assert!(AutomationRoots::with_folders(&bad, &[]).unwrap_err().starts_with("cannot open the automation read root"));
+        assert!(AutomationRoots::with_folders(&[], &bad).unwrap_err().starts_with("cannot open the automation write root"));
+        assert!(AutomationRoots::with_folders(&[], &[]).unwrap().is_none());
         let _ = std::fs::remove_dir_all(base);
     }
 

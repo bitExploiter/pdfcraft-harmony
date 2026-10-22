@@ -139,6 +139,40 @@ fn files_open_only_from_inside_the_read_root() {
     assert_eq!(ok(&mut server, "doc_list", json!({}))["documents"].as_array().unwrap().len(), 1);
 }
 
+/// `text_font_files` without `directories` looks in every read root, however many there are.
+#[test]
+fn font_discovery_searches_every_read_root() {
+    let base = folders("fonts");
+    let roots: Vec<PathBuf> = (0..40).map(|i| base.join(format!("root{i}"))).collect();
+    for r in &roots {
+        std::fs::create_dir_all(r).unwrap();
+    }
+    let font = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts/Inter-Regular.ttf");
+    std::fs::copy(font, roots[39].join("Inter-Regular.ttf")).unwrap();
+    let roots = AutomationRoots::with_folders(&roots, &[]).unwrap();
+    let mut server = McpServer::new(Automation::new().with_automation_roots(roots).with_clock(|| 1_700_000_000));
+    let found = ok(&mut server, "text_font_files", json!({}));
+    assert!(found["fonts"].as_array().is_some_and(|f| f.iter().any(|f| f["family"] == "Inter")), "{found}");
+}
+
+/// A read root that `--root` rules out is skipped by `text_font_files`; the others are still searched.
+#[test]
+fn font_discovery_skips_a_read_root_outside_dash_dash_root() {
+    let base = folders("fonts-root");
+    let (inside, outside) = (base.join("in/fonts"), base.join("outside"));
+    std::fs::create_dir_all(&inside).unwrap();
+    let font = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets/fonts/Inter-Regular.ttf");
+    std::fs::copy(font, inside.join("Inter-Regular.ttf")).unwrap();
+    let roots = AutomationRoots::with_folders(&[outside.clone(), inside], &[]).unwrap();
+    let mut server = McpServer::new(Automation::new().with_root(base.join("in")).unwrap().with_automation_roots(roots));
+    let found = ok(&mut server, "text_font_files", json!({}));
+    assert!(found["fonts"].as_array().is_some_and(|f| f.iter().any(|f| f["family"] == "Inter")), "{found}");
+    // With nothing left to search, the refusal is the one that ruled the root out.
+    let only_outside = AutomationRoots::with_folders(&[outside], &[]).unwrap();
+    let mut server = McpServer::new(Automation::new().with_root(base.join("in")).unwrap().with_automation_roots(only_outside));
+    refused(&mut server, "text_font_files", json!({}), "outside the allowed directory");
+}
+
 #[test]
 fn tools_that_read_a_path_are_held_to_the_read_root() {
     let (mut server, base) = confined("reads", true, true);

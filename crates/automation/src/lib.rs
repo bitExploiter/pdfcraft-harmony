@@ -116,7 +116,7 @@ const FIND_MAX_WARNING_BYTES: usize = 1024;
 pub struct Automation {
     session: Session,
     root: Option<PathBuf>,
-    /// The read and write folders of `--automation-read-root` / `--automation-write-root`.
+    /// The read and write folders of `--automation-read-root` / `--automation-write-root` (each may be repeated).
     roots: Option<Arc<file_access::AutomationRoots>>,
     /// Synchronous renderers, rebuilt when a document's working bytes change.
     renderers: HashMap<DocId, (Arc<Vec<u8>>, PageRenderer)>,
@@ -592,11 +592,22 @@ impl Automation {
                         .map(|p| self.resolve(p.as_str().ok_or_else(|| ToolError::InvalidArgs("directory must be a path".into()))?, false))
                         .collect::<Result<Vec<_>>>()?
                 } else if let Some(roots) = &self.roots {
-                    // The installed fonts are outside the roots: look in the read root instead.
-                    let read = roots
-                        .read_root()
-                        .ok_or_else(|| failed("automation filesystem access is not granted: read authority is absent: installed fonts"))?;
-                    vec![self.resolve(&read.to_string_lossy(), false)?]
+                    // The installed fonts are outside the roots: look in the read roots instead. A root that
+                    // `--root` also rules out is left out of the search, not an error for the others.
+                    let (mut read, mut refused) = (Vec::new(), None);
+                    for r in roots.read_roots() {
+                        match self.resolve(&r.to_string_lossy(), false) {
+                            Ok(path) => read.push(path),
+                            Err(e) => {
+                                refused.get_or_insert(e);
+                            }
+                        }
+                    }
+                    if read.is_empty() {
+                        return Err(refused
+                            .unwrap_or_else(|| failed("automation filesystem access is not granted: read authority is absent: installed fonts")));
+                    }
+                    read
                 } else if let Some(root) = &self.root {
                     vec![root.clone()]
                 } else {
