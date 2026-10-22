@@ -1475,6 +1475,12 @@
 	Replacement text	Teksti zëvendësues
 	Replacement: pages of {name}	Zëvendësimi: faqet e {name}
 	Replaces the existing one on those pages.	Zëvendëson atë ekzistues në ato faqe.
+	Checking pages…	Po kontrollohen faqet…
+	This page paints its own white backdrop, which would hide the background. Replace it	Kjo faqe ka mbushjen e vet të bardhë, e cila do ta fshihte sfondin. Zëvendësoje
+	{n} pages paint their own white backdrop, which would hide the background. Replace it	{n} faqe kanë mbushjen e tyre të bardhë, e cila do ta fshihte sfondin. Zëvendësoje
+	Removing the background puts the page's own backdrop back.	Heqja e sfondit e rikthen mbushjen e bardhë të faqes.
+	A picture covers this page (a scan?), so the background won't show there.	Një imazh e mbulon këtë faqe (skanim?), prandaj sfondi nuk do të duket aty.
+	A picture covers {n} pages (scans?), so the background won't show there.	Imazhe mbulojnë {n} faqe (skanime?), prandaj sfondi nuk do të duket aty.
 	Replacing images arrives on the web with image file pickers	Zëvendësimi i imazheve vjen në ueb me zgjedhësit e skedarëve të imazhit
 	Replacing images on page {p} arrives on the web with image pickers ({i})	Zëvendësimi i imazheve në faqen {p} vjen në ueb me zgjedhësit e imazhit ({i})
 	Reply	Përgjigju

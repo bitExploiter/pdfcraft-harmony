@@ -953,6 +953,12 @@
 	Replacement text	Text de înlocuire
 	Replacement: pages of {name}	Înlocuire: pagini din {name}
 	Replaces the existing one on those pages.	Înlocuiește-l pe cel existent pe acele pagini.
+	Checking pages…	Se verifică paginile…
+	This page paints its own white backdrop, which would hide the background. Replace it	Această pagină are o umplere albă proprie, care ar ascunde fundalul. Înlocuiește-o
+	{n} pages paint their own white backdrop, which would hide the background. Replace it	{n} pagini au o umplere albă proprie, care ar ascunde fundalul. Înlocuiește-o
+	Removing the background puts the page's own backdrop back.	Eliminarea fundalului readuce umplerea albă proprie a paginii.
+	A picture covers this page (a scan?), so the background won't show there.	O imagine acoperă această pagină (o scanare?), deci fundalul nu se va vedea acolo.
+	A picture covers {n} pages (scans?), so the background won't show there.	Imagini acoperă {n} pagini (scanări?), deci fundalul nu se va vedea acolo.
 	Report	Raport
 	Report…	Raport…
 	Requires user to enter a password for:	Utilizatorul trebuie să introducă o parolă pentru:

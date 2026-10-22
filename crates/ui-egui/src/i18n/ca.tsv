@@ -815,6 +815,12 @@
 	Applies to 1 page	S'aplica a 1 pàgina
 	Applies to {n} pages	S'aplica a {n} pàgines
 	Replaces the existing one on those pages.	Substitueix l'existent en aquestes pàgines.
+	Checking pages…	S'estan comprovant les pàgines…
+	This page paints its own white backdrop, which would hide the background. Replace it	Aquesta pàgina té el seu propi farciment blanc, que amagaria el fons. Substitueix-lo
+	{n} pages paint their own white backdrop, which would hide the background. Replace it	{n} pàgines tenen el seu propi farciment blanc, que amagaria el fons. Substitueix-lo
+	Removing the background puts the page's own backdrop back.	En eliminar el fons, es restaura el farciment blanc propi de la pàgina.
+	A picture covers this page (a scan?), so the background won't show there.	Una imatge cobreix aquesta pàgina (un escaneig?), així que el fons no s'hi veurà.
+	A picture covers {n} pages (scans?), so the background won't show there.	Hi ha imatges que cobreixen {n} pàgines (escanejos?), així que el fons no s'hi veurà.
 	PDF or image	PDF o imatge
 	No file chosen	Cap fitxer triat
 	Page number	Número de pàgina

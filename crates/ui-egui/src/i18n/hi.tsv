@@ -798,6 +798,12 @@
 	Applies to 1 page	1 पृष्ठ पर लागू
 	Applies to {n} pages	{n} पृष्ठों पर लागू
 	Replaces the existing one on those pages.	उन पृष्ठों पर मौजूदा वाले को बदल देता है।
+	Checking pages…	पृष्ठों की जाँच हो रही है…
+	This page paints its own white backdrop, which would hide the background. Replace it	इस पृष्ठ की अपनी सफ़ेद भराई है, जो पृष्ठभूमि को छिपा देगी। इसे बदलें
+	{n} pages paint their own white backdrop, which would hide the background. Replace it	{n} पृष्ठों की अपनी सफ़ेद भराई है, जो पृष्ठभूमि को छिपा देगी। इसे बदलें
+	Removing the background puts the page's own backdrop back.	पृष्ठभूमि हटाने पर पृष्ठ की अपनी सफ़ेद भराई वापस आ जाती है।
+	A picture covers this page (a scan?), so the background won't show there.	एक छवि इस पृष्ठ को ढकती है (स्कैन?), इसलिए वहाँ पृष्ठभूमि नहीं दिखेगी।
+	A picture covers {n} pages (scans?), so the background won't show there.	छवियाँ {n} पृष्ठों को ढकती हैं (स्कैन?), इसलिए वहाँ पृष्ठभूमि नहीं दिखेगी।
 	PDF or image	पीडीएफ़ या छवि
 	No file chosen	कोई फ़ाइल नहीं चुनी गई
 	Page number	पृष्ठ संख्या

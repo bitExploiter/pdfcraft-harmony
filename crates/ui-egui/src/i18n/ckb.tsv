@@ -825,6 +825,12 @@
 	Applies to 1 page	بۆ 1 پەڕە جێبەجێ دەکرێت
 	Applies to {n} pages	بۆ {n} پەڕە جێبەجێ دەکرێت
 	Replaces the existing one on those pages.	ئەوەی ئێستا هەیە لەسەر ئەو پەڕانە دەگۆڕێت.
+	Checking pages…	پشکنینی پەڕەکان…
+	This page paints its own white backdrop, which would hide the background. Replace it	ئەم پەڕەیە پڕکردنەوەیەکی سپیی خۆی هەیە کە پاشبنەماکە دەشارێتەوە. جێگرتنەوە
+	{n} pages paint their own white backdrop, which would hide the background. Replace it	{n} پەڕە پڕکردنەوەیەکی سپیی خۆیان هەیە کە پاشبنەماکە دەشارێتەوە. جێگرتنەوە
+	Removing the background puts the page's own backdrop back.	لابردنی پاشبنەما پڕکردنەوە سپییەکەی خودی پەڕەکە دەگەڕێنێتەوە.
+	A picture covers this page (a scan?), so the background won't show there.	وێنەیەک ئەم پەڕەیە دادەپۆشێت (سکان؟)، بۆیە پاشبنەماکە لەوێ دەرناکەوێت.
+	A picture covers {n} pages (scans?), so the background won't show there.	وێنەکان {n} پەڕە دادەپۆشن (سکان؟)، بۆیە پاشبنەماکە لەوێ دەرناکەوێت.
 	PDF or image	PDF یان وێنە
 	No file chosen	هیچ فایلێک هەڵنەبژێردراوە
 	Page number	ژمارەی پەڕە
