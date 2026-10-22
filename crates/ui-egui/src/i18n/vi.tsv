@@ -320,6 +320,10 @@ theme	Appearance	Giao diện
 	Bottom:	Dưới:
 	Box	Hộp
 	Browser's print dialog	Hộp thoại in của trình duyệt
+	System print dialog…	Hộp thoại in của hệ thống…
+	Waiting for the system print dialog…	Đang chờ hộp thoại in của hệ thống…
+	Printed through the system print dialog	Đã in qua hộp thoại in của hệ thống
+	Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.	Số bản sao, in hai mặt, màu và máy in được chọn trong hộp thoại in của hệ thống, hộp thoại này mở ra khi bạn in.
 	Butt	Cụt
 	Button is checked by default	Nút được chọn theo mặc định
 	Buttons with the same name and value are selected in unison	Các nút có cùng tên và giá trị được chọn đồng thời

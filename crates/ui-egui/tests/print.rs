@@ -873,3 +873,133 @@ fn restored_paper_keeps_preview_and_saved_sheet_dimensions() {
     assert!((size.0 - a4.0).abs() < 0.01 && (size.1 - a4.1).abs() < 0.01, "saved sheet: {size:?}");
     std::fs::remove_file(out).unwrap();
 }
+
+/// The system print dialog is never in the spooler's list, yet it is a choice like a printer:
+/// picked before the list arrives, it isn't replaced by the default printer, and it is still
+/// chosen the next time Print opens (#3537, #4059 review).
+#[test]
+fn the_system_print_dialog_picked_while_looking_is_kept() {
+    use pdfcraft_engine::print::spool::Printer;
+    use pdfcraft_engine::print::system_dialog::{AVAILABLE, SYSTEM_DIALOG};
+    use std::sync::{Arc, Mutex};
+    if !AVAILABLE {
+        return;
+    }
+    let mut h = harness();
+    let gate = Arc::new(Mutex::new(()));
+    let wait = gate.clone();
+    h.state_mut().printer_source = Some(Arc::new(move || {
+        let _open = wait.lock();
+        vec![Printer { name: "Front Desk".into(), default: true, two_sided: None }]
+    }));
+    let listed = |h: &mut Harness<'static, PdfCraftApp>| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.state().print_draft.printers_loading && std::time::Instant::now() < deadline {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!h.state().print_draft.printers_loading);
+        h.run_steps(2);
+    };
+    let hold = gate.lock().unwrap();
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(2);
+    assert!(h.state().print_draft.printers_loading);
+    // Picked from the printer list while it is still looking.
+    h.query_all_by_role(Role::ComboBox).next().expect("the printer box").click();
+    h.run_steps(2);
+    h.get_by_label("System print dialog…").click();
+    h.run_steps(2);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG));
+    drop(hold);
+    listed(&mut h);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "the arriving list keeps the pick");
+
+    h.state_mut().dialog = None;
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(2);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "remembered at once");
+    listed(&mut h);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "and after the fresh list");
+}
+
+/// macOS: "System print dialog…" hands the print-ready PDF to the system's own print panel,
+/// where copies, two-sided printing, colour and the printer are chosen (and PDF services, #2157),
+/// so PdfCraft's own copies and two-sided controls step aside. The dialog closes at once; the
+/// progress card waits for the panel, and its outcome is reported. Elsewhere it isn't offered.
+#[test]
+fn the_system_print_dialog_gets_the_print_ready_pdf() {
+    use pdfcraft_engine::print::system_dialog::{Outcome, SYSTEM_DIALOG};
+    use std::sync::{Arc, Mutex};
+    let mut h = harness();
+    h.state_mut().printer_source = Some(Arc::new(Vec::new));
+    assert!(h.state_mut().execute("print.dialog"));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while h.state().print_draft.printers_loading && std::time::Instant::now() < deadline {
+        h.run_steps(1);
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    h.run_steps(2);
+    // The printer list, opened from its box.
+    h.query_all_by_role(Role::ComboBox).next().expect("the printer box").click();
+    h.run_steps(2);
+    let offered = h.query_by_label("System print dialog…").is_some();
+    assert_eq!(offered, cfg!(target_os = "macos"), "offered on macOS only");
+    if !offered {
+        return;
+    }
+    h.get_by_label("System print dialog…").click();
+    h.run_steps(2);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG));
+    h.get_by_label_contains("chosen in the system print dialog");
+    assert!(h.query_by(|n| n.label().as_deref() == Some("Properties…") && n.is_disabled()).is_some(), "the system dialog has the driver's panes");
+
+    // A stand-in for the panel: it keeps what it was given and closes when the test says.
+    type Given = Arc<Mutex<Vec<(Vec<u8>, String)>>>;
+    let given: Given = Arc::default();
+    let answer: Arc<Mutex<Result<Outcome, String>>> = Arc::new(Mutex::new(Ok(Outcome::Printed)));
+    let gate = Arc::new(Mutex::new(()));
+    let (keep, says, wait) = (given.clone(), answer.clone(), gate.clone());
+    h.state_mut().system_print_dialog = Some(Arc::new(move |pdf: &[u8], title: &str| {
+        let _open = wait.lock();
+        keep.lock().unwrap().push((pdf.to_vec(), title.to_string()));
+        says.lock().unwrap().clone().map_err(pdfcraft_engine::print::PrintError::Spool)
+    }));
+    let finish = |h: &mut Harness<'static, PdfCraftApp>| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.state().progress_notice.is_some() && std::time::Instant::now() < deadline {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        h.state().toast.as_ref().map(|(m, _)| m.clone()).unwrap_or_default()
+    };
+
+    let hold = gate.lock().unwrap();
+    h.get_by_role_and_label(Role::Button, "Print").click();
+    h.run_steps(3);
+    assert_eq!(h.state().dialog, None, "PdfCraft's dialog closes; the system's takes over");
+    assert_eq!(h.state().progress_notice.as_ref().map(|p| p.label.as_str()), Some("Waiting for the system print dialog…"));
+    drop(hold);
+    assert_eq!(finish(&mut h), "Printed through the system print dialog");
+    {
+        let given = given.lock().unwrap();
+        let (pdf, title) = given.first().expect("the panel was opened");
+        assert_eq!(title, "form.pdf");
+        let doc = pdfcraft_cos::Document::open(Arc::new(pdf.clone())).expect("a print-ready PDF");
+        assert_eq!(pdfcraft_model::pages(&doc).len(), 1);
+    }
+
+    // Closed without printing, or failing: said so.
+    for (said, toast) in [(Ok(Outcome::Cancelled), "Cancelled".to_string()), (Err("PDFKit missing".to_string()), "PDFKit missing".to_string())] {
+        *answer.lock().unwrap() = said;
+        assert!(h.state_mut().execute("print.dialog"));
+        h.run_steps(3);
+        h.state_mut().print_draft.printer = Some(SYSTEM_DIALOG.into());
+        h.run_steps(1);
+        h.get_by_role_and_label(Role::Button, "Print").click();
+        h.run_steps(2);
+        let got = finish(&mut h);
+        assert!(got.contains(&toast), "{got:?} should say {toast:?}");
+    }
+    assert_eq!(given.lock().unwrap().len(), 3);
+}

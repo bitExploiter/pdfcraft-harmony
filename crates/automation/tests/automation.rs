@@ -4136,6 +4136,36 @@ fn printing_through_tools() {
     assert!(matches!(a.call("doc_print", &json!({ "doc": doc, "pages": "99", "path": "x.pdf" })), Err(ToolError::InvalidArgs(_))));
 }
 
+/// `printers` says whether the system print dialog exists, and `doc_print` reaches it as the
+/// printer `system-dialog`. Opening it needs a person at a Mac, so elsewhere the tool must say
+/// it isn't there rather than spool to a queue of that name.
+#[test]
+fn the_system_print_dialog_through_tools() {
+    let dir = workdir("print-system-dialog");
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "a.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(ok(&mut a, "printers", json!({}))["system_dialog"].as_bool(), Some(cfg!(target_os = "macos")));
+    if !cfg!(target_os = "macos") {
+        assert!(matches!(
+            a.call("doc_print", &json!({ "doc": doc, "printer": "system-dialog" })),
+            Err(ToolError::Failed(m)) if m.contains("only available on macOS")
+        ));
+    }
+    // A bad page range is refused before any dialog opens, on every platform.
+    assert!(matches!(a.call("doc_print", &json!({ "doc": doc, "pages": "99", "printer": "system-dialog" })), Err(ToolError::InvalidArgs(_))));
+    // So are the job settings the panel chooses, rather than quietly dropped (#4059 review).
+    for (arg, value) in
+        [("copies", json!(2)), ("collate", json!(false)), ("duplex", json!("long-edge")), ("grayscale", json!(true)), ("options", json!({}))]
+    {
+        let mut args = json!({ "doc": doc, "printer": "system-dialog" });
+        args[arg] = value;
+        assert!(
+            matches!(a.call("doc_print", &args), Err(ToolError::InvalidArgs(m)) if m.contains(arg) && m.contains("system print dialog")),
+            "{arg} must be refused"
+        );
+    }
+}
+
 #[test]
 fn adding_content_through_tools() {
     let dir = workdir("content");

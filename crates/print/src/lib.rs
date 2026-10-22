@@ -22,6 +22,7 @@ use pdfcraft_cos::{Dict, Document, ObjRef, Object, SaveOptions, Stream, write_fu
 
 pub mod range;
 pub mod spool;
+pub mod system_dialog;
 #[cfg(test)]
 mod tests;
 

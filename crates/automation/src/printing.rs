@@ -1,7 +1,7 @@
 //! Printing tools: list printers, and print (or save the print-ready PDF) with Acrobat's Print
 //! dialog options.
 
-use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool};
+use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool, system_dialog};
 use serde_json::{Value, json};
 
 use crate::{Args, Automation, Result, ToolError, failed, write_atomic};
@@ -38,7 +38,7 @@ impl Automation {
                 v
             })
             .collect();
-        Ok(json!({ "count": list.len(), "printers": list }))
+        Ok(json!({ "count": list.len(), "printers": list, "system_dialog": system_dialog::AVAILABLE }))
     }
 
     pub(crate) fn printer_options(&self, a: &Args) -> Result<Value> {
@@ -161,6 +161,20 @@ impl Automation {
                 write_atomic(&path, &bytes)?;
                 out["path"] = json!(path.to_string_lossy());
             }
+            // The person finishes the job in macOS's own print panel; this waits until it closes.
+            (None, Some(system_dialog::TOOL_NAME)) => {
+                // Those are chosen in the panel; refused rather than quietly dropped.
+                let mut job_only = ["copies", "collate", "duplex", "options"].into_iter().chain(settings.raster.is_none().then_some("grayscale"));
+                if let Some(arg) = job_only.find(|k| a.get(k).is_some_and(|v| !v.is_null())) {
+                    return Err(bad(format!("{arg} is chosen in the system print dialog; leave it out with printer {:?}", system_dialog::TOOL_NAME)));
+                }
+                let name = self.doc(a)?.name.clone();
+                let outcome = system_dialog::print(&bytes, &name).map_err(|e| failed(e.to_string()))?;
+                out["system_dialog"] = json!(match outcome {
+                    system_dialog::Outcome::Printed => "printed",
+                    system_dialog::Outcome::Cancelled => "cancelled",
+                });
+            }
             (None, Some(printer)) => {
                 let name = self.doc(a)?.name.clone();
                 let job = spool::Job {
@@ -185,7 +199,11 @@ impl Automation {
                 };
                 out["job"] = json!(spool::submit(&bytes, &job).map_err(|e| failed(e.to_string()))?);
             }
-            _ => return Err(bad("pass either path (save the print-ready PDF) or printer (a name from printers, or \"default\")")),
+            _ => {
+                return Err(bad(
+                    "pass either path (save the print-ready PDF) or printer (a name from printers, \"default\", or \"system-dialog\" on macOS)",
+                ));
+            }
         }
         Ok(out)
     }
