@@ -319,9 +319,14 @@ fn pkcs11_id(modules: &[String], reference: &str, pin: &str) -> Result<DigitalId
             };
             for id in listing.ids.into_iter().filter(|id| id.matches(&uri)) {
                 // One card is often reachable through two modules (OpenSC and the vendor's):
-                // the same token serial and key is one identity, signed through the first.
+                // the same certificate on the same token, with the same key, is one identity,
+                // signed through the first. Different certificates stay distinct, so a
+                // reference matching two of them is still refused as ambiguous.
                 let same = |h: &sign::pkcs11::Identity| {
-                    h.key_id == id.key_id && h.token.serial == id.token.serial && h.token.manufacturer == id.token.manufacturer
+                    h.key_id == id.key_id
+                        && h.token.serial == id.token.serial
+                        && h.token.manufacturer == id.token.manufacturer
+                        && h.id.certificate.raw == id.id.certificate.raw
                 };
                 if !hits.iter().any(same) {
                     hits.push(id);
