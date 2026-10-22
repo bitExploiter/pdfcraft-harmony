@@ -140,7 +140,8 @@ async fn fetch_bytes(url: &str) -> Result<Vec<u8>, String> {
 ///
 /// In host mode the parent guards leaving the page (no `beforeunload` prompt here).
 /// - `pdfcraft:dirty` (to the parent): `{ dirty }` whenever unsaved work appears or goes away.
-/// - `pdfcraft:failed` (to the parent): `{ error }` when the app couldn't start.
+/// - `pdfcraft:failed` (to the parent): `{ error }` when the app couldn't start, or when a
+///   `pdfcraft:open` document is larger than [`MAX_OPEN_BYTES`] (it is refused, not opened).
 ///
 /// Only the parent window on the app's own origin is heard or answered. With a parent on
 /// another origin there is no bridge: the app runs as if unframed and saves download.
@@ -208,13 +209,21 @@ mod host {
                 }
                 let name = string(&data, "name").filter(|n| !n.trim().is_empty()).unwrap_or_else(|| "document.pdf".to_string());
                 let Ok(bytes) = js_sys::Reflect::get(&data, &JsValue::from_str("bytes")) else { return };
-                let bytes = if let Some(array) = bytes.dyn_ref::<js_sys::Uint8Array>() {
-                    array.to_vec()
+                let array = if let Some(array) = bytes.dyn_ref::<js_sys::Uint8Array>() {
+                    array.clone()
                 } else if bytes.is_instance_of::<js_sys::ArrayBuffer>() {
-                    js_sys::Uint8Array::new(&bytes).to_vec()
+                    js_sys::Uint8Array::new(&bytes)
                 } else {
                     return;
                 };
+                // Refuse an oversize document before copying it into the inbox.
+                if let Some(reason) = crate::open_refusal(u64::from(array.byte_length())) {
+                    if let Some(m) = message(&[("type", "pdfcraft:failed".into()), ("error", reason.into())]) {
+                        let _ = parent.post_message(&m, &origin);
+                    }
+                    return;
+                }
+                let bytes = array.to_vec();
                 if let Ok(mut q) = inbox.lock() {
                     q.push((name, bytes));
                 }
@@ -284,4 +293,26 @@ mod host {
 #[cfg(not(target_arch = "wasm32"))]
 fn main() {
     eprintln!("pdfcraft-web targets wasm32: run `trunk serve` or `trunk build --release` in apps/pdfcraft-web");
+}
+
+/// Largest document `pdfcraft:open` takes from the parent page: 1 GiB, the same cap as
+/// `pdfcraft_engine::MAX_REMOTE_DOCUMENT_BYTES` for linked documents.
+const MAX_OPEN_BYTES: u64 = 1 << 30;
+
+/// Why a `pdfcraft:open` document of `len` bytes is refused, if it is.
+#[cfg_attr(not(any(target_arch = "wasm32", test)), allow(dead_code))]
+fn open_refusal(len: u64) -> Option<String> {
+    (len > MAX_OPEN_BYTES).then(|| format!("the document is {len} bytes; the largest PDFCraft opens from the host page is {MAX_OPEN_BYTES} bytes (1 GiB)"))
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn open_cap() {
+        assert_eq!(super::MAX_OPEN_BYTES, 1 << 30);
+        assert!(super::open_refusal(0).is_none());
+        assert!(super::open_refusal(super::MAX_OPEN_BYTES).is_none());
+        let reason = super::open_refusal(super::MAX_OPEN_BYTES + 1).unwrap();
+        assert!(reason.contains("1073741825 bytes"), "{reason}");
+    }
 }
