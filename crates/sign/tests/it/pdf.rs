@@ -713,8 +713,9 @@ fn signing_with_keychain_identities() {
             assert_eq!(s.status, Status::Valid, "{:?}", s.details);
         }
     }));
-    sec(&["delete-keychain", k]);
+    // The list first: it is what outlives the test if deleting the keychain goes wrong.
     restore();
+    sec(&["delete-keychain", k]);
     let _ = std::fs::remove_dir_all(&dir);
     result.unwrap();
 }
@@ -770,8 +771,9 @@ fn keychain_identities_carry_their_issuers() {
         let file = pkcs12::open(&data("chain.p12"), "test").unwrap();
         assert_eq!(id.chain.iter().map(|c| &c.raw).collect::<Vec<_>>(), file.chain.iter().map(|c| &c.raw).collect::<Vec<_>>());
     }));
-    sec(&["delete-keychain", k]);
+    // The list first: it is what outlives the test if deleting the keychain goes wrong.
     set_list(None);
+    sec(&["delete-keychain", k]);
     let _ = std::fs::remove_dir_all(&dir);
     result.unwrap();
 }
