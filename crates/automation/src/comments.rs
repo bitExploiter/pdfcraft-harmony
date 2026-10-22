@@ -503,6 +503,10 @@ impl Automation {
         if !(0.0..=12.0).contains(&border) {
             return Err(ToolError::InvalidArgs("border must be 0–12 pt".into()));
         }
+        let border_color = a.opt_str("border_color")?.map(parse_color).transpose()?;
+        if border_color.is_some() && border <= 0.0 {
+            return Err(ToolError::InvalidArgs("border_color needs a border".into()));
+        }
         if let Some(path) = a.opt_str("path")? {
             if !matches!(kind, "signature" | "initials") || a.opt_str("text")?.is_some() {
                 return Err(ToolError::InvalidArgs("path is only for an image signature or initials; pass either path or text".into()));
@@ -576,6 +580,7 @@ impl Automation {
         let mut style = Style::default_for(&shape);
         if matches!(shape, Shape::Typewriter { .. }) {
             style.width = border;
+            style.border_color = border_color;
         }
         self.apply(a, Edit::AddAnnotation(NewAnnotation { page, shape, style, contents, author }))
     }
@@ -643,6 +648,10 @@ impl Automation {
             let fill = if f.eq_ignore_ascii_case("none") { None } else { Some(parse_color(f)?) };
             edits.push(Edit::FillAnnotation { page, index, fill });
         }
+        if let Some(c) = a.opt_str("border_color")? {
+            let color = if c.eq_ignore_ascii_case("text") { None } else { Some(parse_color(c)?) };
+            edits.push(Edit::BorderColorAnnotation { page, index, color });
+        }
         if let Some(size) = a.opt_num("font_size")? {
             if !(1.0..=400.0).contains(&size) {
                 return Err(ToolError::InvalidArgs("font_size must be 1–400 pt".into()));
@@ -671,7 +680,7 @@ impl Automation {
         }
         if edits.is_empty() {
             return Err(ToolError::InvalidArgs(
-                "nothing to change: pass contents, color, opacity, width, fill, font_size, rect, move or points".into(),
+                "nothing to change: pass contents, color, opacity, width, fill, border_color, font_size, rect, move or points".into(),
             ));
         }
         let edit = if edits.len() == 1 { edits.remove(0) } else { Edit::Batch { label: "Edit comment".into(), edits } };
