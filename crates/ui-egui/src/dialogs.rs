@@ -921,6 +921,9 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                 if browse {
                     app.pick_signature_image();
                 }
+                // A new signature a full list refused: the pad stays open with the draft, and
+                // the Signature tool is not armed, which would place the old active signature.
+                let mut refused = false;
                 if apply {
                     let d = std::mem::take(&mut app.signature_draft);
                     // Cleared first, so a notice raised below (a full signature list) stays shown.
@@ -937,13 +940,18 @@ fn dialogs(app: &mut PdfCraftApp, ctx: &egui::Context) {
                                     "You can keep up to {n} signatures. Remove one to add another.",
                                     &[("n", &crate::fill_sign::MAX_SAVED_SIGNATURES.to_string())],
                                 );
+                                refused = true;
                             }
                         }
                         crate::fill_sign::FillTool::Signature
                     };
-                    app.quick_tool = crate::QuickTool::Fill(tool);
+                    if refused {
+                        app.signature_draft = d;
+                    } else {
+                        app.quick_tool = crate::QuickTool::Fill(tool);
+                    }
                 }
-                close = apply || cancel;
+                close = (apply && !refused) || cancel;
                 return;
             }
             Dialog::AltText => {
