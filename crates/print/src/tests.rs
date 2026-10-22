@@ -634,12 +634,16 @@ fn architectural_sheets_preserve_full_scale() {
 
 #[test]
 fn paper_matching_accepts_rounded_metric_sizes_but_not_custom_or_invalid_sizes() {
-    for (i, (_, (w, h))) in PAPERS.iter().enumerate() {
+    for (i, (name, (w, h))) in PAPERS.iter().enumerate() {
         assert_eq!(matching_paper((*w, *h)), Some(i));
         assert_eq!(matching_paper((*h, *w)), Some(i));
         assert_eq!(matching_paper((w.round(), h.round())), Some(i));
         assert_eq!(matching_paper((w + 0.51, *h)), None);
+        let media = cups_media(i).unwrap_or_else(|| panic!("{name} has no CUPS media keyword"));
+        let job = Job { options: vec![("media".into(), media.into())], ..Job::default() };
+        assert!(lp_args(&job).join(" ").ends_with(&format!("-o media={media}")), "{name} -> {media}");
     }
+    assert_eq!(cups_media(PAPERS.len()), None);
     for size in [(0.0, 0.0), (-1728.0, 2592.0), (f64::INFINITY, 2592.0), (1728.0, f64::NAN), (1000.0, 1000.0)] {
         assert_eq!(matching_paper(size), None);
     }

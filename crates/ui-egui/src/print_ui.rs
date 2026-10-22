@@ -291,7 +291,7 @@ fn default_printer(printers: &[spool::Printer]) -> Option<String> {
 
 impl PdfCraftApp {
     pub fn open_print(&mut self) {
-        let Some((i, _)) = self.active_ids() else { return };
+        let Some((i, id)) = self.active_ids() else { return };
         let (printers, printers_loading) = match self.printer_source.clone() {
             // The list from the last time the dialog opened, until the fresh one arrives.
             #[cfg(not(target_arch = "wasm32"))]
@@ -312,6 +312,16 @@ impl PdfCraftApp {
             (true, Which::Selected) => Which::All,
             (true, other) => other,
         };
+        let first_page = match which {
+            Which::Selected => selected.first().copied().unwrap_or(current),
+            _ => current,
+        };
+        let matched_paper = self
+            .session
+            .get(id)
+            .and_then(|doc| doc.info.pages.get(first_page).or_else(|| doc.info.pages.first()))
+            .and_then(|p| print::matching_paper((f64::from(p.width), f64::from(p.height))));
+        let paper = if keep.handling == Handling::Label { keep.paper } else { matched_paper.unwrap_or(keep.paper) };
         self.print_draft = PrintDraft {
             crops: Vec::new(),
             crop_pages: None,
@@ -320,6 +330,7 @@ impl PdfCraftApp {
             printer_picked: false,
             units: self.units,
             printer: default,
+            paper,
             current_page: current,
             sheet: 0,
             selected,

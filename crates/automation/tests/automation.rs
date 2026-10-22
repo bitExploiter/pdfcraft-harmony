@@ -6572,6 +6572,15 @@ fn architectural_and_iso_papers_through_tools() {
     assert!(matches!(bad, Err(ToolError::InvalidArgs(m)) if m.contains("ARCH E1") && m.contains("A0")));
     assert_eq!(std::fs::read(dir.join("plot.pdf")).unwrap(), before);
     assert!(a.call("doc_print", &json!({"doc": doc, "paper": "ARCH D", "path": "../escape.pdf"})).is_err());
+
+    // Issue #2651: omitting `paper` on an A3 PDF (420 × 297 mm) lays out onto A3 sheets rather
+    // than shrinking onto US Letter.
+    ok(&mut a, "doc_print", json!({"doc": doc, "pages": "1", "paper": "A3", "orientation": "landscape", "path": "a3.pdf"}));
+    let a3 = ok(&mut a, "doc_open", json!({"path": "a3.pdf"}))["doc"].as_u64().unwrap();
+    ok(&mut a, "doc_print", json!({"doc": a3, "path": "a3-auto.pdf"}));
+    let saved = pdfcraft_cos::Document::open(std::sync::Arc::new(std::fs::read(dir.join("a3-auto.pdf")).unwrap())).unwrap();
+    let (aw, ah) = pdfcraft_model::pages(&saved)[0].display_size(&saved);
+    assert!((aw - 1190.55).abs() < 0.02 && (ah - 841.89).abs() < 0.02, "A3 auto paper: {aw} x {ah}");
 }
 
 /// A 2-page 200×300 pt PDF in the `fixture()` style for the reading-colours test: bold black

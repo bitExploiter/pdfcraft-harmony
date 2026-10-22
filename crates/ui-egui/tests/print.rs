@@ -426,3 +426,38 @@ fn an_empty_printer_list_says_none_were_found() {
     h.get_by_label_contains("No printers were found");
     assert!(!h.get_by_role_and_label(Role::Button, "Save as PDF").accesskit_node().is_disabled());
 }
+
+/// Issue #2651: opening Print on an A3 landscape PDF (420 × 297 mm) preselects A3 paper, lays
+/// out an A3 landscape sheet, and sends `-o media=A3` to the CUPS spooler rather than falling
+/// back to US Letter or the queue's default A4 paper.
+#[test]
+fn a3_pdf_preselects_a3_paper_and_sends_a3_media() {
+    let mm = 72.0 / 25.4;
+    let (w, h_pt) = (420.0 * mm, 297.0 * mm);
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1000.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        let bytes = app.session.create_blank(w, h_pt, 1).unwrap();
+        app.open_bytes("plan-a3.pdf", None, bytes.as_ref().clone()).unwrap();
+        app
+    });
+    h.run_steps(4);
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(3);
+    h.get_by_value("A3");
+    assert_eq!(pdfcraft_engine::print::PAPERS[h.state().print_draft.paper].0, "A3");
+    let job = h.state().print_draft.job("plan-a3.pdf");
+    assert_eq!(job.options, [("media".to_string(), "A3".to_string())]);
+    assert!(pdfcraft_engine::print::spool::lp_args(&job).join(" ").ends_with("-o media=A3"));
+    let out = std::env::temp_dir().join(format!("pdfcraft-print-a3-{}.pdf", std::process::id()));
+    h.state_mut().save_override = Some(out.to_string_lossy().into_owned());
+    h.state_mut().print_draft.printer = None;
+    h.run_steps(1);
+    h.get_by_label("Save as PDF").click();
+    h.run_steps(3);
+    let saved = pdfcraft_cos::Document::open(std::sync::Arc::new(std::fs::read(&out).unwrap())).unwrap();
+    let _ = std::fs::remove_file(out);
+    let pages = pdfcraft_model::pages(&saved);
+    assert_eq!(pages.len(), 1);
+    assert_eq!(pages[0].display_size(&saved), (1190.55, 841.89));
+}

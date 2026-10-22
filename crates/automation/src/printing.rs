@@ -111,20 +111,24 @@ impl Automation {
             "form-fields-only" => Content::FormFieldsOnly,
             c => return Err(bad(format!("unknown comments_forms {c:?}"))),
         };
-        let paper = match a.opt_str("paper")? {
-            None => PAPERS[0].1,
+        let paper_index = match a.opt_str("paper")? {
+            None => pages
+                .first()
+                .and_then(|&p| doc.info.pages.get(p))
+                .and_then(|p| print::matching_paper((f64::from(p.width), f64::from(p.height))))
+                .unwrap_or(0),
             Some(p) => PAPERS
                 .iter()
-                .find(|(n, _)| {
+                .position(|(n, _)| {
                     n.eq_ignore_ascii_case(p)
                         || n.replace("US ", "").eq_ignore_ascii_case(p)
                         || n.split(" (").next().is_some_and(|name| name.eq_ignore_ascii_case(p))
                 })
-                .map(|x| x.1)
                 .ok_or_else(|| {
                     bad(format!("unknown paper {p:?}; choose one of {}", PAPERS.iter().map(|(name, _)| *name).collect::<Vec<_>>().join(", ")))
                 })?,
         };
+        let paper = PAPERS[paper_index].1;
         // Print as image (Acrobat's Advanced Print Setup): pictures at `dpi`, grey when
         // `grayscale` is also asked for.
         let raster = if a.opt_bool("as_image")?.unwrap_or(false) {
@@ -149,6 +153,22 @@ impl Automation {
             }
             (None, Some(printer)) => {
                 let name = self.doc(a)?.name.clone();
+                let mut options = match a.get("options") {
+                    None => Vec::new(),
+                    Some(Value::Object(m)) => m
+                        .iter()
+                        .map(|(k, v)| match v.as_str() {
+                            Some(v) => Ok((k.clone(), v.to_string())),
+                            None => Err(bad(format!("options.{k} must be a string (a choice from printer_options)"))),
+                        })
+                        .collect::<Result<Vec<_>>>()?,
+                    Some(_) => return Err(bad("options must be an object of option keys and choices from printer_options")),
+                };
+                if !options.iter().any(|(k, _)| k == "media")
+                    && let Some(m) = print::cups_media(paper_index)
+                {
+                    options.push(("media".to_string(), m.to_string()));
+                }
                 let job = spool::Job {
                     printer: if printer == "default" { None } else { Some(printer.to_string()) },
                     copies: a.opt_int("copies")?.unwrap_or(1).clamp(1, 999) as u32,
@@ -162,17 +182,7 @@ impl Automation {
                     scaling: spool::Scaling::Exact,
                     grayscale: a.opt_bool("grayscale")?.unwrap_or(false),
                     title: name,
-                    options: match a.get("options") {
-                        None => Vec::new(),
-                        Some(Value::Object(m)) => m
-                            .iter()
-                            .map(|(k, v)| match v.as_str() {
-                                Some(v) => Ok((k.clone(), v.to_string())),
-                                None => Err(bad(format!("options.{k} must be a string (a choice from printer_options)"))),
-                            })
-                            .collect::<Result<Vec<_>>>()?,
-                        Some(_) => return Err(bad("options must be an object of option keys and choices from printer_options")),
-                    },
+                    options,
                 };
                 out["job"] = json!(spool::submit(&bytes, &job).map_err(|e| failed(e.to_string()))?);
             }
