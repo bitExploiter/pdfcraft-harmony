@@ -736,6 +736,7 @@ mod filter {
             locked: false,
             intent: None,
             fill_sign: false,
+            points: Vec::new(),
         }
     }
 
