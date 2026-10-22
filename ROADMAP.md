@@ -172,7 +172,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 
 ## Progress log
 
-- **2026-10-21 (M10, Print):** The Print dialog and doc_print offer the Japanese paper sizes — JIS B4 257 × 364 mm, JIS B5 182 × 257 mm and JIS B6 128 × 182 mm next to the ISO B4/B5, はがき 100 × 148 mm, 往復はがき 148 × 200 mm, 封筒 長形3号 120 × 235 mm and 長形4号 90 × 225 mm, 角形2号 240 × 332 mm and 角形3号 216 × 277 mm, and 四六判 127 × 188 mm. Each prints as a PDF page of its own size (the job's /MediaBox) and the spooler is asked for that sheet (JIS B4/B5/B6 by their PPD names, the others as custom point sizes); a paper is named by its label, its short name, any case and spacing. Estimates unchanged.
+- **2026-10-21 (M10, Print):** The Print dialog and doc_print offer the Japanese paper sizes — JIS B4 257 × 364 mm, JIS B5 182 × 257 mm and JIS B6 128 × 182 mm next to the ISO B4/B5, はがき 100 × 148 mm, 往復はがき 148 × 200 mm, 封筒 長形3号 120 × 235 mm and 長形4号 90 × 205 mm, 角形2号 240 × 332 mm and 角形3号 216 × 277 mm, and 四六判 127 × 188 mm. Each prints as a PDF page of its own size (the job's /MediaBox) and the spooler is asked for that sheet (JIS B4/B5/B6 by their PPD names, the others as custom point sizes); a paper is named by its label, its short name, any case and spacing. Estimates unchanged.
 
 - **2026-10-19 (M14, #3373):** The main menu and its long submenus scroll in short windows, keeping their commands reachable. Estimates unchanged.
 

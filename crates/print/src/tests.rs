@@ -662,7 +662,7 @@ fn japanese_papers_keep_their_measured_sizes_and_names() {
     near("Japanese Postcard", 283.46, 419.53);
     near("Japanese Double Postcard", 419.53, 566.93);
     near("Japanese Envelope #3", 340.16, 666.14);
-    near("Japanese Envelope #4", 255.12, 637.80);
+    near("Japanese Envelope #4", 255.12, 581.10);
     near("Kaku #2", 680.31, 941.10);
     near("Kaku #3", 612.28, 785.20);
     near("Yonroku-ban", 360.0, 532.91);
@@ -702,7 +702,7 @@ fn japanese_papers_keep_their_measured_sizes_and_names() {
         ("Japanese Postcard", "Custom.100x148mm"),
         ("Japanese Double Postcard", "Custom.148x200mm"),
         ("Japanese Envelope #3", "Custom.120x235mm"),
-        ("Japanese Envelope #4", "Custom.90x225mm"),
+        ("Japanese Envelope #4", "Custom.90x205mm"),
         ("Kaku #2", "Custom.240x332mm"),
         ("Kaku #3", "Custom.216x277mm"),
         ("Yonroku-ban", "Custom.127x188mm"),
