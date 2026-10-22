@@ -20,6 +20,7 @@ stick. To offer it in Settings > Apps > Default apps, open PowerShell in this fo
                  "$cap\FileAssociations", "HKCU:\Software\RegisteredApplications") {
     if (!(Test-Path $k)) { New-Item -Path $k -Force | Out-Null }
   }
+  Set-Item -Path "$c\PdfCraft.Portable" -Value "PDF Document"
   Set-Item -Path "$c\PdfCraft.Portable\shell\open\command" -Value "`"$exe`" `"%1`""
   New-ItemProperty -Path "$c\.pdf\OpenWithProgids" -Name PdfCraft.Portable -Value "" -PropertyType String -Force | Out-Null
   New-ItemProperty -Path $cap -Name ApplicationName -Value "PdfCraft (portable)" -PropertyType String -Force | Out-Null
@@ -34,6 +35,6 @@ itself. If you move or rename this folder, run it again from the new place.
 To undo, first choose another app for .pdf in Settings > Apps > Default apps (otherwise Windows
 keeps pointing PDF files at the removed entry), then run:
 
-  Remove-Item -Path "HKCU:\Software\Classes\PdfCraft.Portable", "HKCU:\Software\PdfCraft.Portable" -Recurse
-  Remove-ItemProperty -Path "HKCU:\Software\Classes\.pdf\OpenWithProgids" -Name PdfCraft.Portable
-  Remove-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name "PdfCraft (portable)"
+  Remove-Item -Path "HKCU:\Software\Classes\PdfCraft.Portable", "HKCU:\Software\PdfCraft.Portable" -Recurse -ErrorAction SilentlyContinue
+  Remove-ItemProperty -Path "HKCU:\Software\Classes\.pdf\OpenWithProgids" -Name PdfCraft.Portable -ErrorAction SilentlyContinue
+  Remove-ItemProperty -Path "HKCU:\Software\RegisteredApplications" -Name "PdfCraft (portable)" -ErrorAction SilentlyContinue
