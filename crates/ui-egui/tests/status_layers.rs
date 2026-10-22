@@ -173,6 +173,8 @@ fn harness(bytes: Vec<u8>, lang: &'static str) -> Harness<'static, PdfCraftApp> 
         app.set_option("language", lang).unwrap();
         app.open_bytes("signed.pdf", None, bytes).expect("opens");
         app.set_option("left", "closed").unwrap();
+        // Field highlights tint the widget; these tests read the colours its appearance draws.
+        app.set_option("fields", "off").unwrap();
         app
     });
     settle(&mut h);
