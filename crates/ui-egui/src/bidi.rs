@@ -356,7 +356,10 @@ pub fn text_edit_layouter() -> impl FnMut(&egui::Ui, &dyn egui::TextBuffer, f32)
 pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::sync::Arc<egui::Galley> {
     let is_rtl_ui = crate::i18n::current().rtl();
     let font_id = egui::TextStyle::Body.resolve(ui.style());
-    let text_color = ui.visuals().text_color();
+    let text_color = ui
+        .visuals()
+        .override_text_color
+        .unwrap_or_else(|| ui.visuals().widgets.inactive.text_color());
 
     if !has_rtl(content) && !is_rtl_ui {
         let mut job = egui::text::LayoutJob::simple(content.to_owned(), font_id, text_color, wrap_width);
@@ -389,18 +392,32 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
     let mut galley = ui.fonts_mut(|f| f.layout_job(job));
 
     let g = std::sync::Arc::make_mut(&mut galley);
-    for (row_idx, logical_line) in logical_lines.iter().enumerate() {
-        let Some(placed_row) = g.rows.get_mut(row_idx) else { break };
+    let mut row_idx = 0;
+    for logical_line in &logical_lines {
         let char_count = logical_line.chars().count();
         if char_count == 0 {
+            if row_idx < g.rows.len() {
+                row_idx += 1;
+            }
             continue;
         }
-        let row = std::sync::Arc::make_mut(&mut placed_row.row);
-        let orig_glyphs = row.glyphs.clone();
-        let vis_glyphs: Vec<_> = orig_glyphs.iter().filter(|g| g.advance_width > 0.0).copied().collect();
 
-        let base_level = if is_rtl { Level::rtl() } else { Level::ltr() };
-        let bidi = unicode_bidi::BidiInfo::new(logical_line, Some(base_level));
+        let mut line_rows = Vec::new();
+        let mut covered_glyphs = 0;
+        while row_idx < g.rows.len() {
+            let r = row_idx;
+            row_idx += 1;
+            let placed_row = &g.rows[r];
+            let vis_count = placed_row.row.glyphs.iter().filter(|g| g.advance_width > 0.0).count();
+            covered_glyphs += vis_count;
+            line_rows.push(r);
+            if placed_row.ends_with_newline || covered_glyphs >= char_count {
+                break;
+            }
+        }
+
+        let bidi = unicode_bidi::BidiInfo::new(logical_line, None);
+        let base_level = bidi.paragraphs.first().map_or(if is_rtl { Level::rtl() } else { Level::ltr() }, |p| p.level);
         let levels = if let Some(para) = bidi.paragraphs.first() {
             bidi.reordered_levels_per_char(para, para.range.clone())
         } else {
@@ -414,36 +431,62 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
             }
         }
 
-        let row_width = row.size.x;
-        let mut cursor_offsets = vec![0.0f32; char_count.saturating_add(1)];
-        for (i, &v) in log_to_vis.iter().enumerate() {
-            let is_char_rtl = levels.get(i).is_some_and(Level::is_rtl);
-            let (x_left, x_right) = if v < vis_glyphs.len() {
-                let g = vis_glyphs[v];
-                (g.pos.x, g.pos.x + g.advance_width)
-            } else {
-                (0.0, row_width)
-            };
-            if is_char_rtl {
-                cursor_offsets[i] = x_right;
-                cursor_offsets[i + 1] = x_left;
-            } else {
-                cursor_offsets[i] = x_left;
-                cursor_offsets[i + 1] = x_right;
+        let is_multi_row = line_rows.len() > 1;
+        let mut vis_offset = 0;
+        let mut char_offset = 0;
+        for &r in &line_rows {
+            let placed_row = &mut g.rows[r];
+            let row = std::sync::Arc::make_mut(&mut placed_row.row);
+            let orig_glyphs = row.glyphs.clone();
+            let vis_glyphs: Vec<_> = orig_glyphs.iter().filter(|g| g.advance_width > 0.0).copied().collect();
+            let row_vis_count = vis_glyphs.len();
+            if row_vis_count == 0 {
+                continue;
             }
-        }
 
-        if is_rtl && char_count > 0 {
-            cursor_offsets[0] = row_width;
-            cursor_offsets[char_count] = 0.0;
-        }
+            let row_start_char = char_offset;
+            char_offset += row_vis_count;
+            let row_width = row.size.x;
 
-        let Some(sample) = orig_glyphs.first().copied() else { continue };
-        row.glyphs.clear();
-        for &x in &cursor_offsets {
-            let mut glyph = sample;
-            glyph.pos.x = x;
-            row.glyphs.push(glyph);
+            let mut cursor_offsets = vec![0.0f32; row_vis_count.saturating_add(1)];
+            for col in 0..row_vis_count {
+                let log_i = if is_multi_row { row_start_char + col } else { col };
+                let is_char_rtl = levels.get(log_i).is_some_and(Level::is_rtl);
+                let v = log_to_vis.get(log_i).copied().unwrap_or(0);
+                let (x_left, x_right) = if is_multi_row {
+                    if v >= vis_offset && v < vis_offset + row_vis_count {
+                        let g = vis_glyphs[v - vis_offset];
+                        (g.pos.x.clamp(0.0, row_width), (g.pos.x + g.advance_width).clamp(0.0, row_width))
+                    } else if v < vis_glyphs.len() {
+                        let g = vis_glyphs[v];
+                        (g.pos.x.clamp(0.0, row_width), (g.pos.x + g.advance_width).clamp(0.0, row_width))
+                    } else {
+                        (0.0, row_width)
+                    }
+                } else if v < vis_glyphs.len() {
+                    let g = vis_glyphs[v];
+                    (g.pos.x, g.pos.x + g.advance_width)
+                } else {
+                    (0.0, row_width)
+                };
+                if is_char_rtl {
+                    cursor_offsets[col] = x_right;
+                    cursor_offsets[col + 1] = x_left;
+                } else {
+                    cursor_offsets[col] = x_left;
+                    cursor_offsets[col + 1] = x_right;
+                }
+            }
+            vis_offset += row_vis_count;
+
+            let Some(sample) = orig_glyphs.first().copied() else { continue };
+            row.glyphs.clear();
+            for &x in &cursor_offsets[..row_vis_count] {
+                let mut glyph = sample;
+                glyph.pos.x = x;
+                row.glyphs.push(glyph);
+            }
+            row.size.x = cursor_offsets[row_vis_count];
         }
     }
 

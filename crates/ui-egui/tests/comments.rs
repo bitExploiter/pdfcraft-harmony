@@ -1073,3 +1073,61 @@ fn sticky_note_composer_types_and_posts_arabic_comment() {
     assert_eq!((c[0].subtype.as_str(), c[0].contents.as_deref()), ("Text", Some("ملاحظة باللغة العربية")));
     assert!(h.state().views[0].comments.composer.is_none());
 }
+
+#[test]
+fn multi_row_rtl_cursor_offsets_stay_within_bounds() {
+    let ctx = egui::Context::default();
+    ctx.set_fonts(pdfcraft_ui_egui::theme::font_definitions());
+    let text = "واحد اثنين ثلاثة أربعة خمسة ستة\nسطر جديد بعد سطر طويل جدا يلتف";
+    let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        let wrap_width = 80.0;
+        let galley = pdfcraft_ui_egui::bidi::text_edit_layout(ui, text, wrap_width);
+
+        assert!(galley.rows.len() > 2, "must wrap across multiple rows, got {}", galley.rows.len());
+
+        let lines: Vec<&str> = text.split('\n').collect();
+        let p1_len = lines[0].chars().count();
+        let total_len = text.chars().count();
+
+        // 1. Every character boundary cursor offset remains inside its visual row bounds.
+        for ci in 0..=total_len {
+            let cursor = egui::text::CCursor::new(ci);
+            let layout_c = galley.layout_from_cursor(cursor);
+            let rect = galley.pos_from_cursor(cursor);
+            let row = &galley.rows[layout_c.row];
+
+            // Vertical bounds check:
+            assert!(
+                rect.min.y >= row.min_y() - 0.5 && rect.max.y <= row.max_y() + 0.5,
+                "ci={ci} on row {} vertical bounds [{:.1}..{:.1}] outside row bounds [{:.1}..{:.1}]",
+                layout_c.row, rect.min.y, rect.max.y, row.min_y(), row.max_y()
+            );
+
+            // Horizontal bounds check:
+            let min_x = row.pos.x.min(0.0);
+            let max_x = row.pos.x.max(0.0);
+            assert!(
+                rect.min.x >= min_x - 1.0 && rect.min.x <= max_x + 1.0,
+                "ci={ci} on row {} horizontal pos {:.1} outside row bounds [{:.1}..{:.1}]",
+                layout_c.row, rect.min.x, min_x, max_x
+            );
+        }
+
+        // 2. Boundary checks between paragraphs:
+        let lc_p1_start = galley.layout_from_cursor(egui::text::CCursor::new(0));
+        let lc_p1_end = galley.layout_from_cursor(egui::text::CCursor::new(p1_len));
+        assert_eq!(lc_p1_start.row, 0, "p1 start must be on row 0");
+
+        let p2_start_idx = p1_len + 1;
+        let lc_p2_start = galley.layout_from_cursor(egui::text::CCursor::new(p2_start_idx));
+        assert!(lc_p1_end.row < lc_p2_start.row, "p1 end row ({}) must precede p2 start row ({})", lc_p1_end.row, lc_p2_start.row);
+
+        let c_p2_start = galley.pos_from_cursor(egui::text::CCursor::new(p2_start_idx));
+        let row_p2_start = &galley.rows[lc_p2_start.row];
+        assert!(
+            c_p2_start.min.y >= row_p2_start.min_y() - 0.5 && c_p2_start.max.y <= row_p2_start.max_y() + 0.5,
+            "p2 start cursor must be inside row {} vertical bounds", lc_p2_start.row
+        );
+    });
+    output.drop_without_applying_deltas();
+}
