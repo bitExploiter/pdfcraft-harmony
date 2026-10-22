@@ -322,6 +322,10 @@
 	Bottom:	Apačia:
 	Box	Stačiakampis
 	Browser's print dialog	Naršyklės spausdinimo dialogas
+	System print dialog…	Sistemos spausdinimo dialogas…
+	Waiting for the system print dialog…	Laukiama sistemos spausdinimo dialogo…
+	Printed through the system print dialog	Išspausdinta per sistemos spausdinimo dialogą
+	Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.	Kopijų skaičius, dvipusis spausdinimas, spalvos ir spausdintuvas pasirenkami sistemos spausdinimo dialoge, kuris atsiveria spausdinant.
 	Butt	Plokščias galas
 	Button is checked by default	Mygtukas pažymėtas pagal numatytuosius parametrus
 	Buttons with the same name and value are selected in unison	Mygtukai su tuo pačiu pavadinimu ir reikšme pasirenkami kartu

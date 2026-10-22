@@ -4,7 +4,7 @@
 //! sheets. Printing sends the print-ready PDF to the system spooler; "Save as PDF" writes it.
 
 use egui::{Color32, Pos2, Rect, Stroke, pos2, vec2};
-use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool};
+use pdfcraft_engine::print::{self, Binding, BookletSubset, Content, Layout, Orientation, PAPERS, PageOrder, SizeMode, Subset, spool, system_dialog};
 
 use crate::theme::{self, Tokens};
 use crate::{PdfCraftApp, widgets};
@@ -255,6 +255,10 @@ pub type PrinterSource = std::sync::Arc<dyn Fn() -> Vec<spool::Printer> + Send +
 /// UI language) unless a test stands in. Called off the GUI thread.
 pub type OptionsSource = std::sync::Arc<dyn Fn(&str) -> Vec<spool::PrinterOption> + Send + Sync>;
 
+/// Opens the system print dialog on a print-ready PDF and its job title, and waits until it closes
+/// ([`system_dialog::print`] in the app).
+pub type SystemPrintDialog = std::sync::Arc<dyn Fn(&[u8], &str) -> Result<system_dialog::Outcome, print::PrintError> + Send + Sync>;
+
 /// The system spooler's printers, as the desktop app's [`PrinterSource`].
 pub fn system_printers() -> PrinterSource {
     std::sync::Arc::new(spool::printers)
@@ -308,7 +312,19 @@ fn still_looking(d: &PrintDraft) -> bool {
 
 /// A printer's name as the dialog shows it.
 fn printer_label(name: &str) -> String {
-    if name == crate::web_print::BROWSER_PRINTER { crate::web_print::browser_printer_label().to_string() } else { name.to_string() }
+    if name == crate::web_print::BROWSER_PRINTER {
+        crate::web_print::browser_printer_label().to_string()
+    } else if name == system_dialog::SYSTEM_DIALOG {
+        tl!("System print dialog…").to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// The printer is a print dialog of its own (the browser's, or the system's on macOS), which sets
+/// copies, two-sided printing, colour and the driver's options itself.
+fn dialog_printer(d: &PrintDraft) -> bool {
+    matches!(d.printer.as_deref(), Some(crate::web_print::BROWSER_PRINTER | system_dialog::SYSTEM_DIALOG))
 }
 
 /// A job being spooled: its printer, the sheets sent so far of how many, and its worker's news.
@@ -325,6 +341,8 @@ enum JobNews {
     Sent(usize, usize),
     /// The spooler's answer.
     Done(Result<String, String>),
+    /// The system print dialog closed (macOS).
+    Closed(system_dialog::Outcome),
 }
 
 /// The printer the dialog preselects: the system default, else the first.
@@ -541,12 +559,17 @@ impl PdfCraftApp {
                 }
             }
             let mut finished = Vec::new();
+            let mut closed = Vec::new();
             self.print_tasks.jobs.retain_mut(|job| {
                 loop {
                     match job.news.try_recv() {
                         Ok(JobNews::Sent(sent, sheets)) => job.sheets = Some((sent, sheets)),
                         Ok(JobNews::Done(r)) => {
                             finished.push((job.printer.clone(), r));
+                            break false;
+                        }
+                        Ok(JobNews::Closed(outcome)) => {
+                            closed.push(outcome);
                             break false;
                         }
                         Err(std::sync::mpsc::TryRecvError::Empty) => break true,
@@ -560,6 +583,12 @@ impl PdfCraftApp {
             self.show_print_progress();
             for (printer, result) in finished {
                 self.report_print_job(&printer, result);
+            }
+            for outcome in closed {
+                match outcome {
+                    system_dialog::Outcome::Printed => self.notify_tr("Printed through the system print dialog"),
+                    system_dialog::Outcome::Cancelled => self.notify_tr("Cancelled"),
+                }
             }
         }
     }
@@ -579,6 +608,8 @@ impl PdfCraftApp {
         }
         let printer = job.printer.as_str();
         let (label, fraction) = match job.sheets {
+            // It waits for the person in the panel, however long that takes.
+            _ if printer == system_dialog::SYSTEM_DIALOG => (tl!("Waiting for the system print dialog…").to_string(), 0.0),
             Some((sent, sheets)) if sheets > 0 => {
                 // The sheet on its way: one past those sent, until the last is.
                 let sheet = sent.saturating_add(1).min(sheets).to_string();
@@ -644,6 +675,8 @@ impl PdfCraftApp {
                     }
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            Some(printer) if printer == system_dialog::SYSTEM_DIALOG => self.print_with_system_dialog(name, bytes),
             Some(printer) => self.send_to_printer(printer, bytes, self.print_draft.job(&name)),
             None => self.save_print_pdf(&name, bytes),
         }
@@ -672,6 +705,34 @@ impl PdfCraftApp {
             repaint();
         });
         self.print_tasks.jobs.push(PrintJob { printer, sheets: None, news: rx });
+        self.show_print_progress();
+        true
+    }
+
+    /// Hand the print-ready PDF to the system print dialog (macOS), which the person finishes
+    /// there: printer, copies, two-sided, presets and PDF services. The dialog runs in another
+    /// process, so PdfCraft stays responsive; the progress card waits for it to close.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn print_with_system_dialog(&mut self, name: String, bytes: Vec<u8>) -> bool {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.ctx.clone();
+        let open = self.system_print_dialog.clone();
+        std::thread::spawn(move || {
+            let closed = match &open {
+                Some(open) => open(&bytes, &name),
+                None => system_dialog::print(&bytes, &name),
+            };
+            let news = match closed {
+                Ok(outcome) => JobNews::Closed(outcome),
+                Err(e) => JobNews::Done(Err(e.to_string())),
+            };
+            // The receiver may be gone (the app quit): nothing to report to then.
+            let _ = tx.send(news);
+            if let Some(ctx) = &ctx {
+                ctx.request_repaint();
+            }
+        });
+        self.print_tasks.jobs.push(PrintJob { printer: system_dialog::SYSTEM_DIALOG.to_string(), sheets: None, news: rx });
         self.show_print_progress();
         true
     }
@@ -941,8 +1002,9 @@ pub(crate) fn body(
             egui::Grid::new("print-top").num_columns(2).spacing([10.0, 8.0]).show(ui, |ui| {
                 ui.label(tl!("Printer:"));
                 let before = d.printer.clone();
-                // The browser's print dialog sets copies, two-sided printing and colour itself.
-                let browser = d.printer.as_deref() == Some(crate::web_print::BROWSER_PRINTER);
+                // The browser's or the system's print dialog sets copies, two-sided printing and
+                // colour itself.
+                let browser = dialog_printer(d);
                 ui.horizontal(|ui| {
                     let shown = match d.printer.as_deref() {
                         Some(p) => printer_label(p),
@@ -961,6 +1023,9 @@ pub(crate) fn body(
                                 name
                             };
                             ui.selectable_value(&mut d.printer, Some(p.name.clone()), label);
+                        }
+                        if system_dialog::AVAILABLE {
+                            ui.selectable_value(&mut d.printer, Some(system_dialog::SYSTEM_DIALOG.to_string()), tl!("System print dialog…"));
                         }
                         // Chosen even when it was already the selection, so the list arriving
                         // later doesn't replace it with the default printer.
@@ -1058,6 +1123,9 @@ pub(crate) fn body(
             }
             if d.printer.as_deref() == Some(crate::web_print::BROWSER_PRINTER) {
                 ui.label(egui::RichText::new(tl!("Copies, two-sided printing and colour are chosen in the browser's print dialog.")).small().color(t.text_muted));
+            }
+            if d.printer.as_deref() == Some(system_dialog::SYSTEM_DIALOG) {
+                ui.label(egui::RichText::new(tl!("Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.")).small().color(t.text_muted));
             }
             if let Some(e) = &d.driver_error {
                 ui.label(egui::RichText::new(crate::i18n::fmt(tl!("Couldn't open the printer's preferences: {e}"), &[("e", e)])).small().color(t.text_muted));

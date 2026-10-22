@@ -877,3 +877,105 @@ fn driver_options_take_the_ppds_own_names_in_the_ui_language() {
 }
 
 mod appearances;
+
+#[cfg(all(unix, not(target_arch = "wasm32")))]
+mod system_dialog {
+    use crate::PrintError;
+    use crate::system_dialog::{Outcome, job_title, outcome, print_via};
+
+    /// A private folder for one test's temporary PDF and what the stand-in saw.
+    fn folder(name: &str) -> std::path::PathBuf {
+        use std::os::unix::fs::DirBuilderExt as _;
+        let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let path = std::env::temp_dir().join(format!("pdfcraft-system-dialog-{name}-{}-{nanos}", std::process::id()));
+        std::fs::DirBuilder::new().mode(0o700).create(&path).unwrap();
+        path
+    }
+
+    /// `/bin/sh` standing in for osascript: it records the script it was given on stdin, its
+    /// arguments, the PDF and the PDF's permissions in `seen/`, then runs `then`.
+    fn stand_in(dir: &std::path::Path, then: &str) -> std::process::Command {
+        let seen = dir.join("seen");
+        std::fs::create_dir(&seen).unwrap();
+        let body = format!(
+            "cat > '{s}/script'; printf '%s\\n' \"$1\" > '{s}/dash'; printf '%s' \"$3\" > '{s}/title'; printf '%s' \"$2\" > '{s}/path'; \
+             cp \"$2\" '{s}/pdf'; ls -l \"$2\" | cut -c1-10 > '{s}/mode'; {then}",
+            s = seen.display()
+        );
+        let mut c = std::process::Command::new("/bin/sh");
+        c.args(["-c", &body, "sh"]);
+        c
+    }
+
+    fn seen(dir: &std::path::Path, what: &str) -> String {
+        std::fs::read_to_string(dir.join("seen").join(what)).unwrap()
+    }
+
+    #[test]
+    fn the_panel_gets_the_pdf_in_a_private_file_that_is_removed_after() {
+        for (answer, expected) in [("printed", Outcome::Printed), ("cancelled", Outcome::Cancelled)] {
+            let dir = folder(answer);
+            let pdf = b"%PDF-1.7 print-ready sheets";
+            let got = print_via(pdf, "Quarterly\treport\u{7}.pdf", &dir, stand_in(&dir, &format!("echo {answer}")));
+            assert_eq!(got, Ok(expected), "{answer}");
+            // The script came through stdin, behind `-`, and runs the standard print panel.
+            assert_eq!(seen(&dir, "dash"), "-\n");
+            let script = seen(&dir, "script");
+            assert!(
+                script.contains("use framework \"PDFKit\"") && script.contains("setShowsPrintPanel:true") && script.contains("runOperation()"),
+                "{script}"
+            );
+            // The sheets PdfCraft composed, readable by the owner alone, with a clean title.
+            assert_eq!(std::fs::read(dir.join("seen/pdf")).unwrap(), pdf);
+            assert_eq!(seen(&dir, "mode"), "-rw-------\n");
+            assert_eq!(seen(&dir, "title"), "Quarterlyreport.pdf");
+            // Gone once the panel closed, printed or not.
+            let path = std::path::PathBuf::from(seen(&dir, "path"));
+            assert!(path.starts_with(&dir), "{path:?}");
+            assert!(!path.exists(), "the temporary PDF was left behind: {path:?}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_failing_panel_is_an_error_and_still_removes_the_pdf() {
+        for (then, says) in [
+            ("echo 'error: macOS could not prepare the print job'", "macOS could not prepare the print job"),
+            ("echo 'execution error: PDFKit missing (-2700)' >&2; exit 1", "execution error: PDFKit missing (-2700)"),
+            // "printed" from a process that failed is not trusted.
+            ("echo printed; exit 3", "osascript stopped with an error"),
+            ("exit 0", "no answer from osascript"),
+        ] {
+            let dir = folder("fails");
+            let got = print_via(b"%PDF-1.7", "Doc", &dir, stand_in(&dir, then));
+            match got {
+                Err(PrintError::Spool(e)) => assert!(e.starts_with("the system print dialog failed: ") && e.ends_with(says), "{then}: {e}"),
+                other => panic!("{then}: {other:?}"),
+            }
+            assert!(!std::path::Path::new(&seen(&dir, "path")).exists(), "{then}");
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
+    }
+
+    #[test]
+    fn nothing_to_print_or_no_osascript_is_an_error() {
+        let dir = folder("missing");
+        assert_eq!(print_via(b"", "Doc", &dir, std::process::Command::new("/bin/true")), Err(PrintError::NoPages));
+        let got = print_via(b"%PDF-1.7", "Doc", &dir, std::process::Command::new(dir.join("no-such-osascript")));
+        assert!(matches!(&got, Err(PrintError::Spool(e)) if e.starts_with("couldn't open the system print dialog")), "{got:?}");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0, "the temporary PDF was left behind");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn answers_and_titles_are_read_defensively() {
+        assert_eq!(outcome(true, "printed\n", ""), Ok(Outcome::Printed));
+        assert_eq!(outcome(true, "  cancelled  ", "warning"), Ok(Outcome::Cancelled));
+        assert_eq!(outcome(true, "error: ", "last words\n\n"), Err(PrintError::Spool("the system print dialog failed: last words".into())));
+        let long = outcome(false, "", &"é".repeat(1000));
+        assert!(matches!(&long, Err(PrintError::Spool(e)) if e.chars().count() == "the system print dialog failed: ".len() + 300), "{long:?}");
+        assert_eq!(job_title("  \n\u{0} "), "PdfCraft");
+        assert_eq!(job_title(&"日".repeat(500)).chars().count(), 200);
+        assert_eq!(job_title("Plan — v2.pdf"), "Plan — v2.pdf");
+    }
+}

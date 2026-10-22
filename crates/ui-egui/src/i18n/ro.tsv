@@ -320,6 +320,10 @@
 	Bottom:	Jos:
 	Box	Casetă
 	Browser's print dialog	Dialogul de imprimare al browserului
+	System print dialog…	Dialogul de imprimare al sistemului…
+	Waiting for the system print dialog…	Se așteaptă dialogul de imprimare al sistemului…
+	Printed through the system print dialog	Imprimat prin dialogul de imprimare al sistemului
+	Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.	Copiile, imprimarea față-verso, culoarea și imprimanta se aleg în dialogul de imprimare al sistemului, care se deschide la imprimare.
 	Butt	Plat
 	Button is checked by default	Butonul este bifat implicit
 	Buttons with the same name and value are selected in unison	Butoanele cu același nume și valoare se selectează împreună

@@ -319,6 +319,10 @@
 	Bottom:	Bunn:
 	Box	Boks
 	Browser's print dialog	Nettleserens utskriftsdialog
+	System print dialog…	Systemets utskriftsdialog…
+	Waiting for the system print dialog…	Venter på systemets utskriftsdialog…
+	Printed through the system print dialog	Skrevet ut med systemets utskriftsdialog
+	Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.	Antall kopier, tosidig utskrift, farge og skriver velges i systemets utskriftsdialog, som åpnes når du skriver ut.
 	Butt	Flat
 	Button is checked by default	Knappen er avkrysset som standard
 	Buttons with the same name and value are selected in unison	Knapper med samme navn og verdi velges samtidig

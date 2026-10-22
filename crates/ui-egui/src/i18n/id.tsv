@@ -312,6 +312,10 @@
 	Bottom:	Bawah:
 	Box	Kotak
 	Browser's print dialog	Dialog cetak browser
+	System print dialog…	Dialog cetak sistem…
+	Waiting for the system print dialog…	Menunggu dialog cetak sistem…
+	Printed through the system print dialog	Dicetak melalui dialog cetak sistem
+	Copies, two-sided printing, colour and the printer are chosen in the system print dialog, which opens when you print.	Jumlah salinan, cetak dua sisi, warna, dan printer dipilih dalam dialog cetak sistem, yang terbuka saat Anda mencetak.
 	Butt	Rata
 	Button is checked by default	Tombol tercentang secara bawaan
 	Buttons with the same name and value are selected in unison	Tombol dengan nama dan nilai yang sama dipilih bersama-sama
