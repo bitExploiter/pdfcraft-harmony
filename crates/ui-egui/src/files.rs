@@ -69,7 +69,14 @@ fn files_picker(purpose: FilePurpose) -> rfd::AsyncFileDialog {
     if !matches!(purpose, FilePurpose::CreateMultiple | FilePurpose::CreateMultipleSeparate | FilePurpose::InsertPages | FilePurpose::Combine) {
         return dialog.add_filter("PDF", &["pdf"]);
     }
-    let all: Vec<&str> = std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).chain(pdfcraft_engine::OFFICE_EXTENSIONS).collect();
+    #[cfg(not(target_arch = "wasm32"))]
+    let all: Vec<&str> = if purpose == FilePurpose::Combine {
+        std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).chain(pdfcraft_engine::OFFICE_EXTENSIONS).collect()
+    } else {
+        std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).collect()
+    };
+    #[cfg(target_arch = "wasm32")]
+    let all: Vec<&str> = std::iter::once("pdf").chain(pdfcraft_engine::CONVERTIBLE).collect();
     dialog.add_filter(tl!("PDF, images and text"), &all).add_filter("PDF", &["pdf"])
 }
 

@@ -59,8 +59,10 @@ impl<'a> Recipe<'a> {
 
     fn accepts(&self, path: &Path) -> bool {
         let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_ascii_lowercase();
+        let lock_file = path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("~$"));
         extension == "pdf"
             || (self.steps.contains(&"convert")
+                && !lock_file
                 && (pdfcraft_engine::CONVERTIBLE.contains(&extension.as_str()) || pdfcraft_engine::is_office_extension(&extension)))
     }
 

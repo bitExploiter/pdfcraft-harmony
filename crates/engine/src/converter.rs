@@ -124,7 +124,13 @@ pub fn convert_to_pdf(input_path: &Path, output_path: &Path) -> Result<PathBuf, 
             return Err(ConversionError::FileNotFound(input_path.display().to_string()));
         }
 
+        #[cfg(target_os = "windows")]
         let app = OfficeApp::for_path(input_path).ok_or_else(|| ConversionError::UnsupportedFormat(input_path.display().to_string()))?;
+
+        #[cfg(not(target_os = "windows"))]
+        if OfficeApp::for_path(input_path).is_none() {
+            return Err(ConversionError::UnsupportedFormat(input_path.display().to_string()));
+        }
 
         // Ensure parent directory of output_path exists
         if let Some(parent) = output_path.parent() {
@@ -202,9 +208,14 @@ pub fn convert_bytes_to_pdf(name: &str, bytes: &[u8]) -> Result<TempConvertedPdf
             return Err(ConversionError::UnsupportedFormat(name.to_string()));
         }
 
+        let file_name = Path::new(name).file_name().and_then(|n| n.to_str()).unwrap_or(name);
+        if file_name.is_empty() || !is_office_name(file_name) {
+            return Err(ConversionError::UnsupportedFormat(name.to_string()));
+        }
+
         let temp_dir = tempfile::Builder::new().prefix("pdfcraft-office-").tempdir().map_err(|e| ConversionError::Io(e.to_string()))?;
 
-        let input_path = temp_dir.path().join(name);
+        let input_path = temp_dir.path().join(file_name);
         std::fs::write(&input_path, bytes).map_err(|e| ConversionError::Io(e.to_string()))?;
 
         let output_path = temp_dir.path().join("converted.pdf");
@@ -213,9 +224,47 @@ pub fn convert_bytes_to_pdf(name: &str, bytes: &[u8]) -> Result<TempConvertedPdf
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(any(target_os = "windows", test))]
 fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('\'');
+    for c in s.chars() {
+        out.push(c);
+        if matches!(c, '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}') {
+            out.push(c);
+        }
+    }
+    out.push('\'');
+    out
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn run_with_timeout(mut child: std::process::Child, timeout: std::time::Duration) -> Result<std::process::Output, ConversionError> {
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let mut stdout = Vec::new();
+                let mut stderr = Vec::new();
+                if let Some(mut out) = child.stdout.take() {
+                    let _ = std::io::Read::read_to_end(&mut out, &mut stdout);
+                }
+                if let Some(mut err) = child.stderr.take() {
+                    let _ = std::io::Read::read_to_end(&mut err, &mut stderr);
+                }
+                return Ok(std::process::Output { status, stdout, stderr });
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return Err(ConversionError::ProcessFailed("process timed out".into()));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(e) => return Err(ConversionError::ProcessFailed(format!("failed waiting for process: {e}"))),
+        }
+    }
 }
 
 #[cfg(all(target_os = "windows", not(target_arch = "wasm32")))]
@@ -237,6 +286,7 @@ try {{
     $word = New-Object -ComObject Word.Application
     $word.Visible = $false
     $word.DisplayAlerts = 0
+    $word.AutomationSecurity = 3
     $doc = $word.Documents.Open($in)
     $doc.ExportAsFixedFormat($out, 17)
 }} finally {{
@@ -262,6 +312,7 @@ try {{
     $excel = New-Object -ComObject Excel.Application
     $excel.Visible = $false
     $excel.DisplayAlerts = $false
+    $excel.AutomationSecurity = 3
     $wb = $excel.Workbooks.Open($in)
     $wb.ExportAsFixedFormat(0, $out)
 }} finally {{
@@ -285,7 +336,8 @@ $ppt = $null
 $pres = $null
 try {{
     $ppt = New-Object -ComObject PowerPoint.Application
-    $pres = $ppt.Presentations.Open($in, [Microsoft.Office.Core.MsoTriState]::msoTrue, [Microsoft.Office.Core.MsoTriState]::msoFalse, [Microsoft.Office.Core.MsoTriState]::msoFalse)
+    $ppt.AutomationSecurity = 3
+    $pres = $ppt.Presentations.Open($in, -1, 0, 0)
     $pres.SaveAs($out, 32)
 }} finally {{
     if ($pres -ne $null) {{
@@ -302,10 +354,14 @@ try {{
         ),
     };
 
-    let output = std::process::Command::new("powershell.exe")
+    let child = std::process::Command::new("powershell.exe")
         .args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script])
-        .output()
-        .map_err(|e| ConversionError::ProcessFailed(format!("failed to execute powershell: {e}")))?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ConversionError::ProcessFailed(format!("failed to spawn powershell: {e}")))?;
+
+    let output = run_with_timeout(child, std::time::Duration::from_secs(60))?;
 
     if !output.status.success() {
         let err_msg = String::from_utf8_lossy(&output.stderr);
@@ -396,15 +452,26 @@ fn find_libreoffice() -> Option<PathBuf> {
 fn convert_with_libreoffice(soffice: &Path, input_path: &Path, output_path: &Path) -> Result<(), ConversionError> {
     let out_dir = output_path.parent().unwrap_or_else(|| Path::new("."));
 
-    let status = std::process::Command::new(soffice)
+    // Give LibreOffice its own isolated user profile so it doesn't conflict with any running instance.
+    let profile_dir = out_dir.join(format!(".lo_profile_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&profile_dir);
+    let profile_uri = format!("file:///{}", profile_dir.display().to_string().replace('\\', "/"));
+
+    let child = std::process::Command::new(soffice)
+        .arg(format!("-env:UserInstallation={profile_uri}"))
         .args(["--headless", "--convert-to", "pdf", "--outdir"])
         .arg(out_dir)
         .arg(input_path)
-        .status()
-        .map_err(|e| ConversionError::ProcessFailed(format!("failed to execute libreoffice: {e}")))?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| ConversionError::ProcessFailed(format!("failed to spawn libreoffice: {e}")))?;
 
-    if !status.success() {
-        return Err(ConversionError::ProcessFailed(format!("LibreOffice exited with code {:?}", status.code())));
+    let output = run_with_timeout(child, std::time::Duration::from_secs(60))?;
+    let _ = std::fs::remove_dir_all(&profile_dir);
+
+    if !output.status.success() {
+        return Err(ConversionError::ProcessFailed(format!("LibreOffice exited with code {:?}", output.status.code())));
     }
 
     // LibreOffice names the output file <stem>.pdf in out_dir.
@@ -477,6 +544,13 @@ mod tests {
         assert_eq!(ps_quote("hello"), "'hello'");
         assert_eq!(ps_quote("it's a test"), "'it''s a test'");
         assert_eq!(ps_quote("C:\\path with spaces\\doc.docx"), "'C:\\path with spaces\\doc.docx'");
+    }
+
+    #[test]
+    fn ps_quote_escapes_smart_quotes() {
+        assert_eq!(ps_quote("Bob\u{2018}s file"), "'Bob\u{2018}\u{2018}s file'");
+        assert_eq!(ps_quote("Bob\u{2019}s file"), "'Bob\u{2019}\u{2019}s file'");
+        assert_eq!(ps_quote("file\u{201A}test\u{201B}"), "'file\u{201A}\u{201A}test\u{201B}\u{201B}'");
     }
 
     #[test]

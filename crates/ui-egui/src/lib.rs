@@ -1296,24 +1296,35 @@ impl PdfCraftApp {
                 Some(Err(error)) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
                 None => {}
             },
-            open_worker::ResultKind::Prepared { bytes, result } => match *result {
-                Ok(prepared) => match self.finish_open(&pending.name, pending.path.clone(), bytes.len(), prepared, pending.activate) {
-                    Ok(id) => {
-                        if pending.path.is_some() {
-                            self.watch.known_as(id, pending.stamp);
+            open_worker::ResultKind::Prepared { bytes, result, office_converted } => match *result {
+                Ok(prepared) => {
+                    let (name, path) = if office_converted {
+                        let stem = pending.name.rsplit_once('.').map_or(&pending.name[..], |(s, _)| s);
+                        (format!("{stem}.pdf"), None)
+                    } else {
+                        (pending.name.clone(), pending.path.clone())
+                    };
+                    match self.finish_open(&name, path, bytes.len(), prepared, pending.activate) {
+                        Ok(id) => {
+                            if office_converted {
+                                self.session.mark_new(id);
+                            }
+                            if pending.path.is_some() && !office_converted {
+                                self.watch.known_as(id, pending.stamp);
+                            }
+                            if let Some(destination) = pending.after_open {
+                                self.apply_remote_destination(destination);
+                            }
+                            if let Some(meta) = &pending.recovered {
+                                self.finish_recovery(meta);
+                            }
+                            if let Some(command) = pending.then {
+                                self.execute(command);
+                            }
                         }
-                        if let Some(destination) = pending.after_open {
-                            self.apply_remote_destination(destination);
-                        }
-                        if let Some(meta) = &pending.recovered {
-                            self.finish_recovery(meta);
-                        }
-                        if let Some(command) = pending.then {
-                            self.execute(command);
-                        }
+                        Err(error) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
                     }
-                    Err(error) => self.notify_fmt("Couldn't open {name}: {e}", &[("name", &pending.name), ("e", &error)]),
-                },
+                }
                 Err(error @ (pdfcraft_render::OpenError::NeedsPassword | pdfcraft_render::OpenError::WrongPassword)) => {
                     let password_error =
                         matches!(error, pdfcraft_render::OpenError::WrongPassword).then(|| "Incorrect password. Try again.".to_string());

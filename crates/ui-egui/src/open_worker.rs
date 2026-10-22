@@ -20,7 +20,7 @@ pub(crate) enum Input {
 
 pub(crate) enum ResultKind {
     Conversion(Arc<Vec<u8>>),
-    Prepared { bytes: Arc<Vec<u8>>, result: Box<Result<PreparedDocument, OpenError>> },
+    Prepared { bytes: Arc<Vec<u8>>, result: Box<Result<PreparedDocument, OpenError>>, office_converted: bool },
     ReadFailed(String),
     RemoteFailed(String),
     RecoveryFailed(String),
@@ -188,7 +188,7 @@ fn prepare(job: Job) -> ResultKind {
                     let stem = job.name.rsplit_once('.').map_or(&job.name[..], |(s, _)| s);
                     let pdf_name = format!("{stem}.pdf");
                     let result = job.context.prepare_open(pdf_name, None, pdf_bytes.clone(), None);
-                    return ResultKind::Prepared { bytes: pdf_bytes, result: Box::new(result) };
+                    return ResultKind::Prepared { bytes: pdf_bytes, result: Box::new(result), office_converted: true };
                 }
                 Err(e) => return ResultKind::Failed(format!("{}: {e}", job.name)),
             },
@@ -201,7 +201,7 @@ fn prepare(job: Job) -> ResultKind {
         return ResultKind::Conversion(bytes);
     }
     let result = job.context.prepare_open(job.name, job.path, bytes.clone(), job.password.as_deref());
-    ResultKind::Prepared { bytes, result: Box::new(result) }
+    ResultKind::Prepared { bytes, result: Box::new(result), office_converted: false }
 }
 
 #[cfg(test)]

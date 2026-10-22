@@ -2519,6 +2519,7 @@ impl PdfCraftApp {
         self.combine_tab = CombineTab { revision, ..CombineTab::default() };
         self.combine_draft.clear();
         self.combine_thumbs.clear();
+        self.combine_converting = None;
         if showing {
             self.active = self.views.len().checked_sub(1);
         }
@@ -2787,45 +2788,33 @@ impl PdfCraftApp {
         self.combine_converting = Some(CombineConverting { rx, progress: Some((1, to_convert.len(), first_name)) });
 
         let ctx = self.ctx.clone();
-        std::thread::Builder::new()
-            .name("pdfcraft-office-combine".into())
-            .spawn(move || {
-                let total = to_convert.len();
-                let mut results = Vec::new();
-                for (idx, item) in to_convert.into_iter().enumerate() {
-                    let _ = tx.send(CombineConversionNews::Progress { current: idx + 1, total, name: item.name.clone() });
-                    if let Some(c) = &ctx {
-                        c.request_repaint();
-                    }
+        let spawned = std::thread::Builder::new().name("pdfcraft-office-combine".into()).spawn(move || {
+            let total = to_convert.len();
+            let mut results = Vec::new();
+            for (idx, item) in to_convert.into_iter().enumerate() {
+                let _ = tx.send(CombineConversionNews::Progress { current: idx + 1, total, name: item.name.clone() });
+                if let Some(c) = &ctx {
+                    c.request_repaint();
+                }
 
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let converted = if let Some(p) = &item.office_path
-                        && p.is_file()
-                    {
-                        pdfcraft_engine::converter::convert_to_temp_pdf(p)
-                    } else {
-                        pdfcraft_engine::converter::convert_bytes_to_pdf(&item.name, &item.bytes)
-                    };
+                #[cfg(not(target_arch = "wasm32"))]
+                let converted = if let Some(p) = &item.office_path
+                    && p.is_file()
+                {
+                    pdfcraft_engine::converter::convert_to_temp_pdf(p)
+                } else {
+                    pdfcraft_engine::converter::convert_bytes_to_pdf(&item.name, &item.bytes)
+                };
 
-                    #[cfg(target_arch = "wasm32")]
-                    let converted: Result<
-                        pdfcraft_engine::converter::TempConvertedPdf,
-                        pdfcraft_engine::converter::ConversionError,
-                    > = Err(pdfcraft_engine::converter::ConversionError::NoConverterFound("Web browser conversion not supported".into()));
+                #[cfg(target_arch = "wasm32")]
+                let converted: Result<pdfcraft_engine::converter::TempConvertedPdf, pdfcraft_engine::converter::ConversionError> =
+                    Err(pdfcraft_engine::converter::ConversionError::NoConverterFound("Web browser conversion not supported".into()));
 
-                    match converted {
-                        Ok(temp_pdf) => match temp_pdf.read_bytes() {
-                            Ok(pdf_bytes) => {
-                                results.push(ConvertedItem { id: item.id, temp_pdf: Arc::new(temp_pdf), bytes: pdf_bytes });
-                            }
-                            Err(e) => {
-                                let _ = tx.send(CombineConversionNews::Finished(Err(format!("{}: {e}", item.name))));
-                                if let Some(c) = &ctx {
-                                    c.request_repaint();
-                                }
-                                return;
-                            }
-                        },
+                match converted {
+                    Ok(temp_pdf) => match temp_pdf.read_bytes() {
+                        Ok(pdf_bytes) => {
+                            results.push(ConvertedItem { id: item.id, temp_pdf: Arc::new(temp_pdf), bytes: pdf_bytes });
+                        }
                         Err(e) => {
                             let _ = tx.send(CombineConversionNews::Finished(Err(format!("{}: {e}", item.name))));
                             if let Some(c) = &ctx {
@@ -2833,30 +2822,53 @@ impl PdfCraftApp {
                             }
                             return;
                         }
+                    },
+                    Err(e) => {
+                        let _ = tx.send(CombineConversionNews::Finished(Err(format!("{}: {e}", item.name))));
+                        if let Some(c) = &ctx {
+                            c.request_repaint();
+                        }
+                        return;
                     }
                 }
-                let _ = tx.send(CombineConversionNews::Finished(Ok(results)));
-                if let Some(c) = &ctx {
-                    c.request_repaint();
-                }
-            })
-            .ok();
+            }
+            let _ = tx.send(CombineConversionNews::Finished(Ok(results)));
+            if let Some(c) = &ctx {
+                c.request_repaint();
+            }
+        });
+
+        if spawned.is_err() {
+            self.combine_converting = None;
+            self.notify_tr("Failed to start background conversion worker");
+        }
     }
 
     /// Poll any active background conversion, updating progress and combining when done.
     pub(crate) fn poll_combine_converting(&mut self) {
         let Some(converting) = &mut self.combine_converting else { return };
         let mut finished = None;
-        while let Ok(msg) = converting.rx.try_recv() {
-            match msg {
-                CombineConversionNews::Progress { current, total, name } => {
+        let mut disconnected = false;
+        loop {
+            match converting.rx.try_recv() {
+                Ok(CombineConversionNews::Progress { current, total, name }) => {
                     converting.progress = Some((current, total, name));
                 }
-                CombineConversionNews::Finished(res) => {
+                Ok(CombineConversionNews::Finished(res)) => {
                     finished = Some(res);
                     break;
                 }
+                Err(std::sync::mpsc::TryRecvError::Empty) => break,
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    disconnected = true;
+                    break;
+                }
             }
+        }
+        if disconnected && finished.is_none() {
+            self.combine_converting = None;
+            self.notify_tr("Conversion worker terminated unexpectedly");
+            return;
         }
         if let Some(res) = finished {
             self.combine_converting = None;
@@ -2873,7 +2885,13 @@ impl PdfCraftApp {
                             }
                         }
                     }
-                    self.combine_staged();
+                    if self.combine_draft.iter().any(|f| f.needs_conversion()) {
+                        self.start_combine_conversion();
+                    } else if self.combine_draft.iter().any(CombineFile::unreadable) {
+                        self.combine_tab.confirm_skip = true;
+                    } else {
+                        self.combine_staged();
+                    }
                 }
                 Err(err_msg) => {
                     self.notify(err_msg);

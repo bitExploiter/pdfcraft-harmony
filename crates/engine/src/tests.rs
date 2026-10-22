@@ -1216,12 +1216,19 @@ fn files_that_cannot_be_converted_are_refused_clearly() {
     assert_eq!(err, EditError::Source("report.xyz: this file type can't be converted; use a PDF, an image or a .txt file".into()));
     assert!(matches!(s.convert_to_pdf("empty", &Arc::new(Vec::new())), Err(EditError::Source(_))));
     // Damaged inputs of a known type fail with an error, not a panic.
-    assert!(s.convert_to_pdf("report.docx", &Arc::new(b"PK\x03\x04".to_vec())).is_err());
     assert!(s.convert_to_pdf("bad.png", &Arc::new(b"\x89PNG\r\n\x1a\nnope".to_vec())).is_err());
     assert!(s.convert_to_pdf("bad.jpg", &Arc::new(vec![0xFF, 0xD8, 0xFF])).is_err());
     assert!(s.convert_to_pdf("bad.pdf", &Arc::new(b"%PDF-1.7 nope".to_vec())).is_err());
     let err = s.convert_to_pdf("locked.pdf", &protected("pw", "o", -1)).unwrap_err();
     assert_eq!(err, EditError::Source("locked.pdf: it is password-protected".into()));
+}
+
+#[test]
+#[ignore = "launches external converter (Office or LibreOffice)"]
+fn live_damaged_docx_conversion_fails_gracefully() {
+    let s = Session::new();
+    assert!(s.convert_to_pdf("report.docx", &Arc::new(b"PK\x03\x04".to_vec())).is_err());
+    assert!(s.as_pdf("report.docx", &Arc::new(b"PK\x03\x04".to_vec())).is_err());
 }
 
 /// Combine files (#569): images and text become PDFs; PDFs pass through unread, even protected
@@ -1237,8 +1244,6 @@ fn files_for_combine_are_made_into_pdfs_and_pdfs_pass_through() {
     assert!(s.as_pdf("notes.txt", &Arc::new(b"hello".to_vec())).unwrap().starts_with(b"%PDF-"));
     let err = s.as_pdf("report.xyz", &Arc::new(b"PK\x03\x04".to_vec())).unwrap_err();
     assert!(matches!(err, EditError::Source(m) if m.starts_with("report.xyz: this file type can't be converted")));
-    let err_doc = s.as_pdf("report.docx", &Arc::new(b"PK\x03\x04".to_vec())).unwrap_err();
-    assert!(matches!(err_doc, EditError::Source(_)));
 }
 
 fn protected(user: &str, owner: &str, permissions: i32) -> Arc<Vec<u8>> {

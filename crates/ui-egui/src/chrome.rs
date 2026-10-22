@@ -550,16 +550,23 @@ fn create_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui, tab_h: f32) {
     let is_open = egui::Popup::is_id_open(ui.ctx(), popup_id);
     let pointer_pos = ui.ctx().pointer_latest_pos();
 
-    if resp.hovered() {
+    if resp.clicked() {
+        if is_open {
+            egui::Popup::close_id(ui.ctx(), popup_id);
+        } else {
+            egui::Popup::open_id(ui.ctx(), popup_id);
+            ui.ctx().request_repaint();
+        }
+    } else if resp.hovered() {
         if !is_open {
             egui::Popup::open_id(ui.ctx(), popup_id);
             ui.ctx().request_repaint();
         }
-    } else if is_open {
+    } else if is_open && ui.input(|i| i.pointer.is_moving()) {
         let popup_rect = ui.ctx().read_response(popup_id).map(|r| r.rect);
         let in_button = pointer_pos.is_some_and(|p| resp.rect.expand2(egui::vec2(2.0, 4.0)).contains(p));
         let in_popup = pointer_pos.is_some_and(|p| popup_rect.is_some_and(|r| r.expand2(egui::vec2(4.0, 4.0)).contains(p)));
-        if !in_button && !in_popup {
+        if !in_button && !in_popup && !resp.has_focus() {
             egui::Popup::close_id(ui.ctx(), popup_id);
         }
     }

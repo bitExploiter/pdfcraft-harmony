@@ -4869,6 +4869,12 @@ impl Session {
     /// Open freshly created bytes (combine / extract) as a new, unsaved document.
     pub fn open_new(&mut self, name: impl Into<String>, bytes: Arc<Vec<u8>>) -> Result<DocId, OpenError> {
         let id = self.open(name, None, bytes, None)?;
+        self.mark_new(id);
+        Ok(id)
+    }
+
+    /// Mark an existing document as newly created and unsaved.
+    pub fn mark_new(&mut self, id: DocId) {
         if let Some(d) = self.docs.iter_mut().find(|d| d.id == id) {
             d.dirty = true;
             if let Some(e) = d.editor.as_mut() {
@@ -4877,7 +4883,6 @@ impl Session {
             // Unsaved work with no edit yet still needs its first recovery snapshot.
             d.generation += 1;
         }
-        Ok(id)
     }
 
     fn cos(&self, id: DocId) -> Result<&pdfcraft_cos::Document, EditError> {
