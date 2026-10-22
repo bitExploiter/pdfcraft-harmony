@@ -41,6 +41,15 @@ fn fixture(n: usize) -> Vec<u8> {
     fixture_with(n, false)
 }
 
+/// The file at `path` with its header's version changed: another version of the same length, so
+/// only its bytes tell it apart.
+fn another_version_of_the_same_length(path: &str) -> Vec<u8> {
+    let mut bytes = std::fs::read(path).unwrap();
+    assert!(bytes.starts_with(b"%PDF-1."));
+    bytes[7] = if bytes[7] == b'7' { b'6' } else { b'7' };
+    bytes
+}
+
 /// A PDF in a fresh temp folder, removed when the test ends.
 struct TempPdf {
     dir: PathBuf,
@@ -65,9 +74,7 @@ impl TempPdf {
         let file = std::fs::File::options().write(true).open(&self.path).unwrap();
         file.set_modified(SystemTime::now() + Duration::from_secs(60 * self.builds.get())).unwrap();
     }
-}
 
-impl TempPdf {
     /// Stamp it anew without changing a byte, as a sync client does after uploading a file:
     /// one of them sets the modification time again, to the whole second.
     fn touch(&self) {
@@ -400,9 +407,11 @@ fn a_file_stamped_anew_with_the_same_bytes_is_still_the_documents_version() {
     assert!(h.state_mut().save_active(SaveTarget::InPlace), "written at once, without asking");
     h.run_steps(2);
     assert!(!dirty(&h));
-    // Bytes that do change are still a new version, after all that.
+    // Bytes that do change are still a new version, after all that, even at the same length.
     rotate_first_page(&mut h);
-    file.rebuild(&fixture(4));
+    let other = another_version_of_the_same_length(&file.path);
+    assert_eq!(other.len() as u64, std::fs::metadata(&file.path).unwrap().len());
+    file.rebuild(&other);
     h.run_steps(3);
     h.get_by_label_contains("This file changed on disk");
 }
@@ -426,8 +435,10 @@ fn saving_over_a_file_stamped_anew_does_not_ask_with_the_watcher_off() {
     assert!(h.state_mut().save_active(SaveTarget::InPlace), "the same bytes: written at once");
     h.run_steps(2);
     rotate_first_page(&mut h);
-    file.rebuild(&fixture(4));
-    assert!(!h.state_mut().save_active(SaveTarget::InPlace), "other bytes: asks first");
+    let other = another_version_of_the_same_length(&file.path);
+    assert_eq!(other.len() as u64, std::fs::metadata(&file.path).unwrap().len());
+    file.rebuild(&other);
+    assert!(!h.state_mut().save_active(SaveTarget::InPlace), "one byte other at the same length: asks first");
     h.run_steps(2);
     h.get_by_label("Save over the changed file?");
 }
