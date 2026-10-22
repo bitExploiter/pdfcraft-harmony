@@ -842,6 +842,22 @@ impl Metrics {
         self.codes(s).into_iter().filter_map(|(c, _)| self.text_of(c)).collect()
     }
 
+    /// Whether any code maps to Arabic-script text (the font shows Arabic).
+    pub fn maps_arabic(&self) -> bool {
+        const ARABIC: [(u32, u32); 5] = [(0x0600, 0x06FF), (0x0750, 0x077F), (0x0870, 0x08FF), (0xFB50, 0xFDFF), (0xFE70, 0xFEFC)];
+        let arabic = |c: u32| ARABIC.iter().any(|&(lo, hi)| (lo..=hi).contains(&c));
+        let u = &self.unicode;
+        // A range maps its codes to one text whose last unit steps up by one per code: Arabic when
+        // a fixed unit is, or when the last unit's span meets an Arabic block.
+        let range_arabic = |r: &BfRange| {
+            let Some((&last, fixed)) = r.units.split_last() else { return false };
+            let (start, end) = (u32::from(last), u32::from(last).saturating_add(r.hi.saturating_sub(r.lo)));
+            fixed.iter().any(|&f| arabic(u32::from(f))) || ARABIC.iter().any(|&(lo, hi)| start <= hi && end >= lo)
+        };
+        u.encoding.values().chain(u.explicit.values().map(|(_, t)| t)).any(|t| t.chars().any(|c| arabic(u32::from(c))))
+            || u.ranges.iter().any(range_arabic)
+    }
+
     /// The Unicode text of one code, if known.
     #[inline]
     pub fn text_of(&self, code: u32) -> Option<Cow<'_, str>> {
@@ -1893,6 +1909,31 @@ mod tests {
         );
         let m = Metrics::from_dict(&doc, &f);
         assert_eq!(m.text_of(0x0010_0019).as_deref(), Some("Z"));
+    }
+
+    /// A font shows Arabic when a ToUnicode entry or range maps to Arabic, including a range whose
+    /// first code maps below the Arabic block and whose last code reaches into it.
+    #[test]
+    fn maps_arabic_sees_entries_and_ranges() {
+        let maps = |cmap: &str| {
+            let mut doc = Document::new_empty();
+            let tu = doc.add(Object::Stream(Stream::from_raw(Dict::new(), cmap.as_bytes().to_vec())));
+            let f = font(
+                &mut doc,
+                vec![
+                    ("Subtype", Object::name("Type0")),
+                    ("BaseFont", Object::name("Any")),
+                    ("Encoding", Object::name("Identity-H")),
+                    ("ToUnicode", Object::Ref(tu)),
+                ],
+            );
+            Metrics::from_dict(&doc, &f).maps_arabic()
+        };
+        assert!(maps("1 beginbfchar <0003> <0628> endbfchar"));
+        assert!(maps("1 beginbfrange <0001> <0010> <FE8D> endbfrange"));
+        assert!(maps("1 beginbfrange <0001> <0020> <05F0> endbfrange"), "U+05F0 + 31 reaches U+060F");
+        assert!(!maps("1 beginbfrange <0001> <0010> <0041> endbfrange"));
+        assert!(!maps("1 beginbfchar <0003> <0041> endbfchar"));
     }
 
     #[test]

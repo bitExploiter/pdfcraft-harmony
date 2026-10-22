@@ -1000,6 +1000,7 @@ pub use text::{
     clear_block, reading_blocks, reading_blocks_checked, replace_block, replace_line, rewrite_block, text_blocks, text_lines,
 };
 pub mod added;
+mod arabic_font;
 pub use added::{
     Added, AddedImage, AddedText, Align, Content, Family, MarkerScan, add_content, delete_content, first_undrawable, list_added, scan_markers,
     update_content,

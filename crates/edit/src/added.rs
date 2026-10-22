@@ -12,10 +12,11 @@ use std::collections::{HashMap, HashSet};
 
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, PdfString, Stream};
 use pdfcraft_fonts::{
-    GlyphError, GlyphOutline, ShapedCluster, ShapedScript, Std14, literal, shape_arabic, shape_hebrew, shape_thai, shaped_glyph, win_ansi,
+    ArabicFace, FaceShaper, GlyphError, GlyphOutline, ShapedCluster, ShapedScript, Std14, literal, shape_hebrew, shape_thai, shaped_glyph, win_ansi,
 };
 use unicode_bidi::{Level, ParagraphBidiInfo};
 
+use crate::arabic_font::{Want, choose, from_page_fonts};
 use crate::{EditError, MarkKind, check, contents, matrix_number, n, page_list, place_tagged};
 
 const TAG: &str = "Added";
@@ -116,6 +117,10 @@ pub struct AddedText {
     pub size: f64,
     pub color: [f64; 3],
     pub align: Align,
+    /// An installed font the whole item is drawn in ("Traditional Arabic"), from the font list.
+    /// `None`: the standard `family`, with Arabic letters in the document's own Arabic font, else
+    /// the installed font closest to it (see `arabic_font`).
+    pub arabic_font: Option<String>,
 }
 
 impl Default for AddedText {
@@ -129,6 +134,7 @@ impl Default for AddedText {
             size: 12.0,
             color: [0.0; 3],
             align: Align::Left,
+            arabic_font: None,
         }
     }
 }
@@ -232,17 +238,19 @@ fn norm(r: [f64; 4]) -> [f64; 4] {
 
 /// The lines of a text item after wrapping to its box width.
 pub fn lines(t: &AddedText) -> Vec<String> {
-    wrapped(t).into_iter().map(|(line, _)| line).collect()
+    let face = arabic_face(t);
+    let shaper = face.as_ref().and_then(|f| f.shaper().ok());
+    wrapped(t, shaper.as_ref()).into_iter().map(|(line, _)| line).collect()
 }
 
 /// [`lines`], each with whether its paragraph runs right to left (its first strong character
-/// does).
-fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
+/// does). Arabic is measured with `face`.
+fn wrapped(t: &AddedText, face: Option<&FaceShaper>) -> Vec<(String, bool)> {
     let width = (t.rect[2] - t.rect[0]).max(t.size);
     let mut out = Vec::new();
     for para in t.text.split('\n') {
-        // Arabic or Hebrew: laid out with the bidirectional algorithm and shaped.
-        let rtl_script = para.chars().any(|c| is_arabic(c) || is_hebrew(c));
+        // Arabic or Hebrew (or a picked installed font): laid out with the bidirectional algorithm and shaped.
+        let rtl_script = t.arabic_font.is_some() || para.chars().any(|c| is_arabic(c) || is_hebrew(c));
         let thai = para.chars().any(is_thai);
         if thai
             && !rtl_script
@@ -256,7 +264,7 @@ fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
         // sum of its words' and shaping stays linear in the paragraph's length. The space is the
         // paragraph's; a space between Latin words is drawn in the item's font, a few hundredths
         // of an em apart.
-        let measure = |s: &str| if rtl_script || thai { shaped_width(t, s, rtl) } else { t.family.width(s, t.size, t.bold, t.italic) };
+        let measure = |s: &str| if rtl_script || thai { shaped_width(t, face, s, rtl) } else { t.family.width(s, t.size, t.bold, t.italic) };
         let space = measure(" ");
         let (mut line, mut line_w) = (String::new(), 0.0);
         for word in para.split(' ') {
@@ -280,7 +288,7 @@ fn wrapped(t: &AddedText) -> Vec<(String, bool)> {
 /// Thai wrapping at shaped cluster boundaries never detaches a tone/vowel mark from its base.
 /// This is glyph-safe wrapping, not dictionary-based Thai word segmentation.
 fn thai_lines(t: &AddedText, para: &str, width: f64) -> Result<Vec<String>, EditError> {
-    let (pieces, _) = shaped_layout(t, para, false)?;
+    let (pieces, _) = shaped_layout(t, None, para, false)?;
     let mut atoms = Vec::new();
     for piece in pieces {
         match piece {
@@ -310,10 +318,44 @@ fn is_thai(c: char) -> bool {
     matches!(u32::from(c), 0x0E00..=0x0E7F)
 }
 
-/// Arabic letters, marks, digits and punctuation: an item with any of them is shaped with the
-/// craft-fonts Arabic face.
+/// Arabic letters, marks, digits and punctuation: an item with any of them is shaped with an
+/// Arabic face.
 fn is_arabic(c: char) -> bool {
     matches!(u32::from(c), 0x0600..=0x06FF | 0x0750..=0x077F | 0x0870..=0x08FF | 0xFB50..=0xFDFF | 0xFE70..=0xFEFC)
+}
+
+/// Whether an item is drawn (at least in part) with an Arabic face: it has Arabic, or an installed
+/// font was picked for it.
+fn uses_face(t: &AddedText) -> bool {
+    t.arabic_font.is_some() || t.text.chars().any(is_arabic)
+}
+
+/// The Arabic characters of `t` the face must draw.
+fn arabic_chars(t: &AddedText) -> Vec<char> {
+    // A picked installed font draws everything it has.
+    if t.arabic_font.is_some() {
+        return crate::arabic_font::needed(&t.text);
+    }
+    let mut chars: Vec<char> = t.text.chars().filter(|c| shaped_arabic(*c)).collect();
+    chars.sort_unstable();
+    chars.dedup();
+    chars
+}
+
+/// What an item asks of its Arabic face, before its page's fonts are known.
+fn item_want(t: &AddedText) -> Want<'_> {
+    Want { requested: t.arabic_font.as_deref(), serif: t.family == Family::Times, bold: t.bold, ..Want::default() }
+}
+
+/// The face the item's Arabic is drawn with when nothing about its page is known (the editor's
+/// checks): the family it asks for, else an installed font for its style. `None` when the item has
+/// no Arabic or no Arabic face exists.
+pub fn arabic_face(t: &AddedText) -> Option<ArabicFace> {
+    if !uses_face(t) {
+        return None;
+    }
+    let chars = arabic_chars(t);
+    choose(&item_want(t), &chars)
 }
 
 /// Hebrew letters, points, cantillation marks and punctuation (and the presentation forms): an
@@ -323,9 +365,9 @@ fn is_hebrew(c: char) -> bool {
 }
 
 /// The first character of `t` that would be drawn as `?`: outside WinAnsiEncoding and not drawn
-/// with the craft-fonts Arabic (#125) or Hebrew (#128) face, or Arabic or Hebrew that the face can't
-/// draw (or that has no face to draw it). Page-content tools refuse such text; the Add-text editor
-/// keeps it open.
+/// with an Arabic face (#125) or the craft-fonts Hebrew face (#128), or Arabic or Hebrew that the
+/// face can't draw (or that has no face to draw it). Page-content tools refuse such text; the
+/// Add-text editor keeps it open.
 pub fn first_undrawable(t: &AddedText) -> Option<char> {
     if t.text.chars().any(is_thai) {
         if let Some(c) = t.text.chars().find(|c| is_thai(*c) && !pdfcraft_fonts::thai_has(*c)) {
@@ -334,32 +376,35 @@ pub fn first_undrawable(t: &AddedText) -> Option<char> {
         let rest = AddedText { text: t.text.chars().filter(|c| !is_thai(*c)).collect(), ..t.clone() };
         return first_undrawable(&rest);
     }
+    undrawable_with(t, arabic_face(t).as_ref())
+}
+
+/// [`first_undrawable`] with the item's Arabic drawn in `face`.
+fn undrawable_with(t: &AddedText, face: Option<&ArabicFace>) -> Option<char> {
+    let shaper = face.and_then(|f| f.shaper().ok());
     // Arabic or Hebrew that nothing can draw: there's no face, or the face lacks it.
-    if let Some(c) =
-        t.text.chars().find(|c| (shaped_arabic(*c) && !pdfcraft_fonts::arabic_has(*c)) || (is_hebrew(*c) && !pdfcraft_fonts::hebrew_has(*c)))
+    if let Some(c) = t
+        .text
+        .chars()
+        .find(|c| (shaped_arabic(*c) && !shaper.as_ref().is_some_and(|s| s.has(*c))) || (is_hebrew(*c) && !pdfcraft_fonts::hebrew_has(*c)))
     {
         return Some(c);
     }
-    if !shaped_by_a_face(t) {
+    let hebrew = pdfcraft_fonts::document_hebrew_font(false).is_some() && t.text.chars().any(is_hebrew);
+    let shaper = shaper.filter(|_| uses_face(t));
+    if shaper.is_none() && !hebrew {
         // Drawn line by line in the item's standard font (`\n` splits lines). Without the face
         // that is also how `draw` redraws an existing item, so it's checked that way.
         return t.text.split('\n').find_map(pdfcraft_fonts::first_non_win_ansi);
     }
     // What `shaped_layout` leaves to the standard font, exactly as `draw_shaped` splits it.
-    wrapped(t).into_iter().find_map(|(line, rtl)| {
-        let (pieces, _) = shaped_layout(t, &line, rtl).ok()?;
+    wrapped(t, shaper.as_ref()).into_iter().find_map(|(line, rtl)| {
+        let (pieces, _) = shaped_layout(t, shaper.as_ref(), &line, rtl).ok()?;
         pieces.iter().find_map(|p| match p {
             Piece::Latin(s) => pdfcraft_fonts::first_non_win_ansi(s),
             Piece::Shaped(_) => None,
         })
     })
-}
-
-/// Whether `t` has Arabic or Hebrew that its craft-fonts face draws (so `draw` lays it out with
-/// [`draw_shaped`]).
-fn shaped_by_a_face(t: &AddedText) -> bool {
-    (pdfcraft_fonts::document_arabic_font().is_some() && t.text.chars().any(is_arabic))
-        || (pdfcraft_fonts::document_hebrew_font(false).is_some() && t.text.chars().any(is_hebrew))
 }
 
 /// An Arabic character the face shapes and draws (U+061C, a direction mark, is dropped).
@@ -396,8 +441,8 @@ enum Piece {
 }
 
 /// A line of a shaped-text item in drawing order (the Unicode bidirectional algorithm, UAX #9), and
-/// its width at the item's size. `rtl` is its paragraph's direction.
-fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f64), EditError> {
+/// its width at the item's size. `rtl` is its paragraph's direction; Arabic is shaped with `face`.
+fn shaped_layout(t: &AddedText, face: Option<&FaceShaper>, line: &str, rtl: bool) -> Result<(Vec<Piece>, f64), EditError> {
     // unicode-bidi indexes the first level of a line, so an empty one would panic.
     if line.is_empty() {
         return Ok((Vec::new(), 0.0));
@@ -420,7 +465,10 @@ fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f6
                 Some(ShapedScript::Thai)
             } else if is_hebrew(c) || (run_rtl && after_hebrew && !c.is_alphanumeric() && pdfcraft_fonts::hebrew_has(c)) {
                 Some(ShapedScript::Hebrew)
-            } else if is_arabic(c) || (run_rtl && !c.is_alphanumeric() && pdfcraft_fonts::arabic_has(c)) {
+            } else if is_arabic(c)
+                || (run_rtl && !c.is_alphanumeric() && face.is_some_and(|f| f.has(c)))
+                || (t.arabic_font.is_some() && face.is_some_and(|f| f.has(c)))
+            {
                 Some(ShapedScript::Arabic)
             } else {
                 None
@@ -436,7 +484,7 @@ fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f6
         for (script, s) in segments {
             pieces.push(if let Some(script) = script {
                 let shaped = match script {
-                    ShapedScript::Arabic => shape_arabic(&s, run_rtl).map_err(|e| arabic_error(e, &s))?,
+                    ShapedScript::Arabic => face.ok_or(GlyphError::NoFont).and_then(|f| f.shape(&s, run_rtl)).map_err(|e| arabic_error(e, &s))?,
                     ShapedScript::Hebrew => shape_hebrew(&s, run_rtl).map_err(|e| hebrew_error(e, &s))?,
                     ShapedScript::Thai => shape_thai(&s).map_err(|e| thai_error(e, &s))?,
                 };
@@ -460,14 +508,15 @@ fn shaped_layout(t: &AddedText, line: &str, rtl: bool) -> Result<(Vec<Piece>, f6
 
 /// The width of `s` in a shaped-text item; the item's font's estimate if it can't be shaped (drawing
 /// then reports why).
-fn shaped_width(t: &AddedText, s: &str, rtl: bool) -> f64 {
-    shaped_layout(t, s, rtl).map(|(_, w)| w).unwrap_or_else(|_| t.family.width(s, t.size, t.bold, t.italic))
+fn shaped_width(t: &AddedText, face: Option<&FaceShaper>, s: &str, rtl: bool) -> f64 {
+    shaped_layout(t, face, s, rtl).map(|(_, w)| w).unwrap_or_else(|_| t.family.width(s, t.size, t.bold, t.italic))
 }
 
 fn arabic_error(e: GlyphError, text: &str) -> EditError {
     EditError::Invalid(match e {
-        GlyphError::NoFont => "Arabic text needs PdfCraft's Arabic font, which this build doesn't include \
-                               (to build it in, set CRAFT_FONTS_DIR to a craft-fonts checkout that has an Arab face)"
+        GlyphError::NoFont => "Arabic text needs an Arabic font, and none is installed on this computer or built in \
+                               (install one such as Arial, Tahoma or Noto Sans Arabic, or build with CRAFT_FONTS_DIR set to a \
+                               craft-fonts checkout that has an Arab face)"
             .into(),
         GlyphError::Missing => format!("the Arabic font can't show \"{text}\""),
         GlyphError::TooComplex => format!("the Arabic font's glyphs for \"{text}\" are too complex"),
@@ -496,51 +545,87 @@ fn thai_error(e: GlyphError, text: &str) -> EditError {
 
 /// The box a text item occupies (height from its lines).
 pub fn text_rect(t: &AddedText) -> [f64; 4] {
+    rect_of(t, lines(t).len())
+}
+
+/// The box of a text item with `count` lines.
+fn rect_of(t: &AddedText, count: usize) -> [f64; 4] {
     let r = norm(t.rect);
-    let h = lines(t).len().max(1) as f64 * t.size * 1.2;
+    let h = count.max(1) as f64 * t.size * 1.2;
     [r[0], r[3] - h, r[2], r[3]]
 }
 
 /// The widest explicit line before wrapping, measured with the PDF writing fonts.
 pub fn text_width(t: &AddedText) -> f64 {
-    t.text.split('\n').map(|line| shaped_width(t, line, unicode_bidi::get_base_direction(line) == unicode_bidi::Direction::Rtl)).fold(0.0, f64::max)
+    let face = arabic_face(t);
+    let shaper = face.as_ref().and_then(|f| f.shaper().ok());
+    t.text
+        .split('\n')
+        .map(|line| shaped_width(t, shaper.as_ref(), line, unicode_bidi::get_base_direction(line) == unicode_bidi::Direction::Rtl))
+        .fold(0.0, f64::max)
 }
 
 fn font_name(base: &str) -> String {
     format!("PCF{}", base.replace('-', ""))
 }
 
-/// Most glyphs in one Type 3 font: its codes are single bytes, 1–240. An item gets one such font
-/// per 240 distinct glyphs it needs.
-const GLYPHS_PER_FONT: usize = 240;
+/// Most glyphs in one Type 3 font: its codes are single bytes, 1–240 without 32. An item gets one
+/// such font per 239 distinct glyphs it needs.
+pub(crate) const GLYPHS_PER_FONT: usize = 239;
+
+/// The code of the `i`th glyph of a Type 3 font (`i` < [`GLYPHS_PER_FONT`]): 1–31, then 33–240.
+/// Code 32 is skipped because word spacing (`Tw`) applies to it in every simple font, and would
+/// open a gap inside an Arabic word.
+pub(crate) fn glyph_code(i: usize) -> u8 {
+    let code = i % GLYPHS_PER_FONT + 1;
+    // At most 240.
+    u8::try_from(if code >= 32 { code + 1 } else { code }).unwrap_or(1)
+}
 
 /// A line of a shaped-text item after layout: its text, whether its paragraph runs right to left,
 /// its pieces in drawing order and its width at the item's size.
 type LaidLine = (String, bool, Vec<Piece>, f64);
 
-/// Draw a text item that has Arabic, Hebrew or Thai in it. Each line is laid out in display order; their glyphs
-/// come from Type 3 fonts drawn from the craft-fonts face's outlines (no font file is embedded),
-/// with a ToUnicode map for copy and search. Other text uses the item's standard font.
-fn draw_shaped(doc: &mut Document, t: &AddedText, taken: &Dict, fonts: &mut Dict, out: &mut Vec<u8>) -> Result<(), EditError> {
-    let laid = wrapped(t)
+/// Draw a text item that has Arabic, Hebrew or Thai in it. Each line is laid out in display order;
+/// shaped glyphs come from Type 3 fonts drawn from the outlines of `face` (Arabic) or the craft-fonts
+/// Hebrew and Thai faces (no font file is embedded), with a ToUnicode map for copy and search. Other text uses the
+/// item's standard font.
+fn draw_shaped(
+    doc: &mut Document,
+    t: &AddedText,
+    face: Option<&ArabicFace>,
+    taken: &Dict,
+    fonts: &mut Dict,
+    out: &mut Vec<u8>,
+) -> Result<(), EditError> {
+    let shaper = match face {
+        Some(f) => Some(f.shaper().map_err(|e| arabic_error(e, &t.text))?),
+        None => None,
+    };
+    let laid = wrapped(t, shaper.as_ref())
         .into_iter()
-        .map(|(line, rtl)| shaped_layout(t, &line, rtl).map(|(pieces, w)| (line, rtl, pieces, w)))
+        .map(|(line, rtl)| shaped_layout(t, shaper.as_ref(), &line, rtl).map(|(pieces, w)| (line, rtl, pieces, w)))
         .collect::<Result<Vec<_>, _>>()?;
-    draw_laid_shaped(doc, t, &laid, taken, fonts, out, shaped_glyph)
+    draw_laid_shaped(doc, t, face, &laid, taken, fonts, out, |script, id| match script {
+        ShapedScript::Arabic => shaper.as_ref().ok_or(GlyphError::NoFont)?.glyph(id),
+        ShapedScript::Hebrew | ShapedScript::Thai => shaped_glyph(script, id),
+    })
 }
 
 /// [`draw_shaped`] for lines that are already laid out. `outline` is the source of glyph outlines
-/// for a script's face (the craft-fonts faces, or a stand-in in tests).
+/// for a script's face (`face` for Arabic, the craft-fonts Thai face, or a stand-in in tests).
+#[allow(clippy::too_many_arguments)]
 fn draw_laid_shaped(
     doc: &mut Document,
     t: &AddedText,
+    face: Option<&ArabicFace>,
     laid: &[LaidLine],
     taken: &Dict,
     fonts: &mut Dict,
     out: &mut Vec<u8>,
     outline: impl Fn(ShapedScript, u32) -> Result<GlyphOutline, GlyphError>,
 ) -> Result<(), EditError> {
-    let r = text_rect(t);
+    let r = rect_of(t, laid.len());
     let latin = font_name(t.family.base_font(t.bold, t.italic));
     // Every distinct cluster (a letter with its dots and the text it stands for) is one glyph of
     // one of the fonts, so copy and search get each character exactly once.
@@ -573,7 +658,7 @@ fn draw_laid_shaped(
     let mut taken_names: HashSet<Vec<u8>> = taken.iter().chain(fonts.iter()).map(|(name, _)| name.clone()).collect();
     let mut names = Vec::new();
     for chunk in keys.chunks(GLYPHS_PER_FONT) {
-        let font = type3_shaped(doc, chunk, &outlines);
+        let font = type3_shaped(doc, face, chunk, &outlines);
         // A name no font on the page has, so items never replace each other's fonts (object
         // numbers alone don't do: a full save renumbers objects but keeps resource names).
         let mut name = format!("PCAr{}", font.num);
@@ -619,8 +704,7 @@ fn draw_laid_shaped(
                     for c in clusters {
                         let Some(&k) = index.get(&cluster_key(c)) else { continue };
                         let Some(name) = names.get(k / GLYPHS_PER_FONT) else { continue };
-                        // Codes start at 1; k % 240 + 1 is at most 240.
-                        let code = u8::try_from(k % GLYPHS_PER_FONT + 1).unwrap_or(1);
+                        let code = glyph_code(k);
                         if current != Some(name.as_str()) {
                             out.extend(format!("/{name} {} Tf ", n(t.size)).bytes());
                             current = Some(name.as_str());
@@ -641,21 +725,28 @@ fn draw_laid_shaped(
 
 /// What makes two clusters the same Type 3 glyph: text, glyphs, offsets and advance (bit for bit;
 /// equal clusters come from the same font units).
-type ClusterKey<'a> = (ShapedScript, &'a str, Vec<(u32, u64, u64)>, u64);
+pub(crate) type ClusterKey<'a> = (ShapedScript, &'a str, Vec<(u32, u64, u64)>, u64);
 
-fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
+pub(crate) fn cluster_key(c: &ShapedCluster) -> ClusterKey<'_> {
     (c.script, c.text.as_str(), c.glyphs.iter().map(|(id, [x, y])| (*id, x.to_bits(), y.to_bits())).collect(), c.advance.to_bits())
 }
 
-/// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`.
-fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &HashMap<(ShapedScript, u32), GlyphOutline>) -> ObjRef {
+/// A Type 3 font with `clusters` as codes 1…, each drawn from its script face's glyph `outlines`;
+/// `face` is the Arabic face, for the font's name and weight.
+pub(crate) fn type3_shaped(
+    doc: &mut Document,
+    face: Option<&ArabicFace>,
+    clusters: &[&ShapedCluster],
+    outlines: &HashMap<(ShapedScript, u32), GlyphOutline>,
+) -> ObjRef {
     let mut charprocs = Dict::new();
-    let mut differences = vec![Object::Int(1)];
-    let mut widths = Vec::with_capacity(clusters.len());
+    let mut differences = Vec::new();
+    let mut widths = Vec::with_capacity(clusters.len() + 1);
+    let mut last = 0u8;
     let mut bbox = [0.0f64; 4];
     let mut to_unicode = Vec::new();
     for (i, c) in clusters.iter().enumerate() {
-        let code = i + 1;
+        let code = glyph_code(i);
         // Glyph space is 1000 units per em.
         let mut paths = Vec::new();
         let mut ink: Option<[f64; 4]> = None;
@@ -681,8 +772,14 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
         }
         let glyph = format!("g{code:02X}");
         charprocs.set(glyph.clone().into_bytes(), Object::Ref(doc.add(Object::Stream(Stream::flate(Dict::new(), &proc)))));
+        // The codes run on but for the skipped 32, which has no glyph (width 0).
+        if code != last.saturating_add(1) || differences.is_empty() {
+            differences.push(Object::Int(i64::from(code)));
+            widths.extend((last.saturating_add(1)..code).map(|_| Object::Int(0)));
+        }
         differences.push(Object::name(&glyph));
         widths.push(Object::Real((c.advance * 1000.0).round()));
+        last = code;
         if !c.text.is_empty() {
             let hex: String = c.text.encode_utf16().map(|u| format!("{u:04X}")).collect();
             to_unicode.push(format!("<{code:02X}> <{hex}>\n"));
@@ -699,8 +796,17 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
     let cmap = doc.add(Object::Stream(Stream::flate(Dict::new(), cmap.as_bytes())));
     // The face's family when every glyph comes from one script; without the face, the script's
     // name (as Arabic items were always named).
-    let family = match clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s)) {
-        Some(script) => script.font().map_or(
+    let script = clusters.first().map(|c| c.script).filter(|s| clusters.iter().all(|c| c.script == *s));
+    let arabic = face.filter(|_| script == Some(ShapedScript::Arabic));
+    let family = match (script, arabic) {
+        (Some(_), Some(f)) => {
+            if f.family.is_empty() {
+                "Arabic"
+            } else {
+                f.family.as_str()
+            }
+        }
+        (Some(script), None) => script.font().map_or(
             match script {
                 ShapedScript::Arabic => "Arabic",
                 ShapedScript::Hebrew => "Hebrew",
@@ -708,13 +814,20 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
             },
             |f| f.family,
         ),
-        None => "PdfCraft Shaped Text",
+        (None, _) => "PdfCraft Shaped Text",
+    };
+    let style = match arabic {
+        Some(f) if !f.style.is_empty() && !f.style.eq_ignore_ascii_case("Regular") => format!("-{}", f.style),
+        _ => String::new(),
     };
     let mut descriptor = Dict::new();
     descriptor.set(b"Type".to_vec(), Object::name("FontDescriptor"));
-    descriptor.set(b"FontName".to_vec(), Object::name(&family.replace(' ', "")));
+    descriptor.set(b"FontName".to_vec(), Object::name(&format!("{family}{style}").replace(' ', "")));
     descriptor.set(b"FontFamily".to_vec(), Object::String(PdfString::literal(family.as_bytes().to_vec())));
     descriptor.set(b"Flags".to_vec(), Object::Int(4));
+    if arabic.is_some_and(|f| f.bold) {
+        descriptor.set(b"FontWeight".to_vec(), Object::Int(700));
+    }
     descriptor.set(b"ItalicAngle".to_vec(), Object::Int(0));
     let mut encoding = Dict::new();
     encoding.set(b"Type".to_vec(), Object::name("Encoding"));
@@ -729,7 +842,7 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
         Object::Array(vec![Object::Real(0.001), Object::Int(0), Object::Int(0), Object::Real(0.001), Object::Int(0), Object::Int(0)]),
     );
     font.set(b"FirstChar".to_vec(), Object::Int(1));
-    font.set(b"LastChar".to_vec(), Object::Int(clusters.len() as i64));
+    font.set(b"LastChar".to_vec(), Object::Int(i64::from(last.max(1))));
     font.set(b"Widths".to_vec(), Object::Array(widths));
     font.set(b"Encoding".to_vec(), Object::Dict(encoding));
     font.set(b"CharProcs".to_vec(), Object::Dict(charprocs));
@@ -738,10 +851,17 @@ fn type3_shaped(doc: &mut Document, clusters: &[&ShapedCluster], outlines: &Hash
 }
 
 /// Content and resources for an item; `view` maps display space to user space. `taken` holds the
-/// page's font names. `existing`: the item is being replaced, so a build without the Arabic or
-/// Hebrew face keeps drawing that text as `?`, as before it was supported, rather than refusing to
-/// move it.
-fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing: bool) -> Result<(Vec<u8>, Dict), EditError> {
+/// page's font names; `face` draws its Arabic. `existing`: the item is being replaced, so without an
+/// Arabic face (or a build without the Hebrew face) its Arabic or Hebrew is still drawn as `?`, as
+/// before it was supported, rather than refusing to move it.
+fn draw(
+    doc: &mut Document,
+    c: &Content,
+    view: [f64; 6],
+    taken: &Dict,
+    existing: bool,
+    face: Option<&ArabicFace>,
+) -> Result<(Vec<u8>, Dict), EditError> {
     let mut res = Dict::new();
     let mut out = format!(
         "q {} {} {} {} {} {} cm\n",
@@ -768,10 +888,11 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
             fonts.set(name.clone().into_bytes(), Object::Dict(font));
             let face_or_new = |has: fn(char) -> bool, face: bool| t.text.chars().any(has) && (face || !existing);
             if t.text.chars().any(is_thai)
-                || face_or_new(is_arabic, pdfcraft_fonts::document_arabic_font().is_some())
+                || face_or_new(is_arabic, face.is_some())
                 || face_or_new(is_hebrew, pdfcraft_fonts::document_hebrew_font(false).is_some())
+                || (t.arabic_font.is_some() && face.is_some())
             {
-                draw_shaped(doc, t, taken, &mut fonts, &mut out)?;
+                draw_shaped(doc, t, face, taken, &mut fonts, &mut out)?;
                 res.set(b"Font".to_vec(), Object::Dict(fonts));
                 out.extend_from_slice(b"Q\n");
                 return Ok((out, res));
@@ -833,7 +954,7 @@ fn draw(doc: &mut Document, c: &Content, view: [f64; 6], taken: &Dict, existing:
     Ok((out, res))
 }
 
-fn params(c: &Content) -> Dict {
+fn params(c: &Content, face: Option<&ArabicFace>) -> Dict {
     let mut d = Dict::new();
     let arr = |v: &[f64]| Object::Array(v.iter().map(|x| Object::Real(*x)).collect());
     match c {
@@ -852,7 +973,11 @@ fn params(c: &Content) -> Dict {
                     Align::Justify => 3,
                 }),
             );
-            d.set(b"Rect".to_vec(), arr(&text_rect(t)));
+            let shaper = face.and_then(|f| f.shaper().ok());
+            d.set(b"Rect".to_vec(), arr(&rect_of(t, wrapped(t, shaper.as_ref()).len())));
+            if let Some(family) = &t.arabic_font {
+                d.set(b"ArabicFont".to_vec(), PdfString::text(family));
+            }
         }
         Content::Image(i) => {
             d.set(b"Kind".to_vec(), Object::name("Image"));
@@ -896,6 +1021,10 @@ fn parse(doc: &Document, d: &Dict) -> Option<Content> {
                     Some(3) => Align::Justify,
                     _ => Align::Left,
                 },
+                arabic_font: d
+                    .get(b"ArabicFont")
+                    .and_then(|f| doc.resolve(f).as_string().map(|s| s.to_text()))
+                    .filter(|f| !f.trim().is_empty() && f.len() <= 256),
             }))
         }
         b"Image" => {
@@ -983,7 +1112,7 @@ pub fn scan_markers(doc: &Document) -> MarkerScan {
     scan
 }
 
-fn validate(c: &Content) -> Result<(), EditError> {
+fn validate(c: &Content, face: Option<&ArabicFace>) -> Result<(), EditError> {
     let r = c.rect();
     if !r.iter().all(|v| v.is_finite()) {
         return Err(EditError::Invalid("invalid position".into()));
@@ -1002,16 +1131,16 @@ fn validate(c: &Content) -> Result<(), EditError> {
             if t.text.chars().any(is_thai) && pdfcraft_fonts::document_thai_font().is_none() {
                 return Err(thai_error(GlyphError::NoFont, &t.text));
             }
-            // Without the Arabic face, `draw` decides for the Arabic letters themselves (#403): a new
+            // Without an Arabic face, `draw` decides for the Arabic letters themselves (#403): a new
             // item is refused with what's missing, and one that already holds Arabic stays movable.
             // Everything else in it is drawn in the standard font, so it still has to fit.
-            let undrawable = if t.text.chars().any(shaped_arabic) && pdfcraft_fonts::document_arabic_font().is_none() {
+            let undrawable = if t.text.chars().any(shaped_arabic) && face.is_none() {
                 t.text.split('\n').find_map(|line| {
                     line.chars()
                         .find(|c| !(shaped_arabic(*c) || is_thai(*c) && pdfcraft_fonts::thai_has(*c) || pdfcraft_fonts::win_ansi_encodable(*c)))
                 })
             } else {
-                first_undrawable(t)
+                undrawable_with(t, face)
             };
             if let Some(c) = undrawable {
                 return Err(crate::undrawable(c));
@@ -1026,10 +1155,31 @@ fn validate(c: &Content) -> Result<(), EditError> {
     Ok(())
 }
 
+/// The face text item `t` on page `p` draws its Arabic with: the family it asks for, else the page's
+/// own Arabic font (embedded, or the installed font of that name), else an installed font for its
+/// style. `None` when it has no Arabic or no face exists.
+fn page_face(doc: &Document, p: &pdfcraft_model::Page, t: &AddedText) -> Option<ArabicFace> {
+    if !uses_face(t) {
+        return None;
+    }
+    let chars = arabic_chars(t);
+    let mut want = item_want(t);
+    let res = p.dict.get(b"Resources").map(|r| doc.resolve(r));
+    let fonts = res.as_ref().and_then(|r| r.as_dict()).and_then(|r| r.get(b"Font")).map(|f| doc.resolve(f));
+    if let Some(fonts) = fonts.as_ref().and_then(|f| f.as_dict()) {
+        from_page_fonts(doc, fonts, &mut want);
+    }
+    choose(&want, &chars)
+}
+
 /// Write an item's stream (new, or replacing `obj`) and make its resources available to the page.
 fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> Result<ObjRef, EditError> {
-    validate(c)?;
     let all = page_list(doc);
+    let face = match (c, all.get(page)) {
+        (Content::Text(t), Some(p)) => page_face(doc, p, t),
+        _ => None,
+    };
+    validate(c, face.as_ref())?;
     check(&[page], all.len())?;
     let p = &all[page];
     let view = p.view_matrix(doc);
@@ -1041,7 +1191,7 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
         drop_fonts(doc, &mut pres, &own_fonts(doc, r));
     }
     let taken = pres.get(b"Font").map(|f| doc.resolve(f)).and_then(|f| f.as_dict().cloned()).unwrap_or_default();
-    let (content, res) = draw(doc, c, view, &taken, obj.is_some())?;
+    let (content, res) = draw(doc, c, view, &taken, obj.is_some(), face.as_ref())?;
     for (k, v) in res.iter() {
         let mut sub = pres.get(k).map(|s| doc.resolve(s)).and_then(|s| s.as_dict().cloned()).unwrap_or_default();
         for (n2, o) in v.as_dict().into_iter().flat_map(|d| d.iter()) {
@@ -1052,7 +1202,7 @@ fn write(doc: &mut Document, page: usize, c: &Content, obj: Option<ObjRef>) -> R
     doc.update_dict(p.obj, |d| d.set(b"Resources".to_vec(), Object::Dict(pres)))?;
     let mut sd = Dict::new();
     sd.set(b"PCMark".to_vec(), Object::name(TAG));
-    let mut added = params(c);
+    let mut added = params(c, face.as_ref());
     if user_unit != 1.0 {
         added.set(b"UserUnit".to_vec(), Object::Real(user_unit));
     }

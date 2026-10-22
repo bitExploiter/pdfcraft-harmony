@@ -77,8 +77,10 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, look: &mut AddedText, extras:
 
     // The font, across the panel.
     let width = ui.available_width();
+    // An installed font picked for Arabic names itself.
+    let shown = look.arabic_font.clone().unwrap_or(fonts.shown);
     egui::ComboBox::from_id_salt("format-font")
-        .selected_text(fonts.shown.as_str())
+        .selected_text(shown.as_str())
         .width(width)
         .show_ui(ui, |ui| {
             if let Some(sources) = fonts.sources {
@@ -93,8 +95,20 @@ pub(crate) fn panel(ui: &mut egui::Ui, t: &Tokens, look: &mut AddedText, extras:
                 ui.separator();
             }
             for f in [FontFamily::Helvetica, FontFamily::Times, FontFamily::Courier] {
-                if ui.selectable_label(fonts.sources.is_none() && look.family == f, f.label()).clicked() {
+                if ui.selectable_label(fonts.sources.is_none() && look.arabic_font.is_none() && look.family == f, f.label()).clicked() {
                     out.font = Some(FontChoice::Family(f));
+                    look.arabic_font = None;
+                }
+            }
+            // Installed fonts with Arabic, drawn from their outlines (Arabic in a standard font
+            // takes the document's own Arabic font, else the closest installed one).
+            let installed = pdfcraft_fonts::arabic_font_families();
+            if !installed.is_empty() {
+                ui.separator();
+            }
+            for family in installed {
+                if ui.selectable_label(look.arabic_font.as_deref() == Some(family.as_str()), family.as_str()).clicked() {
+                    look.arabic_font = Some(family.clone());
                 }
             }
             if fonts.sources.is_some() {

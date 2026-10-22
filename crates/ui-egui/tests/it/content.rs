@@ -99,8 +99,9 @@ fn text_tool_drafts_grow_for_latin_and_arabic() {
         }
         h.get_by_label("Done adding text").click();
         h.run_steps(3);
-        if text.starts_with("سلام") && pdfcraft_fonts::document_arabic_font().is_none() {
-            assert!(h.state().views[0].content.draft.is_some(), "without a document font the draft remains available");
+        // Arabic is drawn with an installed Arabic font, else the craft-fonts face.
+        if text.starts_with("سلام") && pdfcraft_fonts::document_arabic_font().is_none() && pdfcraft_fonts::arabic_font_families().is_empty() {
+            assert!(h.state().views[0].content.draft.is_some(), "without an Arabic font the draft remains available");
             assert!(added(&h).is_empty());
             continue;
         }

@@ -16,7 +16,7 @@ use std::rc::Rc;
 use pdfcraft_content::{Matrix, Op, Pieces, parse, serialize_ops};
 use pdfcraft_cos::{Dict, Document, Object, PdfString, Stream};
 use pdfcraft_fonts::pdf::Metrics;
-use pdfcraft_fonts::{CraftFont, GlyphError, japanese_glyph_from};
+use pdfcraft_fonts::{ArabicFace, CraftFont, FaceShaper, GlyphError, japanese_glyph_from};
 
 use crate::EditError;
 
@@ -61,6 +61,9 @@ pub struct TextLine {
     /// streams parsed joined).
     stream: usize,
     ops: Vec<usize>,
+    /// The glyphs' texts in drawing order (spaces between runs included), from which `text` is put in
+    /// reading order.
+    units: Vec<String>,
     /// Where the line starts: text matrix (text space), the state there, and its `BT`.
     origin: Origin,
     /// Explicit marked-content scope (when present); distinct scopes must not be guessed into one paragraph.
@@ -737,6 +740,8 @@ struct Shown {
     bt_op: usize,
     bt_state: Ts,
     text: String,
+    /// Each glyph's text, and a space for a wide gap, in drawing order.
+    units: Vec<String>,
     rect: [f64; 4],
     /// Its box along and across its baseline (see [`TextLine::frame`]).
     frame: [f64; 4],
@@ -884,6 +889,9 @@ fn positioned_tracking(shown: &mut [Shown]) {
 struct Carry {
     ts: Ts,
     stack: Vec<Ts>,
+    /// Per font resource: each glyph's text from the installed font it is a subset of, where the
+    /// PDF's own map can't be trusted (see `arabic_font::glyph_texts`).
+    glyph_texts: HashMap<Vec<u8>, Option<std::sync::Arc<HashMap<u32, String>>>>,
     marked: Vec<Option<usize>>,
     /// For each open marked-content sequence, its optional content group when it is `/OC`.
     layers: Vec<Option<Vec<u8>>>,
@@ -907,7 +915,7 @@ impl Carry {
             vertical: None,
             unreadable: None,
         };
-        Carry { ts, stack: Vec::new(), marked: Vec::new(), layers: Vec::new() }
+        Carry { ts, stack: Vec::new(), glyph_texts: HashMap::new(), marked: Vec::new(), layers: Vec::new() }
     }
 }
 
@@ -1085,6 +1093,14 @@ fn interpret(
                     tm = tlm;
                 }
                 let Some((name, m)) = ts.font.clone() else { continue };
+                let glyphs = carry
+                    .glyph_texts
+                    .entry(name.clone())
+                    .or_insert_with(|| {
+                        let font = fonts_res.get(&name).and_then(|f| doc.resolve(f).as_dict().cloned())?;
+                        crate::arabic_font::glyph_texts(doc, &font)
+                    })
+                    .clone();
                 // Pieces: strings, and TJ number adjustments.
                 let pieces: Vec<Object> = match op.op.as_slice() {
                     // A surplus array (`[(A)] [(B)] TJ`) is malformed, but the operator still
@@ -1099,6 +1115,7 @@ fn interpret(
                 let trm0 = tm.then(&ts.ctm);
                 let start = trm0.apply(0.0, ts.rise);
                 let mut text = String::new();
+                let mut units: Vec<String> = Vec::new();
                 let mut decodable = true;
                 let mut x_text = 0.0;
                 // Vertical text (§9.4.4): the pen moves along y instead, and each glyph is centred
@@ -1115,11 +1132,18 @@ fn interpret(
                         Object::String(s) => {
                             for (code, len) in m.codes(&s.bytes) {
                                 glyph_count = glyph_count.saturating_add(1);
-                                let shown = m.text_of(code);
+                                let shown = glyphs
+                                    .as_ref()
+                                    .and_then(|g| g.get(&code))
+                                    .map(|t| std::borrow::Cow::Borrowed(t.as_str()))
+                                    .or_else(|| m.text_of(code));
                                 let blank =
                                     m.is_space(code, len) || shown.as_deref().is_some_and(|t| !t.is_empty() && t.chars().all(char::is_whitespace));
                                 match shown {
-                                    Some(t) => text.push_str(&t),
+                                    Some(t) => {
+                                        text.push_str(&t);
+                                        units.push(t.into_owned());
+                                    }
                                     None => decodable = false,
                                 }
                                 let spacing = ts.char_spacing + if m.is_space(code, len) { ts.word_spacing } else { 0.0 };
@@ -1170,6 +1194,7 @@ fn interpret(
                                 // A large gap inside TJ reads as a space.
                                 if dx - tracking > (ts.size * ts.scale).abs() * 0.2 && !text.ends_with(' ') {
                                     text.push(' ');
+                                    units.push(" ".into());
                                 }
                                 // Tracking and kerning keep a word together; a larger jump
                                 // ends it (whatever the sign of the size or `Tz`).
@@ -1242,6 +1267,7 @@ fn interpret(
                     bt_op: at_bt.0,
                     bt_state: at_bt.1.clone(),
                     text,
+                    units,
                     rect,
                     frame,
                     ink,
@@ -1321,8 +1347,10 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
             let gap = last.map_or(0.0, |(_, pen)| pen.continues(&s, 0.0).1);
             if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
                 l.text.push(' ');
+                l.units.push(" ".into());
             }
             l.text.push_str(&s.text);
+            l.units.extend(s.units.iter().cloned());
             l.rect = [l.rect[0].min(s.rect[0]), l.rect[1].min(s.rect[1]), l.rect[2].max(s.rect[2]), l.rect[3].max(s.rect[3])];
             l.frame = union(l.frame, s.frame);
             l.ink.extend(s.ink.iter().copied());
@@ -1352,6 +1380,7 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
                 visual_order: s.visual_order,
                 face: s.face.clone(),
                 stream: si,
+                units: s.units.clone(),
                 scope: s.scope,
                 paint: s.paint.clone(),
                 logical_order: s.logical_order,
@@ -1374,8 +1403,15 @@ pub fn text_lines(doc: &Document, page: usize) -> Result<Vec<TextLine>, EditErro
         }
         last = Some((si, Pen::after(&s)));
     }
+    let mut lines = join_arabic_runs(lines);
     // Content streams draw right-to-left lines in visual order; the editor works in typing order.
     for l in lines.iter_mut().filter(|l| !l.logical_order) {
+        // Arabic without ActualText reads back from its glyphs' text, presentation forms and
+        // ligatures as letters.
+        if !l.actual_text && l.units.iter().any(|u| u.chars().any(crate::arabic_font::is_arabic_letter)) {
+            l.text = crate::arabic_font::logical(&l.units);
+            continue;
+        }
         // A visual-order Indic font draws pre-base vowel signs before their consonant.
         if l.visual_order && !l.actual_text {
             l.text = crate::indic::to_logical(&l.text);
@@ -1424,8 +1460,10 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
         let gap = last.map_or(0.0, |pen| pen.continues(&s, 0.0).1);
         if gap - s.tracking > l.size * s.state.scale.abs() * 0.2 && !l.text.ends_with(' ') && !s.text.starts_with(' ') {
             l.text.push(' ');
+            l.units.push(" ".into());
         }
         l.text.push_str(&s.text);
+        l.units.extend(s.units.iter().cloned());
         l.rect = [l.rect[0].min(s.rect[0]), l.rect[1].min(s.rect[1]), l.rect[2].max(s.rect[2]), l.rect[3].max(s.rect[3])];
         l.frame = union(l.frame, s.frame);
         l.ink.extend(s.ink.iter().copied());
@@ -1454,6 +1492,7 @@ fn add_shown(lines: &mut Vec<TextLine>, last: &mut Option<Pen>, s: Shown, stream
             visual_order: s.visual_order,
             face: s.face.clone(),
             stream,
+            units: s.units.clone(),
             scope: s.scope,
             paint: s.paint.clone(),
             logical_order: s.logical_order,
@@ -1598,7 +1637,8 @@ fn reading_lines(doc: &Document, page: usize) -> Result<(Vec<TextLine>, bool), E
         let Some(form) = form_call(w.doc, resources, name, ts.ctm, &w.path, &mut w.budget) else { return Ok(()) };
         let ops = parse(&form.data).ops;
         // The form starts with the graphics state at its `Do`, its own matrix applied.
-        let mut carry = Carry { ts: Ts { ctm: form.ctm, ..ts }, stack: Vec::new(), marked: Vec::new(), layers: Vec::new() };
+        let mut carry =
+            Carry { ts: Ts { ctm: form.ctm, ..ts }, stack: Vec::new(), glyph_texts: HashMap::new(), marked: Vec::new(), layers: Vec::new() };
         let stream = w.next_stream;
         w.next_stream = w.next_stream.saturating_add(1);
         if let Some(r) = form.obj {
@@ -1630,6 +1670,79 @@ fn reading_lines(doc: &Document, page: usize) -> Result<(Vec<TextLine>, bool), E
     }
     lines.retain(|l| !l.text.trim().is_empty());
     Ok((lines, w.budget.truncated))
+}
+
+/// Browsers and word processors draw a right-to-left line as several runs (the Arabic words, a
+/// number, a bracketed Latin word), each in its own text object and sometimes its own font
+/// resource, in either direction across the line (Word draws them right to left, and a number
+/// inside them left to right). Consecutive runs of one stream on one baseline in the same face,
+/// size and colour that together cover the line without a gap are one line when any of them has
+/// Arabic; Latin-only runs stay as they were.
+fn join_arabic_runs(lines: Vec<TextLine>) -> Vec<TextLine> {
+    let same = |a: &TextLine, b: &TextLine| {
+        let size = a.size.max(1.0);
+        a.stream == b.stream
+            && a.scope == b.scope
+            && a.logical_order == b.logical_order
+            && a.base_font == b.base_font
+            && (a.size - b.size).abs() < 0.01
+            && a.bold == b.bold
+            && a.italic == b.italic
+            && a.color == b.color
+            && (a.origin.baseline - b.origin.baseline).abs() < size * 0.3
+    };
+    // Within two ems of what the chain covers so far.
+    let near = |chain: &[TextLine], b: &TextLine| {
+        let size = b.size.max(1.0);
+        let (lo, hi) = chain.iter().fold((f64::MAX, f64::MIN), |(lo, hi), l| (lo.min(l.rect[0]), hi.max(l.rect[2])));
+        b.rect[0] < hi + size * 2.0 && b.rect[2] > lo - size * 2.0
+    };
+    let arabic = |l: &TextLine| l.units.iter().any(|u| u.chars().any(crate::arabic_font::is_arabic_letter));
+    let mut chains: Vec<Vec<TextLine>> = Vec::new();
+    for l in lines {
+        match chains.last_mut() {
+            Some(chain) if chain.last().is_some_and(|prev| same(prev, &l)) && near(chain, &l) => chain.push(l),
+            _ => chains.push(vec![l]),
+        }
+    }
+    let mut out = Vec::new();
+    for chain in chains {
+        // Left to right on the page; no gap wider than half an em between neighbours.
+        let mut shown: Vec<&TextLine> = chain.iter().collect();
+        shown.sort_by(|a, b| a.rect[0].total_cmp(&b.rect[0]));
+        let gapless = shown.windows(2).all(|w| w[1].rect[0] - w[0].rect[2] < w[0].size.max(1.0) * 0.5);
+        // ActualText already gives a run its reading order.
+        if chain.len() < 2 || !chain.iter().any(arabic) || chain.iter().any(|l| l.actual_text) || !gapless {
+            out.extend(chain);
+            continue;
+        }
+        // The text in drawing order, left to right, for `arabic_font::logical`.
+        let mut units: Vec<String> = Vec::new();
+        let mut text = String::new();
+        let mut right: Option<f64> = None;
+        for l in &shown {
+            if right.is_some_and(|r| l.rect[0] - r > l.size * 0.2) && !text.ends_with(' ') && !l.text.starts_with(' ') {
+                text.push(' ');
+                units.push(" ".into());
+            }
+            text.push_str(&l.text);
+            units.extend(l.units.iter().cloned());
+            right = Some(l.rect[2]);
+        }
+        // The first run drawn keeps its place and state for rewriting.
+        let mut it = chain.into_iter();
+        let Some(mut line) = it.next() else { continue };
+        for next in it {
+            line.rect =
+                [line.rect[0].min(next.rect[0]), line.rect[1].min(next.rect[1]), line.rect[2].max(next.rect[2]), line.rect[3].max(next.rect[3])];
+            line.ops.extend(next.ops);
+            line.decodable &= next.decodable;
+        }
+        line.text = text;
+        line.units = units;
+        out.push(line);
+    }
+    out
 }
 
 /// Text → the runs that show it: each run's font resource name and the bytes shown in that font.
@@ -2090,6 +2203,112 @@ fn add_type3_font(doc: &mut Document, fonts_res: &mut Dict, face: &CraftFont, he
     name
 }
 
+/// How an edit result names the Arabic face it set text in ("Traditional Arabic Bold").
+fn face_label(face: &ArabicFace) -> String {
+    if face.style.is_empty() || face.style.eq_ignore_ascii_case("Regular") { face.family.clone() } else { format!("{} {}", face.family, face.style) }
+}
+
+/// Whether replacement text needs Arabic shaping: it has Arabic letters.
+fn needs_arabic(text: &str) -> bool {
+    text.chars().any(crate::arabic_font::is_arabic_letter)
+}
+
+/// The face Arabic replacement text is set in. The text's own font comes first (its embedded
+/// program when that can draw and join the text, else the installed font of its name), then the
+/// page's other Arabic fonts, then the installed defaults for its style.
+fn edit_face(
+    doc: &Document,
+    fonts_res: &Dict,
+    (font, base_font): (&str, &str),
+    requested: Option<&str>,
+    serif: bool,
+    bold: bool,
+    text: &str,
+) -> Result<ArabicFace, EditError> {
+    use crate::arabic_font::{Want, choose, embedded_face, from_page_fonts, needed};
+    let mut want = Want { requested, serif, bold, ..Want::default() };
+    if let Some(own) = fonts_res.get(font.as_bytes()).and_then(|f| doc.resolve(f).as_dict().cloned()) {
+        want.embedded.extend(embedded_face(doc, &own, base_font));
+    }
+    if !base_font.is_empty() {
+        want.hints.push(base_font.to_string());
+    }
+    from_page_fonts(doc, fonts_res, &mut want);
+    choose(&want, &needed(text)).ok_or_else(|| arabic_error(GlyphError::NoFont, text))
+}
+
+fn arabic_error(e: GlyphError, text: &str) -> EditError {
+    EditError::Invalid(match e {
+        GlyphError::NoFont => "Arabic text needs an Arabic font, and none is installed on this computer or built in \
+                               (install one such as Arial, Tahoma or Noto Sans Arabic)"
+            .into(),
+        GlyphError::Missing => format!("no installed Arabic font can show all of \"{text}\""),
+        GlyphError::TooComplex => format!("the Arabic font's glyphs for \"{text}\" are too complex"),
+    })
+}
+
+/// The width of `line` set in `face` (em), or `None` if the face can't show it.
+fn arabic_em(face: &FaceShaper, line: &str, rtl: bool) -> Option<(f64, usize)> {
+    let clusters = crate::arabic_font::layout(face, line, rtl).ok()?;
+    Some((clusters.iter().map(|c| c.advance).sum(), clusters.len()))
+}
+
+/// One line of set Arabic text: (font resource, codes) runs in drawing order.
+type ArabicLine = Vec<(String, Vec<u8>)>;
+
+/// Lines of Arabic replacement text set in `face`: each line's (font resource, codes) runs in
+/// drawing order, with the Type 3 fonts they use added to `fonts_res` (glyphs drawn from the face's
+/// outlines, with ToUnicode maps, as Add text does). Every outline is read before anything is
+/// added, so a failure leaves the document as it was.
+fn arabic_runs(doc: &mut Document, fonts_res: &mut Dict, face: &ArabicFace, lines: &[String], rtl: bool) -> Result<Vec<ArabicLine>, EditError> {
+    use crate::added::{GLYPHS_PER_FONT, cluster_key, glyph_code, type3_shaped};
+    let shaper = face.shaper().map_err(|e| arabic_error(e, &lines.join(" ")))?;
+    let laid = lines.iter().map(|l| crate::arabic_font::layout(&shaper, l, rtl).map_err(|e| arabic_error(e, l))).collect::<Result<Vec<_>, _>>()?;
+    let mut keys: Vec<&pdfcraft_fonts::ShapedCluster> = Vec::new();
+    let mut index = HashMap::new();
+    for c in laid.iter().flatten() {
+        index.entry(cluster_key(c)).or_insert_with(|| {
+            keys.push(c);
+            keys.len() - 1
+        });
+    }
+    let mut outlines = HashMap::new();
+    for c in &keys {
+        for (id, _) in &c.glyphs {
+            if let std::collections::hash_map::Entry::Vacant(entry) = outlines.entry((c.script, *id)) {
+                entry.insert(shaper.glyph(*id).map_err(|e| arabic_error(e, &c.text))?);
+            }
+        }
+    }
+    let mut names = Vec::new();
+    for chunk in keys.chunks(GLYPHS_PER_FONT) {
+        let font = type3_shaped(doc, Some(face), chunk, &outlines);
+        let mut name = format!("PCEdAr{}", font.num);
+        let mut suffix = 0usize;
+        while fonts_res.contains(name.as_bytes()) {
+            suffix = suffix.saturating_add(1);
+            name = format!("PCEdAr{}_{suffix}", font.num);
+        }
+        fonts_res.set(name.clone().into_bytes(), Object::Ref(font));
+        names.push(name);
+    }
+    let mut out = Vec::with_capacity(laid.len());
+    for clusters in &laid {
+        let mut runs: ArabicLine = Vec::new();
+        for c in clusters {
+            let Some(&k) = index.get(&cluster_key(c)) else { continue };
+            let Some(name) = names.get(k / GLYPHS_PER_FONT) else { continue };
+            let code = glyph_code(k);
+            match runs.last_mut() {
+                Some((n, bytes)) if n == name => bytes.push(code),
+                _ => runs.push((name.clone(), vec![code])),
+            }
+        }
+        out.push(runs);
+    }
+    Ok(out)
+}
+
 /// The runs that show `text` in the fallback: consecutive characters in one font form one run, so
 /// a font is switched only where the text moves to another font. `None` if a character has no code.
 fn type3_encode(fallback: &Type3Fallback, text: &str) -> Option<Vec<(String, Vec<u8>)>> {
@@ -2241,11 +2460,13 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
     let first = target.ops.first().copied().filter(|i| *i < ops.len()).ok_or_else(|| EditError::Invalid("the page's content changed".into()))?;
     // The line's own font, when it can show every character.
     let font = fonts_res.get(target.font.as_bytes()).and_then(|f| doc.resolve(f).as_dict().cloned()).map(|d| Metrics::from_dict(doc, &d));
+    // Arabic needs its letters joined and its runs reordered, which a font's codes alone can't do.
+    let arabic = needs_arabic(&text);
     let visual_indic = font.as_ref().is_some_and(|m| m.visual_order) || target.visual_order;
     let indic_text = if visual_indic { crate::indic::to_visual(&text) } else { text.clone() };
     // Typed in logical order; drawn left to right (right-to-left runs reversed).
     let shown = crate::bidi::to_visual(&indic_text);
-    let reused = font.as_ref().filter(|m| source_encodes(m, &shown));
+    let reused = font.as_ref().filter(|m| !arabic && source_encodes(m, &shown));
     let mut substituted = None;
     let mut replacement: Vec<Op> = Vec::new();
     // ' and " also move to the next line; keep that.
@@ -2267,6 +2488,32 @@ pub(crate) fn replace_line_with_limit(doc: &mut Document, page: usize, line: usi
             target.origin.state.char_spacing,
             target.origin.state.word_spacing,
         )?),
+        None if arabic => {
+            let serif = source_family(&target.base_font) == crate::added::Family::Times;
+            let face = edit_face(doc, &fonts_res, (&target.font, &target.base_font), None, serif, target.bold, &text)?;
+            let rtl = crate::arabic_font::base_rtl(&text);
+            let width = face.shaper().ok().and_then(|s| arabic_em(&s, &text, rtl));
+            let runs = arabic_runs(doc, &mut fonts_res, &face, std::slice::from_ref(&text), rtl)?;
+            let size = font_size_before(&ops, first).unwrap_or(target.size);
+            // A right-to-left line keeps its right edge: the new text starts where the old text's
+            // end minus its own width falls, moved with a TJ offset so the line matrix (and every
+            // line positioned from it) stays as it was.
+            let o = &target.origin;
+            // From where the line's first run starts (Word draws the rightmost run first).
+            let old_w = (target.rect[2] - o.x) / o.k.max(1e-6) / o.state.scale.max(1e-6);
+            let shift = width.map_or(0.0, |(em, n)| old_w - (em * size + n as f64 * o.state.char_spacing));
+            for (i, (name, bytes)) in runs.into_iter().flatten().enumerate() {
+                replacement.push(Op::new("Tf", vec![Object::name(&name), pdfcraft_content::num(size)]));
+                let shown = Object::String(PdfString::literal(bytes));
+                if i == 0 && rtl && shift.is_finite() && shift.abs() > 1e-3 && size > 0.0 {
+                    replacement.push(Op::new("TJ", vec![Object::Array(vec![pdfcraft_content::num(-shift / size * 1000.0), shown])]));
+                } else {
+                    replacement.push(Op::new("Tj", vec![shown]));
+                }
+            }
+            replacement.push(Op::new("Tf", vec![Object::name(&target.font), pdfcraft_content::num(size)]));
+            substituted = Some(face_label(&face));
+        }
         None => {
             let fallback_shown = crate::bidi::to_visual(&text);
             if needs_type3(&text) {
@@ -2569,6 +2816,8 @@ pub struct BlockStyle {
     pub offset: Option<[f64; 2]>,
     /// Rewrap to this width in user space (dragging the box's edge).
     pub width: Option<f64>,
+    /// An installed font (from the font list) to set the paragraph in, shaped like Arabic text.
+    pub arabic_font: Option<String>,
     /// For an invisible paragraph ([`TextBlock::invisible`]): fill its old area with this colour
     /// (RGB 0–1) before the new text, hiding the scanned word beneath it.
     pub cover: Option<[f64; 3]>,
@@ -2643,19 +2892,23 @@ fn rewrite_block_from(
         return Err(EditError::Invalid("formatting part of turned text, or choosing a document font for it, isn't supported yet".into()));
     }
     let visual_indic = members.iter().any(|line| line.visual_order);
+    // Arabic is shaped in an Arabic face by the single-style path below, unless parts of it are
+    // formatted.
+    let arabic = needs_arabic(text.unwrap_or(&b.text)) || style.arabic_font.is_some();
     if upright
         && !hebrew
         && !visual_indic
         && (!style.ranges.is_empty()
             || style.resource.is_some()
-            || (text.is_some_and(|draft| {
-                draft.contains('\n')
-                    || pdfcraft_fonts::source_shaping::required(draft)
-                    || !pdfcraft_fonts::embedding::matching_faces(&b.base_font).is_empty()
-            }) || registered_face
-                || text.is_some_and(|draft| source_program_completes(doc, &fonts_res, first, draft))
-                || b.rows.iter().any(|row| row.len() > 1)
-                || members.iter().any(|line| line.font != first.font || line.size != first.size || line.color != first.color))
+            || !arabic
+                && (text.is_some_and(|draft| {
+                    draft.contains('\n')
+                        || pdfcraft_fonts::source_shaping::required(draft)
+                        || !pdfcraft_fonts::embedding::matching_faces(&b.base_font).is_empty()
+                }) || registered_face
+                    || text.is_some_and(|draft| source_program_completes(doc, &fonts_res, first, draft))
+                    || b.rows.iter().any(|row| row.len() > 1)
+                    || members.iter().any(|line| line.font != first.font || line.size != first.size || line.color != first.color))
                 && style.family.is_none()
                 && style.bold.is_none())
     {
@@ -2690,13 +2943,29 @@ fn rewrite_block_from(
     }
     let o_state = ts_state.clone();
     let metrics = fonts_res.get(font_name.as_bytes()).and_then(|f| doc.resolve(f).as_dict().cloned()).map(|d| Metrics::from_dict(doc, &d));
+    // Arabic is shaped and laid out in display order (see `arabic_runs`), never re-encoded code by code.
+    let arabic = needs_arabic(&text) || style.arabic_font.is_some();
     let visual_indic = metrics.as_ref().is_some_and(|m| m.visual_order) || first.visual_order;
     let indic_text = if visual_indic { crate::indic::to_visual(&flat) } else { flat.clone() };
-    let reuse = style.family.is_none() && style.bold.is_none() && metrics.as_ref().is_some_and(|m| source_encodes(m, &indic_text));
+    let reuse = !arabic && style.family.is_none() && style.bold.is_none() && metrics.as_ref().is_some_and(|m| source_encodes(m, &indic_text));
     let space = metrics.as_ref().map_or(0.33, |m| source_space(doc, &fonts_res, m));
     // The chosen style also determines the real Japanese fallback outlines and advances.
     let (family, bold, italic) = style.family.unwrap_or((source_family(&b.base_font), b.bold, b.italic));
     let bold = style.bold.unwrap_or(bold);
+    let arabic_face = if arabic {
+        Some(edit_face(
+            doc,
+            &fonts_res,
+            (&font_name, &b.base_font),
+            style.arabic_font.as_deref(),
+            family == crate::added::Family::Times,
+            bold,
+            &text,
+        )?)
+    } else {
+        None
+    };
+    let arabic_shaper = arabic_face.as_ref().map(ArabicFace::shaper).transpose().map_err(|e| arabic_error(e, &text))?;
     // The face is chosen after `bold` settles, so a bold request measures with the bold metrics.
     let face = family.std14(bold, italic);
     let std_width = move |s: &str, size: f64| -> f64 { face.text_width(s, size) };
@@ -2707,7 +2976,9 @@ fn rewrite_block_from(
     // Right-to-left text (more Hebrew or Arabic letters than Latin) is right-aligned unless an
     // alignment is asked for, and a single right-to-left line keeps its right edge as it grows.
     let rtl = crate::bidi::rtl_base(&flat);
-    let anchored_right = rtl && upright && style.width.is_none() && members.len() == 1;
+    // Set left or centred, it grows to the right as other lines do.
+    let anchored_right =
+        rtl && upright && style.width.is_none() && members.len() == 1 && matches!(style.align, None | Some(crate::added::Align::Right));
     // The paragraph's width along its lines: in user space unless it is turned.
     let frame = if upright {
         b.rect
@@ -2756,7 +3027,7 @@ fn rewrite_block_from(
         let emit_inv = Matrix(emit.ctm).invert().ok_or_else(|| EditError::Invalid("the paragraph has a singular transform".into()))?;
         Matrix(o.tm).then(&Matrix(o.ctm)).then(&emit_inv).0
     };
-    let type3 = if !reuse && needs_type3(&flat) { Some(type3_font(doc, &mut fonts_res, &flat, family, bold, max_glyphs)?) } else { None };
+    let type3 = if !reuse && !arabic && needs_type3(&flat) { Some(type3_font(doc, &mut fonts_res, &flat, family, bold, max_glyphs)?) } else { None };
     let advance = |s: &str| -> f64 {
         let t = match (&metrics, reuse) {
             (Some(m), true) => {
@@ -2772,6 +3043,9 @@ fn rewrite_block_from(
                 }
                 fallback.widths.iter().map(|(ch, width)| counts.get(ch).copied().unwrap_or(0) as f64 * width * size).sum::<f64>()
                     + s.chars().count() as f64 * o_state.char_spacing
+            }
+            _ if let Some(shaper) = &arabic_shaper => {
+                arabic_em(shaper, s, rtl).map_or(0.0, |(em, clusters)| em * size + clusters as f64 * o_state.char_spacing)
             }
             _ => std_width(s, size) + s.chars().count() as f64 * o_state.char_spacing,
         };
@@ -2805,7 +3079,15 @@ fn rewrite_block_from(
     let wrapped = wrap(&text, width + 0.5, advance);
     let mut substituted = None;
     let new_font = !reuse;
-    let (show_font, encode): (String, Encoder) = if let Some(m) = metrics.clone().filter(|_| reuse) {
+    let arabic_lines = match &arabic_face {
+        Some(face) => Some(arabic_runs(doc, &mut fonts_res, face, &wrapped, rtl)?),
+        None => None,
+    };
+    let (show_font, encode): (String, Encoder) = if let (Some(face), Some(lines)) = (&arabic_face, &arabic_lines) {
+        substituted = Some(face_label(face));
+        let first = lines.iter().flatten().next().map_or_else(|| font_name.clone(), |(name, _)| name.clone());
+        (first, Box::new(|_: &str| None))
+    } else if let Some(m) = metrics.clone().filter(|_| reuse) {
         let name = font_name.clone();
         (font_name.clone(), Box::new(move |s: &str| m.encode(s).map(|bytes| vec![(name.clone(), bytes)])))
     } else if let Some(fallback) = type3.clone() {
@@ -2867,10 +3149,14 @@ fn rewrite_block_from(
     }
     block_ops.extend(state.ops());
     block_ops.push(Op::new("Tm", tm.iter().map(|v| n(*v)).collect()));
+    // A right-to-left paragraph's lines are placed from the paragraph's left edge (its first line
+    // may start further right).
+    let axis_aligned = [o.tm[1], o.tm[2], o.ctm[1], o.ctm[2]].iter().all(|v| v.abs() < 1e-9);
+    let left = if rtl && axis_aligned { (b.rect[0] - o.x) / k } else { 0.0 };
     // Alignment: each line's offset from the left edge, in text space.
     let offset = |line: &str| -> f64 {
         let free = (width - advance(line)).max(0.0) / k;
-        match align {
+        left + match align {
             Some(crate::added::Align::Center) => free / 2.0,
             // A right-to-left line anchored at its right edge may start left of the old box.
             Some(crate::added::Align::Right) if anchored_right => (right_edge - advance(line)) / k,
@@ -2884,7 +3170,8 @@ fn rewrite_block_from(
     // (ISO 32000-1 §9.3.3), so where a space is shown with another code (a composite font, a
     // generated Type 3 font, a subset without a space) the extra space follows each space as a
     // TJ adjustment instead, and code 32, which may then be a letter, gets none.
-    let justify = align == Some(crate::added::Align::Justify);
+    // Arabic codes are Type 3 glyphs, never the single-byte space 32 that word spacing stretches.
+    let justify = align == Some(crate::added::Align::Justify) && !arabic;
     let word_spacing_reaches_spaces = match metrics.as_ref().filter(|_| reuse) {
         Some(m) => m.encode(" ").is_some_and(|b| m.codes(&b).iter().all(|(c, len)| m.is_space(*c, *len))),
         None => type3.is_none(),
@@ -2910,23 +3197,33 @@ fn rewrite_block_from(
         }
         // Each wrapped line in typing order; drawn left to right (right-to-left runs reversed).
         let visual = crate::bidi::to_visual(line);
-        // Stretched without word spacing: shown up to and including each space, then moved on.
-        let pieces = if stretch > 0.0 { visual.split_inclusive(' ').collect() } else { vec![visual.as_str()] };
-        for piece in pieces {
-            if let Some(metrics) = metrics.as_ref().filter(|_| reuse) {
-                let indic_piece = if metrics.visual_order { crate::indic::to_visual(piece) } else { piece.to_owned() };
-                block_ops.extend(source_show(metrics, &indic_piece, size, space, o_state.char_spacing, tw)?);
-            } else {
-                for (font, bytes) in encode(piece).ok_or_else(|| EditError::Invalid(format!("\"{line}\" can't be shown")))? {
-                    if font != shown_font {
-                        block_ops.push(Op::new("Tf", vec![Object::name(&font), n(size)]));
-                        shown_font = font;
-                    }
-                    block_ops.push(Op::new("Tj", vec![Object::String(PdfString::literal(bytes))]));
+        if let Some(runs) = arabic_lines.as_ref().and_then(|l| l.get(i)) {
+            for (font, bytes) in runs {
+                if *font != shown_font {
+                    block_ops.push(Op::new("Tf", vec![Object::name(font), n(size)]));
+                    shown_font = font.clone();
                 }
+                block_ops.push(Op::new("Tj", vec![Object::String(PdfString::literal(bytes.clone()))]));
             }
-            if stretch > 0.0 && piece.ends_with(' ') {
-                block_ops.push(Op::new("TJ", vec![Object::Array(vec![n(-1000.0 * stretch / size)])]));
+        } else {
+            // Stretched without word spacing: shown up to and including each space, then moved on.
+            let pieces = if stretch > 0.0 { visual.split_inclusive(' ').collect() } else { vec![visual.as_str()] };
+            for piece in pieces {
+                if let Some(metrics) = metrics.as_ref().filter(|_| reuse) {
+                    let indic_piece = if metrics.visual_order { crate::indic::to_visual(piece) } else { piece.to_owned() };
+                    block_ops.extend(source_show(metrics, &indic_piece, size, space, o_state.char_spacing, tw)?);
+                } else {
+                    for (font, bytes) in encode(piece).ok_or_else(|| EditError::Invalid(format!("\"{line}\" can't be shown")))? {
+                        if font != shown_font {
+                            block_ops.push(Op::new("Tf", vec![Object::name(&font), n(size)]));
+                            shown_font = font;
+                        }
+                        block_ops.push(Op::new("Tj", vec![Object::String(PdfString::literal(bytes))]));
+                    }
+                }
+                if stretch > 0.0 && piece.ends_with(' ') {
+                    block_ops.push(Op::new("TJ", vec![Object::Array(vec![n(-1000.0 * stretch / size)])]));
+                }
             }
         }
         let tw = tw + stretch;

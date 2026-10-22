@@ -512,7 +512,13 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
     let Some(xf) = view.page_xform(page) else { return (None, false) };
     let zoom = xf.rect.width() / xf.pw.max(1.0);
     let Some(draft) = view.content.draft.as_mut() else { return (None, false) };
-    let font = crate::edit_text_ui::editor_font(&draft.style, (draft.style.size as f32 * zoom).clamp(1.0, 300.0));
+    let size = (draft.style.size as f32 * zoom).clamp(1.0, 300.0);
+    // An item set in an installed font (Arabic picked in the font list) is typed in that font, at
+    // the size the page shows it: the interface font draws such text far larger than, say, Andalus.
+    let font = match crate::edit_text_ui::document_family(ctx, &draft.style) {
+        Some(family) => egui::FontId::new(size, family),
+        None => crate::edit_text_ui::editor_font(&draft.style, size),
+    };
     let text = AddedText { text: draft.text.clone(), ..draft.style.clone() };
     let Some(page_width) = info.pages.get(page).map(|p| p.width as f64) else { return (None, false) };
     if let Some((key, z, width, rect)) = &view.content.layout
@@ -562,16 +568,31 @@ pub(crate) fn editor(ctx: &egui::Context, view: &mut DocView, info: &DocInfo, ad
             let [cr, cg, cb] = t.style.color.map(|v| (v.clamp(0.0, 1.0) * 255.0) as u8);
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                let resp = ui.add(
-                    egui::TextEdit::multiline(&mut t.text)
-                        .font(font)
-                        .desired_width(r.width().max(60.0))
-                        .desired_rows(1)
-                        .background_color(if background_ready { Color32::TRANSPARENT } else { Color32::WHITE })
-                        .text_color(Color32::from_rgb(cr, cg, cb))
-                        .hint_text(tl!("Type text"))
-                        .id_salt("added-text-edit"),
-                );
+                let color = Color32::from_rgb(cr, cg, cb);
+                // Right-to-left text is shown, and clicked into, in display order.
+                // As the text will be placed: a justified right-to-left paragraph ends at the right edge.
+                let align = match t.style.align {
+                    pdfcraft_engine::TextAlign::Left => egui::Align::Min,
+                    pdfcraft_engine::TextAlign::Center => egui::Align::Center,
+                    pdfcraft_engine::TextAlign::Right | pdfcraft_engine::TextAlign::Justify => egui::Align::Max,
+                };
+                let rtl_font = font.clone();
+                let mut layouter = |ui: &egui::Ui, text: &dyn egui::TextBuffer, wrap: f32| {
+                    crate::rtl_text::layout(ui, text.as_str(), &rtl_font, color, wrap, Some(align))
+                };
+                let selection = crate::rtl_text::hide_selection(ui, &t.text, color);
+                let output = egui::TextEdit::multiline(&mut t.text)
+                    .font(font)
+                    .desired_width(r.width().max(60.0))
+                    .desired_rows(1)
+                    .background_color(if background_ready { Color32::TRANSPARENT } else { Color32::WHITE })
+                    .text_color(color)
+                    .hint_text(tl!("Type text"))
+                    .id_salt("added-text-edit")
+                    .layouter(&mut layouter)
+                    .show(ui);
+                crate::rtl_text::pointer(ui, &output, &t.text, selection);
+                let resp = output.response.response;
                 if t.focus {
                     resp.request_focus();
                     t.focus = false;

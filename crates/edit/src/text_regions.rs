@@ -155,6 +155,24 @@ fn same_style(a: &TextLine, b: &TextLine) -> bool {
         && (a.size - b.size).abs() < 0.01
 }
 
+/// Whether a line reads right to left (Arabic).
+fn rtl(line: &TextLine) -> bool {
+    crate::arabic_font::base_rtl(&line.text)
+}
+
+/// Whether the right-to-left row in box `b` (its text `text`) continues the paragraph of the row in
+/// box `a`: `a` was wrapped, so it ends where the paragraph does on the right and `b`'s first word
+/// wouldn't have fitted at its end (left of it, within `b`'s left edge). Lines set one by one
+/// (centred headings, an address, a short greeting above the body) stay paragraphs of their own.
+fn wrapped_rtl(a: [f64; 4], b: [f64; 4], text: &str, size: f64) -> bool {
+    // The first word's width, estimated from its share of `b`'s characters.
+    let chars = text.chars().count().max(1) as f64;
+    let word = text.split_whitespace().next().map_or(0, |w| w.chars().count()) as f64;
+    let width = (b[2] - b[0]) * word / chars;
+    // Justified lines end within a fraction of a point of each other.
+    (a[2] - b[2]).abs() < size * 0.25 && a[0] - width - size * 0.25 < b[0] + size * 0.5
+}
+
 /// Does a row open with a list marker? A bullet or a dash, or an ordered marker — digits (or a
 /// single letter) followed by `.` or `)` and then a space or the row's end, so prose such as
 /// `1.5` or `Dr. Smith` is left alone.
@@ -262,6 +280,7 @@ fn group_layout(lines: &[TextLine], mixed: bool) -> Vec<TextBlock> {
                 // The rewrite sets every row in the first one's horizontal scale.
                 && (prev.origin.state.scale - first.origin.state.scale).abs() < 1e-6
                 && aligned
+                && (!(rtl(prev) && rtl(first)) || wrapped_rtl(pr, rect, &first.text, tol))
                 && first.size.min(prev.size) >= first.size.max(prev.size) * 0.4
                 && gap > first.size.min(prev.size) * 0.8
                 && gap < first.size.max(prev.size) * 2.5
