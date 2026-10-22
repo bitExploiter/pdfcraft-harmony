@@ -323,9 +323,10 @@ pub const PAPERS: [(&str, (f64, f64)); 32] = [
 pub const LABEL_PAPER: usize = 31;
 
 /// The CUPS media name for `PAPERS[index]`, so the spooler feeds the sheet the PDF was laid out
-/// on rather than the queue's default (PPD keywords; `w288h432` is the usual 4×6 label). The PPD
-/// names of the B series are the JIS sheets, so the ISO B4/B5 and the Japanese papers without a
-/// PPD name are given as custom point sizes (`w<h>`).
+/// on rather than the queue's default. The PPD names of the B series are the JIS sheets, so the
+/// ISO B4/B5 and the Japanese papers without a PPD name are asked for as custom sizes,
+/// `Custom.<width>x<height>mm` (the form CUPS documents, and the one the system's media lookup
+/// recognises; the older `w<h>` PPD keywords only work on a queue that advertises them).
 pub fn cups_media(index: usize) -> Option<&'static str> {
     match PAPERS.get(index)?.0 {
         "US Letter" => Some("Letter"),
@@ -338,16 +339,16 @@ pub fn cups_media(index: usize) -> Option<&'static str> {
         "B4 (JIS)" => Some("B4"),
         "B5 (JIS)" => Some("B5"),
         "B6 (JIS)" => Some("B6"),
-        "B4" => Some("w709h1001"),
-        "B5" => Some("w499h709"),
-        "Japanese Postcard" => Some("w283h420"),
-        "Japanese Double Postcard" => Some("w420h567"),
-        "Japanese Envelope #3" => Some("w340h666"),
-        "Japanese Envelope #4" => Some("w255h638"),
-        "Kaku #2" => Some("w680h941"),
-        "Kaku #3" => Some("w612h785"),
-        "Yonroku-ban" => Some("w360h533"),
-        _ if index == LABEL_PAPER => Some("w288h432"),
+        "B4" => Some("Custom.250x353mm"),
+        "B5" => Some("Custom.176x250mm"),
+        "Japanese Postcard" => Some("Custom.100x148mm"),
+        "Japanese Double Postcard" => Some("Custom.148x200mm"),
+        "Japanese Envelope #3" => Some("Custom.120x235mm"),
+        "Japanese Envelope #4" => Some("Custom.90x225mm"),
+        "Kaku #2" => Some("Custom.240x332mm"),
+        "Kaku #3" => Some("Custom.216x277mm"),
+        "Yonroku-ban" => Some("Custom.127x188mm"),
+        _ if index == LABEL_PAPER => Some("Custom.101.6x152.4mm"),
         _ => None,
     }
 }

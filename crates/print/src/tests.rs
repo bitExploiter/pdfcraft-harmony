@@ -691,23 +691,41 @@ fn japanese_papers_keep_their_measured_sizes_and_names() {
     for (i, (name, _)) in PAPERS.iter().enumerate() {
         assert_eq!(find_paper(name), Some(i), "{name}");
     }
-    assert_eq!(cups_media(LABEL_PAPER), Some("w288h432"));
+    assert_eq!(cups_media(LABEL_PAPER), Some("Custom.101.6x152.4mm"));
     for (name, media) in [
         ("A6", "A6"),
         ("B4 (JIS)", "B4"),
         ("B5 (JIS)", "B5"),
         ("B6 (JIS)", "B6"),
-        ("B4", "w709h1001"),
-        ("B5", "w499h709"),
-        ("Japanese Postcard", "w283h420"),
-        ("Japanese Double Postcard", "w420h567"),
-        ("Japanese Envelope #3", "w340h666"),
-        ("Japanese Envelope #4", "w255h638"),
-        ("Kaku #2", "w680h941"),
-        ("Kaku #3", "w612h785"),
-        ("Yonroku-ban", "w360h533"),
+        ("B4", "Custom.250x353mm"),
+        ("B5", "Custom.176x250mm"),
+        ("Japanese Postcard", "Custom.100x148mm"),
+        ("Japanese Double Postcard", "Custom.148x200mm"),
+        ("Japanese Envelope #3", "Custom.120x235mm"),
+        ("Japanese Envelope #4", "Custom.90x225mm"),
+        ("Kaku #2", "Custom.240x332mm"),
+        ("Kaku #3", "Custom.216x277mm"),
+        ("Yonroku-ban", "Custom.127x188mm"),
     ] {
         assert_eq!(cups_media(at(name)), Some(media), "{name}");
+    }
+}
+
+#[test]
+fn japanese_papers_reach_the_spooler_as_a_custom_media_size() {
+    let at = |name: &str| find_paper(name).unwrap_or_else(|| panic!("no paper named {name:?}"));
+    // What the queue is asked to feed the sheet with: a standard PPD name where one exists,
+    // otherwise the CUPS custom-size form. The older `w<h>` PPD keywords are gone — they only
+    // work on a queue that advertises that exact keyword.
+    for (name, media) in [("Japanese Postcard", "Custom.100x148mm"), ("B4", "Custom.250x353mm"), ("Kaku #2", "Custom.240x332mm")] {
+        let job = Job { options: vec![("media".to_string(), cups_media(at(name)).unwrap().to_string())], ..Job::default() };
+        let args = lp_args(&job).join(" ");
+        assert!(args.contains(&format!("-o media={media}")), "{name}: {args}");
+    }
+    // No paper is asked for as a PPD keyword: every one without a standard name is a custom size.
+    for (i, (name, _)) in PAPERS.iter().enumerate() {
+        let Some(media) = cups_media(i) else { continue };
+        assert!(!(media.starts_with('w') && media.contains('h')), "{name}: {media} is a PPD keyword, not a custom size");
     }
 }
 
@@ -740,7 +758,7 @@ fn label_is_cut_turned_upright_and_fitted_without_distortion() {
     let label = LABEL_PAPER;
     assert_eq!(PAPERS[label].0, "4 x 6 in label (101.6 x 152.4 mm)");
     assert_eq!(PAPERS[label].1, (288.0, 432.0));
-    assert_eq!(cups_media(label), Some("w288h432"));
+    assert_eq!(cups_media(label), Some("Custom.101.6x152.4mm"));
     // A sideways label in the lower half of an A4 sheet, text running bottom-to-top.
     let rect = [40.0, 30.0, 560.0, 420.0];
     for (text_up, flip, want_text_dir) in [(true, false, (1.0, 0.0)), (false, false, (1.0, 0.0)), (true, true, (-1.0, 0.0))] {
