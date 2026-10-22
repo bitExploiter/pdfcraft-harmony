@@ -79,6 +79,11 @@ pub struct PrintDraft {
     pub paper: usize,
     /// The paper chosen before Label put label stock in, so leaving Label gives it back (#3564).
     pub paper_before_label: Option<usize>,
+    /// The user chose the paper (in this dialog, or before a restart: #2173), so it no longer
+    /// follows the printer's default.
+    pub paper_picked: bool,
+    /// The printer whose default paper was last looked up (once per printer, not every frame).
+    pub paper_read_for: Option<String>,
     /// The sheet shown in the preview (0-based).
     pub sheet: usize,
     pub current_page: usize,
@@ -136,6 +141,8 @@ impl Default for PrintDraft {
             content: Content::DocumentAndMarkups,
             as_image: false,
             dpi: 300.0,
+            paper_picked: false,
+            paper_read_for: None,
             paper: 0,
             paper_before_label: None,
             sheet: 0,
@@ -385,6 +392,9 @@ impl PdfCraftApp {
             printers,
             printers_loading,
             printer_picked: picked,
+            // A paper picked here, or remembered from last time (#2173), stays; otherwise the
+            // printer's own default paper is read again, as system print dialogs do.
+            paper_read_for: None,
             units: self.units,
             printer,
             current_page: current,
@@ -866,11 +876,12 @@ fn driver_options_panel(ui: &mut egui::Ui, d: &mut PrintDraft, t: &Tokens) {
                 if ui.button(tl!("Done")).clicked() {
                     *show = false;
                 }
-                if ui.add_enabled(!choices.is_empty(), egui::Button::new(tl!("Reset to printer defaults"))).clicked() {
-                    choices.clear();
-                }
             });
         });
+        // A row of its own: in longer translations it would run over the title beside it.
+        if ui.add_enabled(!choices.is_empty(), egui::Button::new(tl!("Reset to printer defaults"))).clicked() {
+            choices.clear();
+        }
         if options.is_empty() {
             ui.label(egui::RichText::new(tl!("This printer offers no settings of its own.")).small().color(t.text_muted));
             return;
@@ -934,6 +945,42 @@ pub(crate) fn body(
     let settings = d.settings(sizes.len(), labels);
     let sheets = settings.as_ref().ok().and_then(|s| print::layout(sizes, s).ok()).unwrap_or_default();
     d.sheet = d.sheet.min(sheets.len().saturating_sub(1));
+    // Taller than a laptop's window with Properties… open: the settings scroll between the title
+    // and the buttons, rather than running the printer row and Print off the screen.
+    let max = (ui.ctx().content_rect().height() - 200.0).max(200.0);
+    egui::ScrollArea::vertical()
+        .id_salt("print-dialog")
+        .max_height(max)
+        // The centred modal otherwise settles at whatever height it had when it started
+        // scrolling, far shorter than the window.
+        .min_scrolled_height(max)
+        .show(ui, |ui| settings_and_preview(ui, d, t, sizes, thumb, &settings, &sheets));
+    ui.add_space(12.0);
+    let (mut go, mut cancel) = (false, false);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let looking = still_looking(d);
+        let label = if d.printer.is_some() || looking { tl!("Print") } else { tl!("Save as PDF") };
+        if ui.add_enabled_ui(settings.is_ok() && !sheets.is_empty() && !looking, |ui| widgets::pill_button(ui, label, true)).inner.clicked() {
+            go = true;
+        }
+        if widgets::pill_button(ui, tl!("Cancel"), false).clicked() {
+            cancel = true;
+        }
+    });
+    (go, cancel)
+}
+
+/// The Print dialog's settings column and preview, scrolled by [`body`].
+#[allow(clippy::too_many_arguments)]
+fn settings_and_preview(
+    ui: &mut egui::Ui,
+    d: &mut PrintDraft,
+    t: &Tokens,
+    sizes: &[(f64, f64)],
+    thumb: &mut dyn FnMut(usize) -> Option<egui::TextureId>,
+    settings: &Result<print::Settings, String>,
+    sheets: &[print::Sheet],
+) {
     ui.horizontal_top(|ui| {
         // Settings.
         ui.vertical(|ui| {
@@ -1034,11 +1081,22 @@ pub(crate) fn body(
                 });
                 ui.end_row();
                 ui.label(tl!("Paper:"));
+                // The printer's default paper (A5 on a queue set up for A5), until one is chosen here.
+                if !d.paper_picked && d.paper_read_for != d.printer {
+                    d.paper_read_for = d.printer.clone();
+                    let listed = d.printer.as_ref().is_some_and(|p| d.printers.iter().any(|q| q.name == *p));
+                    if let Some(paper) = d.printer.as_deref().filter(|_| listed && !browser).and_then(spool::default_paper) {
+                        d.paper = paper;
+                    }
+                }
                 let paper_name = PAPERS.get(d.paper).map_or("US Letter", |p| p.0);
                 let before = d.paper;
                 egui::ComboBox::from_id_salt("paper").selected_text(tl!(paper_name)).width(260.0).show_ui(ui, |ui| {
                     for (i, (name, _)) in PAPERS.iter().enumerate() {
-                        ui.selectable_value(&mut d.paper, i, tl!(name));
+                        // Chosen, even when it is the printer's default: it is remembered (#2173).
+                        if ui.selectable_value(&mut d.paper, i, tl!(name)).clicked() {
+                            d.paper_picked = true;
+                        }
                     }
                 });
                 // Label stock gets the label layout (cut, turned upright, fitted).
@@ -1079,6 +1137,7 @@ pub(crate) fn body(
                         d.paper = paper;
                         // A paper picked outright: nothing for leaving Label to give back.
                         d.paper_before_label = None;
+                        d.paper_picked = true;
                         d.handling = Handling::Size;
                         d.size = SizeMode::Actual;
                         d.orientation = Orientation::Auto;
@@ -1357,19 +1416,6 @@ pub(crate) fn body(
             }
         });
     });
-    ui.add_space(12.0);
-    let (mut go, mut cancel) = (false, false);
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        let looking = still_looking(d);
-        let label = if d.printer.is_some() || looking { tl!("Print") } else { tl!("Save as PDF") };
-        if ui.add_enabled_ui(settings.is_ok() && !sheets.is_empty() && !looking, |ui| widgets::pill_button(ui, label, true)).inner.clicked() {
-            go = true;
-        }
-        if widgets::pill_button(ui, tl!("Cancel"), false).clicked() {
-            cancel = true;
-        }
-    });
-    (go, cancel)
 }
 
 #[cfg(test)]
