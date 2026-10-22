@@ -71,7 +71,7 @@ pub use pdfcraft_edit::{BlockKey, BlockStyle, PageImage, RangeStyle, TextBlock, 
 pub use pdfcraft_measure as measure;
 pub use pdfcraft_xfa::Report as XfaLayout;
 
-pub use pdfcraft_edit::{EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
+pub use pdfcraft_edit::{ArrangeOrder, EditableObject, MAX_MOVE_OBJECTS, ObjectKind, ObjectTarget};
 
 /// A change to an existing page image.
 #[derive(Clone, Debug, PartialEq)]
@@ -92,7 +92,13 @@ pub enum ImageEdit {
         name: String,
         bytes: Arc<Vec<u8>>,
     },
+    /// Apply an arbitrary 2D affine transform matrix in user space.
+    Transform([f64; 6]),
     Delete,
+    /// Change the stacking order.
+    Arrange(ArrangeOrder),
+    /// Remove any private crop on the image.
+    RemoveCrop,
 }
 pub use pdfcraft_fonts::{MAX_SIGNATURE_CHARS, ScriptOutline, script_missing, script_outline, undrawable_message};
 
@@ -395,7 +401,7 @@ pub struct Document {
     /// The working file: what Save writes.
     pub bytes: Arc<Vec<u8>>,
     /// What is displayed (the page view, `page_render`, page images): `bytes`, plus appearances
-    /// drawn for display only for comments that have none ([`display_bytes`]). Never saved.
+    /// drawn for display only for comments that have none (`display_bytes`). Never saved.
     pub display: Arc<Vec<u8>>,
     pub info: DocInfo,
     pub renderer: RenderPool,
@@ -1989,10 +1995,17 @@ pub const EDIT_LABELS: &[&str] = &[
     "Move object",
     "Move objects",
     "Move image",
+    "Transform image",
     "Rotate image",
     "Flip image",
     "Replace image",
     "Delete image",
+    "Bring to front",
+    "Send to back",
+    "Bring forward",
+    "Send backward",
+    "Remove crop",
+    "Crop image",
     "Add header & footer",
     "Update header & footer",
     "Add watermark",
@@ -2125,11 +2138,17 @@ impl Edit {
             Edit::MoveObjects { objects, .. } => plural("Move object", "Move objects", objects.len()),
             Edit::EditPageImage { change, .. } => Label::of(match change {
                 ImageEdit::Move(_) => "Move image",
+                ImageEdit::Transform(_) => "Transform image",
                 ImageEdit::Rotate(_) | ImageEdit::RotateBy(_) => "Rotate image",
                 ImageEdit::Crop(_) => "Crop image",
                 ImageEdit::Flip { .. } => "Flip image",
                 ImageEdit::Replace { .. } => "Replace image",
                 ImageEdit::Delete => "Delete image",
+                ImageEdit::Arrange(ArrangeOrder::BringToFront) => "Bring to front",
+                ImageEdit::Arrange(ArrangeOrder::SendToBack) => "Send to back",
+                ImageEdit::Arrange(ArrangeOrder::BringForward) => "Bring forward",
+                ImageEdit::Arrange(ArrangeOrder::SendBackward) => "Send backward",
+                ImageEdit::RemoveCrop => "Remove crop",
             }),
             Edit::AddHeaderFooter { replace: false, .. } => Label::of("Add header & footer"),
             Edit::AddHeaderFooter { .. } => Label::of("Update header & footer"),
@@ -2643,6 +2662,7 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
                 .ok_or_else(|| EditError::Edit(pdfcraft_edit::EditError::Invalid(format!("page {} has no image {}", page + 1, index + 1))))?;
             let c = match change {
                 ImageEdit::Move(to) => pdfcraft_edit::ImageChange::Transform(pdfcraft_edit::rect_to_rect(img.rect, *to)),
+                ImageEdit::Transform(t) => pdfcraft_edit::ImageChange::Transform(*t),
                 ImageEdit::Rotate(q) => {
                     pdfcraft_edit::ImageChange::Transform(pdfcraft_edit::turn_about_centre(img.visible_rect.unwrap_or(img.rect), *q, false, false))
                 }
@@ -2667,8 +2687,106 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
                 }
                 ImageEdit::Crop(keep) => pdfcraft_edit::ImageChange::Crop(*keep),
                 ImageEdit::Delete => pdfcraft_edit::ImageChange::Delete,
+                ImageEdit::Arrange(order) => pdfcraft_edit::ImageChange::Arrange(*order),
+                ImageEdit::RemoveCrop => pdfcraft_edit::ImageChange::RemoveCrop,
             };
             pdfcraft_edit::change_image(doc, *page, *index, &c)?;
+            if let Some(target_ref) = img.object {
+                let added_items: Vec<(usize, Added)> = pdfcraft_edit::list_added(doc).into_iter().filter(|a| a.page == *page).enumerate().collect();
+                if let Some((added_idx, added_item)) =
+                    added_items.into_iter().find(|(_, a)| matches!(&a.content, AddedContent::Image(ai) if ai.image == target_ref))
+                    && let AddedContent::Image(mut ai) = added_item.content
+                {
+                    match change {
+                        ImageEdit::Move(to) => {
+                            ai.rect = *to;
+                            pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                        }
+                        ImageEdit::Transform(t) => {
+                            let apply = |x: f64, y: f64| (t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]);
+                            let pts = [
+                                apply(ai.rect[0], ai.rect[1]),
+                                apply(ai.rect[2], ai.rect[1]),
+                                apply(ai.rect[0], ai.rect[3]),
+                                apply(ai.rect[2], ai.rect[3]),
+                            ];
+                            let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                            for (x, y) in pts {
+                                b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+                            }
+                            ai.rect = b;
+                            if t[1].abs() < 1e-6 && t[2].abs() < 1e-6 {
+                                pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                            } else {
+                                let _ = doc.update_dict(added_item.obj, |d| {
+                                    if let Some(pdfcraft_cos::Object::Dict(params)) = d.get_mut(b"PCAdded") {
+                                        params.set(
+                                            b"Rect".to_vec(),
+                                            pdfcraft_cos::Object::Array(ai.rect.iter().map(|x| pdfcraft_cos::Object::Real(*x)).collect()),
+                                        );
+                                    }
+                                });
+                            }
+                        }
+                        ImageEdit::Rotate(q) => {
+                            let k = ((4 - q.rem_euclid(4)) % 4) as u8;
+                            ai.rotation = (ai.rotation + k) % 4;
+                            let r = ai.rect;
+                            let (cx, cy) = ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0);
+                            if k % 2 == 1 {
+                                let (w, h) = (r[2] - r[0], r[3] - r[1]);
+                                ai.rect = [cx - h / 2.0, cy - w / 2.0, cx + h / 2.0, cy + w / 2.0];
+                            }
+                            pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                        }
+                        ImageEdit::RotateBy(degrees) => {
+                            let deg = degrees.rem_euclid(360.0);
+                            if (deg % 90.0).abs() < 1e-4 || (deg % 90.0 - 90.0).abs() < 1e-4 {
+                                let quarters = ((deg + 45.0) / 90.0).floor() as i64;
+                                let k = ((4 - quarters.rem_euclid(4)) % 4) as u8;
+                                ai.rotation = (ai.rotation + k) % 4;
+                                let r = ai.rect;
+                                let (cx, cy) = ((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0);
+                                if k % 2 == 1 {
+                                    let (w, h) = (r[2] - r[0], r[3] - r[1]);
+                                    ai.rect = [cx - h / 2.0, cy - w / 2.0, cx + h / 2.0, cy + w / 2.0];
+                                }
+                                pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                            } else if let Some(t) = pdfcraft_edit::turn_by_degrees(img.visible_rect.unwrap_or(img.rect), *degrees) {
+                                let apply = |x: f64, y: f64| (t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]);
+                                let pts = [
+                                    apply(ai.rect[0], ai.rect[1]),
+                                    apply(ai.rect[2], ai.rect[1]),
+                                    apply(ai.rect[0], ai.rect[3]),
+                                    apply(ai.rect[2], ai.rect[3]),
+                                ];
+                                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                                for (x, y) in pts {
+                                    b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+                                }
+                                ai.rect = b;
+                                let _ = doc.update_dict(added_item.obj, |d| {
+                                    if let Some(pdfcraft_cos::Object::Dict(params)) = d.get_mut(b"PCAdded") {
+                                        params.set(
+                                            b"Rect".to_vec(),
+                                            pdfcraft_cos::Object::Array(ai.rect.iter().map(|x| pdfcraft_cos::Object::Real(*x)).collect()),
+                                        );
+                                    }
+                                });
+                            }
+                        }
+                        ImageEdit::Flip { horizontal: true } => {
+                            ai.flip_h = !ai.flip_h;
+                            pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                        }
+                        ImageEdit::Flip { horizontal: false } => {
+                            ai.flip_v = !ai.flip_v;
+                            pdfcraft_edit::update_content(doc, *page, added_idx, &AddedContent::Image(ai))?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
         }
         Edit::MoveObjects { page, objects, offset } => pdfcraft_edit::move_objects(doc, *page, objects, *offset)?,
         Edit::EditTextBlock { page, block, text, style } => {
@@ -3439,7 +3557,7 @@ impl Session {
     ///
     /// `password` is tried as either the user or owner password when the file is encrypted.
     /// Open saved revision `n` (1 = the oldest) of a document as a new, unsaved document named
-    /// "<name> (revision n)".
+    /// `"<name> (revision n)"`.
     pub fn open_revision(&mut self, id: DocId, n: usize) -> Result<DocId, String> {
         let doc = self.get(id).ok_or("no such document")?;
         let ends = doc.revision_ends();
@@ -4130,7 +4248,12 @@ impl Session {
         let touches_added = edit.is_none_or(|e| {
             matches!(
                 e,
-                Edit::AddText { .. } | Edit::AddImage { .. } | Edit::UpdateContent { .. } | Edit::DeleteContent { .. } | Edit::ReplaceImage { .. }
+                Edit::AddText { .. }
+                    | Edit::AddImage { .. }
+                    | Edit::UpdateContent { .. }
+                    | Edit::DeleteContent { .. }
+                    | Edit::ReplaceImage { .. }
+                    | Edit::EditPageImage { .. }
             ) || matches!(e, Edit::MoveObjects { objects, .. } if objects.iter().any(|o| o.kind == ObjectKind::Added))
         });
         let touches_marks = edit.is_none_or(|e| {

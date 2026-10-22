@@ -67,7 +67,7 @@ pub struct LiveForm {
     pub root: FormNode,
     /// Every scripted event, in document order.
     pub events: Vec<ScriptEvent>,
-    /// The form was larger than [`MAX_FORM_NODES`] objects (or [`MAX_EVENTS`] events): what
+    /// The form was larger than `MAX_FORM_NODES` objects (or `MAX_EVENTS` events): what
     /// is past that was left out.
     pub truncated: bool,
 }
