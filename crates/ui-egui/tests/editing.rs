@@ -2986,6 +2986,85 @@ fn opening_a_paragraph_leaves_the_page_as_it_is() {
     assert_eq!(h.state().views[0].line_editor.as_ref().map(|e| e.text.as_str()), Some("White on a banner"));
 }
 
+/// Clicking a hovered paragraph opens its editor in the frame the hover drew: the same box and
+/// corners, so only the caret (and the hover's width handles going) tells the two apart.
+#[test]
+fn a_paragraph_opens_in_the_frame_its_hover_drew() {
+    let bytes = source_font_fixture_with_text("0 0 0.45 rg 10 180 280 70 re f 1 1 1 rg BT /F2 20 Tf 20 205 Td (White on a banner) Tj ET");
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("banner.pdf", None, bytes).expect("opens");
+        app
+    });
+    h.run_steps(4);
+    assert!(h.state_mut().execute("edit.edit_text"));
+    for _ in 0..100 {
+        h.run_steps(1);
+        if !h.state().render_pending() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+    let page = h.state().views[0].page_screen_rect(0).expect("on screen");
+    let k = page.width() / 300.0;
+    let block = h.state().session.get(h.state().views[0].id).unwrap().text_blocks(0)[0].rect;
+    let r = egui::Rect::from_min_max(
+        egui::pos2(page.left() + block[0] as f32 * k, page.top() + (300.0 - block[3] as f32) * k),
+        egui::pos2(page.left() + block[2] as f32 * k, page.top() + (300.0 - block[1] as f32) * k),
+    );
+    let at = r.center();
+    h.hover_at(at);
+    h.run_steps(2);
+    let before = h.render().unwrap();
+    // The ring the frames are drawn in, without the middle of its sides (the hover's width handles).
+    let outer = r.expand(8.0);
+    let changed = |img: &image::RgbaImage| {
+        let mut n = 0;
+        for y in outer.top() as u32..outer.bottom() as u32 {
+            for x in outer.left() as u32..outer.right() as u32 {
+                let p = egui::pos2(x as f32 + 0.5, y as f32 + 0.5);
+                if r.expand(0.5).contains(p) || (p.y - r.center().y).abs() < 16.0 {
+                    continue;
+                }
+                let (a, b) = (img.get_pixel(x, y).0, before.get_pixel(x, y).0);
+                if a.iter().zip(b.iter()).take(3).any(|(p, q)| (i32::from(*p) - i32::from(*q)).abs() > 40) {
+                    n += 1;
+                }
+            }
+        }
+        n
+    };
+    h.drag_at(at);
+    h.run_steps(1);
+    h.drop_at(at);
+    // The caret: the columns inside the paragraph that changed down most of its height. It
+    // blinks, so the widest it is drawn in any frame.
+    let caret = |img: &image::RgbaImage| {
+        (r.left() as u32..=r.right() as u32)
+            .filter(|x| {
+                let rows = (r.top() as u32..r.bottom() as u32)
+                    .filter(|y| {
+                        let (a, b) = (img.get_pixel(*x, *y).0, before.get_pixel(*x, *y).0);
+                        a.iter().zip(b.iter()).take(3).any(|(p, q)| (i32::from(*p) - i32::from(*q)).abs() > 40)
+                    })
+                    .count();
+                rows as f32 > r.height() * 0.5
+            })
+            .count()
+    };
+    let mut widest = 0;
+    for frame in 0..4 {
+        h.step();
+        let img = h.render().unwrap();
+        let n = changed(&img);
+        assert!(n < 12, "frame {frame} after the click moved the frame: {n} pixels of it changed");
+        widest = widest.max(caret(&img));
+    }
+    assert!(h.state().views[0].line_editor.is_some(), "the editor is open");
+    assert_eq!(widest, 1, "the caret is a hairline");
+}
+
 /// A quick click (press and release in one frame) from an open, unchanged paragraph straight into
 /// another one: in no frame does the first paragraph lose its text, and the new editor's frame
 /// never spans the first one (it took the first paragraph's measured extent for a frame).
