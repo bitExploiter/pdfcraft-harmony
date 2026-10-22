@@ -232,7 +232,7 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         } else {
             s.gesture = Some(gesture);
         }
-        ui.ctx().set_cursor_icon(if gesture.marquee { egui::CursorIcon::Crosshair } else { egui::CursorIcon::Grabbing });
+        ui.ctx().set_cursor_icon(if gesture.marquee { egui::CursorIcon::Crosshair } else { egui::CursorIcon::Move });
         return true;
     }
     let Some(p) = pointer.filter(|p| xf.rect.contains(*p) && ui.clip_rect().contains(*p) && resp.rect.contains(*p)) else {
@@ -242,7 +242,7 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         if s.page == Some(page) && !s.selected.is_empty() {
             let union = s.selected.iter().fold(Rect::NOTHING, |r, o| r.union(screen(xf, info, page, o)));
             if union.contains(p) {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
             }
             return true;
         }
@@ -311,7 +311,11 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         return true;
     }
     s.clear();
-    if hit.is_some() {
+    // A closed paragraph's width handle reaches past its box, and a press there rewraps the
+    // paragraph (as in `edit_text_ui`) instead of starting an area selection (#2276).
+    let on_edge = view.line_editor.as_ref().is_none_or(|e| e.page != page)
+        && crate::edit_text_ui::grabs_edge(xf, info, page, objects.iter().filter(|o| o.target.kind == ObjectKind::Text).map(|o| o.rect), p);
+    if hit.is_some() || on_edge {
         return false;
     }
     leave_single(view);

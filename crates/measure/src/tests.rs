@@ -1,30 +1,18 @@
 use super::*;
 use pdfcraft_cos::{SaveOptions, write_full};
+use pdfcraft_testkit::Pdf;
 use std::sync::Arc;
 fn fixture(content: &str, attrs: &str, extra: &[&str]) -> Document {
     fixture_with("4 0 R", content, attrs, extra)
 }
 fn fixture_with(contents: &str, content: &str, attrs: &str, extra: &[&str]) -> Document {
-    let mut objects = vec![
-        "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
-        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>".into(),
-        format!("<< /Type /Page /Parent 2 0 R /Contents {contents} /Resources << /XObject << /Nested 5 0 R >> >> {attrs} >>"),
-        format!("<< /Length {} >>\nstream\n{content}\nendstream", content.len()),
-    ];
-    objects.extend(extra.iter().map(|s| s.to_string()));
-    let mut bytes = b"%PDF-1.7\n".to_vec();
-    let mut offsets = Vec::new();
-    for (i, o) in objects.iter().enumerate() {
-        offsets.push(bytes.len());
-        bytes.extend(format!("{} 0 obj\n{o}\nendobj\n", i + 1).as_bytes());
-    }
-    let xref = bytes.len();
-    bytes.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
-    for o in offsets {
-        bytes.extend(format!("{o:010} 00000 n \n").as_bytes());
-    }
-    bytes.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes());
-    Document::open(Arc::new(bytes)).unwrap()
+    let pdf = Pdf::new()
+        .obj("<< /Type /Catalog /Pages 2 0 R >>")
+        .obj("<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 612 792] >>")
+        .obj(format!("<< /Type /Page /Parent 2 0 R /Contents {contents} /Resources << /XObject << /Nested 5 0 R >> >> {attrs} >>"))
+        .stream("", content)
+        .objs(extra);
+    Document::open(Arc::new(pdf.build())).unwrap()
 }
 fn close(a: f64, b: f64) {
     assert!((a - b).abs() < 1e-8, "{a} != {b}");
@@ -373,5 +361,45 @@ fn user_unit_is_read_as_acrobat_reads_it() {
         let view = user_to_view(&d, 0, user).unwrap();
         close(view[0], 36.0);
         close(view[1], 72.0);
+    }
+}
+
+#[test]
+fn a_scale_ratio_converts_its_page_side_to_points() {
+    // #2752: a plan drawn at 1:50 is "1 mm = 50 mm", so a line 10 mm long on the page is 500 mm.
+    // The page side used to be points: 1 pt = 50 mm read the line as 1417 mm (50 × 72 / 25.4).
+    let mm = 72.0 / 25.4;
+    let line = [[20.0, 30.0], [20.0 + 10.0 * mm, 30.0]];
+    let scale = Scale::ratio([0.0, 0.0], [1.0, 0.0], 1.0, PageUnit::Mm, 50.0, "mm", 2).unwrap();
+    close(reading(Kind::Distance, &line, &scale).unwrap().value, 500.0);
+    assert_eq!(reading(Kind::Distance, &line, &scale).unwrap().label, "500.00 mm");
+    assert_eq!(scale.ratio, "1 mm = 50 mm");
+    // The PDF stores the factors per point (ISO 32000-2 §12.9): X converts user units to mm.
+    let dict = scale.dictionary().unwrap();
+    let x = dict.get(b"X").unwrap().as_array().unwrap()[0].as_dict().unwrap();
+    close(x.get(b"C").and_then(Object::as_f64).unwrap(), 50.0 / mm);
+    assert_eq!(Scale::read(&fixture("", "", &[]), &Object::Dict(dict)).unwrap(), scale);
+    // Every page unit converts: one of it on the page is one metre.
+    for (unit, points) in [(PageUnit::Pt, 1.0), (PageUnit::In, 72.0), (PageUnit::Mm, mm), (PageUnit::Cm, 10.0 * mm)] {
+        assert_eq!(PageUnit::from_label(unit.label()), Some(unit));
+        let scale = Scale::ratio([0.0, 0.0], [1.0, 0.0], 2.0, unit, 2.0, "m", 3).unwrap();
+        close(reading(Kind::Distance, &[[0.0, 0.0], [0.0, 3.0 * points]], &scale).unwrap().value, 3.0);
+        assert_eq!(scale.ratio, format!("2 {} = 2 m", unit.label()));
+    }
+    assert_eq!(PageUnit::from_label("ft"), None);
+    // On a UserUnit 2 page one display point spans half a user unit; the ratio still holds on screen.
+    let mut d = fixture("", "/UserUnit 2", &[]);
+    let (a, b) = (view_to_user(&d, 0, [0.0, 0.0]).unwrap(), view_to_user(&d, 0, [1.0, 0.0]).unwrap());
+    let scale = Scale::ratio(a, b, 1.0, PageUnit::Cm, 0.5, "m", 2).unwrap();
+    let ends = [view_to_user(&d, 0, [10.0, 10.0]).unwrap(), view_to_user(&d, 0, [10.0 + 4.0 * 10.0 * mm, 10.0]).unwrap()];
+    close(reading(Kind::Distance, &ends, &scale).unwrap().value, 2.0);
+    // Saved and reopened, the viewport keeps the factors and the ratio as written.
+    set_scale(&mut d, 0, [0.0, 0.0, 612.0, 792.0], "plan", &scale).unwrap();
+    let d = Document::open(Arc::new(write_full(&d, &SaveOptions::default()).unwrap())).unwrap();
+    assert_eq!(scale_at(&d, 0, ends[0]).unwrap(), scale);
+    // Points per unit keep meaning points, and both sides must be finite and positive.
+    assert_eq!(Scale::calibrate([0.0, 0.0], [1.0, 0.0], 50.0, "mm", 2).unwrap().ratio, "1 pt = 50 mm");
+    for (page, real) in [(0.0, 1.0), (-1.0, 1.0), (f64::NAN, 1.0), (f64::INFINITY, 1.0), (1.0, 0.0), (1.0, f64::NAN), (1e-300, 1e300)] {
+        assert!(Scale::ratio([0.0, 0.0], [1.0, 0.0], page, PageUnit::Mm, real, "mm", 2).is_err(), "{page} {real}");
     }
 }

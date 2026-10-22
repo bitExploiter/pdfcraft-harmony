@@ -94,6 +94,17 @@ fn util_printf_printd_and_printx() {
     assert_eq!(o.value, "1,234,567.89|00042|hi|FF|1.234,50|Jan 5, 2024 09:07|Friday|(555) 123-4567|ABC");
 }
 
+#[test]
+fn printd_escapes_multibyte_chars() {
+    let o = go(
+        "event.value = [util.printd('yyyy \\\\é', new Date(2024, 0, 5)), util.printd('\\\\€ yyyy', new Date(2024, 0, 5)), \
+         util.printd('\\\\y yyyy', new Date(2024, 0, 5))].join('|');",
+        &Event::field("Calculate", "total", ""),
+    );
+    assert_eq!(o.error, None);
+    assert_eq!(o.value, "2024 é|€ 2024|y 2024");
+}
+
 fn assert_printf_error(script: &str, message: &str) {
     let o = go(script, &Event::doc("Open"));
     assert!(o.error.as_deref().is_some_and(|e| e.starts_with(message)), "{script}: {:?}", o.error);
@@ -302,6 +313,23 @@ fn ordinary_nesting_still_runs() {
     assert_eq!(go(&s, &Event::field("Calculate", "a", "")).value, "1000");
 }
 
+/// Code built from strings at run time would reach the parser without the size and nesting
+/// checks the script itself passed, so `eval` and the `Function` constructors refuse it.
+#[test]
+fn scripts_cannot_compile_code_from_strings() {
+    for s in [
+        "event.value = eval('1 + 1');",
+        "event.value = (0, eval)('1 + 1');",
+        "event.value = new Function('return 2')();",
+        "event.value = Function('a', 'return a')(2);",
+        "event.value = (function* () {}).constructor('yield 2')().next().value;",
+        "event.value = new Array(1001).join('(') + '1' + new Array(1001).join(')'); event.value = eval(event.value);",
+    ] {
+        let o = go(s, &Event::field("Calculate", "a", ""));
+        assert!(o.error.as_deref().is_some_and(|e| e.contains("compile code from strings")), "{s}: {o:?}");
+    }
+}
+
 mod xfa_model {
     use crate::Limits;
     use crate::xfa::*;
@@ -369,12 +397,15 @@ mod xfa_model {
         }
     }
 
+    /// Run the JavaScript `script` for `activity` on the test form, from the node at `target`.
     fn go(script: &str, target: &str, activity: &str) -> XfaOutcome {
         let ev = XfaEvent { activity: activity.into(), target: target.into(), ..Default::default() };
         let doc = XfaDoc { file_name: "f.pdf".into(), page: 1, page_count: 3 };
         run_xfa(script, &ev, &doc, &form(), Limits::default())
     }
 
+    /// A calculate script finds its siblings by name and yields its last expression, and a
+    /// value it sets comes back as an effect.
     #[test]
     fn calculate_scripts_see_siblings_by_name_and_yield_their_last_expression() {
         let o = go("qty.rawValue * price.rawValue", "form1[0].page1[0].total[0]", "calculate");
@@ -384,6 +415,55 @@ mod xfa_model {
         assert_eq!(o.effects, vec![XfaEffect::SetValue { som: "form1[0].page1[0].total[0]".into(), value: "5".into() }]);
     }
 
+    /// The script runs through `eval`, so code built from strings at run time is held to the
+    /// script's own size and nesting checks instead of being refused outright.
+    #[test]
+    fn code_built_from_strings_is_checked_like_the_script() {
+        let total = "form1[0].page1[0].total[0]";
+        assert_eq!(go("eval('qty.rawValue * 2')", total, "calculate").result.as_deref(), Some("8"));
+        assert_eq!(go("new Function('return 3')()", total, "calculate").result.as_deref(), Some("3"));
+        for s in [
+            "eval(new Array(1001).join('(') + '1' + new Array(1001).join(')'))",
+            "new Function(new Array(1001).join('[') + new Array(1001).join(']'))",
+        ] {
+            let o = go(s, total, "calculate");
+            assert!(o.error.as_deref().is_some_and(|e| e.contains("nested too deeply")), "{s}: {o:?}");
+        }
+    }
+
+    /// A form whose one field `d` holds the ISO date 2026-10-20, shown as 20261020.
+    pub(super) fn dated_form() -> XfaNode {
+        let d = XfaNode { formatted: Some("20261020".into()), ..field("d", "form1[0].page1[0].d[0]", "2026-10-20", false) };
+        XfaNode {
+            name: "form1".into(),
+            som: "form1[0]".into(),
+            kind: Some(XfaKind::Subform),
+            children: vec![XfaNode {
+                name: "page1".into(),
+                som: "form1[0].page1[0]".into(),
+                kind: Some(XfaKind::Subform),
+                children: vec![d],
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// `formattedValue` reads the value as the field's picture shows it, and `rawValue` the
+    /// value itself; once the script sets the value, `formattedValue` gives that value.
+    #[test]
+    fn formatted_value_reads_the_shown_value_until_the_script_sets_one() {
+        let ev = XfaEvent { activity: "calculate".into(), target: "form1[0].page1[0].d[0]".into(), ..Default::default() };
+        let doc = XfaDoc::default();
+        let run = |script: &str| run_xfa(script, &ev, &doc, &dated_form(), Limits::default());
+        let o = run("this.formattedValue + ' ' + this.rawValue");
+        assert_eq!(o.error, None, "{o:?}");
+        assert_eq!(o.result.as_deref(), Some("20261020 2026-10-20"));
+        let o = run("this.rawValue = '2026-10-21'; this.formattedValue");
+        assert_eq!(o.result.as_deref(), Some("2026-10-21"));
+    }
+
+    /// Long values a script sets, and long results, are cut where they are stored, with a note.
     #[test]
     fn long_values_and_results_are_cut_where_they_are_stored() {
         // The value kept for later reads is the one the effect saves.
@@ -596,6 +676,22 @@ mod formcalc {
         o.result.unwrap_or_default()
     }
 
+    /// FormCalc reads `formattedValue` as the field's picture shows it too, until the script
+    /// sets the value.
+    #[test]
+    fn formcalc_formatted_value_reads_the_shown_value_until_the_script_sets_one() {
+        let ev = XfaEvent { activity: "calculate".into(), target: "form1[0].page1[0].d[0]".into(), ..Default::default() };
+        let doc = XfaDoc::default();
+        let run = |script: &str| run_formcalc(script, &ev, &doc, &super::xfa_model::dated_form(), Limits::default());
+        let o = run("Concat($.formattedValue, \" \", $.rawValue)");
+        assert_eq!(o.error, None, "{o:?}");
+        assert_eq!(o.result.as_deref(), Some("20261020 2026-10-20"));
+        let o = run("$.rawValue = \"2026-10-21\"\n$.formattedValue");
+        assert_eq!(o.error, None, "{o:?}");
+        assert_eq!(o.result.as_deref(), Some("2026-10-21"));
+    }
+
+    /// FormCalc arithmetic, string conversion and comparisons follow FormCalc's own rules.
     #[test]
     fn arithmetic_strings_and_comparisons_follow_formcalc_rules() {
         assert_eq!(calc("1 + 2 * 3"), "7");
@@ -623,6 +719,45 @@ mod formcalc {
         assert!(go("1 / 0", "form1[0].page1[0].total[0]", "calculate").error.is_some());
         // Comments and newlines inside brackets.
         assert_eq!(calc("; a comment\n// another\nSum(1,\n 2,\n 3)"), "6");
+    }
+
+    #[test]
+    fn date_pictures_render_the_weekday_letters() {
+        assert_eq!(calc(r#"Num2Date(45350, DateFmt(4))"#), "Thursday, February 29, 2024");
+        assert_eq!(calc(r#"Num2Date(45350, "EEE, YYYY-MM-DD")"#), "Thu, 2024-02-29");
+        assert_eq!(calc(r#"Num2Date(45350, "EEEE")"#), "Thursday");
+        assert_eq!(calc(r#"Num2Date(45350, "E")"#), "5");
+        assert_eq!(calc(r#"Num2Date(45351, "EEEE")"#), "Friday");
+        assert_eq!(calc(r#"Num2Date(45352, "EEEE")"#), "Saturday");
+        assert_eq!(calc(r#"Num2Date(45353, "EEEE")"#), "Sunday");
+        assert_eq!(calc(r#"Num2Date(1, "EEEE")"#), "Monday");
+        assert_eq!(calc(r#"Format("EEEE, YYYY-MM-DD", 45350)"#), "Thursday, 2024-02-29");
+        // Other letters are still literal text.
+        assert_eq!(calc(r#"Num2Date(45350, "YYYY-MM-DD x")"#), "2024-02-29 x");
+    }
+
+    /// Accepted day numbers past chrono's own date range (about year 262143) keep the dates the
+    /// pre-chrono algorithm gave, on both sides of the epoch, through Num2Date and Format.
+    #[test]
+    fn date_numbers_beyond_chronos_range_keep_their_dates() {
+        assert_eq!(calc(r#"Num2Date(99000000, "YYYY-MM-DD")"#), "272952-10-16");
+        assert_eq!(calc(r#"Format("YYYY-MM-DD", 99000000)"#), "272952-10-16");
+        assert_eq!(calc(r#"Num2Date(99999999, "YYYY-MM-DD")"#), "275690-09-11");
+        assert_eq!(calc(r#"Num2Date(-99000000, "YYYY-MM-DD")"#), "-269153-03-16");
+        assert_eq!(calc(r#"Num2Date(-99999999, "YYYY-MM-DD")"#), "-271891-04-20");
+    }
+
+    #[test]
+    fn str_and_format_round_exact_ties_away_from_zero() {
+        assert_eq!(calc("Str(2.5, 3, 0)"), "  3");
+        assert_eq!(calc("Str(0.5, 3, 0)"), "  1");
+        assert_eq!(calc("Str(-2.5, 4, 0)"), "  -3");
+        assert_eq!(calc("Str(1.125, 6, 2)"), "  1.13");
+        assert_eq!(calc(r#"Format("9", 2.5)"#), "3");
+        assert_eq!(calc(r#"Format("9.99", 0.125)"#), "0.13");
+        assert_eq!(calc(r#"Format("9.9", 0.25)"#), "0.3");
+        assert_eq!(calc(r#"Format("9.9", -0.25)"#), "-0.3");
+        assert_eq!(calc(r#"Format("9.99", 2.344)"#), "2.34");
     }
 
     #[test]
@@ -669,6 +804,9 @@ mod formcalc {
         assert_eq!(calc(r#"Num2Date(45350, "YYYY-MM-DD")"#), "2024-02-29");
         assert_eq!(calc(r#"Num2Date(Date2Num("2024-02-29") + 1, "MMMM D, YYYY")"#), "March 1, 2024");
         assert_eq!(calc(r#"Time2Num("01:00:00")"#), "3600000");
+        assert_eq!(calc(r#"IsoTime2Num("12:30:45Z")"#), "45045000");
+        assert_eq!(calc(r#"IsoTime2Num("12:30:45.250")"#), "45045250");
+        assert_eq!(calc(r#"IsoTime2Num("T12:30:45")"#), "45045000");
         assert_eq!(calc(r#"Num2Time(3661000)"#), "01:01:01");
         assert_eq!(calc("Round(Pmt(10000, 0.01, 12), 2)"), "888.49");
         assert_eq!(calc("Round(FV(100, 0.01, 12), 2)"), "1268.25");
@@ -679,6 +817,29 @@ mod formcalc {
         assert_eq!(calc(r#"Decode("a%20b", "url")"#), "a b");
         assert!(go(r#"Get("http://example.com")"#, "form1[0].page1[0].total[0]", "calculate").error.unwrap().contains("network"));
         assert!(go("Nope(1)", "form1[0].page1[0].total[0]", "calculate").error.unwrap().contains("unknown function"));
+    }
+
+    #[test]
+    fn format_nine_pads_the_integer_part() {
+        assert_eq!(calc(r#"Format("99999", 42)"#), "00042");
+        assert_eq!(calc(r#"Format("9999", 5)"#), "0005");
+        assert_eq!(calc(r#"Format("999.99", 4.5)"#), "004.50");
+        assert_eq!(calc(r#"Format("zzz9", 42)"#), "42");
+        assert_eq!(calc(r#"Format("99", 12345)"#), "12345");
+    }
+
+    #[test]
+    fn date2num_rejects_days_past_the_end_of_the_month() {
+        assert_eq!(calc(r#"Date2Num("2023-02-30")"#), "0");
+        assert_eq!(calc(r#"Date2Num("31/04/2024", "DD/MM/YYYY")"#), "0");
+        assert_eq!(calc(r#"Date2Num("2023-02-29")"#), "0");
+        assert_eq!(calc(r#"Date2Num("1900-02-29")"#), "0");
+        assert_eq!(calc(r#"Parse("YYYY-MM-DD", "2023-02-30") == null"#), "1");
+        // Valid month ends still work.
+        assert_eq!(calc(r#"Date2Num("2024-02-29")"#), "45350");
+        assert_eq!(calc(r#"Date2Num("2000-02-29") <> 0"#), "1");
+        assert_eq!(calc(r#"Date2Num("2024-04-30") <> 0"#), "1");
+        assert_eq!(calc(r#"Date2Num("2024-12-31") <> 0"#), "1");
     }
 
     #[test]
@@ -1078,4 +1239,38 @@ mod session {
         let o = s.run(slow);
         assert!(o.abandoned || o.error.as_deref().is_some_and(|e| e.contains("too long")), "{o:?}");
     }
+}
+
+#[test]
+fn shared_field_snapshots_isolate_writes_errors_and_script_globals() {
+    let initial = Arc::new(fields());
+    let before = initial.as_ref().clone();
+    let event = Event::field("Calculate", "total", "");
+    let write = run_shared(
+        "var scriptLocal = 1; getField('qty').value = 9; getField('agree').checkThisBox(0, true); event.value = getField('qty').value;",
+        &event,
+        &doc(),
+        Arc::clone(&initial),
+        &[],
+        Limits::default(),
+    );
+    assert_eq!(write.error, None);
+    assert_eq!(write.value, "9");
+    assert_eq!(write.changed.iter().find(|f| f.name == "qty").unwrap().value, ["9"]);
+    assert_eq!(write.changed.iter().find(|f| f.name == "agree").unwrap().value, ["Yes"]);
+    assert_eq!(*initial, before, "script writes cannot mutate the caller's snapshot");
+    let failed = run_shared("getField('qty').value = 99; throw new Error('rejected');", &event, &doc(), Arc::clone(&initial), &[], Limits::default());
+    assert!(failed.error.is_some());
+    assert_eq!(*initial, before, "an exception cannot leak partial writes into the initial snapshot");
+    let read = run_shared(
+        "event.value = typeof scriptLocal + ':' + getField('qty').value + ':' + getField('agree').isBoxChecked(0);",
+        &event,
+        &doc(),
+        initial,
+        &[],
+        Limits::default(),
+    );
+    assert_eq!(read.error, None);
+    assert_eq!(read.value, "undefined:4:false");
+    assert!(read.changed.is_empty());
 }

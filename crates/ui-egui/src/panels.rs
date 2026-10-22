@@ -2,7 +2,7 @@
 //! right-hand panels (Comments, Bookmarks, Pages, Fields, Layers, Attachments).
 
 use egui::{Align, Align2, Color32, CornerRadius, Layout, Rect, Sense, Stroke, pos2, vec2};
-use pdfcraft_engine::catalog::{self, Availability, TOOL_GROUPS, ToolGroup};
+use pdfcraft_engine::catalog::{self, Availability, TOOL_GROUPS, ToolGroup, ToolItem};
 use pdfcraft_render::{DocInfo, FieldKind, OutlineItem};
 
 use crate::theme::{self, Tokens};
@@ -16,23 +16,35 @@ fn hue(g: &ToolGroup) -> Color32 {
 
 pub fn left_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
+    // Organize closed another way (the grid's Close, or a page opened from it) closes the tool too,
+    // as its panel's Close does, back to the workspace's own panel.
+    if app.left == LeftPanel::Tool("organize") && app.active.and_then(|i| app.views.get(i)).is_some_and(|v| !v.organize) {
+        app.left = crate::organize_panel::workspace_panel(app.mode);
+    }
     egui::Frame::NONE.fill(t.panel).inner_margin(egui::Margin { left: 14, right: 10, top: 12, bottom: 10 }).stroke(Stroke::new(1.0, t.divider)).show(
         ui,
         |ui| match app.left {
+            // Organize pages has its own panel whenever the grid shows (with a document open).
+            _ if app.active.is_some() && crate::organize_panel::showing(app) => crate::organize_panel::panel(app, ui, &t),
             LeftPanel::AllTools => all_tools(app, ui, &t),
             LeftPanel::Tool(id) => match catalog::group(id) {
                 Some(g) => tool_detail(app, ui, &t, g),
                 None => app.left = LeftPanel::AllTools,
             },
+            LeftPanel::CalculationOrder => crate::calc_order_ui::panel(app, ui, &t),
         },
     );
 }
 
-fn panel_header(ui: &mut egui::Ui, t: &Tokens, title: &str, back: bool) -> (bool, bool) {
+/// A panel's title row: Back (with `back` as its tooltip) when given, the title and Close.
+/// Returns whether Back and Close were clicked.
+pub(crate) fn panel_header(ui: &mut egui::Ui, t: &Tokens, title: &str, back: Option<&str>) -> (bool, bool) {
     let mut go_back = false;
     let mut close = false;
     ui.horizontal(|ui| {
-        if back && icons::button(ui, "chevron-left", 26.0, false, tl!("Back to all tools")).clicked() {
+        if let Some(tip) = back
+            && icons::button(ui, "chevron-left", 26.0, false, tip).clicked()
+        {
             go_back = true;
         }
         // Reserve space for Close before laying out the translated title. Long tool names
@@ -51,7 +63,7 @@ fn panel_header(ui: &mut egui::Ui, t: &Tokens, title: &str, back: bool) -> (bool
 }
 
 fn all_tools(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
-    let (_, close) = panel_header(ui, t, "All tools", false);
+    let (_, close) = panel_header(ui, t, "All tools", None);
     if close {
         app.left_open = false;
     }
@@ -137,7 +149,11 @@ fn tool_row(ui: &mut egui::Ui, t: &Tokens, g: &ToolGroup) -> egui::Response {
 }
 
 fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static ToolGroup) {
-    let (back, close) = panel_header(ui, t, g.label, true);
+    if g.id == "edit" {
+        edit_panel(app, ui, t, g);
+        return;
+    }
+    let (back, close) = panel_header(ui, t, g.label, Some(tl!("Back to all tools")));
     if back {
         app.left = LeftPanel::AllTools;
         app.mode = crate::Mode::AllTools;
@@ -178,20 +194,6 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
         });
         ui.add_space(6.0);
     }
-    // Edit a PDF shows Format text at the top while text is selected or being added.
-    if g.id == "edit" {
-        if app.quick_tool == crate::QuickTool::EditText {
-            let count = app.active_ids().map_or(0, |(i, _)| app.views[i].objects.count());
-            if count > 0 {
-                ui.label(crate::i18n::trn(crate::i18n::current(), count as u64, "{n} object selected", "{n} objects selected"));
-                ui.label(tl!("Drag the selection to move it. Esc clears the selection."));
-            } else {
-                ui.label(tl!("Shift-click to select several objects. Drag empty space to select an area."));
-            }
-            ui.add_space(6.0);
-        }
-        format_section(app, ui, t);
-    }
     let mut run = None;
     // Redact a PDF has Acrobat's footer: Clear all / Redact all.
     let footer = g.id == "redact";
@@ -230,8 +232,14 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
                 row_label(ui, tl!(item.label), theme::regular(13.0), fg, body.left_center() + vec2(34.0, 0.0), r.left() - body.left() - 42.0);
                 ui.painter().rect_filled(r, CornerRadius::same(4), fill);
                 ui.painter().text(r.center(), Align2::CENTER_CENTER, chip_label, font, cfg);
-                if theme::hand(resp).on_hover_text(format!("{} — {}", tl!(item.label), item.command)).clicked() {
-                    run = Some(item.command);
+                let resp = theme::hand(resp).on_hover_text(format!("{} — {}", tl!(item.label), item.command));
+                // An entry with further commands opens a menu; its caret goes before the chip.
+                if item.actions.is_empty() {
+                    if resp.clicked() {
+                        run = Some(item.command);
+                    }
+                } else if let Some(cmd) = actions_menu(app, ui, &resp, item, r.left_center() - vec2(10.0, 0.0), fg) {
+                    run = Some(cmd);
                 }
             }
         }
@@ -267,6 +275,172 @@ fn tool_detail(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static
     }
     if let Some(cmd) = run {
         app.run_command(cmd);
+    }
+}
+
+/// The page operations Edit shows as a row of icon buttons, as Acrobat's Edit panel does.
+const EDIT_PAGE_BUTTONS: [&str; 4] = ["page.rotate", "page.insert", "page.delete", "page.extract"];
+/// Add content items shown before More.
+const EDIT_CONTENT_SHOWN: usize = 5;
+/// Other options: the tools Acrobat's Edit panel links to.
+const EDIT_OTHER_TOOLS: [&str; 3] = ["combine", "redact", "form"];
+
+/// Edit a PDF, laid out as Acrobat's Edit panel: the title with Preferences and Close; Format text
+/// while text is being edited or added; Modify page as a row of icon buttons and Organize pages;
+/// Add content with the rarer items under More; and Other options, the neighbouring tools.
+/// Edit text & images itself is on the floating toolbar, and on from the moment Edit opens.
+/// Every item comes from the catalogue, so its label, icon and availability have one source.
+fn edit_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens, g: &'static ToolGroup) {
+    let items = || g.sections.iter().flat_map(|s| s.items.iter());
+    let item = |command: &str| items().find(|i| i.command == command);
+    let mut run = None;
+    let mut tool = None;
+    // Back to All tools only when Edit was opened from there; the Edit tab is its own way back.
+    let from_all_tools = app.mode != crate::Mode::Edit;
+    ui.horizontal(|ui| {
+        if from_all_tools && icons::button(ui, "chevron-left", 26.0, false, tl!("Back to all tools")).clicked() {
+            app.left = LeftPanel::AllTools;
+            app.mode = crate::Mode::AllTools;
+        }
+        // "Edit" under the Edit tab, as Acrobat titles it; the tool's own name from All tools.
+        let title = if from_all_tools { tl!(g.label) } else { tl!("Edit") };
+        let title_width = (ui.available_width() - 2.0 * (26.0 + ui.spacing().item_spacing.x)).max(1.0);
+        ui.add_sized([title_width, 26.0], egui::Label::new(egui::RichText::new(title).font(theme::semibold(15.5)).color(t.text)).truncate())
+            .on_hover_text(title);
+        if icons::button(ui, "settings", 26.0, false, tl!("Preferences")).clicked() {
+            run = Some("app.preferences");
+        }
+        if icons::button(ui, "x", 26.0, false, tl!("Close panel")).clicked() {
+            app.left_open = false;
+        }
+    });
+    ui.add_space(2.0);
+    ui.separator();
+    ui.add_space(4.0);
+    // Several objects selected: how many, and how to move them. Acrobat's panel has no idle hint.
+    let count = app.active_ids().filter(|_| app.quick_tool == crate::QuickTool::EditText).map_or(0, |(i, _)| app.views[i].objects.count());
+    if count > 0 {
+        ui.label(crate::i18n::trn(crate::i18n::current(), count as u64, "{n} object selected", "{n} objects selected"));
+        ui.label(tl!("Drag the selection to move it. Esc clears the selection."));
+        ui.add_space(6.0);
+    }
+    // Format text at the top while text is selected or being added.
+    format_section(app, ui, t);
+    egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        widgets::section_title(ui, tl!("Modify page"));
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 6.0;
+            for i in EDIT_PAGE_BUTTONS.iter().filter_map(|c| item(c)) {
+                // Enabled as the command itself is: a document that forbids page assembly refuses these.
+                let enabled = pdfcraft_engine::commands::command(i.command).is_some_and(|spec| app.command_enabled(spec));
+                let resp = ui.add_enabled_ui(enabled, |ui| icons::button(ui, i.icon, 34.0, false, tl!(i.label))).inner;
+                if resp.clicked() {
+                    run = Some(i.command);
+                }
+            }
+        });
+        ui.add_space(2.0);
+        // Organize pages is a workspace of its own: its panel replaces this one, with the grid.
+        if let Some(i) = item("page.organize")
+            && edit_row(ui, t, i.icon, tl!(i.label), i.availability).clicked()
+        {
+            // With no document there is no grid to open: the command asks for a file first.
+            if app.active.is_some() {
+                tool = Some("organize");
+            } else {
+                run = Some("page.organize");
+            }
+        }
+
+        widgets::section_title(ui, tl!("Add content"));
+        let content: Vec<_> =
+            g.sections.iter().filter(|s| s.title == "Add content").flat_map(|s| s.items.iter()).filter(|i| i.command != "edit.edit_text").collect();
+        let more_id = egui::Id::new("edit_panel_more");
+        let more = ui.data(|d| d.get_temp::<bool>(more_id)).unwrap_or(false);
+        let shown = if more { content.len() } else { EDIT_CONTENT_SHOWN.min(content.len()) };
+        for i in content.iter().take(shown) {
+            let resp = edit_row(ui, t, i.icon, tl!(i.label), i.availability);
+            // Header and footer, Watermark and Background open their Add / Update / Remove menu.
+            if i.actions.is_empty() {
+                if resp.clicked() {
+                    run = Some(i.command);
+                }
+            } else if let Some(cmd) = actions_menu(app, ui, &resp, i, resp.rect.right_center() - vec2(14.0, 0.0), t.text) {
+                run = Some(cmd);
+            }
+        }
+        if content.len() > EDIT_CONTENT_SHOWN {
+            ui.add_space(4.0);
+            let label = if more { tl!("Less") } else { tl!("More") };
+            let resp = ui
+                .add(
+                    egui::Label::new(egui::RichText::new(label).color(t.accent_text).font(theme::medium(13.0)))
+                        .selectable(false)
+                        .sense(Sense::click()),
+                )
+                .on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked() {
+                ui.data_mut(|d| d.insert_temp(more_id, !more));
+            }
+        }
+
+        widgets::section_title(ui, tl!("Other options"));
+        for other in EDIT_OTHER_TOOLS.iter().filter_map(|id| catalog::group(id)) {
+            if edit_row(ui, t, other.icon, tl!(other.label), other.availability).clicked() {
+                tool = Some(other.id);
+            }
+        }
+    });
+    if let Some(id) = tool {
+        app.select_tool(id);
+    }
+    if let Some(cmd) = run {
+        app.run_command(cmd);
+    }
+}
+
+/// A tool entry with further commands (Add / Update / Remove): a caret at `caret` says it opens a
+/// menu, and each command is enabled by its own needs. Returns the command chosen.
+fn actions_menu(app: &PdfCraftApp, ui: &egui::Ui, resp: &egui::Response, item: &ToolItem, caret: egui::Pos2, color: Color32) -> Option<&'static str> {
+    ui.painter().add(egui::Shape::convex_polygon(
+        vec![caret + vec2(-3.5, -2.0), caret + vec2(3.5, -2.0), caret + vec2(0.0, 2.5)],
+        color,
+        egui::Stroke::NONE,
+    ));
+    let mut run = None;
+    egui::Popup::menu(resp).show(|ui| {
+        ui.set_min_width(180.0);
+        for (n, id) in item.actions.iter().enumerate() {
+            let Some(spec) = pdfcraft_engine::commands::command(id) else { continue };
+            // Add stays usable with no document open: it asks for a file first.
+            let enabled = (n == 0 && app.active.is_none()) || app.command_enabled(spec);
+            let label = crate::i18n::menu_label(spec.id, spec.label);
+            if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                run = Some(spec.id);
+                ui.close();
+            }
+        }
+    });
+    run
+}
+
+/// One row of the Edit panel: a monochrome icon and the label, as Acrobat draws them. A planned
+/// item is muted and says when it ships when hovered.
+fn edit_row(ui: &mut egui::Ui, t: &Tokens, icon: &str, label: &str, availability: Availability) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    let press = theme::Press::track(ui, &resp);
+    press.wash(ui, rect, 6, false);
+    let body = rect.translate(press.offset());
+    let ready = availability == Availability::Ready;
+    let fg = if ready { t.text } else { t.text_muted };
+    icons::paint(ui, Rect::from_min_size(body.min + vec2(6.0, 8.0), vec2(18.0, 18.0)), icon, 17.0, if ready { t.text } else { t.text_faint });
+    row_label(ui, label, theme::regular(13.5), fg, body.left_center() + vec2(34.0, 0.0), rect.width() - 42.0);
+    let resp = theme::hand(resp);
+    match availability {
+        Availability::Ready => resp,
+        Availability::Planned(m) => resp.on_hover_text(format!("{} {m}", tl!("Planned for milestone"))),
+        Availability::Provider => resp.on_hover_text(tl!("Optional: needs an AI provider you configure")),
     }
 }
 
@@ -347,66 +521,48 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     if let Some((i, _)) = app.active_ids()
         && let Some(ed) = app.views[i].line_editor.clone()
     {
+        use crate::format_text_ui::{FontChoice, Fonts};
         let mut ed = ed;
-        let mut changed = false;
-        let font_choices = app.session.get(app.views[i].id).map(|d| d.text_editor_fonts(ed.page)).unwrap_or_default();
-        egui::ComboBox::from_id_salt("document-font-resource")
-            .selected_text(
-                ed.font_resource
-                    .as_ref()
-                    .and_then(|r| font_choices.iter().find(|f| &f.resource == r))
-                    .map_or(tl!("Keep source fonts"), |f| f.face.as_str()),
-            )
-            .show_ui(ui, |ui| {
-                changed |= ui.selectable_value(&mut ed.font_resource, None, tl!("Keep source fonts")).changed();
-                for font in font_choices.iter().filter(|f| !f.resource.starts_with("PCApproved")) {
-                    changed |= ui.selectable_value(&mut ed.font_resource, Some(font.resource.clone()), &font.face).changed();
-                }
-            });
-        if ui.button(tl!("Load font…")).clicked() {
-            app.pick_files(crate::files::FilePurpose::TextFont { page: ed.page }, false);
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        egui::ComboBox::from_id_salt("installed-document-font").selected_text(tl!("Installed fonts…")).show_ui(ui, |ui| {
-            if let Some(fonts) = crate::files::installed_font_files(ui.ctx()) {
-                if fonts.is_empty() {
-                    ui.label(tl!("No openly licensed document fonts found. Load a font file."));
-                }
-                for font in fonts {
-                    if ui.selectable_label(false, &font.face).clicked() {
-                        app.use_paths(crate::files::FilePurpose::TextFont { page: ed.page }, &[font.path]);
-                    }
-                }
-            } else {
-                ui.label(tl!("Finding document fonts…"));
+        let sources: Vec<(String, String)> = app
+            .session
+            .get(app.views[i].id)
+            .map(|d| d.text_editor_fonts(ed.page))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|f| (f.resource, f.face))
+            .collect();
+        let shown = ed.font_shown(&sources);
+        let out = crate::format_text_ui::panel(ui, t, &mut ed.look, Some(&mut ed.extras), Fonts { sources: Some(&sources), shown });
+        let mut changed = out.changed;
+        match out.font {
+            Some(FontChoice::KeepSource) => {
+                ed.keep_source_font();
+                changed = true;
             }
-        });
-        if let Some(look) = crate::content_ui::format_panel(ui, t, &ed.look) {
-            ed.look = look;
-            changed = true;
+            Some(FontChoice::Resource(resource)) => {
+                ed.font_resource = Some(resource);
+                changed = true;
+            }
+            Some(FontChoice::Family(family)) => {
+                ed.choose_family(family);
+                changed = true;
+            }
+            Some(FontChoice::Load) => app.pick_files(crate::files::FilePurpose::TextFont { page: ed.page }, false),
+            #[cfg(not(target_arch = "wasm32"))]
+            Some(FontChoice::Installed(path)) => app.use_paths(crate::files::FilePurpose::TextFont { page: ed.page }, &[path]),
+            #[cfg(target_arch = "wasm32")]
+            Some(FontChoice::Installed(_)) => {}
+            None => {}
         }
-        changed |= crate::edit_text_ui::extras_panel(ui, &mut ed.extras);
         if changed {
-            let edit = pdfcraft_engine::Edit::EditTextBlock { page: ed.page, block: ed.block, text: ed.text.clone(), style: ed.style() };
-            if app.apply_edit(edit) {
-                ed.applied();
-                if let Some(doc) = app.session.get(app.views[i].id)
-                    && let Some(block) = doc.text_blocks(ed.page).get(ed.block)
-                {
-                    ed.refresh_source(block, doc.text_lines(ed.page));
-                    ed.fonts = crate::edit_text_ui::install_source_fonts(ui.ctx(), doc, ed.page);
-                }
-            }
-            app.views[i].line_editor = Some(ed);
+            app.apply_line_format(i, ed, Some(ui.ctx()));
         }
-        ui.add_space(6.0);
-        ui.separator();
         return;
     }
     let image = app.active_ids().and_then(|(i, id)| {
         let (page, index) = app.views[i].content.selected?;
         let doc = app.session.get(id)?;
-        match &doc.added.iter().filter(|a| a.page == page).nth(index)?.content {
+        match &doc.added().iter().filter(|a| a.page == page).nth(index)?.content {
             pdfcraft_engine::AddedContent::Image(img) => Some((page, index, img.clone())),
             _ => None,
         }
@@ -426,7 +582,7 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     let selected = app.active_ids().and_then(|(i, id)| {
         let (page, index) = app.views[i].content.selected?;
         let doc = app.session.get(id)?;
-        let a = doc.added.iter().filter(|a| a.page == page).nth(index)?;
+        let a = doc.added().iter().filter(|a| a.page == page).nth(index)?;
         match &a.content {
             pdfcraft_engine::AddedContent::Text(text) => Some((page, index, text.clone())),
             _ => None,
@@ -434,21 +590,51 @@ fn format_section(app: &mut PdfCraftApp, ui: &mut egui::Ui, t: &Tokens) {
     });
     match selected {
         Some((page, index, text)) => {
-            if let Some(style) = crate::content_ui::format_panel(ui, t, &text) {
-                app.text_style = pdfcraft_engine::AddedText { text: String::new(), rect: [0.0; 4], ..style.clone() };
-                app.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(style) });
+            let mut style = text.clone();
+            added_text_format(ui, t, &mut style);
+            if style != text {
+                // The reusable style follows the selection only when the edit took, so a refused one adds nothing odd later.
+                if app.apply_edit(pdfcraft_engine::Edit::UpdateContent { page, index, content: pdfcraft_engine::AddedContent::Text(style.clone()) }) {
+                    app.text_style = pdfcraft_engine::AddedText { text: String::new(), rect: [0.0; 4], ..style };
+                }
             }
         }
         None if app.quick_tool == crate::QuickTool::AddText => {
             crate::content_ui::hint(ui, t);
-            if let Some(style) = crate::content_ui::format_panel(ui, t, &app.text_style) {
-                app.text_style = style;
+            let mut style = app.text_style.clone();
+            added_text_format(ui, t, &mut style);
+            app.text_style = style;
+        }
+        None => {}
+    }
+}
+
+/// Format text for added text: the standard families, size, colour, style and alignment.
+fn added_text_format(ui: &mut egui::Ui, t: &Tokens, style: &mut pdfcraft_engine::AddedText) {
+    let shown = style.family.label().to_string();
+    let out = crate::format_text_ui::panel(ui, t, style, None, crate::format_text_ui::Fonts { sources: None, shown });
+    if let Some(crate::format_text_ui::FontChoice::Family(family)) = out.font {
+        style.family = family;
+    }
+}
+
+impl PdfCraftApp {
+    /// Apply the open paragraph's formatting as one change; the paragraph stays open.
+    pub(crate) fn apply_line_format(&mut self, index: usize, mut ed: crate::edit_text_ui::LineEditor, ctx: Option<&egui::Context>) {
+        let edit = pdfcraft_engine::Edit::EditTextBlock { page: ed.page, block: ed.block, text: ed.text.clone(), style: ed.style() };
+        if self.apply_edit(edit) {
+            ed.applied();
+            if let Some(doc) = self.session.get(self.views[index].id)
+                && let Some(block) = doc.text_blocks(ed.page).get(ed.block)
+            {
+                ed.refresh_source(block, doc.text_lines(ed.page));
+                if let Some(ctx) = ctx {
+                    ed.fonts = crate::edit_text_ui::install_source_fonts(ctx, doc, ed.page);
+                }
             }
         }
-        None => return,
+        self.views[index].line_editor = Some(ed);
     }
-    ui.add_space(6.0);
-    ui.separator();
 }
 
 // ───────────────────────────────────────────────────────────────────────────── right panels
@@ -467,6 +653,7 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     let mut nav: Option<Nav> = None;
     let mut close = false;
     let mut toggle_layer: Option<(usize, bool)> = None;
+    let mut reset_layers = false;
     let mut attachment_action: Option<(usize, bool)> = None; // (index, open instead of save)
     let mut bm_action: Option<BmAction> = None;
     let mut bm_expand: Option<usize> = None;
@@ -559,6 +746,16 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                                 }
                             });
                         }
+                        if panel == RightPanel::Layers && !info.layers.is_empty() {
+                            let more = icons::button(ui, "ellipsis", 26.0, false, tl!("Layer options"));
+                            egui::Popup::menu(&more).show(|ui| {
+                                ui.set_min_width(200.0);
+                                if ui.button(tl!("Reset to Initial Visibility")).clicked() {
+                                    reset_layers = true;
+                                    ui.close();
+                                }
+                            });
+                        }
                         let new_tip = crate::commands::command_tip(ui.ctx(), tl!("New bookmark ({key})"), "bookmark.add");
                         if panel == RightPanel::Bookmarks && bm_editable && icons::button(ui, "bookmark-plus", 26.0, false, &new_tip).clicked() {
                             bm_action = Some(BmAction::New);
@@ -599,6 +796,10 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         bookmark_matches.insert(ancestor.clone());
                         ancestor.pop();
                     }
+                }
+                if panel == RightPanel::Pages {
+                    let enabled = !modal && view.panel_drag.is_none();
+                    thumbnail_size(ui, &t, view, enabled);
                 }
                 egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match panel {
                     RightPanel::Comments => {
@@ -671,7 +872,8 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                     }
                     RightPanel::Tags => {
                         let tags = tags_state.tags(doc);
-                        let (page, edit) = crate::tags_ui::panel(ui, &t, id, &tags, tags_state, doc.allows_modification());
+                        let content = tags_state.content(doc);
+                        let (page, edit) = crate::tags_ui::panel(ui, &t, id, &tags, &content, tags_state, doc.allows_modification());
                         if let Some(page) = page {
                             nav = Some(Nav::Page(page));
                         }
@@ -746,19 +948,21 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
             app.cert_viewer = Some(crate::sign_ui::CertViewer { chain, selected: 0, tab: crate::sign_ui::CertTab::Summary });
             app.dialog = Some(crate::Dialog::CertificateViewer);
         }
-        Some(crate::sign_ui::PanelAction::ViewSigned(len)) => app.view_signed_version(len),
+        Some(crate::sign_ui::PanelAction::ViewSigned { len, revision }) => app.view_signed_version(len, revision),
         Some(crate::sign_ui::PanelAction::Sign(field)) => {
             let page = app.views[index].current;
             app.start_signing(page, None, Some(field), None);
         }
         Some(crate::sign_ui::PanelAction::ExportCertificate(c)) => {
-            let pem = crate::sign_ui::certificate_pem(&c);
-            app.write_files(&[(format!("{}.cer", c.display_name()), std::sync::Arc::new(pem.into_bytes()))], "Export certificate");
+            app.export_certificate(&c);
         }
         None => {}
     }
     if let Some((p, i)) = app.views.get_mut(index).and_then(|v| v.comments.default_request.take()) {
         app.make_comment_default(p, i);
+    }
+    if let Some((p, i, open)) = app.views.get_mut(index).and_then(|v| v.comments.attachment_request.take()) {
+        app.comment_attachment_action(id, p, i, open);
     }
     if let Some((p, i)) = app.views.get_mut(index).and_then(|v| v.comments.props_request.take()) {
         app.open_comment_props(p, i);
@@ -775,6 +979,9 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
     {
         app.views[index].invalidate_content();
     }
+    if reset_layers && app.session.reset_layers(id) {
+        app.views[index].invalidate_content();
+    }
     match nav {
         Some(Nav::Page(p)) => app.views[index].go_to_page(p),
         Some(Nav::Dest(p, dest)) => match app.session.get(id) {
@@ -783,7 +990,11 @@ pub fn right_panel(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         },
         Some(Nav::Flash(p, r)) => {
             let v = &mut app.views[index];
-            v.go_to_page(p);
+            if let Some(doc) = app.session.get(id) {
+                v.reveal_rect(p, r, &doc.info);
+            } else {
+                v.go_to_page(p);
+            }
             v.flash = Some((p, r, 0.0));
         }
         None => {}
@@ -998,6 +1209,57 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
     }
 }
 
+/// Size controls stay above the scroll area, so they remain reachable on long documents.
+fn thumbnail_size(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::DocView, enabled: bool) {
+    let before = view.thumbnail_zoom();
+    let mut zoom = before;
+    let label = ui
+        .horizontal(|ui| {
+            let label = ui.label(egui::RichText::new(tl!("Thumbnail size")).small().color(t.text_muted));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                ui.label(egui::RichText::new(format!("{:.0}%", before * 100.0)).small().color(t.text_muted));
+            });
+            label
+        })
+        .inner;
+    ui.add_enabled_ui(enabled, |ui| {
+        ui.spacing_mut().slider_width = (ui.available_width() - 52.0 - 2.0 * ui.spacing().item_spacing.x).max(1.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled_ui(zoom > *crate::canvas::THUMBNAIL_ZOOM_RANGE.start(), |ui| {
+                    icons::button(ui, "zoom-out", 26.0, false, tl!("Smaller thumbnails"))
+                })
+                .inner
+                .clicked()
+            {
+                zoom -= 0.25;
+            }
+            let mut percent = zoom * 100.0;
+            let range = (*crate::canvas::THUMBNAIL_ZOOM_RANGE.start() * 100.0)..=(*crate::canvas::THUMBNAIL_ZOOM_RANGE.end() * 100.0);
+            ui.scope(|ui| {
+                // The regular field fill blends into this panel; keep the slider's full rail visible.
+                ui.visuals_mut().widgets.inactive.bg_fill = t.border;
+                let slider = ui.add(egui::Slider::new(&mut percent, range).step_by(1.0).show_value(false).trailing_fill(true)).labelled_by(label.id);
+                slider.widget_info(|| egui::WidgetInfo::slider(ui.is_enabled(), f64::from(percent), tl!("Thumbnail size")));
+            });
+            zoom = percent / 100.0;
+            if ui
+                .add_enabled_ui(zoom < *crate::canvas::THUMBNAIL_ZOOM_RANGE.end(), |ui| {
+                    icons::button(ui, "zoom-in", 26.0, false, tl!("Larger thumbnails"))
+                })
+                .inner
+                .clicked()
+            {
+                zoom += 0.25;
+            }
+        });
+    });
+    if zoom != before {
+        view.set_thumbnail_zoom(zoom);
+    }
+    ui.add_space(6.0);
+}
+
 /// The page thumbnails. A click goes to the page; ⌘/Ctrl-click and ⇧-click pick several pages
 /// (the selection page commands and Print act on) without moving the document. Right-click
 /// offers Extract, Cut, Copy and Paste on the selection, or on the page clicked; dragging
@@ -1021,7 +1283,14 @@ fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocVie
     {
         delete_pages(view, info.pages.len());
     }
-    let w = (ui.available_width() - 40.0).min(150.0);
+    // A new current page scrolls its thumbnail into view, as little as it takes (Acrobat), but
+    // not while thumbnails are dragged: then the change counts as seen. A wheel turned or a
+    // scroll bar dragged by the user already wins over a scroll to a place in egui.
+    let follow = view.panel_followed != Some(view.current) && view.panel_drag.is_none();
+    view.panel_followed = Some(view.current);
+    let available = (ui.available_width() - 16.0).max(1.0);
+    let usual = (ui.available_width() - 40.0).clamp(1.0, 150.0);
+    let w = (usual * view.thumbnail_zoom()).min(available);
     let count = info.pages.len();
     let mut rows: Vec<Rect> = Vec::with_capacity(info.pages.len());
     let mut dropped = false;
@@ -1065,7 +1334,14 @@ fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocVie
                 Stroke::new(if selected { 2.0 } else { 1.0 }, if selected { t.accent } else { t.border }),
                 egui::StrokeKind::Outside,
             );
-            ui.label(egui::RichText::new(&p.label).font(theme::medium(12.0)).color(if selected || picked { t.accent_text } else { t.text_muted }));
+            let label = ui.label(egui::RichText::new(&p.label).font(theme::medium(12.0)).color(if selected || picked {
+                t.accent_text
+            } else {
+                t.text_muted
+            }));
+            if follow && selected {
+                ui.scroll_to_rect(rect.union(label.rect), None);
+            }
             let resp = theme::hand(resp);
             if resp.clicked() {
                 let m = ui.input(|i| i.modifiers);
@@ -1073,6 +1349,8 @@ fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocVie
                     view.click_page(i, m, true);
                 } else {
                     view.clear_page_selection(Some(i));
+                    // A page clicked here is in view already: the panel stays put.
+                    view.panel_followed = Some(i);
                     *nav = Some(Nav::Page(i));
                 }
             }
@@ -1114,6 +1392,28 @@ fn pages(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, view: &mut crate::DocVie
         ui.add_space(4.0);
     }
     page_drag(ui, t, view, &rows, dropped);
+    file_drop(ui, t, view, &rows, editable && !modal);
+}
+
+/// Files dragged in from outside go to the gap under the pointer: remember where the panel is
+/// and that gap, for the app to take the drop, and show where the pages would go.
+fn file_drop(ui: &mut egui::Ui, t: &Tokens, view: &mut crate::DocView, rows: &[Rect], editable: bool) {
+    if !editable {
+        return;
+    }
+    let clip = ui.clip_rect();
+    view.pages_panel = Some(clip);
+    let pointer = ui.input(|i| i.pointer.hover_pos()).filter(|p| clip.contains(*p));
+    view.panel_gap = pointer.filter(|_| view.panel_drag.is_none()).and_then(|p| panel_gap(rows, p.y));
+    if pointer.is_none() || ui.input(|i| i.raw.hovered_files.is_empty()) {
+        return;
+    }
+    let painter = ui.painter().with_clip_rect(clip);
+    painter.rect_stroke(clip.shrink(2.0), CornerRadius::same(6), Stroke::new(2.0, t.accent), egui::StrokeKind::Inside);
+    if let (Some(gap), Some(first), Some(last)) = (view.panel_gap, rows.first(), rows.last()) {
+        let y = rows.get(gap).map_or(last.bottom() + 2.0, |r| r.top() - 3.0);
+        painter.line_segment([pos2(first.left(), y), pos2(first.right(), y)], Stroke::new(3.0, t.accent));
+    }
 }
 
 /// Queue deleting the selection (or the current page) of a document of `n` pages, unless that
@@ -1217,9 +1517,7 @@ fn fields(
         empty(ui, t, "text-cursor-input", "This document has no form fields.");
         return None;
     }
-    let rank = |name: &str| form.iter().find(|f| f.name == name).and_then(|f| f.widgets.iter().map(|w| w.tab).min()).unwrap_or(usize::MAX);
-    let mut ordered: Vec<_> = info.fields.iter().collect();
-    ordered.sort_by_key(|f| (f.page, rank(&f.name)));
+    let rows = field_rows(&info.fields, form);
     if preparing {
         ui.label(egui::RichText::new(tl!("Tab order: move a field with its arrows.")).small().color(t.text_muted));
         ui.label(egui::RichText::new(tl!("Shift- or Ctrl/Command-click to select several fields.")).small().color(t.text_muted));
@@ -1233,10 +1531,7 @@ fn fields(
             }
         });
     }
-    let mut pages: Vec<Option<usize>> = info.fields.iter().map(|f| f.page).collect();
-    pages.sort();
-    pages.dedup();
-    for p in pages {
+    for (p, page_rows) in rows {
         // A field's /P can name a page the document doesn't have (#1307); it reads as unplaced.
         let label = p
             .and_then(|p| info.pages.get(p))
@@ -1244,11 +1539,7 @@ fn fields(
             .unwrap_or_else(|| tl!("Unplaced").to_string());
         ui.add_space(4.0);
         ui.label(egui::RichText::new(label).font(theme::semibold(12.5)).color(t.text_muted));
-        for f in ordered.iter().copied().filter(|f| f.page == p) {
-            let key = form
-                .iter()
-                .find(|field| field.name == f.name)
-                .and_then(|field| field.widgets.iter().position(|w| w.page == f.page).map(|wi| (field.name.clone(), wi)));
+        for (f, key) in page_rows {
             let selected = key.as_ref().is_some_and(|key| selection.selected.as_ref() == Some(key) || selection.also.contains(key));
             let icon = match f.kind {
                 FieldKind::Text => "text-cursor-input",
@@ -1262,28 +1553,25 @@ fn fields(
             };
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
             resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, selected, &f.name));
-            let press = theme::Press::track(ui, &resp);
-            press.wash(ui, rect, 6, selected);
-            let body = rect.translate(press.offset());
-            icons::paint(ui, Rect::from_min_size(body.min + vec2(8.0, 7.0), vec2(16.0, 16.0)), icon, 15.0, Color32::from_rgb(0x8E, 0x4E, 0xE6));
-            let value =
-                f.value.as_ref().map(|v| if v.chars().count() > 18 { format!("{}…", v.chars().take(17).collect::<String>()) } else { v.clone() });
-            let value_font = theme::regular(11.5);
-            let value_w = value.as_ref().map(|v| crate::widgets::text_width(ui, v, &value_font)).unwrap_or(0.0);
-            let arrows = if preparing && f.page.is_some() { 56.0 } else { 0.0 };
-            let max_w = (rect.width() - 32.0 - value_w - arrows - 16.0).max(0.0);
-            crate::widgets::paint_left(ui, body.left_center() + vec2(32.0, 0.0), &f.name, theme::regular(13.0), t.text, max_w);
-            if let Some(v) = value {
-                let x = if arrows > 0.0 { 64.0 } else { 8.0 };
-                ui.painter().text(body.right_center() - vec2(x, 0.0), Align2::RIGHT_CENTER, v, value_font, t.text_faint);
-            }
-            let kind = format!("{:?}", f.kind);
-            let mut tip = crate::i18n::fmt(tl!("{kind} field"), &[("kind", tl!(&kind))]);
-            if let Some(tt) = &f.tooltip {
-                tip.push_str(&format!(" — {tt}"));
-            }
-            if f.has_actions {
-                tip.push_str(&format!("\n{}", tl!("Has JavaScript actions (run in M6)")));
+            // A row scrolled out of view still takes clicks and keyboard focus, but isn't drawn:
+            // laying out every row of a large form each frame took a tenth of a second a frame.
+            let visible = ui.is_rect_visible(rect);
+            if visible {
+                let press = theme::Press::track(ui, &resp);
+                press.wash(ui, rect, 6, selected);
+                let body = rect.translate(press.offset());
+                icons::paint(ui, Rect::from_min_size(body.min + vec2(8.0, 7.0), vec2(16.0, 16.0)), icon, 15.0, Color32::from_rgb(0x8E, 0x4E, 0xE6));
+                let value =
+                    f.value.as_ref().map(|v| if v.chars().count() > 18 { format!("{}…", v.chars().take(17).collect::<String>()) } else { v.clone() });
+                let value_font = theme::regular(11.5);
+                let value_w = value.as_ref().map(|v| crate::widgets::text_width(ui, v, &value_font)).unwrap_or(0.0);
+                let arrows = if preparing && f.page.is_some() { 56.0 } else { 0.0 };
+                let max_w = (rect.width() - 32.0 - value_w - arrows - 16.0).max(0.0);
+                crate::widgets::paint_left(ui, body.left_center() + vec2(32.0, 0.0), &f.name, theme::regular(13.0), t.text, max_w);
+                if let Some(v) = value {
+                    let x = if arrows > 0.0 { 64.0 } else { 8.0 };
+                    ui.painter().text(body.right_center() - vec2(x, 0.0), Align2::RIGHT_CENTER, v, value_font, t.text_faint);
+                }
             }
             if preparing && f.page.is_some() {
                 let up = Rect::from_center_size(rect.right_center() - vec2(44.0, 0.0), vec2(22.0, 22.0));
@@ -1293,9 +1581,11 @@ fn fields(
                 {
                     let b = ui.interact(r, ui.id().with((&f.name, earlier)), Sense::click());
                     b.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{tip}: {}", f.name)));
-                    let bpress = theme::Press::track(ui, &b);
-                    bpress.wash(ui, r, 4, false);
-                    icons::paint(ui, r.shrink(3.0).translate(bpress.offset()), icon, 15.0, t.icon);
+                    if visible {
+                        let bpress = theme::Press::track(ui, &b);
+                        bpress.wash(ui, r, 4, false);
+                        icons::paint(ui, r.shrink(3.0).translate(bpress.offset()), icon, 15.0, t.icon);
+                    }
                     if theme::hand(b).on_hover_text(tip).clicked() {
                         *edit = Some(pdfcraft_engine::Edit::MoveInTabOrder { name: f.name.clone(), earlier });
                     }
@@ -1314,7 +1604,10 @@ fn fields(
             {
                 selection.select(key, ui.input(|i| i.modifiers.shift || i.modifiers.command));
             }
-            if theme::hand(resp).on_hover_text(tip).clicked()
+            let resp = theme::hand(resp);
+            // Only a row in view can be hovered: its tip isn't built for the others.
+            let resp = if visible { resp.on_hover_text(field_tip(f)) } else { resp };
+            if resp.clicked()
                 && let (Some(p), Some(r)) = (f.page, f.rect)
             {
                 *nav = Some(Nav::Flash(p, r));
@@ -1322,6 +1615,46 @@ fn fields(
         }
     }
     properties
+}
+
+/// A Fields panel row's tooltip: the field's kind, its own tooltip and whether it has scripts.
+fn field_tip(f: &pdfcraft_render::Field) -> String {
+    let kind = format!("{:?}", f.kind);
+    let mut tip = crate::i18n::fmt(tl!("{kind} field"), &[("kind", tl!(&kind))]);
+    if let Some(tt) = &f.tooltip {
+        tip.push_str(&format!(" — {tt}"));
+    }
+    if f.has_actions {
+        tip.push_str(&format!("\n{}", tl!("Has JavaScript actions (run in M6)")));
+    }
+    tip
+}
+
+/// One page's rows of the Fields panel: each field, with the form field and widget a click on
+/// it selects (`None` when the form has no widget of it on that page).
+type FieldRows<'a> = Vec<(&'a pdfcraft_render::Field, Option<(String, usize)>)>;
+
+/// The Fields panel's rows: by page ("Unplaced" first), each page's in tab order. A row is paired
+/// with the first form field of its name, as the engine pairs them: one map, built once a frame.
+/// Searching the form for each row, and again inside the sort, was O(fields²) every frame.
+fn field_rows<'a>(fields: &'a [pdfcraft_render::Field], form: &[pdfcraft_engine::FormField]) -> Vec<(Option<usize>, FieldRows<'a>)> {
+    let mut by_name: std::collections::HashMap<&str, &pdfcraft_engine::FormField> = std::collections::HashMap::with_capacity(form.len());
+    for field in form {
+        by_name.entry(field.name.as_str()).or_insert(field);
+    }
+    let rank = |name: &str| by_name.get(name).and_then(|f| f.widgets.iter().map(|w| w.tab).min()).unwrap_or(usize::MAX);
+    let mut ordered: Vec<&pdfcraft_render::Field> = fields.iter().collect();
+    ordered.sort_by_cached_key(|f| (f.page, rank(&f.name)));
+    let mut rows: Vec<(Option<usize>, FieldRows<'a>)> = Vec::new();
+    for f in ordered {
+        let key =
+            by_name.get(f.name.as_str()).and_then(|field| field.widgets.iter().position(|w| w.page == f.page).map(|wi| (field.name.clone(), wi)));
+        match rows.last_mut() {
+            Some((page, page_rows)) if *page == f.page => page_rows.push((f, key)),
+            _ => rows.push((f.page, vec![(f, key)])),
+        }
+    }
+    rows
 }
 
 pub fn human_size(n: usize) -> String {
@@ -1363,6 +1696,115 @@ mod page_moves {
         // Move [3] to the front: [3 0 1 2 4].
         let order: Vec<usize> = (0..5).map(|p| moved_index(p, &[3], 0)).collect();
         assert_eq!(order, [1, 2, 3, 0, 4]);
+    }
+}
+
+#[cfg(test)]
+mod field_rows {
+    use super::field_rows;
+    use std::sync::Arc;
+
+    /// A PDF of `objects` (numbered from 1; object 1 the catalog) with a valid xref table.
+    fn pdf(objects: &[String]) -> Vec<u8> {
+        let mut out = b"%PDF-1.7\n".to_vec();
+        let mut offsets = Vec::new();
+        for (i, o) in objects.iter().enumerate() {
+            offsets.push(out.len());
+            out.extend(format!("{} 0 obj\n{o}\nendobj\n", i + 1).bytes());
+        }
+        let xref = out.len();
+        out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).bytes());
+        for o in offsets {
+            out.extend(format!("{o:010} 00000 n \n").bytes());
+        }
+        out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).bytes());
+        out
+    }
+
+    /// The fields the engine reads from `bytes`: the inspector's list and the form.
+    fn open(bytes: Vec<u8>) -> (Vec<pdfcraft_render::Field>, Arc<Vec<pdfcraft_engine::FormField>>) {
+        let mut session = pdfcraft_engine::Session::new();
+        let id = session.open("form.pdf", None, Arc::new(bytes), None).expect("opens");
+        let doc = session.get(id).expect("open");
+        (doc.info.fields.clone(), doc.form.clone())
+    }
+
+    /// Rows go by page, the unplaced first, each page's in tab order (here its annotation order,
+    /// not the `/Fields` order), and a row selects the first form field of its name.
+    #[test]
+    fn rows_follow_pages_and_tab_order() {
+        let widget = |name: &str, page: Option<usize>| match page {
+            Some(p) => format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [10 10 90 30] /P {} 0 R >>", 3 + p),
+            None => format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T ({name}) /Rect [10 10 90 30] >>"),
+        };
+        let bytes = pdf(&[
+            "<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [5 0 R 7 0 R 8 0 R 9 0 R 10 0 R 6 0 R] >> >>".into(),
+            "<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [6 0 R 5 0 R] >>".into(),
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [7 0 R 8 0 R 9 0 R] >>".into(),
+            widget("a1", Some(0)),
+            widget("a2", Some(0)),
+            widget("b", Some(1)),
+            widget("twin", Some(1)),
+            widget("twin", Some(1)),
+            widget("loose", None),
+        ]);
+        let (fields, form) = open(bytes);
+        // A page's rows as (field name, the form field and widget a click selects).
+        type Named<'a> = Vec<(&'a str, Option<(String, usize)>)>;
+        let rows: Vec<(Option<usize>, Named)> = field_rows(&fields, &form)
+            .into_iter()
+            .map(|(page, rows)| (page, rows.into_iter().map(|(f, key)| (f.name.as_str(), key)).collect()))
+            .collect();
+        let key = |name: &str| Some((name.to_string(), 0));
+        assert_eq!(
+            rows,
+            [
+                (None, vec![("loose", key("loose"))]),
+                (Some(0), vec![("a2", key("a2")), ("a1", key("a1"))]),
+                (Some(1), vec![("b", key("b")), ("twin", key("twin")), ("twin", key("twin"))]),
+            ]
+        );
+    }
+
+    /// The panel's rows for a large form take milliseconds: looking each row's field up in the
+    /// form, there and inside the sort, was O(fields²) every frame.
+    #[test]
+    fn rows_for_a_large_form_are_quick() {
+        const PAGES: usize = 150;
+        const PER_PAGE: usize = 100;
+        let mut objects = vec![String::new(), String::new()];
+        let page = |p: usize| 3 + p;
+        let field = |p: usize, k: usize| 3 + PAGES + p * PER_PAGE + k;
+        let mut all = Vec::new();
+        for p in 0..PAGES {
+            let annots: Vec<String> = (0..PER_PAGE).map(|k| format!("{} 0 R", field(p, k))).collect();
+            all.extend(annots.iter().cloned());
+            objects.push(format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [{}] >>", annots.join(" ")));
+        }
+        for p in 0..PAGES {
+            for k in 0..PER_PAGE {
+                objects.push(format!("<< /Type /Annot /Subtype /Widget /FT /Tx /T (field{p}_{k}) /Rect [10 10 90 30] /P {} 0 R >>", page(p)));
+            }
+        }
+        // `/Fields` in no particular order, so the rows must be sorted.
+        let mut seed = 12345u64;
+        for i in (1..all.len()).rev() {
+            seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            all.swap(i, (seed >> 33) as usize % (i + 1));
+        }
+        objects[0] = format!("<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [{}] >> >>", all.join(" "));
+        let kids: Vec<String> = (0..PAGES).map(|p| format!("{} 0 R", page(p))).collect();
+        objects[1] = format!("<< /Type /Pages /Kids [{}] /Count {PAGES} >>", kids.join(" "));
+        let (fields, form) = open(pdf(&objects));
+        assert_eq!(fields.len(), PAGES * PER_PAGE);
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let rows = field_rows(&fields, &form);
+            let _ = tx.send((rows.len(), rows.iter().map(|(_, r)| r.len()).sum::<usize>()));
+        });
+        let counted = rx.recv_timeout(std::time::Duration::from_secs(3)).expect("the Fields panel's rows must not take seconds a frame");
+        assert_eq!(counted, (PAGES, PAGES * PER_PAGE));
     }
 }
 

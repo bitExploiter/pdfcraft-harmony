@@ -4,6 +4,8 @@
 //! current page; cards grouped by page. Selecting a card selects the comment on the page and
 //! opens its reply box and "…" menu (Edit, Set status, Delete). Status replies show as a badge.
 
+use std::collections::HashMap;
+
 use egui::{Align, Color32, CornerRadius, Layout, Sense, Stroke, vec2};
 use pdfcraft_engine::{Edit, NoteIcon, ReviewState, Shape};
 use pdfcraft_render::{Annotation, DocInfo};
@@ -33,9 +35,10 @@ pub fn subtype_label(s: &str) -> &str {
     }
 }
 
-/// The comment type as the panel names it, telling callouts and clouds apart by `/IT`.
+/// The comment type as the panel names it, telling callouts, clouds and replaced text apart by `/IT`.
 pub fn kind_label(a: &Annotation) -> &str {
     match a.intent.as_deref() {
+        Some("StrikeOutTextEdit") => "Replace text",
         Some("FreeTextCallout") => "Callout",
         Some("PolygonCloud") => "Cloud",
         Some("FreeTextTypeWriter") => "Typewriter",
@@ -154,12 +157,18 @@ pub(crate) fn show(
         return edit;
     }
     let query = view.comments.search.clone().filter(|q| !q.trim().is_empty());
-    let replies_of = |a: &Annotation| -> Vec<&Annotation> {
-        match &a.name {
-            Some(nm) => info.annotations.iter().filter(|r| r.in_reply_to.as_deref() == Some(nm.as_str())).collect(),
-            None => Vec::new(),
+    let mut replies: HashMap<&str, Vec<&Annotation>> = HashMap::new();
+    let mut page_counts: HashMap<usize, usize> = HashMap::new();
+    // Keep global name matching and source reply order. Page badges count roots before filtering.
+    for a in &info.annotations {
+        if let Some(parent) = a.in_reply_to.as_deref() {
+            replies.entry(parent).or_default().push(a);
+        } else {
+            let count = page_counts.entry(a.page).or_default();
+            *count = count.saturating_add(1);
         }
-    };
+    }
+    let replies_of = |a: &Annotation| -> &[&Annotation] { a.name.as_deref().and_then(|name| replies.get(name)).map(Vec::as_slice).unwrap_or(&[]) };
     let cv = &view.comments;
     let status_of =
         |a: &Annotation| replies_of(a).iter().rev().filter(|r| !r.is_mark()).find_map(|r| r.state.clone()).unwrap_or_else(|| "None".into());
@@ -172,7 +181,7 @@ pub(crate) fn show(
         .filter(|a| !cv.hidden_authors.contains(&a.author.clone().unwrap_or_default()))
         .filter(|a| !cv.hidden_statuses.contains(&status_of(a)))
         .filter(|a| !cv.hidden_colors.contains(&color_key(a)))
-        .filter(|a| !cv.hidden_checks.contains(&check_label(is_marked(&replies_of(a))).to_string()))
+        .filter(|a| !cv.hidden_checks.contains(&check_label(is_marked(replies_of(a))).to_string()))
         .collect();
     let sort = cv.sort;
     match sort {
@@ -199,6 +208,13 @@ pub(crate) fn show(
             SortBy::Date => None,
         }
     };
+    // A comment selected elsewhere (on the page, or just added) opens its folded group, or the
+    // card it should scroll to would not be drawn.
+    if view.comments.reveal
+        && let Some((p, _)) = view.comments.selected
+    {
+        view.comments.collapsed_pages.retain(|&c| c != p);
+    }
     let mut page = usize::MAX;
     let mut group: Option<String> = None;
     for a in roots {
@@ -214,21 +230,41 @@ pub(crate) fn show(
             }
         } else if a.page != page {
             page = a.page;
-            let n = info.annotations.iter().filter(|x| x.page == page && x.in_reply_to.is_none()).count();
+            let n = page_counts.get(&page).copied().unwrap_or_default();
+            let open = !view.comments.collapsed_pages.contains(&page);
             ui.add_space(6.0);
-            ui.horizontal(|ui| {
-                ui.add(icons::image("chevron-down", 14.0, t.text_muted));
-                ui.label(
-                    egui::RichText::new(crate::i18n::fmt(tl!("Page {label}"), &[("label", &info.pages[page].label)]))
-                        .font(theme::semibold(12.5))
-                        .color(t.text_muted),
-                );
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(egui::RichText::new(n.to_string()).color(t.text_faint).small()));
-            });
+            let clicked = ui
+                .horizontal(|ui| {
+                    let chevron = if open { "chevron-down" } else { "chevron-right" };
+                    let toggle = icons::button(ui, chevron, 18.0, false, if open { tl!("Collapse") } else { tl!("Expand") }).clicked();
+                    let label = ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(crate::i18n::fmt(tl!("Page {label}"), &[("label", &info.pages[page].label)]))
+                                .font(theme::semibold(12.5))
+                                .color(t.text_muted),
+                        )
+                        .sense(Sense::click()),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(egui::RichText::new(n.to_string()).color(t.text_faint).small())
+                    });
+                    toggle || label.clicked()
+                })
+                .inner;
+            if clicked {
+                if open {
+                    view.comments.collapsed_pages.push(page);
+                } else {
+                    view.comments.collapsed_pages.retain(|&c| c != page);
+                }
+            }
             ui.add_space(2.0);
         }
+        if sort == SortBy::Page && view.comments.collapsed_pages.contains(&a.page) {
+            continue;
+        }
         let thread = replies_of(a);
-        if let Some(e) = card(ui, t, a, &thread, view, prefs, allowed, nav) {
+        if let Some(e) = card(ui, t, a, thread, info, view, prefs, allowed, nav) {
             edit = Some(e);
         }
     }
@@ -241,6 +277,7 @@ fn card(
     t: &Tokens,
     a: &Annotation,
     thread: &[&Annotation],
+    info: &DocInfo,
     view: &mut DocView,
     prefs: &CommentPrefs,
     allowed: bool,
@@ -296,13 +333,17 @@ fn card(
                 ui.set_width(ui.available_width());
                 if editing && let Some((_, _, text)) = view.comments.editing.as_mut() {
                     let r = ui.add(crate::widgets::block(text).desired_rows(2).desired_width(f32::INFINITY).id_salt(("comment-edit", key)));
-                    if !r.has_focus() && !ui.memory(|m| m.focused().is_some()) {
-                        r.request_focus();
+                    match view.comments.editor_focus.take() {
+                        Some(crate::comments::EditorFocus::Take) => r.request_focus(),
+                        Some(crate::comments::EditorFocus::Release) => r.surrender_focus(),
+                        None => {}
                     }
+                    let submit = crate::comments::submit_key(ui, &r, false);
                     ui.horizontal(|ui| {
-                        if ui
+                        if (ui
                             .add(egui::Button::new(egui::RichText::new(tl!("Save")).color(Color32::WHITE)).fill(t.accent).corner_radius(12))
                             .clicked()
+                            || submit)
                             && let Some((page, index, text)) = view.comments.editing.take()
                         {
                             edit = Some(Edit::SetAnnotationContents { page, index, text });
@@ -359,12 +400,14 @@ fn card(
                     // around the button can't fit every language's "Post" exactly, and any overflow
                     // would widen the resizable panel again on every repaint.
                     let r = ui.add(
-                        crate::widgets::line(&mut view.comments.reply)
+                        crate::widgets::block(&mut view.comments.reply)
+                            .desired_rows(1)
+                            .return_key(egui::KeyboardShortcut::new(egui::Modifiers::SHIFT, egui::Key::Enter))
                             .hint_text(tl!("Add a reply"))
                             .desired_width(f32::INFINITY)
                             .id_salt(("comment-reply", key)),
                     );
-                    let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let enter = crate::comments::submit_key(ui, &r, true);
                     let ok = !view.comments.reply.trim().is_empty();
                     let post =
                         ui.with_layout(Layout::right_to_left(Align::Min), |ui| ui.add_enabled(ok, egui::Button::new(tl!("Post")).corner_radius(12)));
@@ -402,7 +445,7 @@ fn card(
         *nav = Some(Nav::Flash(a.page, a.rect));
     }
     if click.double_clicked() && allowed {
-        view.comments.editing = Some((a.page, a.index, a.contents.clone().unwrap_or_default()));
+        view.comments.open_editor(a.page, a.index, a.contents.clone().unwrap_or_default());
     }
     let menu_id = ui.id().with(("card-menu", key));
     if open_menu {
@@ -416,8 +459,9 @@ fn card(
         .layout(Layout::top_down_justified(Align::Min))
         .show(|ui| {
             ui.set_min_width(160.0);
+            crate::comments::attachment_items(ui, view, info, a);
             if ui.button(tl_ctx!("comment menu", "Edit")).clicked() {
-                view.comments.editing = Some((a.page, a.index, a.contents.clone().unwrap_or_default()));
+                view.comments.open_editor(a.page, a.index, a.contents.clone().unwrap_or_default());
                 ui.close();
             }
             ui.menu_button(tl!("Set status"), |ui| {
@@ -512,6 +556,20 @@ pub(crate) fn header_controls(ui: &mut egui::Ui, info: &DocInfo, view: &mut DocV
         ] {
             if ui.add(widgets::radio(cv.sort == s, label)).clicked() {
                 cv.sort = s;
+                ui.close();
+            }
+        }
+        // Only the page sort has folding groups.
+        if cv.sort == SortBy::Page {
+            ui.separator();
+            if ui.button(tl!("Collapse all pages")).clicked() {
+                cv.collapsed_pages = info.annotations.iter().map(|a| a.page).collect();
+                cv.collapsed_pages.sort_unstable();
+                cv.collapsed_pages.dedup();
+                ui.close();
+            }
+            if ui.button(tl!("Expand all pages")).clicked() {
+                cv.collapsed_pages.clear();
                 ui.close();
             }
         }
