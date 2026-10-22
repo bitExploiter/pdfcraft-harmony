@@ -665,12 +665,20 @@ trailer << /Root 1 0 R >>
     }
 }
 
+/// Held by every test that changes the user's keychain search list. Each saves the list, changes
+/// it and restores what it saved, so two at once could undo each other's temporary keychain or
+/// put back one already deleted.
+#[cfg(target_os = "macos")]
+static KEYCHAIN_SEARCH_LIST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Signing with Keychain identities, in a throwaway keychain file. Ignored by default: creating
 /// a keychain touches the user's keychain search list (restored afterwards).
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "creates a temporary macOS keychain; run with --ignored"]
 fn signing_with_keychain_identities() {
+    // A test that failed while holding it leaves the list restored, so a poisoned lock is fine.
+    let _list = KEYCHAIN_SEARCH_LIST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     use std::process::Command;
     let dir = std::env::temp_dir().join(format!("pdfcraft-keychain-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -718,6 +726,8 @@ fn signing_with_keychain_identities() {
 #[test]
 #[ignore = "creates a temporary macOS keychain; run with --ignored"]
 fn keychain_identities_carry_their_issuers() {
+    // A test that failed while holding it leaves the list restored, so a poisoned lock is fine.
+    let _list = KEYCHAIN_SEARCH_LIST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     use std::process::Command;
     let dir = std::env::temp_dir().join(format!("pdfcraft-keychain-chain-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
@@ -742,7 +752,19 @@ fn keychain_identities_carry_their_issuers() {
         assert!(out.status.success(), "chain-legacy.p12: {}", String::from_utf8_lossy(&out.stderr));
         let listed = pdfcraft_sign::keychain::identities(Some(&kc)).unwrap();
         assert_eq!(listed.len(), 1, "{listed:?}");
-        let id = pdfcraft_sign::keychain::find(&pdfcraft_sign::keychain::reference(&listed[0].certificate)).unwrap();
+        // The Security framework caches the search list in-process and learns of `security
+        // list-keychains` asynchronously, so after another Keychain test it takes a moment to look
+        // in the new keychain.
+        let reference = pdfcraft_sign::keychain::reference(&listed[0].certificate);
+        let mut found = pdfcraft_sign::keychain::find(&reference);
+        for _ in 0..50 {
+            if found.is_ok() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            found = pdfcraft_sign::keychain::find(&reference);
+        }
+        let id = found.unwrap();
         let issuers: Vec<_> = id.chain.iter().map(|c| c.subject.common_name()).collect();
         assert_eq!(issuers, [Some("PrintCraft Test Root CA")]);
         let file = pkcs12::open(&data("chain.p12"), "test").unwrap();
