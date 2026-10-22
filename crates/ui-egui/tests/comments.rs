@@ -1154,8 +1154,42 @@ fn multi_row_rtl_with_intermediate_spaces_and_newlines() {
         let wrap_width = 80.0;
         let galley = pdfcraft_ui_egui::bidi::text_edit_layout(ui, text, wrap_width);
         let total_len = text.chars().count();
+        let num_logical_lines = text.split('\n').count();
+        assert!(
+            galley.rows.len() >= num_logical_lines,
+            "galley rows ({}) must have at least one row per logical line ({num_logical_lines})",
+            galley.rows.len()
+        );
 
-        // Cursor offsets at every character boundary stay within row bounds
+        let line0_len = "واحد   اثنين  ثلاثة".chars().count();
+        let c_line0_end = egui::text::CCursor::new(line0_len);
+        let c_empty_start = egui::text::CCursor::new(line0_len + 1);
+        let c_line2_start = egui::text::CCursor::new(line0_len + 2);
+
+        let layout_line0_end = galley.layout_from_cursor(c_line0_end);
+        let layout_empty = galley.layout_from_cursor(c_empty_start);
+        let layout_line2_start = galley.layout_from_cursor(c_line2_start);
+
+        assert!(
+            layout_empty.row > layout_line0_end.row && layout_empty.row < layout_line2_start.row,
+            "empty second line row ({}) must map between line 0 row ({}) and line 2 row ({})",
+            layout_empty.row,
+            layout_line0_end.row,
+            layout_line2_start.row
+        );
+
+        let pos_line0_end = galley.pos_from_cursor(c_line0_end);
+        let pos_empty = galley.pos_from_cursor(c_empty_start);
+        let pos_line2_start = galley.pos_from_cursor(c_line2_start);
+
+        assert!(
+            pos_empty.min.y >= pos_line0_end.min.y && pos_empty.max.y <= pos_line2_start.max.y,
+            "empty second line y bounds [{:.1}..{:.1}] must lie between line 0 ({:.1}) and line 2 ({:.1})",
+            pos_empty.min.y, pos_empty.max.y, pos_line0_end.min.y, pos_line2_start.max.y
+        );
+
+        // Cursor offsets at every character boundary stay within row bounds and decrease across RTL rows
+        let mut prev_cursor: Option<(usize, f32)> = None;
         for ci in 0..=total_len {
             let cursor = egui::text::CCursor::new(ci);
             let layout_c = galley.layout_from_cursor(cursor);
@@ -1175,8 +1209,19 @@ fn multi_row_rtl_with_intermediate_spaces_and_newlines() {
                 "ci={ci} on row {} horizontal pos {:.1} outside row bounds [{:.1}..{:.1}]",
                 layout_c.row, rect.min.x, min_x, max_x
             );
-        }
 
+            if let Some((prev_row, prev_x)) = prev_cursor {
+                if prev_row == layout_c.row {
+                    assert!(
+                        rect.min.x <= prev_x + 0.5,
+                        "cursor x must decrease in logical order across RTL row {}: ci={ci}, prev_x={prev_x:.1}, cur_x={:.1}",
+                        layout_c.row,
+                        rect.min.x
+                    );
+                }
+            }
+            prev_cursor = Some((layout_c.row, rect.min.x));
+        }
         // Glyph positions match visual bounds without clipping or overflowing
         for (ri, placed_row) in galley.rows.iter().enumerate() {
             let min_x = placed_row.pos.x.min(0.0);

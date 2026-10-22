@@ -423,8 +423,12 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
             let mut display_lines = Vec::new();
             for logical_line in content.split('\n') {
                 let slices = wrap_slices(logical_line, &mut measure);
-                for s in &slices {
-                    display_lines.push(s.display_text.clone());
+                if slices.is_empty() {
+                    display_lines.push(String::new());
+                } else {
+                    for s in &slices {
+                        display_lines.push(s.display_text.clone());
+                    }
                 }
                 all_slices.push(slices);
             }
@@ -435,8 +439,12 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
         let mut display_lines = Vec::new();
         for logical_line in content.split('\n') {
             let slices = wrap_slices(logical_line, |_| true);
-            for s in &slices {
-                display_lines.push(s.display_text.clone());
+            if slices.is_empty() {
+                display_lines.push(String::new());
+            } else {
+                for s in &slices {
+                    display_lines.push(s.display_text.clone());
+                }
             }
             all_slices.push(slices);
         }
@@ -450,6 +458,7 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
     let mut galley = ui.fonts_mut(|f| f.layout_job(job));
 
     let g = std::sync::Arc::make_mut(&mut galley);
+    let fallback_sample = g.rows.iter().find_map(|r| r.row.glyphs.first().copied());
     let mut global_row_idx = 0;
     let logical_lines: Vec<&str> = content.split('\n').collect();
     let num_logical_lines = logical_lines.len();
@@ -459,6 +468,30 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
             if global_row_idx < g.rows.len() {
                 global_row_idx += 1;
             }
+            continue;
+        }
+        let row_char_counts: Vec<usize> = slices
+            .iter()
+            .enumerate()
+            .map(|(slice_idx, slice)| {
+                let lead_ws_count = if slice_idx == 0 {
+                    logical_line.get(..slice.logical_range.start).map_or(0, |s| s.chars().count())
+                } else {
+                    0
+                };
+                let slice_char_count = logical_line.get(slice.logical_range.clone()).map_or(0, |s| s.chars().count());
+                let next_start = if slice_idx + 1 < slices.len() {
+                    slices[slice_idx + 1].logical_range.start
+                } else {
+                    logical_line.len()
+                };
+                let wrap_ws_count = logical_line.get(slice.logical_range.end..next_start).map_or(0, |s| s.chars().count());
+                lead_ws_count + slice_char_count + wrap_ws_count
+            })
+            .collect();
+
+        if row_char_counts.iter().sum::<usize>() != logical_line.chars().count() {
+            global_row_idx = (global_row_idx + slices.len()).min(g.rows.len());
             continue;
         }
 
@@ -477,29 +510,21 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
             let row = std::sync::Arc::make_mut(&mut placed_row.row);
             let orig_glyphs = row.glyphs.clone();
             let vis_glyphs: Vec<_> = orig_glyphs.iter().filter(|g| g.advance_width > 0.0).copied().collect();
-            let row_vis_count = vis_glyphs.len();
-            if row_vis_count == 0 {
-                continue;
-            }
+
+            let lead_ws_count = if slice_idx == 0 {
+                logical_line.get(..slice.logical_range.start).map_or(0, |s| s.chars().count())
+            } else {
+                0
+            };
 
             // Safe slice of the logical line on character boundaries.
             let logical_slice = logical_line.get(slice.logical_range.clone()).unwrap_or_default();
             let slice_char_count = logical_slice.chars().count();
+            let total_row_chars = row_char_counts[slice_idx];
 
-            // Account for any trailing or collapsed whitespace at the wrap boundary.
-            let next_start = if !is_last_slice_in_para {
-                slices[slice_idx + 1].logical_range.start
-            } else {
-                logical_line.len()
-            };
-            let wrap_ws = logical_line.get(slice.logical_range.end..next_start).unwrap_or_default();
-            let ws_char_count = wrap_ws.chars().count();
-            let total_row_chars = slice_char_count + ws_char_count;
-
-            let bidi = unicode_bidi::BidiInfo::new(logical_slice, None);
-            let para = bidi.paragraphs.first();
-            let base_level = para.map_or(if slice.rtl { Level::rtl() } else { Level::ltr() }, |p| p.level);
-            let levels = if let Some(para) = para {
+            let base_level = if slice.rtl { Level::rtl() } else { Level::ltr() };
+            let bidi = unicode_bidi::BidiInfo::new(logical_slice, Some(base_level));
+            let levels = if let Some(para) = bidi.paragraphs.first() {
                 bidi.reordered_levels_per_char(para, para.range.clone())
             } else {
                 vec![base_level; slice_char_count]
@@ -523,23 +548,46 @@ pub fn text_edit_layout(ui: &egui::Ui, content: &str, wrap_width: f32) -> std::s
                 } else {
                     (0.0, row_width)
                 };
+                let row_col = lead_ws_count + col;
                 if is_char_rtl {
-                    cursor_offsets[col] = x_right;
-                    cursor_offsets[col + 1] = x_left;
+                    cursor_offsets[row_col] = x_right;
+                    cursor_offsets[row_col + 1] = x_left;
                 } else {
-                    cursor_offsets[col] = x_left;
-                    cursor_offsets[col + 1] = x_right;
+                    cursor_offsets[row_col] = x_left;
+                    cursor_offsets[row_col + 1] = x_right;
                 }
+            }
+
+            // Anchor leading whitespace character offsets at the row start.
+            let row_start_offset = if slice_char_count > 0 {
+                cursor_offsets[lead_ws_count]
+            } else if slice.rtl {
+                row_width
+            } else {
+                0.0
+            };
+            for w in 0..lead_ws_count {
+                cursor_offsets[w] = row_start_offset;
+            }
+            if slice_char_count == 0 {
+                cursor_offsets[lead_ws_count] = row_start_offset;
             }
 
             // Pin any trailing or collapsed whitespace at the wrap boundary to the row end
             // so whitespace never distorts the cursor position at row ends.
-            let row_end_offset = cursor_offsets[slice_char_count];
-            for w in slice_char_count..total_row_chars {
+            let text_end_col = lead_ws_count + slice_char_count;
+            let row_end_offset = cursor_offsets[text_end_col];
+            for w in text_end_col..total_row_chars {
                 cursor_offsets[w + 1] = row_end_offset;
             }
 
-            let Some(sample) = orig_glyphs.first().copied() else { continue };
+            if total_row_chars == 0 {
+                row.glyphs.clear();
+                row.size.x = 0.0;
+                continue;
+            }
+
+            let Some(sample) = orig_glyphs.first().copied().or(fallback_sample) else { continue };
             row.glyphs.clear();
             for &x in &cursor_offsets[..total_row_chars] {
                 let mut glyph = sample;
@@ -846,6 +894,19 @@ mod tests {
             let c0 = galley.pos_from_cursor(egui::text::CCursor::new(0));
             let c_end = galley.pos_from_cursor(egui::text::CCursor::new(count));
             assert!(c0.min.x > c_end.min.x);
+        });
+        output.drop_without_applying_deltas();
+    }
+
+    #[test]
+    fn blank_lines_preserve_row_count_and_wrap_slices_empty() {
+        assert!(wrap_slices("", |_| true).is_empty());
+
+        let ctx = egui::Context::default();
+        ctx.set_fonts(crate::theme::font_definitions());
+        let output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            let galley = text_edit_layout(ui, "أ\n\nب", 200.0);
+            assert_eq!(galley.rows.len(), 3);
         });
         output.drop_without_applying_deltas();
     }
