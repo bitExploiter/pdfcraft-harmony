@@ -3,8 +3,8 @@
 //!
 //! A file created in a folder inherits the folder's access list, and folders such as a new folder
 //! at a drive root, `C:\Users\Public` or `C:\ProgramData` let every signed-in user read what is
-//! created in them. [`restrict_to_owner`] makes the current user the owner and replaces the
-//! inherited list with that user and SYSTEM only (`icacls`). [`read_with_sddl`] reads a file and
+//! created in them. [`restrict_to_owner`] replaces the whole list with the current user and
+//! SYSTEM only, makes that user the owner, and checks the result. [`read_with_sddl`] reads a file and
 //! its security descriptor through one handle. [`foreign_access`] reads the descriptor in SDDL
 //! form, which names accounts by SID and so reads the same in every Windows language, and says why
 //! another user could have written or could read the file. They run the tools Windows ships rather
@@ -106,16 +106,51 @@ fn sid_from_whoami(text: &str) -> Option<String> {
     digits.split('-').all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())).then(|| last.to_string())
 }
 
-/// Give `path` an access list of its own that only the current user and SYSTEM are on, dropping
-/// what it inherited from its folder, then make that user its owner (`icacls /inheritance:r
-/// /grant:r`, then `/setowner`). The owner is set because a file an elevated administrator creates
+/// Replace `path`'s access list with one that only the current user and SYSTEM are on, then make
+/// that user its owner (`icacls /setowner`), then read the file's descriptor back and check it with
+/// [`foreign_access`]. The whole list is replaced, not just what was inherited: on the
+/// windows-latest runner a new file in the temp folder carries an Administrators entry that `icacls
+/// /inheritance:r` leaves in place. The owner is set because a file an elevated administrator creates
 /// is owned by the Administrators group, not by the user. The list comes first: its owner may always
 /// replace it, while setting the owner needs the Full control it grants (a folder may give Modify).
 #[cfg(windows)]
 pub fn restrict_to_owner(path: &std::path::Path) -> std::io::Result<()> {
     let me = current_user_sid()?;
-    icacls(path, &["/inheritance:r".into(), "/grant:r".into(), format!("*{me}:(F)"), "*S-1-5-18:(F)".into()])?;
-    icacls(path, &["/setowner".into(), format!("*{me}")])
+    replace_access_list(path, &me)?;
+    icacls(path, &["/setowner".into(), format!("*{me}")])?;
+    let (sddl, _) = read_with_sddl(path, 0)?;
+    still_foreign(&sddl, &me)
+}
+
+/// `Err` naming the problem when the descriptor read back after restricting still isn't `me`'s
+/// alone, so a file that only looks restricted is never used as one.
+#[cfg(any(test, windows))]
+fn still_foreign(sddl: &str, me: &str) -> std::io::Result<()> {
+    match foreign_access(sddl, me) {
+        None => Ok(()),
+        Some(problem) => Err(std::io::Error::other(format!("the file could not be restricted to its owner: {problem}"))),
+    }
+}
+
+/// Set `path`'s access list to Full control for `me` and SYSTEM and nothing else, protected from
+/// inheritance. Only the list is written, not the owner. `me` and the path reach PowerShell through
+/// environment variables, never as script text.
+#[cfg(windows)]
+fn replace_access_list(path: &std::path::Path, me: &str) -> std::io::Result<()> {
+    // No double quotes: the command line would strip them.
+    const SCRIPT: &str = "$s = New-Object Security.AccessControl.FileSecurity; \
+        $s.SetSecurityDescriptorSddlForm('D:P(A;;FA;;;' + $env:PDFCRAFT_ACL_USER + ')(A;;FA;;;SY)', 'Access'); \
+        [IO.File]::SetAccessControl($env:PDFCRAFT_ACL_PATH, $s)";
+    let out = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", SCRIPT])
+        .env("PDFCRAFT_ACL_PATH", path)
+        .env("PDFCRAFT_ACL_USER", me)
+        .output()?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!("PowerShell could not restrict the file to its owner: {}", String::from_utf8_lossy(&out.stderr).trim())))
+    }
 }
 
 #[cfg(windows)]
@@ -420,13 +455,44 @@ mod tests {
         assert!(read_with_sddl(&file, 64).is_err(), "a file open for writing is not read");
         drop(writer);
         assert!(read_with_sddl(&file, 64).is_ok());
-        // When the owner can't be set, the file isn't taken as restricted, although its access
-        // list could still be replaced (an owner may always change that).
-        // Everyone is denied it, an entry `/grant:r` for the user leaves in place.
-        let deny = std::process::Command::new("icacls").arg(&file).arg("/deny").arg("*S-1-1-0:(WO)").output().unwrap();
-        assert!(deny.status.success(), "{}", String::from_utf8_lossy(&deny.stderr));
-        assert!(restrict_to_owner(&file).is_err(), "setting the owner failed");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Entries of the file's own, not inherited, are replaced too: an Administrators or Users
+    /// entry (as the windows-latest runner's temp folder leaves on a new file, #3922) and a deny
+    /// that would keep the user from setting the owner.
+    #[cfg(windows)]
+    #[test]
+    fn entries_of_the_files_own_are_replaced() {
+        let dir = std::env::temp_dir().join(format!("pdfcraft-owner-only-own-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let me = current_user_sid().unwrap();
+        let mine = format!("*{me}:(R)");
+        for (name, entries) in [
+            ("others.json", ["/grant", "*S-1-5-32-544:(F)", "/grant", "*S-1-5-32-545:(R)"]),
+            ("deny.json", ["/deny", "*S-1-1-0:(WO)", "/grant", "*S-1-5-32-544:(F)"]),
+        ] {
+            let file = dir.join(name);
+            std::fs::write(&file, b"{}").unwrap();
+            // The user keeps read access, so the descriptor can be read before restricting.
+            let own = std::process::Command::new("icacls").arg(&file).arg("/inheritance:r").args(entries).args(["/grant", &mine]).output().unwrap();
+            assert!(own.status.success(), "{}", String::from_utf8_lossy(&own.stderr));
+            assert!(foreign_access(&sddl_of(&file).unwrap(), &me).is_some(), "{name}");
+            restrict_to_owner(&file).unwrap();
+            let sddl = sddl_of(&file).unwrap();
+            assert_eq!((section(&sddl, "O:"), foreign_access(&sddl, &me)), (Some(me.as_str()), None), "{name}: {sddl}");
+            assert!(!sddl.contains("(D;"), "{name}: the deny is gone: {sddl}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_descriptor_still_open_to_others_after_restricting_is_an_error() {
+        assert!(still_foreign(&format!("O:{ME}D:P(A;;FA;;;SY)(A;;FA;;;{ME})"), ME).is_ok());
+        for bad in [format!("O:{ME}D:P(A;;FA;;;S-1-5-32-544)(A;;FA;;;{ME})"), format!("O:S-1-5-32-544D:P(A;;FA;;;{ME})"), format!("O:{ME}")] {
+            assert!(still_foreign(&bad, ME).is_err_and(|e| e.to_string().contains("could not be restricted")), "{bad}");
+        }
     }
 
     /// [`read_with_sddl`] gives accounts as full SIDs (rights as a number, no list flags), the way a
