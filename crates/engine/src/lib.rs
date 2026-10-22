@@ -3027,7 +3027,6 @@ impl From<pdfcraft_sign::SignError> for EditError {
 #[derive(Default)]
 pub struct Session {
     docs: Vec<Document>,
-    next_id: u64,
     /// Seconds since the Unix epoch, injected so saves are deterministic in tests.
     clock: Option<fn() -> i64>,
     /// Seconds to add to UTC for local time, read from whoever knows the zone (a browser, say).
@@ -3463,8 +3462,9 @@ impl Session {
 
     /// Register a prepared document. This is the only open step that mutates the session.
     pub fn commit_open(&mut self, prepared: PreparedDocument) -> DocId {
-        self.next_id += 1;
-        let id = DocId(self.next_id);
+        // egui state and native viewports share a process-wide identity namespace.
+        static NEXT_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+        let id = DocId(NEXT_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed));
         let mut document = prepared.document;
         document.id = id;
         self.docs.push(document);
@@ -5115,6 +5115,33 @@ impl Session {
             e.redo.clear();
         }
         Ok(())
+    }
+
+    /// Move one open document into an independent session, without saving or reparsing it.
+    /// Its identity, password, editor, Undo/Redo and autosave generations are preserved.
+    /// A missing id leaves this session unchanged.
+    pub fn detach_document(&mut self, id: DocId) -> Option<Self> {
+        let index = self.docs.iter().position(|d| d.id == id)?;
+        Some(Self {
+            docs: vec![self.docs.remove(index)],
+            clock: self.clock,
+            utc_offset: self.utc_offset,
+            trust: self.trust.clone(),
+            js_off: self.js_off,
+            date_format: self.date_format.clone(),
+            date_language: self.date_language.clone(),
+        })
+    }
+
+    /// Move a live document between sessions, preserving its process-unique identity.
+    /// A missing source or an existing target identity leaves both sessions unchanged.
+    pub fn transfer_document(&mut self, id: DocId, target: &mut Self) -> Option<DocId> {
+        let index = self.docs.iter().position(|d| d.id == id)?;
+        if target.get(id).is_some() {
+            return None;
+        }
+        target.docs.push(self.docs.remove(index));
+        Some(id)
     }
 
     pub fn close(&mut self, id: DocId) {

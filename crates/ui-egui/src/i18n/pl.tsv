@@ -2611,3 +2611,5 @@ animation effects	Off	Wyłączone
 	field names can't contain a period: {name}	nazwy pól nie mogą zawierać kropki: {name}
 	two cells would both be named {name}	dwie komórki miałyby nazwę {name}
 	a field named {name} already exists	pole o nazwie {name} już istnieje
+	Move Tab to New Window	Przenieś kartę do nowego okna
+	Move Tab to This Window	Przenieś kartę do tego okna

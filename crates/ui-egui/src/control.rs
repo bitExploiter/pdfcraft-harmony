@@ -14,6 +14,7 @@
 //! Methods (JSON in, JSON out):
 //! - `ui.state`: open documents, active document, page, zoom, page errors, mode, panels, dialog,
 //!   notice and observed window dimensions in logical points.
+//!   `managed_windows` gives native drop regions and desktop-pixel origins for cross-window drags.
 //! - `ui.inspect {query?, role?, focused?, limit?}`: widgets in tree order with `id` (a string), `role`, `label`,
 //!   `value`, `rect` (points), `enabled`, `toggled`, `selected`, `clickable`, `focusable`, `focused`, `depth`.
 //! - `ui.click {id}` | `{label}` | `{x, y, button?}`: click a widget (by its AccessKit action) or a
@@ -116,6 +117,7 @@ struct Shared {
 /// The egui plugin half of the control channel.
 pub struct ControlPlugin {
     shared: Arc<Mutex<Shared>>,
+    viewport: egui::ViewportId,
 }
 
 impl egui::Plugin for ControlPlugin {
@@ -124,6 +126,9 @@ impl egui::Plugin for ControlPlugin {
     }
 
     fn input_hook(&mut self, ctx: &egui::Context, input: &mut egui::RawInput) {
+        if input.viewport_id != self.viewport {
+            return;
+        }
         let Ok(mut s) = self.shared.lock() else { return };
         if let Some(batch) = s.inject.pop_front() {
             input.events.extend(batch);
@@ -133,7 +138,10 @@ impl egui::Plugin for ControlPlugin {
         }
     }
 
-    fn output_hook(&mut self, _ctx: &egui::Context, output: &mut egui::FullOutput) {
+    fn output_hook(&mut self, ctx: &egui::Context, output: &mut egui::FullOutput) {
+        if ctx.viewport_id() != self.viewport {
+            return;
+        }
         let Ok(mut s) = self.shared.lock() else { return };
         s.passes += 1;
         let Some(update) = &output.platform_output.accesskit_update else { return };
@@ -172,7 +180,7 @@ pub struct Control {
 /// Install the control channel on `ctx`: returns the app half and a client.
 pub fn attach(ctx: &egui::Context) -> (Control, ControlClient) {
     let shared = Arc::new(Mutex::new(Shared::default()));
-    ctx.add_plugin(ControlPlugin { shared: shared.clone() });
+    ctx.add_plugin(ControlPlugin { shared: shared.clone(), viewport: ctx.viewport_id() });
     ctx.enable_accesskit();
     let (tx, rx) = channel();
     (Control { rx, shared, pending: Vec::new(), next_tag: 1 }, ControlClient { tx, ctx: ctx.clone() })
@@ -281,6 +289,7 @@ impl Control {
                 let mut state = host.state();
                 let size = ctx.input(|i| i.viewport_rect().size());
                 state["window"] = json!({ "width": size.x, "height": size.y, "pixels_per_point": ctx.pixels_per_point() });
+                state["managed_windows"] = crate::window_drop::inspect(ctx);
                 Ok(Handled::Now(Ok(state)))
             }
             "ui.commands" => Ok(Handled::Now(Ok(host.commands()))),
@@ -1521,5 +1530,27 @@ mod pointer_tests {
             assert!(h.state().host.views.is_empty(), "pointer probes create no document edits");
             assert_eq!(h.ctx.options(|o| o.input_options.max_click_duration), max_duration);
         }
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    use egui::Plugin as _;
+
+    #[test]
+    fn control_input_remains_in_its_attached_window() {
+        let shared = Arc::new(Mutex::new(Shared::default()));
+        shared.lock().unwrap().inject.push_back(vec![egui::Event::Text("root only".into())]);
+        let mut plugin = ControlPlugin { shared: shared.clone(), viewport: egui::ViewportId::ROOT };
+        let ctx = egui::Context::default();
+        let mut child = egui::RawInput { viewport_id: egui::ViewportId::from_hash_of("child"), ..Default::default() };
+        plugin.input_hook(&ctx, &mut child);
+        assert!(child.events.is_empty());
+        assert_eq!(shared.lock().unwrap().inject.len(), 1);
+        let mut root = egui::RawInput::default();
+        plugin.input_hook(&ctx, &mut root);
+        assert_eq!(root.events, vec![egui::Event::Text("root only".into())]);
+        assert!(shared.lock().unwrap().inject.is_empty());
     }
 }
