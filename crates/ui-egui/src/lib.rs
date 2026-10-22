@@ -31,6 +31,7 @@ macro_rules! tl_ctx {
 mod a11y_ui;
 mod actions_ui;
 mod appearance;
+mod calc_order_ui;
 pub mod canvas;
 mod chrome;
 mod combine_grid;
@@ -79,6 +80,7 @@ mod bidi;
 pub mod bulk_fields;
 mod dialogs;
 mod edit_text_ui;
+pub mod field_table_ui;
 pub use edit_text_ui::CropMode;
 mod editing;
 #[cfg(not(target_arch = "wasm32"))]
@@ -189,6 +191,8 @@ impl Mode {
 pub enum LeftPanel {
     AllTools,
     Tool(&'static str),
+    /// Prepare a form ▸ Calculation order, a page of its own; Back returns to Prepare a form.
+    CalculationOrder,
 }
 
 /// Right-hand panels, opened from the rail.
@@ -332,6 +336,8 @@ pub enum Dialog {
     Optimize,
     /// Prepare a form ▸ right-click a field ▸ Duplicate.
     DuplicateField,
+    /// Prepare a form ▸ Text field table: a movable window rather than a modal (`field_table_ui`).
+    FieldTable,
     /// Check for accessibility ▸ Accessibility Checker Options.
     AccessibilityOptions,
     /// Scan & OCR ▸ Recognize text.
@@ -736,6 +742,8 @@ pub struct PdfCraftApp {
     pub attach_override: Option<(String, Vec<u8>)>,
     /// Duplicate Field: which field and onto which pages.
     pub duplicate_draft: Option<DuplicateDraft>,
+    /// Text field table: the table being set up, and the page it goes on.
+    pub field_table_draft: Option<field_table_ui::FieldTableDraft>,
     /// Prepare a form ▸ Preview: fill the form instead of editing its fields.
     pub form_preview: bool,
     /// Where autosaves go (`None`: autosave off, e.g. on the web and in tests).
@@ -1037,6 +1045,7 @@ impl PdfCraftApp {
             system_clipboard: true,
             attach_override: None,
             duplicate_draft: None,
+            field_table_draft: None,
             form_preview: false,
             window_title: String::new(),
             recovery: None,
@@ -1092,10 +1101,12 @@ impl PdfCraftApp {
         }
     }
 
-    /// Fields are being edited (Prepare a form is open or a field tool is picked), unless the
-    /// form is being previewed.
+    /// Fields are being edited (Prepare a form or its Calculation order is open, or a field tool
+    /// is picked), unless the form is being previewed.
     pub fn is_preparing(&self) -> bool {
-        ((self.left_open && self.left == LeftPanel::Tool("form")) || matches!(self.quick_tool, QuickTool::Field(_))) && !self.form_preview
+        ((self.left_open && matches!(self.left, LeftPanel::Tool("form") | LeftPanel::CalculationOrder))
+            || matches!(self.quick_tool, QuickTool::Field(_)))
+            && !self.form_preview
     }
 
     /// Open a document the way it asks to be opened: navigation panel, layout, magnification,
