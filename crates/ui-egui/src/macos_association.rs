@@ -10,23 +10,17 @@ const QUARANTINE: &str = "com.apple.quarantine";
 const BUNDLE_ID: &str = "ai.storyteller.pdfcraft";
 const MAX_ATTRIBUTE: usize = 64 * 1024;
 
-/// Preserve these two attributes verbatim on the staging file, before atomic replacement.
-/// This includes other applications' bindings: an ordinary save must not erase a preference.
+/// A bounded snapshot used only to decide whether native association recovery is eligible.
 #[derive(Default, PartialEq, Eq)]
-pub(crate) struct OpeningMetadata {
+struct OpeningMetadata {
     association: Option<Vec<u8>>,
     quarantine: Option<Vec<u8>>,
     identity: Option<(u64, u64)>,
 }
 
 impl OpeningMetadata {
-    /// Snapshot readable opening attributes for preservation, including non-PDFCraft bindings.
-    pub(crate) fn read(path: &Path) -> io::Result<Self> {
-        Self::read_for(path, false)
-    }
-
-    /// Repair stops after the first attribute when quarantine is absent.
-    fn read_for(path: &Path, repair: bool) -> io::Result<Self> {
+    /// Capture one regular file identity and only read a binding when quarantine exists.
+    fn read(path: &Path) -> io::Result<Self> {
         use std::os::unix::fs::MetadataExt as _;
         let identity = match path.symlink_metadata() {
             Ok(meta) if meta.is_file() => (meta.dev(), meta.ino()),
@@ -35,7 +29,7 @@ impl OpeningMetadata {
             Err(e) => return Err(e),
         };
         let quarantine = read_attribute(path, QUARANTINE)?;
-        let association = if repair && quarantine.is_none() { None } else { read_attribute(path, OPEN_WITH)? };
+        let association = if quarantine.is_none() { None } else { read_attribute(path, OPEN_WITH)? };
         let snapshot = Self { association, quarantine, identity: Some(identity) };
         let current = path.symlink_metadata()?;
         if !current.is_file() || (current.dev(), current.ino()) != identity {
@@ -43,42 +37,6 @@ impl OpeningMetadata {
         }
         Ok(snapshot)
     }
-
-    /// Copy known values to the staging descriptor; a copy failure must prevent replacement.
-    pub(crate) fn apply(&self, staging: &std::fs::File) -> io::Result<()> {
-        self.apply_with(|name, value| rustix::fs::fsetxattr(staging, name, value, rustix::fs::XattrFlags::empty()).map_err(Into::into))
-    }
-
-    /// Copy each readable attribute, keeping metadata errors distinct from flush fallback.
-    fn apply_with(&self, mut set: impl FnMut(&str, &[u8]) -> io::Result<()>) -> io::Result<()> {
-        for (name, value) in [(OPEN_WITH, &self.association), (QUARANTINE, &self.quarantine)] {
-            if let Some(value) = value {
-                // The shared writer falls back to fsync for NOTSUP/NOTTY from its flush
-                // callback. A metadata error must never be mistaken for that flush failure.
-                set(name, value).map_err(|e| io::Error::other(format!("could not preserve {name}: {e}")))?;
-            }
-        }
-        Ok(())
-    }
-}
-
-/// Preserve destination preferences only for explicit PDF document saves. Unreadable or
-/// oversized metadata refuses replacement rather than silently discarding quarantine.
-pub(crate) fn write_document(
-    path: &str,
-    bytes: &[u8],
-    suffixes: impl IntoIterator<Item = u64>,
-    sync_all: impl FnOnce(&std::fs::File) -> io::Result<()>,
-) -> io::Result<()> {
-    use pdfcraft_platform::staging::{StagingName, write_atomically_with};
-    let sync = |file: &std::fs::File| {
-        // Snapshot late so settings changed during staging are preserved too.
-        let metadata = OpeningMetadata::read(Path::new(path))
-            .map_err(|e| io::Error::other(format!("could not read opening settings; save a copy with Save As: {e}")))?;
-        metadata.apply(file)?;
-        sync_all(file)
-    };
-    write_atomically_with(Path::new(path), bytes, StagingName::TagThenSuffix, suffixes, sync)
 }
 
 /// Read a last-component-symlink-safe attribute with a strict allocation cap.
@@ -87,7 +45,7 @@ fn read_attribute(path: &Path, name: &str) -> io::Result<Option<Vec<u8>>> {
 }
 
 /// Probe the length before allocating. A concurrently grown value fails safely; unreadable
-/// attributes are best effort, but a known oversized value must not be silently discarded.
+/// attributes or values beyond the parser cap skip recovery without affecting open/save.
 fn read_attribute_with(mut get: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>) -> io::Result<Option<Vec<u8>>> {
     use rustix::io::Errno;
     let unreadable = |error| match error {
@@ -212,7 +170,7 @@ fn repair_job(job: RepairJob) {
     use block2::RcBlock;
     use objc2_app_kit::NSWorkspace;
     use objc2_foundation::{NSError, NSURL};
-    let metadata = match OpeningMetadata::read_for(&job.pending.path, true) {
+    let metadata = match OpeningMetadata::read(&job.pending.path) {
         Ok(metadata) => metadata,
         Err(_) => {
             log::warn!("PDF association recovery skipped: could not read opening metadata");
@@ -302,7 +260,7 @@ mod tests {
             std::fs::write(&file, b"before").unwrap();
             xattr::set(&file, OPEN_WITH, &data).unwrap();
             xattr::set(&file, QUARANTINE, b"0082;1234;Preview;").unwrap();
-            write_document(file.to_str().unwrap(), b"after", [7], std::fs::File::sync_all).unwrap();
+            crate::editing::write_atomically(file.to_str().unwrap(), b"after").unwrap();
             assert_eq!(std::fs::read(&file).unwrap(), b"after");
             assert_eq!(xattr::get(&file, OPEN_WITH).unwrap(), Some(data));
             assert_eq!(xattr::get(&file, QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
@@ -315,44 +273,25 @@ mod tests {
     fn new_destination_does_not_acquire_an_association() {
         let dir = directory();
         let file = dir.join("new.pdf");
-        write_document(file.to_str().unwrap(), b"pdf bytes", [7], std::fs::File::sync_all).unwrap();
+        crate::editing::write_atomically(file.to_str().unwrap(), b"pdf bytes").unwrap();
         assert!(xattr::get(&file, OPEN_WITH).unwrap().is_none());
         assert!(xattr::get(&file, QUARANTINE).unwrap().is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// A refused attribute copy must not trigger the plain-fsync success fallback.
+    /// The repair parser cap must not narrow upstream's larger preservation limits.
     #[test]
-    fn metadata_copy_failure_cannot_be_treated_as_an_unsupported_flush() {
-        use pdfcraft_platform::staging::{StagingName, write_atomically_with};
-        for errno in [rustix::io::Errno::NOTSUP, rustix::io::Errno::NOTTY] {
-            let dir = directory();
-            let file = dir.join("out.pdf");
-            std::fs::write(&file, b"original PDF").unwrap();
-            xattr::set(&file, OPEN_WITH, b"original association").unwrap();
-            xattr::set(&file, QUARANTINE, b"0082;1234;Preview;").unwrap();
-            let metadata = OpeningMetadata::read(&file).unwrap();
-            let result = write_atomically_with(&file, b"new PDF", StagingName::TagThenSuffix, [7], |_| metadata.apply_with(|_, _| Err(errno.into())));
-            assert!(result.is_err(), "a refused metadata copy must fail the save, not fall back to fsync");
-            assert_eq!(std::fs::read(&file).unwrap(), b"original PDF");
-            assert_eq!(xattr::get(&file, OPEN_WITH).unwrap(), Some(b"original association".to_vec()));
-            assert_eq!(xattr::get(&file, QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
-            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "staging file removed");
-            std::fs::remove_dir_all(dir).unwrap();
-        }
-    }
-
-    /// Bound allocation and retain the original file when a known value exceeds the cap.
-    #[test]
-    fn oversized_attribute_is_refused_before_preservation_or_parsing() {
+    fn oversized_binding_skips_repair_but_is_preserved_by_the_shared_writer() {
         let dir = directory();
         let file = dir.join("out.pdf");
         std::fs::write(&file, b"original PDF").unwrap();
         xattr::set(&file, OPEN_WITH, &vec![b'x'; MAX_ATTRIBUTE + 1]).unwrap();
-        assert!(OpeningMetadata::read(&file).is_err(), "reading, not just parsing, must enforce the limit");
-        assert!(write_document(file.to_str().unwrap(), b"new PDF", [7], std::fs::File::sync_all).is_err());
-        assert_eq!(std::fs::read(&file).unwrap(), b"original PDF");
+        xattr::set(&file, QUARANTINE, b"0082;1234;Preview;").unwrap();
+        assert!(OpeningMetadata::read(&file).is_err());
+        crate::editing::write_atomically(file.to_str().unwrap(), b"new PDF").unwrap();
+        assert_eq!(std::fs::read(&file).unwrap(), b"new PDF");
         assert_eq!(xattr::get(&file, OPEN_WITH).unwrap().unwrap().len(), MAX_ATTRIBUTE + 1);
+        assert_eq!(xattr::get(&file, QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -406,18 +345,6 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
-    /// Recovery and export writes retain their original metadata-independent behavior.
-    #[test]
-    fn unrelated_atomic_writes_do_not_read_opening_metadata() {
-        let dir = directory();
-        let file = dir.join("recovery.pdf");
-        std::fs::write(&file, b"old recovery").unwrap();
-        xattr::set(&file, OPEN_WITH, &vec![b'x'; MAX_ATTRIBUTE + 1]).unwrap();
-        crate::editing::write_atomically(file.to_str().unwrap(), b"new recovery").unwrap();
-        assert_eq!(std::fs::read(&file).unwrap(), b"new recovery");
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// Check a real captured native binding and the packaged application identity.
     #[test]
     fn native_binding_and_packaging_identity_match() {
@@ -462,31 +389,8 @@ mod tests {
         }
     }
 
-    /// Preservation is visible on the actual staging descriptor even when the subsequent
-    /// flush fails; removing apply() makes this test fail before the injected flush error.
-    #[test]
-    fn document_flush_sees_preserved_attributes_and_failure_keeps_original() {
-        let dir = directory();
-        let path = dir.join("document.pdf");
-        std::fs::write(&path, b"old PDF").unwrap();
-        xattr::set(&path, OPEN_WITH, b"binding").unwrap();
-        xattr::set(&path, QUARANTINE, b"0082;1234;Preview;").unwrap();
-        let result = write_document(path.to_str().unwrap(), b"new PDF", [7], |staging| {
-            use xattr::FileExt;
-            assert_eq!(staging.get_xattr(OPEN_WITH).unwrap(), Some(b"binding".to_vec()));
-            assert_eq!(staging.get_xattr(QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
-            Err(io::Error::other("injected flush failure"))
-        });
-        assert!(result.is_err());
-        assert_eq!(std::fs::read(&path).unwrap(), b"old PDF");
-        assert_eq!(xattr::get(&path, OPEN_WITH).unwrap(), Some(b"binding".to_vec()));
-        assert_eq!(xattr::get(&path, QUARANTINE).unwrap(), Some(b"0082;1234;Preview;".to_vec()));
-        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
-
     /// Length probing allocates only the value, rejects oversize before a second call,
-    /// and treats growth between the probe and read as a safe preservation failure.
+    /// and skips recovery if the value grows between the probe and read.
     #[test]
     fn attribute_probes_bound_allocation_and_detect_growth() {
         let mut calls = 0;

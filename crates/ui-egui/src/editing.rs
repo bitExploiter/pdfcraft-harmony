@@ -768,7 +768,7 @@ impl PdfCraftApp {
                 return false;
             }
         };
-        if let Err(e) = write_document(dest, &bytes) {
+        if let Err(e) = write_atomically(dest, &bytes) {
             self.notify_fmt("Couldn't save {name}: {e}", &[("name", dest), ("e", &e.to_string())]);
             return false;
         }
@@ -1036,14 +1036,6 @@ pub(crate) fn is_mail_temp_copy(path: &str) -> bool {
 /// full disk never leaves a half-written PDF where the original was.
 pub fn write_atomically(path: &str, bytes: &[u8]) -> std::io::Result<()> {
     write_atomically_with(path, bytes, staging_suffixes())
-}
-
-/// Explicit document saves preserve opening metadata; autosaves and exports keep their writer.
-pub(crate) fn write_document(path: &str, bytes: &[u8]) -> std::io::Result<()> {
-    #[cfg(target_os = "macos")]
-    return crate::macos_association::write_document(path, bytes, staging_suffixes(), std::fs::File::sync_all);
-    #[cfg(not(target_os = "macos"))]
-    write_atomically(path, bytes)
 }
 
 /// [`write_atomically`], trying the staging names that `suffixes` give.
@@ -1359,7 +1351,7 @@ mod tests {
             xattr::set(&target, "com.apple.quarantine", b"0082;5678;another app;").unwrap();
             7
         });
-        crate::macos_association::write_document(&target.to_string_lossy(), b"NEW", suffixes, std::fs::File::sync_all).unwrap();
+        write_atomically_with(&target.to_string_lossy(), b"NEW", suffixes).unwrap();
         assert_eq!(read(&target), "NEW");
         assert_eq!(xattr::get(&target, "com.apple.LaunchServices.OpenWith").unwrap(), Some(b"new handler".to_vec()));
         assert_eq!(xattr::get(&target, "com.apple.quarantine").unwrap(), Some(b"0082;5678;another app;".to_vec()));
