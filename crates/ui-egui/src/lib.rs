@@ -601,6 +601,8 @@ pub struct PdfCraftApp {
     #[cfg(not(target_arch = "wasm32"))]
     pending_opens: Vec<PendingOpen>,
     #[cfg(not(target_arch = "wasm32"))]
+    pending_os_opens: std::collections::VecDeque<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     next_open_token: u64,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     open_prepare_gate: Option<std::sync::Arc<open_worker::PrepareGate>>,
@@ -994,6 +996,8 @@ impl PdfCraftApp {
             #[cfg(not(target_arch = "wasm32"))]
             pending_opens: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
+            pending_os_opens: std::collections::VecDeque::new(),
+            #[cfg(not(target_arch = "wasm32"))]
             next_open_token: 0,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             open_prepare_gate: None,
@@ -1267,6 +1271,16 @@ impl PdfCraftApp {
         // earlier waiting replies, without consuming a blocked receiver's result.
         waiting.append(&mut self.pending_opens);
         self.pending_opens = waiting;
+    }
+
+    /// OS requests also include already-open tabs, which focus without worker preparation.
+    /// Admit them in order only after the current document interaction has finished.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn poll_os_opens(&mut self) {
+        while !self.modal_open() && !self.pickers.pending() && self.pending_opens.is_empty() {
+            let Some(path) = self.pending_os_opens.pop_front() else { break };
+            self.open_path(&path);
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -1690,6 +1704,13 @@ impl PdfCraftApp {
             // not attach itself to whatever document is unlocked next (#813).
             if let Some(meta) = p.recovered {
                 self.recoverable.push(meta);
+            }
+            // Native intake ran before this prompt closed; resume retained paths next frame.
+            #[cfg(not(target_arch = "wasm32"))]
+            if !self.pending_os_opens.is_empty()
+                && let Some(ctx) = &self.ctx
+            {
+                ctx.request_repaint();
             }
             return;
         };
@@ -3241,9 +3262,7 @@ impl eframe::App for PdfCraftApp {
             match e {
                 #[cfg(not(target_arch = "wasm32"))]
                 OsEvent::Open(paths) => {
-                    paths.iter().for_each(|p| {
-                        self.open_path(p);
-                    });
+                    self.pending_os_opens.extend(paths);
                     // Files handed to the running app (Finder, or another launch): bring its
                     // window to the front, also when minimized or full screen on another Space.
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
@@ -3255,6 +3274,8 @@ impl eframe::App for PdfCraftApp {
                 OsEvent::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
             }
         }
+        #[cfg(not(target_arch = "wasm32"))]
+        self.poll_os_opens();
         if let Some((_, id)) = self.active_ids() {
             let out = self.session.take_js_output(id);
             self.handle_js(id, out);
