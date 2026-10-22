@@ -282,6 +282,7 @@ fn text_turn(d: &Dict) -> i64 {
 /// it can be drawn.
 pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
     let text = |key: &[u8]| d.get(key).and_then(Object::as_string).map(PdfString::to_text);
+    let stamp = d.name(b"Subtype") == Some(b"Stamp");
     let (what, text) = match d.name(b"Subtype")? {
         b"FreeText" => ("the comment's text", text(b"Contents")?),
         b"Line" | b"PolyLine" | b"Polygon" => ("the measurement label", text(b"PCMeasureValue")?),
@@ -290,6 +291,8 @@ pub fn undrawable_text(d: &Dict) -> Option<(&'static str, char)> {
         b"Redact" => ("the redaction's overlay text", text(b"OverlayText")?),
         _ => return None,
     };
+    // A stamp's text may use the extra Latin letters its own encoding draws ([`StampEncoding`]).
+    let text = if stamp { fold_extra(&text) } else { text };
     Some((what, first_undrawable(&text)?))
 }
 
@@ -664,7 +667,8 @@ pub fn build(d: &Dict) -> Option<Stream> {
                     }
                     let kind = crate::StampKind::from_name(other)?;
                     let by = d.get(b"PCByLine").and_then(|o| o.as_string()).map(PdfString::to_text);
-                    return Some(turned(stamp(kind, draw, stroke.unwrap_or(kind.color()), by.as_deref(), opacity, res)));
+                    let lang = d.name(b"PCLang").and_then(|n| std::str::from_utf8(n).ok()).map_or(crate::StampLang::En, crate::StampLang::from_code);
+                    return Some(turned(stamp(kind, lang, draw, stroke.unwrap_or(kind.color()), by.as_deref(), opacity, res)));
                 }
             }
             if turn != 0 {
@@ -810,9 +814,122 @@ pub fn build(d: &Dict) -> Option<Stream> {
     Some(form(rect, &out, res))
 }
 
+/// Latin Extended letters that WinAnsiEncoding lacks but Helvetica's glyph set has (Czech,
+/// Polish, Turkish, Hungarian, Romanian, …): the character, its glyph name and the base letter
+/// it is measured as.
+const EXTRA_GLYPHS: &[(char, &str, char)] = &[
+    ('Ą', "Aogonek", 'A'),
+    ('ą', "aogonek", 'a'),
+    ('Ă', "Abreve", 'A'),
+    ('ă', "abreve", 'a'),
+    ('Ć', "Cacute", 'C'),
+    ('ć', "cacute", 'c'),
+    ('Č', "Ccaron", 'C'),
+    ('č', "ccaron", 'c'),
+    ('Ď', "Dcaron", 'D'),
+    ('ď', "dcaron", 'd'),
+    ('Đ', "Dcroat", 'D'),
+    ('đ', "dcroat", 'd'),
+    ('Ę', "Eogonek", 'E'),
+    ('ę', "eogonek", 'e'),
+    ('Ě', "Ecaron", 'E'),
+    ('ě', "ecaron", 'e'),
+    ('Ė', "Edotaccent", 'E'),
+    ('ė', "edotaccent", 'e'),
+    ('Ğ', "Gbreve", 'G'),
+    ('ğ', "gbreve", 'g'),
+    ('İ', "Idotaccent", 'I'),
+    ('Į', "Iogonek", 'I'),
+    ('į', "iogonek", 'i'),
+    ('Ł', "Lslash", 'L'),
+    ('ł', "lslash", 'l'),
+    ('Ń', "Nacute", 'N'),
+    ('ń', "nacute", 'n'),
+    ('Ň', "Ncaron", 'N'),
+    ('ň', "ncaron", 'n'),
+    ('Ő', "Ohungarumlaut", 'O'),
+    ('ő', "ohungarumlaut", 'o'),
+    ('Ř', "Rcaron", 'R'),
+    ('ř', "rcaron", 'r'),
+    ('Ś', "Sacute", 'S'),
+    ('ś', "sacute", 's'),
+    ('Ş', "Scedilla", 'S'),
+    ('ş', "scedilla", 's'),
+    ('Ș', "Scommaaccent", 'S'),
+    ('ș', "scommaaccent", 's'),
+    ('Ť', "Tcaron", 'T'),
+    ('ť', "tcaron", 't'),
+    ('Ț', "Tcommaaccent", 'T'),
+    ('ț', "tcommaaccent", 't'),
+    ('Ů', "Uring", 'U'),
+    ('ů', "uring", 'u'),
+    ('Ű', "Uhungarumlaut", 'U'),
+    ('ű', "uhungarumlaut", 'u'),
+    ('Ų', "Uogonek", 'U'),
+    ('ų', "uogonek", 'u'),
+    ('Ū', "Umacron", 'U'),
+    ('ū', "umacron", 'u'),
+    ('Ź', "Zacute", 'Z'),
+    ('ź', "zacute", 'z'),
+    ('Ż', "Zdotaccent", 'Z'),
+    ('ż', "zdotaccent", 'z'),
+    ('ı', "dotlessi", 'i'),
+];
+
+/// `s` with the [`EXTRA_GLYPHS`] letters replaced by their base letters, to measure it.
+pub(crate) fn fold_extra(s: &str) -> String {
+    s.chars().map(|c| EXTRA_GLYPHS.iter().find(|g| g.0 == c).map_or(c, |g| g.2)).collect()
+}
+
+/// The font encoding of one stamp: WinAnsi, plus the extra letters its texts need, put on
+/// otherwise unused codes through `/Differences`.
+struct StampEncoding {
+    extra: Vec<(char, u8, &'static str)>,
+}
+
+impl StampEncoding {
+    fn new(texts: &[&str]) -> Self {
+        let used: Vec<u8> = texts.iter().flat_map(|t| t.chars()).filter_map(pdfcraft_fonts::win_ansi_byte).collect();
+        let mut free = (0x80u8..=0x9f).filter(|c| !used.contains(c));
+        let mut extra: Vec<(char, u8, &'static str)> = Vec::new();
+        for c in texts.iter().flat_map(|t| t.chars()) {
+            if pdfcraft_fonts::win_ansi_byte(c).is_some() || extra.iter().any(|e| e.0 == c) {
+                continue;
+            }
+            if let Some(g) = EXTRA_GLYPHS.iter().find(|g| g.0 == c)
+                && let Some(code) = free.next()
+            {
+                extra.push((c, code, g.1));
+            }
+        }
+        Self { extra }
+    }
+
+    fn encode(&self, s: &str) -> Vec<u8> {
+        s.chars()
+            .map(|c| match self.extra.iter().find(|e| e.0 == c) {
+                Some(e) => e.1,
+                None => win_ansi(&c.to_string()).first().copied().unwrap_or(b'?'),
+            })
+            .collect()
+    }
+
+    fn font_encoding(&self) -> Object {
+        if self.extra.is_empty() {
+            return Object::name("WinAnsiEncoding");
+        }
+        let mut d = Dict::new();
+        d.set(b"Type".to_vec(), Object::name("Encoding"));
+        d.set(b"BaseEncoding".to_vec(), Object::name("WinAnsiEncoding"));
+        let differences = self.extra.iter().flat_map(|e| [Object::Int(i64::from(e.1)), Object::name(e.2)]).collect();
+        d.set(b"Differences".to_vec(), Object::Array(differences));
+        Object::Dict(d)
+    }
+}
+
 /// A rubber stamp: a rounded frame (a pointed tag for sign-here stamps) with the label in bold
 /// capitals, and the dynamic stamps' "By … at …" line.
-fn stamp(kind: crate::StampKind, rect: [f64; 4], col: Rgb, by: Option<&str>, opacity: f64, mut res: Dict) -> Stream {
+fn stamp(kind: crate::StampKind, lang: crate::StampLang, rect: [f64; 4], col: Rgb, by: Option<&str>, opacity: f64, mut res: Dict) -> Stream {
     let [x0, y0, x1, y1] = rect;
     let h = y1 - y0;
     let mut c = String::new();
@@ -887,15 +1004,16 @@ fn stamp(kind: crate::StampKind, rect: [f64; 4], col: Rgb, by: Option<&str>, opa
             n(b0)
         ));
     }
-    let label = kind.label();
+    let label = kind.label_in(lang);
+    let enc = StampEncoding::new(&[label, by.unwrap_or_default()]);
     let (title_h, by_h) = if by.is_some() { (h * 0.5, h * 0.22) } else { (h * 0.52, 0.0) };
     let text_area = if kind.group() == crate::StampGroup::SignHere { (x0 + h * 0.45, x1 - lw * 2.0) } else { (x0 + lw * 2.0, x1 - lw * 2.0) };
     let mut size = title_h;
-    let tw = text_width(label, size) * 1.12;
+    let tw = text_width(&fold_extra(label), size) * 1.12;
     if tw > text_area.1 - text_area.0 - 4.0 {
         size *= (text_area.1 - text_area.0 - 4.0) / tw;
     }
-    let tw = text_width(label, size) * 1.12;
+    let tw = text_width(&fold_extra(label), size) * 1.12;
     let text_col = if kind.group() == crate::StampGroup::SignHere { [1.0, 1.0, 1.0] } else { col };
     let ty = if by.is_some() { y0 + h * 0.48 } else { y0 + (h - size * 0.72) / 2.0 };
     let mut out = c.into_bytes();
@@ -903,28 +1021,29 @@ fn stamp(kind: crate::StampKind, rect: [f64; 4], col: Rgb, by: Option<&str>, opa
         format!("BT\n{}/HelvB {} Tf\n1 0 0 1 {} {} Tm ", rg(text_col), n(size), n(text_area.0 + (text_area.1 - text_area.0 - tw) / 2.0), n(ty))
             .bytes(),
     );
-    out.extend(literal(&win_ansi(label)));
+    out.extend(literal(&enc.encode(label)));
     out.extend_from_slice(b" Tj\n");
     if let Some(b) = by {
         let mut s = by_h;
-        let bw = text_width(b, s);
+        let bw = text_width(&fold_extra(b), s);
         if bw > text_area.1 - text_area.0 - 4.0 {
             s *= (text_area.1 - text_area.0 - 4.0) / bw;
         }
-        let bw = text_width(b, s);
+        let bw = text_width(&fold_extra(b), s);
         out.extend(
             format!("/Helv {} Tf\n1 0 0 1 {} {} Tm ", n(s), n(text_area.0 + (text_area.1 - text_area.0 - bw) / 2.0), n(y0 + h * 0.18)).bytes(),
         );
-        out.extend(literal(&win_ansi(b)));
+        out.extend(literal(&enc.encode(b)));
         out.extend_from_slice(b" Tj\n");
     }
     out.extend_from_slice(b"ET\n");
+    let encoding = enc.font_encoding();
     let font = |base: &str| {
         let mut f = Dict::new();
         f.set(b"Type".to_vec(), Object::name("Font"));
         f.set(b"Subtype".to_vec(), Object::name("Type1"));
         f.set(b"BaseFont".to_vec(), Object::name(base));
-        f.set(b"Encoding".to_vec(), Object::name("WinAnsiEncoding"));
+        f.set(b"Encoding".to_vec(), encoding.clone());
         Object::Dict(f)
     };
     let mut fonts = Dict::new();
