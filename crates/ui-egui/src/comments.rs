@@ -610,6 +610,14 @@ pub struct CommentView {
     /// Tab's place among the candidates under the pointer: (their first one, presses forward).
     /// Another set of candidates starts again from its first.
     pub snap_cycle: Option<([f64; 2], isize)>,
+    /// The point of the comment being moved that goes onto a snap target, as an index into its
+    /// [`PageCx::move_anchors`]: `None` for whichever corner comes near a target. Tab and
+    /// Shift+Tab move on to the next or previous point, put where the one in use is.
+    pub move_anchor: Option<usize>,
+    /// Tab presses while a comment is moved, applied on its page (see [`Self::move_anchor`]).
+    pub anchor_steps: isize,
+    /// The moved comment's anchor, for its marker: (page, point in user space, name).
+    pub anchor_shown: Option<(usize, [f64; 2], &'static str)>,
 }
 
 /// A one-off change to the keyboard focus of the Comments panel's inline editor. The editor
@@ -733,14 +741,23 @@ impl PageCx<'_> {
     /// of a snap target lands on it (a Fill & Sign mark `side` points across goes by its centre,
     /// as when it is placed); with that target. Unchanged without snapping or a target in reach.
     pub(crate) fn snap_drag(&self, anchors: &[Pos2], mark: Option<f64>, from: Pos2, p: Pos2) -> (Pos2, Option<SnapHit>) {
+        let (p, hit) = self.snap_drag_by(anchors, mark, from, p);
+        (p, hit.map(|(hit, _)| hit))
+    }
+
+    /// [`Self::snap_drag`], with which of `anchors` landed on the target.
+    fn snap_drag_by(&self, anchors: &[Pos2], mark: Option<f64>, from: Pos2, p: Pos2) -> (Pos2, Option<(SnapHit, usize)>) {
         if self.snap.is_none() {
             return (p, None);
         }
         let travel = p - from;
         // A corner on a target point (an end, a centre…) beats one merely on a path, then the
         // nearer one.
-        let mut best: Option<((bool, f32), egui::Vec2, SnapHit)> = None;
-        for anchor in anchors {
+        // (rank: a point target before a path, then the nearer; the pointer's shift; the hit and
+        // which anchor made it)
+        type Best = ((bool, f32), egui::Vec2, (SnapHit, usize));
+        let mut best: Option<Best> = None;
+        for (k, anchor) in anchors.iter().enumerate() {
             let moved = *anchor + travel;
             let (u, kind) = match mark {
                 Some(side) => self.snapped_mark(moved, side),
@@ -750,7 +767,7 @@ impl PageCx<'_> {
             let shift = self.to_screen(u) - moved;
             let rank = (kind == measure::snap::SnapKind::Path, shift.length());
             if best.is_none_or(|b| rank < b.0) {
-                best = Some((rank, shift, (u, kind)));
+                best = Some((rank, shift, ((u, kind), k)));
             }
         }
         match best {
@@ -850,6 +867,7 @@ impl PageCx<'_> {
         &self,
         a: &Annotation,
         gesture: Option<&Gesture>,
+        anchor: Option<usize>,
         pointer: Option<Pos2>,
         shift: bool,
         pending: Option<&Edit>,
@@ -871,8 +889,7 @@ impl PageCx<'_> {
         }
         match (gesture, pointer) {
             (Some(Gesture::Move { page, index, from }), Some(p)) if (*page, *index) == (self.page, a.index) => {
-                let (anchors, mark) = self.move_anchors(a);
-                r.translate(self.snap_drag(&anchors, mark, *from, p).0 - *from)
+                r.translate(self.snap_move(a, *from, p, anchor).0 - *from)
             }
             (Some(Gesture::Resize { page, index, handle, from, aspect_ratio }), Some(p)) if (*page, *index) == (self.page, a.index) => {
                 let p = self.snap_drag(&[handle_pos(r, *handle)], None, *from, p).0;
@@ -882,19 +899,90 @@ impl PageCx<'_> {
         }
     }
 
-    /// What snaps when comment `a` is dragged: its corners on screen, or, for a Fill & Sign mark
-    /// (a tick, cross, dot or line), its centre, which goes where a new mark would.
-    pub(crate) fn move_anchors(&self, a: &Annotation) -> (Vec<Pos2>, Option<f64>) {
+    /// The points of comment `a` that can go onto a snap target while it is moved, in the order
+    /// Tab steps through them, as displayed: its box's corners, the middles of its sides and its
+    /// centre, clockwise from the bottom left with the centre last; a line's ends and middle;
+    /// connected lines' and polygons' corners, then their box's centre. A Fill & Sign mark (a
+    /// tick, cross, dot or line) has its centre only, which goes where a new mark would (the
+    /// second value is its size).
+    pub(crate) fn move_anchors(&self, a: &Annotation) -> (Vec<Anchor>, Option<f64>) {
         let r = self.screen_rect(a);
+        let anchor = |at: Pos2, name: &'static str, corner: bool| Anchor { at, name, corner };
         let [x0, y0, x1, y1] = a.rect;
         if a.fill_sign && a.subtype == "Stamp" && (x1 - x0).abs() <= 48.0 && (y1 - y0).abs() <= 48.0 {
-            return (vec![r.center()], Some(12.0));
+            return (vec![anchor(r.center(), "Middle", true)], Some(12.0));
         }
-        // A line by its ends, connected lines and polygons by their corners.
         if reshapable(a) {
-            return (a.points.iter().map(|q| self.to_screen([f64::from(q[0]), f64::from(q[1])])).collect(), None);
+            let points: Vec<Pos2> = a.points.iter().map(|q| self.to_screen([f64::from(q[0]), f64::from(q[1])])).collect();
+            if let [from, to] = points[..] {
+                return (vec![anchor(from, "Endpoint", true), anchor(from.lerp(to, 0.5), "Midpoint", false), anchor(to, "Endpoint", true)], None);
+            }
+            let mut anchors: Vec<Anchor> = points.into_iter().map(|p| anchor(p, "Vertex", true)).collect();
+            anchors.push(anchor(r.center(), "Middle", false));
+            return (anchors, None);
         }
-        (vec![r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom()], None)
+        let anchors = vec![
+            anchor(r.left_bottom(), "Bottom left", true),
+            anchor(r.left_center(), "Left", false),
+            anchor(r.left_top(), "Top left", true),
+            anchor(r.center_top(), "Top", false),
+            anchor(r.right_top(), "Top right", true),
+            anchor(r.right_center(), "Right", false),
+            anchor(r.right_bottom(), "Bottom right", true),
+            anchor(r.center_bottom(), "Bottom", false),
+            anchor(r.center(), "Middle", false),
+        ];
+        (anchors, None)
+    }
+
+    /// The pointer `p` of a move of comment `a` by a drag from `from`, moved so one of its
+    /// [`Self::move_anchors`] lands on a snap target in reach: `choice` (Tab's) only, else
+    /// whichever corner comes within reach (see [`Self::snap_drag`]). With that target, and the
+    /// anchor that is put on it (`choice`, else the corner that snapped).
+    pub(crate) fn snap_move(&self, a: &Annotation, from: Pos2, p: Pos2, choice: Option<usize>) -> (Pos2, Option<SnapHit>, Option<usize>) {
+        let (anchors, mark) = self.move_anchors(a);
+        let choice = choice.filter(|i| *i < anchors.len());
+        let candidates: Vec<usize> = match choice {
+            Some(i) => vec![i],
+            None => (0..anchors.len()).filter(|i| anchors[*i].corner).collect(),
+        };
+        let at: Vec<Pos2> = candidates.iter().map(|i| anchors[*i].at).collect();
+        let (p, hit) = self.snap_drag_by(&at, mark, from, p);
+        (p, hit.map(|(hit, _)| hit), hit.and_then(|(_, k)| candidates.get(k).copied()).or(choice))
+    }
+}
+
+/// The corner among `anchors` nearest `p` (the first anchor when there is none).
+fn nearest_corner(anchors: &[Anchor], p: Pos2) -> usize {
+    let corners = anchors.iter().enumerate().filter(|(_, c)| c.corner);
+    corners.min_by(|(_, a), (_, b)| a.at.distance(p).total_cmp(&b.at.distance(p))).map_or(0, |(i, _)| i)
+}
+
+/// A point of a comment that can go onto a snap target while the comment is moved (see
+/// [`PageCx::move_anchors`]): where it is on screen, and its name for the marker.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Anchor {
+    pub at: Pos2,
+    pub name: &'static str,
+    /// A corner, or a line's end: a move starts with the one nearest the pointer.
+    pub corner: bool,
+}
+
+/// An anchor's name as shown, in the reader's language.
+fn anchor_label(name: &str) -> &'static str {
+    match name {
+        "Bottom left" => tl!("Bottom left"),
+        "Left" => tl!("Left"),
+        "Top left" => tl!("Top left"),
+        "Top" => tl!("Top"),
+        "Top right" => tl!("Top right"),
+        "Right" => tl!("Right"),
+        "Bottom right" => tl!("Bottom right"),
+        "Bottom" => tl!("Bottom"),
+        "Endpoint" => tl!("Endpoint"),
+        "Midpoint" => tl!("Midpoint"),
+        "Vertex" => tl!("Vertex"),
+        _ => tl!("Middle"),
     }
 }
 
@@ -1446,6 +1534,7 @@ fn select_input(
             cv.reveal = true;
             if cx.allowed {
                 cv.gesture = Some(Gesture::Move { page: cx.page, index: a.index, from: o });
+                cv.move_anchor = None;
             }
             consumed = true;
         }
@@ -1453,12 +1542,35 @@ fn select_input(
     if matches!(cv.gesture, Some(Gesture::Move { page, .. } | Gesture::Resize { page, .. } | Gesture::Reshape { page, .. }) if page == cx.page) {
         consumed = true;
     }
-    // Snapping while a comment is moved or resized: its corner (a mark's centre, a resize
-    // handle) nearest a target lands on it, and the marker shows where.
+    // Tab while a comment is moved: its next anchor goes where this one is now (on its target,
+    // when it has one), so the target stays and the comment turns about it.
+    if cv.anchor_steps != 0
+        && cx.snap.is_some()
+        && let Some(Gesture::Move { page, index, from }) = cv.gesture.as_mut()
+        && *page == cx.page
+        && let (Some(a), Some(p)) = (cx.get(*index), pointer)
+    {
+        // The anchor in use: Tab's, else the corner on a target, else the one nearest the grab.
+        let (moved, _, used) = cx.snap_move(a, *from, p, cv.move_anchor);
+        let (anchors, _) = cx.move_anchors(a);
+        let i = used.unwrap_or_else(|| nearest_corner(&anchors, *from));
+        if let Some(now) = anchors.get(i) {
+            let spot = now.at + (moved - *from);
+            let j = usize::try_from((i as isize).saturating_add(cv.anchor_steps).rem_euclid(anchors.len() as isize)).unwrap_or(0);
+            *from = anchors[j].at + (p - spot);
+            cv.move_anchor = Some(j);
+        }
+    }
+    if cv.gesture.as_ref().is_none_or(|g| matches!(g, Gesture::Move { page, .. } if *page == cx.page)) {
+        cv.anchor_steps = 0;
+    }
+    // Snapping while a comment is moved or resized: a corner (the anchor Tab chose, see
+    // [`PageCx::snap_move`]) or the resize handle lands on a target in reach, and the marker
+    // shows where.
     let dragged = match (&cv.gesture, pointer) {
         (Some(Gesture::Move { page, index, from }), Some(p)) if *page == cx.page => cx.get(*index).map(|a| {
-            let (anchors, mark) = cx.move_anchors(a);
-            cx.snap_drag(&anchors, mark, *from, p)
+            let (p, hit, _) = cx.snap_move(a, *from, p, cv.move_anchor);
+            (p, hit)
         }),
         (Some(Gesture::Resize { page, index, handle, from, .. }), Some(p)) if *page == cx.page => {
             cx.get(*index).map(|a| cx.snap_drag(&[handle_pos(cx.screen_rect(a), *handle)], None, *from, p))
@@ -1473,6 +1585,19 @@ fn select_input(
     if let Some((_, Some((at, kind)))) = dragged {
         cv.snap_hover = Some((cx.page, at, kind));
     }
+    // The moved comment's anchor, named: the one on a target, or the one Tab chose.
+    if cv.anchor_shown.is_some_and(|(page, ..)| page == cx.page) {
+        cv.anchor_shown = None;
+    }
+    if let (Some(Gesture::Move { page, index, from }), Some(p)) = (&cv.gesture, pointer)
+        && *page == cx.page
+        && cx.snap.is_some()
+        && let Some(a) = cx.get(*index)
+        && let (moved, _, Some(i)) = cx.snap_move(a, *from, p, cv.move_anchor)
+        && let Some(anchor) = cx.move_anchors(a).0.get(i)
+    {
+        cv.anchor_shown = Some((cx.page, cx.to_user(anchor.at + (moved - *from)), anchor.name));
+    }
     if resp.drag_stopped()
         && let Some(p) = pointer
     {
@@ -1480,6 +1605,8 @@ fn select_input(
         match cv.gesture.clone() {
             Some(Gesture::Move { page, index, from }) if page == cx.page => {
                 cv.gesture = None;
+                cv.move_anchor = None;
+                cv.anchor_shown = None;
                 let (a, b) = (cx.to_user(from), cx.to_user(p));
                 let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
                 if from.distance(p) >= 2.0 {
@@ -1624,7 +1751,7 @@ pub(crate) fn paint_page(ui: &egui::Ui, painter: &egui::Painter, cx: &PageCx<'_>
         if cx.allowed && grabs_points(cx.tool) && reshapable(a) {
             return paint_points(painter, cx, view, a, pointer, shift);
         }
-        let r = cx.adjusted_rect(a, cv.gesture.as_ref(), pointer, shift, view.pending_edit.as_ref()).expand(2.0);
+        let r = cx.adjusted_rect(a, cv.gesture.as_ref(), cv.move_anchor, pointer, shift, view.pending_edit.as_ref()).expand(2.0);
         painter.rect_stroke(r, CornerRadius::ZERO, Stroke::new(1.0, SELECT_BLUE), egui::StrokeKind::Middle);
         if cx.allowed && resizable(a) {
             for h in HANDLES {
@@ -1672,6 +1799,7 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
     // As the release will have it: a dragged end onto a snap target, unless Shift holds the angle.
     let pointer = match &cv.gesture {
         Some(Gesture::Reshape { .. }) if !shift => pointer.map(|p| cx.to_screen(cx.snapped(p).0)),
+        Some(Gesture::Move { from, .. }) => pointer.map(|p| cx.snap_move(a, *from, p, cv.move_anchor).0),
         _ => pointer,
     };
     let changing = changing_points(cv.gesture.as_ref(), view.pending_edit.as_ref(), (cx.page, a.index), &points, |p| cx.to_user(p), pointer, shift);
@@ -1696,6 +1824,20 @@ fn paint_points(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView, a: &An
 /// Where a drawing tool's next point would snap to: a ring and the kind of target, as the
 /// measuring tools show it.
 fn paint_snap_marker(painter: &egui::Painter, cx: &PageCx<'_>, view: &DocView) {
+    // The anchor of a comment being moved: a square, named below it (Tab moves on).
+    if let Some((page, point, name)) = view.comments.anchor_shown
+        && page == cx.page
+    {
+        let at = cx.to_screen(point);
+        painter.rect_filled(Rect::from_center_size(at, vec2(7.0, 7.0)), CornerRadius::ZERO, SELECT_BLUE);
+        painter.text(
+            at + vec2(10.0, 10.0),
+            egui::Align2::LEFT_TOP,
+            crate::i18n::fmt(tl!("Reference point: {point} (Tab: next)"), &[("point", anchor_label(name))]),
+            crate::theme::regular(11.0),
+            SELECT_BLUE,
+        );
+    }
     if let Some((page, point, kind)) = view.comments.snap_hover
         && page == cx.page
     {
