@@ -1430,9 +1430,25 @@ pub(crate) struct VisualText {
 /// one paragraph at a time ([`VisualText::remember`]).
 type DisplayHistory = std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<(String, String)>>>;
 
-/// Only a bound on memory. egui keeps 100 undo states, but each can span many keystrokes, and
-/// every keystroke in right-to-left text records a display string (CodeRabbit on #3890).
+/// Only a bound on memory, with [`MAX_DISPLAY_HISTORY_BYTES`]. egui keeps 100 undo states, but
+/// each can span many keystrokes, and every keystroke in right-to-left text records a display
+/// string (CodeRabbit on #3890).
 const MAX_DISPLAY_HISTORY: usize = 4096;
+
+/// Each entry copies the whole paragraph twice, so a long one also caps the total: 16 MiB of
+/// text (benandez on #3890). The newest entry is always kept.
+const MAX_DISPLAY_HISTORY_BYTES: usize = 16 << 20;
+
+/// Drop the oldest display strings until the history is within both bounds.
+fn trim_history(history: &mut std::collections::VecDeque<(String, String)>) {
+    let size = |(shown, logical): &(String, String)| shown.len().saturating_add(logical.len());
+    let mut bytes = history.iter().map(size).fold(0usize, usize::saturating_add);
+    while history.len() > 1 && (history.len() > MAX_DISPLAY_HISTORY || bytes > MAX_DISPLAY_HISTORY_BYTES) {
+        if let Some(gone) = history.pop_front() {
+            bytes = bytes.saturating_sub(size(&gone));
+        }
+    }
+}
 
 /// A caret egui holds at display index `shown`, standing for the logical boundary `logical`
 /// (between logical characters `logical - 1` and `logical`).
@@ -1481,9 +1497,7 @@ impl VisualText {
         }
         history.retain(|(shown, _)| *shown != self.visual);
         history.push_back((self.visual.clone(), logical.clone()));
-        while history.len() > MAX_DISPLAY_HISTORY {
-            history.pop_front();
-        }
+        trim_history(&mut history);
     }
 
     /// The logical text a display string this editor showed stood for. Text it never showed is
@@ -1519,9 +1533,7 @@ impl VisualText {
                 let mut history = self.history.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 history.retain(|(s, _)| *s != shown);
                 history.push_back((shown, logical));
-                while history.len() > MAX_DISPLAY_HISTORY {
-                    history.pop_front();
-                }
+                trim_history(&mut history);
             }
         }
         let hash = text_hash(&self.logical.borrow());
@@ -1690,6 +1702,15 @@ impl egui::TextBuffer for VisualText {
         self.caret = Some(Caret { shown: char_index.0.saturating_add(added), logical: at.saturating_add(added) });
         self.edited = true;
         added
+    }
+
+    fn delete_selected(&mut self, cursor_range: &egui::text::CCursorRange) -> egui::text::CCursor {
+        // A selection (Delete, Cut, typing over it) removes what the display shows in it; the
+        // last edit's caret only decides Backspace and Delete at a bare caret (benandez on #3890).
+        if !cursor_range.is_empty() {
+            self.caret = None;
+        }
+        self.delete_selected_ccursor_range(cursor_range.sorted_cursors())
     }
 
     fn delete_char_range(&mut self, char_range: std::ops::Range<egui::text::CharIndex>) {
@@ -2292,6 +2313,46 @@ mod tests {
         assert_eq!(other.logical_text(), "שלום עולם", "a string it never showed is refused");
         assert_eq!(other.as_str(), shown);
         assert_eq!(other.logical_for_display(&before), None);
+    }
+
+    #[test]
+    fn the_display_history_is_bounded_in_bytes_and_keeps_the_newest() {
+        let big = "ש".repeat(1 << 20);
+        let mut history: std::collections::VecDeque<(String, String)> = (0..40).map(|i| (format!("{i}{big}"), big.clone())).collect();
+        trim_history(&mut history);
+        let bytes: usize = history.iter().map(|(a, b)| a.len() + b.len()).sum();
+        assert!(bytes <= MAX_DISPLAY_HISTORY_BYTES, "{bytes} bytes kept");
+        assert!(history.back().is_some_and(|(s, _)| s.starts_with("39")), "the newest entry stays");
+        // One entry larger than the cap is still kept: Undo to it must work.
+        let mut one: std::collections::VecDeque<(String, String)> = [("x".repeat(MAX_DISPLAY_HISTORY_BYTES), String::new())].into();
+        trim_history(&mut one);
+        assert_eq!(one.len(), 1);
+    }
+
+    #[test]
+    fn deleting_a_one_character_selection_removes_what_was_selected() {
+        use egui::TextBuffer as _;
+        // benandez on #3890: after typing, Shift+Right or Shift+Left from the settled caret and
+        // Delete or Cut. The selection is the character the display shows there, not the
+        // logical neighbour of the last edit's caret.
+        for typed in ["שדה abc", "abc שדה", "שלום 120"] {
+            let (mut buf, _) = VisualText::new(String::new());
+            buf.insert_text(typed, egui::text::CharIndex(0));
+            let (shown, c) = buf.settled().expect("settled");
+            let caret = Caret { shown, logical: c.logical };
+            let len = buf.order.len();
+            for (a, b) in [(shown, shown + 1), (shown.wrapping_sub(1), shown)] {
+                if a >= len || b > len {
+                    continue;
+                }
+                let (mut sel, _) = VisualText::new(buf.logical_text());
+                sel.caret = Some(caret);
+                let want: String = buf.logical_text().chars().enumerate().filter(|&(i, _)| i != buf.order[a]).map(|(_, ch)| ch).collect();
+                let range = egui::text::CCursorRange::two(egui::text::CCursor::new(a), egui::text::CCursor::new(b));
+                sel.delete_selected(&range);
+                assert_eq!(sel.logical_text(), want, "{typed:?}: selection {a}..{b}");
+            }
+        }
     }
 
     #[test]
