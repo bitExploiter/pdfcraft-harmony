@@ -78,3 +78,6 @@ keyring = { version = "3.6.3", default-features = false, features = ["async-secr
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rcgen = { version = "0.14", default-features = false, features = ["ring", "crypto"] }
+
+[dev-dependencies]
+pdfcraft-testkit = { workspace = true }

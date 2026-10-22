@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use pdfcraft_content::Matrix;
+use pdfcraft_content::{Matrix, Pieces};
 use pdfcraft_cos::{Dict, Document, ObjRef, Object, Stream};
 
 use crate::{Compression, ImageSettings, OptimizeError, Report, Settings, Stage};
@@ -26,17 +26,16 @@ pub(crate) fn page_resources(doc: &Document, page: ObjRef) -> Option<Dict> {
 pub(crate) fn content_bytes(doc: &Document, contents: &Object) -> Vec<u8> {
     match &*doc.resolve(contents) {
         Object::Stream(s) => s.decoded().unwrap_or_default(),
-        Object::Array(a) => a
-            .iter()
-            .flat_map(|c| match &*doc.resolve(c) {
-                Object::Stream(s) => {
-                    let mut v = s.decoded().unwrap_or_default();
-                    v.push(b'\n');
-                    v
-                }
-                _ => Vec::new(),
-            })
-            .collect(),
+        Object::Array(a) => {
+            let pieces: Vec<_> = a
+                .iter()
+                .filter_map(|c| match &*doc.resolve(c) {
+                    Object::Stream(s) => Some(s.decoded().unwrap_or_default()),
+                    _ => None,
+                })
+                .collect();
+            Pieces::join(&pieces).data().to_vec()
+        }
         _ => Vec::new(),
     }
 }
@@ -264,9 +263,9 @@ pub(crate) fn pixels(s: &Stream, n: usize) -> Option<Vec<u8>> {
         let v = if n == 1 { img.into_luma8().into_raw() } else { img.into_rgb8().into_raw() };
         (v.len() == len).then_some(v)
     } else {
-        // Require exactly the validated number of final samples.
+        // Validated size and decode budget; trailing bytes past the samples are ignored.
         let v = s.decoded_within(budget).ok()?;
-        (v.len() == len).then_some(v)
+        Some(v.get(..len)?.to_vec())
     }
 }
 
@@ -438,4 +437,25 @@ pub(crate) fn run(
         return Err(OptimizeError::Cancelled);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod dimension_tests {
+    use super::*;
+
+    #[test]
+    fn pixel_reader_rejects_hostile_dimensions_before_decoding() {
+        for (width, height, channels) in [(-1, 1, 1), (0, 1, 1), (i64::from(u32::MAX) + 101, 1, 1), (80_000_001, 1, 1), (2, 2, usize::MAX)] {
+            let mut dict = Dict::new();
+            dict.set(b"Width".to_vec(), Object::Int(width));
+            dict.set(b"Height".to_vec(), Object::Int(height));
+            let stream = Stream::from_raw(dict, vec![0; 4]);
+            assert!(pixels(&stream, channels).is_none(), "{width} x {height} x {channels}");
+        }
+        let mut dict = Dict::new();
+        dict.set(b"Width".to_vec(), Object::Int(2));
+        dict.set(b"Height".to_vec(), Object::Int(2));
+        let stream = Stream::from_raw(dict, vec![1, 2, 3, 4, 5]);
+        assert_eq!(pixels(&stream, 1), Some(vec![1, 2, 3, 4]));
+    }
 }
