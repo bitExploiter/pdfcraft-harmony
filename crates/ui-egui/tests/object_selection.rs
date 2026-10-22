@@ -618,6 +618,27 @@ fn text_over_a_vector_path_still_opens_for_typing() {
     h.get_by_label("1 object selected");
 }
 
+/// A paragraph's rewrap handle reaches a few pixels past its box (#2276). Over a vector path the
+/// press there still rewraps the paragraph instead of taking the path, as text wins over paths.
+#[test]
+fn a_rewrap_handle_over_a_vector_path_rewraps_the_paragraph() {
+    // A panel 30..230 across, 40..80 down, around the headline.
+    let mut h = harness_document(false, false, " 0.9 0.9 0.6 rg 30 420 200 40 re f");
+    let before = objects(&h);
+    let headline = before.iter().find(|o| o.text.as_deref() == Some("Group headline")).unwrap().rect;
+    let panel = before.last().unwrap().clone();
+    assert_eq!(panel.target.kind, ObjectKind::Path);
+    // 3 px outside the paragraph's box (2 px outside its text), near its top: on the right handle.
+    let y = (500.0 - headline[3] + 4.0) as f32;
+    let grip = at(&h, headline[2] as f32, y) + egui::vec2(5.0, 0.0);
+    let to = at(&h, (headline[0] + 75.0) as f32, y) + egui::vec2(5.0, 0.0);
+    drag(&mut h, grip, to);
+    assert_eq!(undo_label(&h).as_deref(), Some("Edit text"));
+    let after = objects(&h);
+    assert!(after.iter().any(|o| o.target == panel.target && near(o.rect, panel.rect)), "the panel stays: {after:?}");
+    assert!(nothing_selected(&h));
+}
+
 #[test]
 fn a_resized_stroke_stays_selected() {
     // The diagonal's box is 298.5..381.5 across and 318.5..401.5 down.

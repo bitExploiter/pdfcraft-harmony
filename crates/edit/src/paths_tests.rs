@@ -273,6 +273,8 @@ fn hostile_content_never_panics() {
     let doc = page("h f 10 10 l S 20 20 30 30 40 40 c 5 5 6 6 y h S 10 10 10 10 re f h W n");
     assert_eq!(page_paths(&doc, 0).unwrap().len(), 1);
     assert!(crate::images::page_images(&doc, 0).unwrap().is_empty());
+    // Segments before any `m` draw nothing, as in the renderer (#3581): no phantom path to select.
+    assert!(paths("10 10 l 50 50 l S").is_empty());
     assert!(page_paths(&page("10000000000000 0 m 0 0 l S"), 0).is_err());
     assert_eq!(paths("Q Q Q 10 10 10 10 re f").len(), 1);
     assert!(page_paths(&page(&format!("{}10 10 10 10 re f", "q ".repeat(2000))), 0).is_err());

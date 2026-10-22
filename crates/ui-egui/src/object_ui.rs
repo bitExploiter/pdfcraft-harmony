@@ -499,7 +499,12 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         .filter(|e| e.page == page && !e.has_changes())
         .and_then(|e| objects.iter().find(|o| o.target == ObjectTarget { kind: ObjectKind::Text, index: e.block }))
         .filter(|o| on_frame(screen(xf, info, page, o), p));
-    if let Some(object) = frame.or(hit.filter(|o| o.target.kind == ObjectKind::Path)) {
+    // A closed paragraph's width handle reaches past its box, and a press there rewraps the
+    // paragraph (as in `edit_text_ui`) instead of starting an area selection (#2276) or taking
+    // a path under the handle, as text wins over paths.
+    let on_edge = view.line_editor.as_ref().is_none_or(|e| e.page != page)
+        && crate::edit_text_ui::grabs_edge(xf, info, page, objects.iter().filter(|o| o.target.kind == ObjectKind::Text).map(|o| o.rect), p);
+    if let Some(object) = frame.or(hit.filter(|o| o.target.kind == ObjectKind::Path && !on_edge)) {
         s.clear();
         s.page = Some(page);
         s.selected.push(object.clone());
@@ -509,7 +514,7 @@ fn input(s: &mut ObjectSelection, ui: &egui::Ui, resp: &egui::Response, xf: &Pag
         return true;
     }
     s.clear();
-    if hit.is_some() {
+    if hit.is_some() || on_edge {
         return false;
     }
     leave_single(view);

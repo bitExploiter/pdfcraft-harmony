@@ -131,9 +131,10 @@ impl GState {
         if self.path.elements().len() > 16384 || self.stack.len() > 4096 || self.placement.clips.len() > 256 {
             return Err(EditError::Invalid("the image clip or graphics state exceeds its complexity budget".into()));
         }
-        // Without a current point (`m`/`re` first) these are errors; kurbo panics on a path
-        // that starts with a close. A stray `l` starts the path where it goes instead.
-        if matches!(op.op.as_slice(), b"c" | b"y" | b"h") && self.path.elements().is_empty() {
+        // A segment or close before any `m` (or `re`) has no subpath to extend: kurbo panics on
+        // it by contract, and the renderer, MuPDF and pdftotext skip it, so it is skipped (#3581).
+        // `v` needs the current point itself and checks below.
+        if matches!(op.op.as_slice(), b"l" | b"c" | b"y" | b"h") && self.path.elements().is_empty() {
             return Ok(None);
         }
         let stroke = op.op.first().is_some_and(u8::is_ascii_uppercase);
@@ -190,11 +191,7 @@ impl GState {
             }
             b"l" => {
                 if let Some([x, y]) = op.nums::<2>() {
-                    if self.path.elements().is_empty() {
-                        self.path.move_to(self.point(x, y));
-                    } else {
-                        self.path.line_to(self.point(x, y));
-                    }
+                    self.path.line_to(self.point(x, y));
                 }
             }
             b"c" => {
