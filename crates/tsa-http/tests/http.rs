@@ -1,10 +1,10 @@
 //! The time server transport against a loopback server: a signature gets the server's token, and a
 //! server that can't be reached or answers wrongly costs only the token, never the signature.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use pdfcraft_cos::Document;
-use pdfcraft_sign::{SignOptions, Time, TrustStore, pkcs12, signatures};
+use pdfcraft_sign::{Certificate, DigitalId, Name, SignOptions, Time, TrustStore, der, pkcs12, signatures};
 use pdfcraft_tsa_http::{HttpAuthority, sign_with_fallback, test_server};
 
 fn data(name: &str) -> Vec<u8> {
@@ -12,6 +12,37 @@ fn data(name: &str) -> Vec<u8> {
 }
 
 const TSA_TIME: Time = Time { year: 2026, month: 10, day: 6, hour: 12, minute: 0, second: 0 };
+
+/// The time server's digital ID: a self-signed certificate valid from October 2026 for ten years,
+/// whose critical extended key usage is time stamping alone, as RFC 3161 requires of trusted time.
+/// One for the whole run, so the trust store names the certificate the server answers with.
+static TSA: LazyLock<DigitalId> = LazyLock::new(|| {
+    let key = pdfcraft_sign::PrivateKey::generate_p256().unwrap();
+    let name = Name::build("Test TSA", "", "PdfCraft Tests", "", "US");
+    let alg = key.preferred_digest();
+    let sig_alg = key.signature_algorithm(alg);
+    let from = Time { year: 2026, month: 10, day: 2, hour: 0, minute: 0, second: 0 };
+    let until = Time { year: 2036, ..from };
+    let eku = der::seq(&[&der::oid("2.5.29.37"), &der::boolean(true), &der::octets(&der::seq(&[&der::oid("1.3.6.1.5.5.7.3.8")]))]);
+    let tbs = der::seq(&[
+        &der::explicit(0, &der::int(2)),
+        &der::uint(&[0x31]),
+        &sig_alg,
+        &name.raw,
+        &der::seq(&[&from.encode(), &until.encode()]),
+        &name.raw,
+        &key.public_key().spki(),
+        &der::explicit(3, &der::seq(&[&eku])),
+    ]);
+    let signature = key.sign(alg, &tbs).unwrap();
+    let certificate = Certificate::parse(&der::seq(&[&tbs, &sig_alg, &der::bit_string(&signature)])).unwrap();
+    DigitalId { key, certificate, chain: Vec::new(), friendly_name: None }
+});
+
+/// A trust store that trusts the time server.
+fn trust() -> TrustStore {
+    TrustStore { certs: vec![TSA.certificate.clone()] }
+}
 
 /// One page with a line of text.
 fn fixture() -> Vec<u8> {
@@ -48,7 +79,7 @@ fn opts() -> SignOptions {
 
 /// A time server that signs a proper RFC 3161 answer with a test digital ID.
 fn tsa_answer(request: &[u8]) -> (u16, Vec<u8>) {
-    let tsa = pkcs12::open(&data("rsa-aes.p12"), "test").unwrap();
+    let tsa = &*TSA;
     let Ok(q) = pdfcraft_sign::timestamp::parse_request(request) else { return (400, Vec::new()) };
     let answer =
         pdfcraft_sign::timestamp::respond(&tsa.key, &tsa.certificate, &tsa.chain, pdfcraft_sign::DigestAlg::Sha256, &q, "1.2.3.4", TSA_TIME, 7);
@@ -64,7 +95,7 @@ fn sign(authority: &HttpAuthority) -> (Vec<u8>, Option<String>) {
 }
 
 fn signature(bytes: &[u8]) -> pdfcraft_sign::SignatureInfo {
-    let trust = TrustStore { certs: vec![pkcs12::open(&data("rsa-aes.p12"), "test").unwrap().certificate] };
+    let trust = trust();
     signatures(&open(bytes), bytes, &trust).into_iter().find(|s| s.signed).expect("a signature")
 }
 
@@ -141,7 +172,7 @@ fn a_document_timestamp_comes_from_the_server() {
     let server = test_server::serve(tsa_answer).unwrap();
     let authority = HttpAuthority::new(&server.url).unwrap();
     let stamped = pdfcraft_sign::timestamp_document(&open(&fixture()), &authority, "D:20261006120000Z").unwrap();
-    let trust = TrustStore { certs: vec![pkcs12::open(&data("rsa-aes.p12"), "test").unwrap().certificate] };
+    let trust = trust();
     let s = signatures(&open(&stamped), &stamped, &trust).into_iter().find(|s| s.doc_timestamp).expect("a document timestamp");
     assert_eq!(s.timestamp_time, Some(TSA_TIME), "{:?}", s.details);
 }
