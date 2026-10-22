@@ -39,6 +39,9 @@ impl HiddenTools {
         if value == "none" {
             return Ok(Self::default());
         }
+        if value.split(',').any(|id| id.trim().is_empty()) {
+            return Err("hidden-tools takes none or a comma-separated list of tool ids; an empty entry is not allowed".to_string());
+        }
         if let Some(unknown) = value.split(',').map(str::trim).find(|id| catalog::group(id).is_none()) {
             let known: Vec<&str> = TOOL_GROUPS.iter().map(|g| g.id).collect();
             return Err(format!("unknown tool {unknown:?}: hidden-tools takes none or a comma-separated list of {}", known.join(", ")));
@@ -46,7 +49,7 @@ impl HiddenTools {
         Ok(Self::from_ids(value.split(',').map(str::trim)))
     }
 
-    /// Reads the saved list. `None` when the value isn't a list (the setting is then left alone);
+    /// Reads the saved list. `None` when the value isn't a list (`restore` then hides nothing);
     /// entries that aren't known tool ids are dropped.
     pub fn from_json(value: &serde_json::Value) -> Option<Self> {
         value.as_array().map(|ids| Self::from_ids(ids.iter().filter_map(serde_json::Value::as_str)))
@@ -152,8 +155,8 @@ mod tests {
         assert_eq!(HiddenTools::parse("none"), Ok(HiddenTools::default()));
         assert_eq!(HiddenTools::parse(" compress , redact ").unwrap().ids(), ["redact", "compress"]);
         assert!(HiddenTools::parse("compress,ocr").unwrap_err().contains("\"ocr\""));
-        assert!(HiddenTools::parse("").is_err());
-        assert!(HiddenTools::parse("compress,").is_err());
+        assert!(HiddenTools::parse("").unwrap_err().contains("empty entry"));
+        assert!(HiddenTools::parse("compress,").unwrap_err().contains("empty entry"));
     }
 
     #[test]
