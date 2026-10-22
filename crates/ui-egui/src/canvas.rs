@@ -3179,6 +3179,13 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 };
                 crate::redact_ui::page_input(ui, &resp, &xf, i, info, over_text, view)
             };
+            // The pictures as the document has them now. An edit applied since the last frame (a
+            // released resize) has moved the selected one's corners: with the inventory from
+            // before it, the pointer resting on the new corner would belong to the text under it
+            // for a frame, and that paragraph's hover frame would flash.
+            if tool == QuickTool::EditText && can_modify && view.edit_images.get(&i).is_none_or(|(g, _)| *g != doc.edit_generation()) {
+                view.edit_images.insert(i, (doc.edit_generation(), doc.page_images(i)));
+            }
             let image_owns_pointer = tool == QuickTool::EditText && crate::edit_text_ui::image_owns_pointer(ui, &xf, i, info, view);
             let on_objects =
                 !image_owns_pointer && tool == QuickTool::EditText && can_modify && crate::object_ui::page_input(ui, &resp, &xf, i, doc, view);

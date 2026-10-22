@@ -5009,3 +5009,88 @@ fn read_mode_shortcut_applies_the_open_paragraph() {
     assert!(s.views[0].line_editor.is_none(), "no editor stays open in Read mode");
     assert_eq!(s.session.get(s.views[0].id).unwrap().text_lines(0)[0].text, "Chapter One", "the edit is applied");
 }
+
+/// A picture whose corner is dragged up into the paragraph above it: the pointer is let go on
+/// that paragraph, at the picture's new corner. The corner stays the picture's, so the paragraph
+/// shows no hover frame or width handles, not even on the first frame the resize is applied,
+/// when the picture inventory still had the corner where it was.
+#[test]
+fn a_paragraph_under_a_released_picture_corner_does_not_light_up_for_a_frame() {
+    let content = b"q 50 0 0 50 40 60 cm /Im0 Do Q BT /F1 12 Tf 40 114 Td (A paragraph above it) Tj ET";
+    let objs: Vec<Vec<u8>> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 300] >>".to_vec(),
+        b"<< /Type /Page /Parent 2 0 R /Contents 4 0 R /Resources << /XObject << /Im0 5 0 R >> /Font << /F1 6 0 R >> >> >>".to_vec(),
+        [format!("<< /Length {} >>\nstream\n", content.len()).as_bytes(), content.as_slice(), b"\nendstream"].concat(),
+        [
+            b"<< /Type /XObject /Subtype /Image /Width 1 /Height 1 /BitsPerComponent 8 /ColorSpace /DeviceRGB /Length 3 >>\nstream\n".as_slice(),
+            &[200, 30, 30],
+            b"\nendstream",
+        ]
+        .concat(),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec(),
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, o) in objs.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        bytes.extend_from_slice(o);
+        bytes.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objs.len() + 1).as_bytes());
+    for o in offsets {
+        bytes.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objs.len() + 1).as_bytes());
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 1100.0)).build_eframe(move |_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("picture.pdf", None, bytes).unwrap();
+        app
+    });
+    h.run_steps(4);
+    assert!(h.state_mut().execute("edit.edit_text"));
+    h.state_mut().views[0].set_zoom(1.2);
+    h.run_steps(4);
+    support::wait_until(&mut h, "the page raster", |app| !app.render_pending());
+    let id = h.state().views[0].id;
+    let blocks = h.state().session.get(id).unwrap().text_blocks(0);
+    assert_eq!(blocks.len(), 1, "one paragraph: {blocks:?}");
+    let page = h.state().views[0].page_screen_rect(0).unwrap();
+    let at = |x: f32, y: f32| egui::pos2(page.left() + x / 200.0 * page.width(), page.top() + (300.0 - y) / 300.0 * page.height());
+    let r = blocks[0].rect.map(|v| v as f32);
+    let paragraph = egui::Rect::from_two_pos(at(r[0], r[1]), at(r[2], r[3])).expand(2.0);
+    // The paragraph's hover frame (its faint outline is thinner).
+    let lit = |h: &Harness<'static, PdfCraftApp>| {
+        h.output().shapes.iter().any(|shape| {
+            matches!(&shape.shape, egui::Shape::Rect(s) if s.stroke.width == 1.5
+                && (s.rect.min - paragraph.min).length() < 2.0 && (s.rect.max - paragraph.max).length() < 2.0)
+        })
+    };
+    click_at(&mut h, at(80.0, 65.0));
+    assert!(h.state().views[0].image_selection.is_some(), "the picture is selected");
+    support::wait_until(&mut h, "the page raster", |app| !app.render_pending());
+    // From 40..90 × 60..110 to 40..100 × 60..120, by its upper right corner: the new corner lies
+    // on the paragraph's lower half.
+    let (grip, to) = (at(90.0, 110.0), at(100.0, 120.0));
+    assert!(paragraph.contains(to), "the corner is let go on the paragraph");
+    h.hover_at(grip);
+    h.run_steps(1);
+    h.drag_at(grip);
+    h.run_steps(1);
+    for k in 1..=4 {
+        h.hover_at(grip + (to - grip) * (k as f32 / 4.0));
+        h.run_steps(1);
+        assert!(!lit(&h), "the paragraph lights up while the corner is dragged");
+    }
+    // Let go without the pointer leaving the window, one frame at a time.
+    h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    for frame in 0..6 {
+        h.step();
+        assert!(!lit(&h), "frame {frame} after the release: the paragraph under the picture's new corner lights up");
+    }
+    assert_eq!(h.state().session.get(id).unwrap().can_undo(), Some("Move image"), "the resize is applied");
+    assert!(h.state().views[0].image_selection.is_some(), "the picture stays selected");
+}
