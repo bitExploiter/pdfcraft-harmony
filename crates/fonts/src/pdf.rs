@@ -13,6 +13,7 @@
 
 use std::borrow::Cow;
 use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::sync::OnceLock;
 
 use pdfcraft_cos::{Dict, Document, Object};
 
@@ -23,6 +24,129 @@ enum Codes {
     Two,
     /// Codespace ranges `(length, low, high)` from an embedded CMap.
     Ranges(Vec<(usize, Vec<u8>, Vec<u8>)>),
+    /// A byte in `lo..=hi` leads a two-byte code, any other byte is a code of its own (EUC, UHC).
+    Lead(u8, u8),
+}
+
+/// The predefined CMaps a Type0 font may name as its `/Encoding` that we interpret (ISO 32000-2
+/// §9.7.5.2), with the lead bytes of their two-byte codes; `None` means two bytes per code, each a
+/// UTF-16 unit that is also the code's text. All are Adobe-Korea1, whose CID → Unicode table
+/// gives the others their text, so another Korea1 CMap is one more row.
+const PREDEFINED: [(&[u8], LeadBytes); 6] = [
+    (b"KSC-EUC-H", Some((0x81, 0xFE))),
+    (b"KSCms-UHC-H", Some((0x81, 0xFE))),
+    (b"KSCms-UHC-HW-H", Some((0x81, 0xFE))),
+    (b"KSCpc-EUC-H", Some((0x81, 0xFE))),
+    (b"UniKS-UCS2-H", None),
+    (b"UniKS-UTF16-H", None),
+];
+
+/// The lead bytes `(lo, hi)` of a predefined CMap's two-byte codes; `None` for UTF-16 units.
+type LeadBytes = Option<(u8, u8)>;
+
+/// Each row of [`PREDEFINED`], parsed on first use and shared by every font in the process.
+static PREDEFINED_TABLES: [OnceLock<Option<Predefined>>; PREDEFINED.len()] = [const { OnceLock::new() }; PREDEFINED.len()];
+
+/// Adobe-Korea1 CID → Unicode, shared by the [`PREDEFINED`] rows.
+static KOREA1_UCS2: OnceLock<Option<hayro_cmap::CMap>> = OnceLock::new();
+
+/// A parsed predefined CMap and the reverse map writing text needs.
+struct Predefined {
+    name: &'static [u8],
+    cmap: hayro_cmap::CMap,
+    lead: LeadBytes,
+    /// CID → Unicode for the CMap's character collection.
+    ucs2: &'static hayro_cmap::CMap,
+    /// Each single character a code shows → its lowest code.
+    reverse: HashMap<char, u16>,
+}
+
+/// One instance per name, so the name is the identity; comparing or printing the tables would
+/// only cost time and bloat `Debug`.
+impl PartialEq for Predefined {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl std::fmt::Debug for Predefined {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Predefined").field(&String::from_utf8_lossy(self.name)).finish()
+    }
+}
+
+/// The predefined CMap called `name`, if it is one we interpret.
+fn predefined(name: &[u8]) -> Option<&'static Predefined> {
+    let i = PREDEFINED.iter().position(|(n, _)| *n == name)?;
+    let &(name, lead) = PREDEFINED.get(i)?;
+    PREDEFINED_TABLES.get(i)?.get_or_init(|| Predefined::build(name, lead)).as_ref()
+}
+
+impl Predefined {
+    fn build(name: &'static [u8], lead: LeadBytes) -> Option<Self> {
+        use hayro_cmap::{CMap, CMapName, load_embedded};
+        let cmap = CMap::parse(load_embedded(CMapName::from_bytes(name))?, load_embedded)?;
+        let ucs2 = KOREA1_UCS2.get_or_init(|| CMap::parse(load_embedded(CMapName::AdobeKorea1Ucs2)?, load_embedded)).as_ref()?;
+        let mut p = Predefined { name, cmap, lead, ucs2, reverse: HashMap::new() };
+        // Every code a string can split into, in ascending order so the lowest code is kept.
+        let codes: Vec<u32> = match lead {
+            Some((lo, hi)) => {
+                let (lo, hi) = (u32::from(lo), u32::from(hi));
+                (0..=0xFF).filter(|b| !(lo..=hi).contains(b)).chain(lo << 8..=(hi << 8 | 0xFF)).collect()
+            }
+            None => (0..=0xFFFF).collect(),
+        };
+        let mut reverse = HashMap::new();
+        for code in codes {
+            if let (Some(c), Ok(code)) = (p.char_of(code), u16::try_from(code)) {
+                reverse.entry(c).or_insert(code);
+            }
+        }
+        p.reverse = reverse;
+        Some(p)
+    }
+
+    fn is_lead(&self, b: u32) -> bool {
+        self.lead.is_some_and(|(lo, hi)| u8::try_from(b).is_ok_and(|b| (lo..=hi).contains(&b)))
+    }
+
+    /// The bytes `code` is written with, or `None` when no string splits into it.
+    fn code_len(&self, code: u32) -> Option<usize> {
+        match self.lead {
+            Some(_) if code < 0x100 => (!self.is_lead(code)).then_some(1),
+            Some(_) => (code <= 0xFFFF && self.is_lead(code >> 8)).then_some(2),
+            None => (code <= 0xFFFF).then_some(2),
+        }
+    }
+
+    /// The CID of `code`; 0 (`.notdef`) when the CMap has none.
+    fn cid(&self, code: u32) -> u32 {
+        let len = match self.code_len(code) {
+            Some(1) => 1,
+            Some(_) => 2,
+            None => return 0,
+        };
+        self.cmap.lookup_cid_code(code, len).unwrap_or(0)
+    }
+
+    /// The text of a code that shows a glyph other than `.notdef`.
+    fn text(&self, code: u32) -> Option<hayro_cmap::BfString> {
+        let cid = self.cid(code);
+        if cid == 0 {
+            return None;
+        }
+        match self.lead {
+            None => char::from_u32(code).map(hayro_cmap::BfString::Char),
+            Some(_) => self.ucs2.lookup_bf_string(cid),
+        }
+    }
+
+    fn char_of(&self, code: u32) -> Option<char> {
+        match self.text(code)? {
+            hayro_cmap::BfString::Char(c) => Some(c),
+            hayro_cmap::BfString::String(s) => only_char(&s),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +160,8 @@ pub struct Metrics {
     cid_ranges: Vec<(u32, u32, f64)>,
     /// Code → CID for embedded non-identity CMaps (`cidrange` / `cidchar`).
     cid_map: Vec<(u32, u32, u32)>,
+    /// The predefined CMap named by `/Encoding`: codes, CIDs, and text where ToUnicode has none.
+    predefined: Option<&'static Predefined>,
     default: f64,
     /// Composite fonts with an explicit `/DW`: `/W` may leave out the glyphs that have that
     /// width (Chrome and Skia do), so a CID missing from `/W` is not a missing glyph.
@@ -600,6 +726,7 @@ impl Metrics {
             cid_widths: HashMap::new(),
             cid_ranges: Vec::new(),
             cid_map: Vec::new(),
+            predefined: None,
             default: 500.0,
             explicit_default: false,
             std14: Some(crate::Std14::Helvetica),
@@ -643,6 +770,7 @@ impl Metrics {
             Codes::One => 1,
             Codes::Two => 2,
             Codes::Ranges(r) => r.last().map_or(2, |x| x.0),
+            Codes::Lead(..) => 2,
         };
         m.unicode = unicode_map(doc, font, m.composite);
         if m.std14.is_some() {
@@ -686,6 +814,13 @@ impl Metrics {
                     m.codes = Codes::Ranges(spaces);
                 }
                 m.cid_map = cids;
+            } else if let Some(name) = font.name(b"Encoding")
+                && let Some(p) = predefined(name)
+            {
+                m.predefined = Some(p);
+                if let Some((lo, hi)) = p.lead {
+                    m.codes = Codes::Lead(lo, hi);
+                }
             }
             let desc = font
                 .get(b"DescendantFonts")
@@ -779,6 +914,13 @@ impl Metrics {
                     .iter()
                     .find(|(len, lo, hi)| s.get(i..i + len).is_some_and(|b| b.iter().zip(lo.iter().zip(hi)).all(|(x, (l, h))| x >= l && x <= h)))
                     .map_or(r.first().map_or(1, |x| x.0), |x| x.0),
+                Codes::Lead(lo, hi) => {
+                    if s.get(i).is_some_and(|b| (*lo..=*hi).contains(b)) {
+                        2
+                    } else {
+                        1
+                    }
+                }
             };
             let len = len.min(s.len() - i).max(1);
             out.push((be(&s[i..i + len]), len));
@@ -788,6 +930,9 @@ impl Metrics {
     }
 
     fn cid(&self, code: u32) -> u32 {
+        if let Some(p) = self.predefined {
+            return p.cid(code);
+        }
         if self.cid_map.is_empty() {
             return code;
         }
@@ -841,7 +986,12 @@ impl Metrics {
     /// The Unicode text of one code, if known.
     #[inline]
     pub fn text_of(&self, code: u32) -> Option<Cow<'_, str>> {
-        self.unicode.text(code)
+        self.unicode.text(code).or_else(|| {
+            Some(match self.predefined?.text(code)? {
+                hayro_cmap::BfString::Char(c) => Cow::Owned(c.to_string()),
+                hayro_cmap::BfString::String(s) => Cow::Owned(s),
+            })
+        })
     }
 
     /// Whether the font has a glyph for `code` (subset fonts lack the glyphs they don't use).
@@ -873,7 +1023,7 @@ impl Metrics {
 
     /// Whether `code` shows exactly `c` and has a glyph for it.
     fn shows(&self, code: u32, c: char) -> bool {
-        self.unicode.text(code).is_some_and(|t| t.chars().eq(std::iter::once(c))) && self.has_glyph(code)
+        self.text_of(code).is_some_and(|t| t.chars().eq(std::iter::once(c))) && self.has_glyph(code)
     }
 
     /// The bytes that show `text` in this font, or `None` if some character has no code or
@@ -895,11 +1045,25 @@ impl Metrics {
                 }
             }
         }
-        let mut out = Vec::with_capacity(text.len() * self.code_len);
+        if let Some(p) = self.predefined {
+            for &c in &wanted {
+                if let Some(&code) = p.reverse.get(&c)
+                    && self.shows(u32::from(code), c)
+                {
+                    keep(&mut reverse, c, u32::from(code));
+                }
+            }
+        }
+        let mut out = Vec::with_capacity(text.len().saturating_mul(self.code_len));
         for ch in text.chars() {
             let code = *reverse.get(&ch)?;
+            let len = match self.predefined {
+                // A ToUnicode code the CMap cannot split back out is no use.
+                Some(p) => p.code_len(code)?,
+                None => self.code_len.clamp(1, 4),
+            };
             let bytes = code.to_be_bytes();
-            out.extend_from_slice(&bytes[4 - self.code_len.clamp(1, 4)..]);
+            out.extend_from_slice(bytes.get(4 - len..)?);
         }
         Some(out)
     }
@@ -1953,6 +2117,118 @@ mod tests {
         let covered: Vec<u32> = (0..0x70).filter(|&c| u.covering(c).is_some()).collect();
         assert_eq!(covered, [5, 6, 7, 100, 101]);
         assert_eq!((u.covering(0xFFFF).is_some(), u.covering(0x1_0001).is_some(), u.covering(0x1_0002).is_none()), (true, true, true));
+    }
+
+    /// Adobe-Korea1 CIDs of 가 and 나 (the same in every Korea1 CMap).
+    const CID_GA: i64 = 1086;
+    const CID_NA: i64 = 1377;
+
+    /// A Type0 font named by a predefined CMap, with `/W` widths `(cid, width)` and an optional ToUnicode.
+    fn korean(encoding: &str, base: &str, widths: &[(i64, i64)], to_unicode: Option<&[u8]>) -> Metrics {
+        let mut doc = Document::new_empty();
+        let mut desc = Dict::new();
+        desc.set(b"Subtype".to_vec(), Object::name("CIDFontType0"));
+        let w = widths.iter().flat_map(|&(cid, w)| [Object::Int(cid), Object::Array(vec![Object::Int(w)])]).collect();
+        desc.set(b"W".to_vec(), Object::Array(w));
+        let mut entries = vec![
+            ("Subtype", Object::name("Type0")),
+            ("BaseFont", Object::name(base)),
+            ("Encoding", Object::name(encoding)),
+            ("DescendantFonts", Object::Array(vec![Object::Dict(desc)])),
+        ];
+        if let Some(cmap) = to_unicode {
+            entries.push(("ToUnicode", Object::Ref(doc.add(Object::Stream(Stream::from_raw(Dict::new(), cmap.to_vec()))))));
+        }
+        let f = font(&mut doc, entries);
+        Metrics::from_dict(&doc, &f)
+    }
+
+    #[test]
+    fn ksc_euc_fonts_split_decode_and_measure_without_to_unicode() {
+        let m = korean("KSC-EUC-H", "Batang", &[(CID_GA, 700)], None);
+        let bytes = [0xB0, 0xA1, 0x41, 0xB3, 0xAA];
+        let lens: Vec<usize> = m.codes(&bytes).into_iter().map(|(_, len)| len).collect();
+        assert_eq!(lens, [2, 1, 2]);
+        assert_eq!(m.decode(&bytes), "가A나");
+        // Widths are keyed by the Korea1 CID, not the code.
+        assert!((m.width(0xB0A1) - 0.7).abs() < 1e-9 && (m.width(0xB3AA) - 1.0).abs() < 1e-9);
+        assert_eq!(m.encode("가A나").as_deref(), Some(&bytes[..]));
+        // KS X 1001 has no 똠; only UHC does.
+        assert_eq!(m.decode(&[0x8C, 0x63]), "");
+        assert_eq!(m.encode("똠"), None);
+        // The shared table compares by name.
+        assert_eq!(m.clone(), m);
+        assert_ne!(korean("KSCpc-EUC-H", "Batang", &[(CID_GA, 700)], None), m);
+    }
+
+    #[test]
+    fn uhc_fonts_decode_and_encode_the_extended_syllables() {
+        for name in ["KSCms-UHC-H", "KSCms-UHC-HW-H"] {
+            let m = korean(name, "Dotum", &[], None);
+            assert_eq!(m.decode(&[0x8C, 0x63, 0xB0, 0xA1]), "똠가", "{name}");
+            assert_eq!(m.encode("똠가").as_deref(), Some(&[0x8C, 0x63, 0xB0, 0xA1][..]), "{name}");
+            assert_eq!(m.encode("ث"), None, "{name}");
+            assert_eq!(m.encode("😀"), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn unicode_korean_cmaps_decode_and_encode_hangul() {
+        for name in ["UniKS-UCS2-H", "UniKS-UTF16-H"] {
+            let m = korean(name, "Gulim", &[(CID_NA, 800)], None);
+            let bytes = [0xAC, 0x00, 0x00, 0x41, 0xB0, 0x98];
+            assert_eq!(m.decode(&bytes), "가A나", "{name}");
+            assert_eq!(m.encode("가A나").as_deref(), Some(&bytes[..]), "{name}");
+            assert!((m.width(0xB098) - 0.8).abs() < 1e-9, "{name}");
+            assert_eq!(m.encode("😀"), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn to_unicode_overrides_the_predefined_cmap() {
+        let tu = b"1 begincodespacerange <00> <80> endcodespacerange 1 beginbfchar <B0A1> <062B> endbfchar";
+        let m = korean("KSC-EUC-H", "Batang", &[], Some(tu));
+        assert_eq!(m.decode(&[0xB0, 0xA1, 0xB3, 0xAA]), "ث나");
+        assert_eq!(m.encode("ث나").as_deref(), Some(&[0xB0, 0xA1, 0xB3, 0xAA][..]));
+        // The CMap says B0A1 is 가, but ToUnicode says it shows ث, so nothing writes 가.
+        assert_eq!(m.encode("가"), None);
+        // A ToUnicode code that the CMap would split differently (a lone lead byte) is not written.
+        let lone = korean("KSC-EUC-H", "Batang", &[], Some(b"1 beginbfchar <B0> <062B> endbfchar"));
+        assert_eq!(lone.encode("ث"), None);
+    }
+
+    #[test]
+    fn subset_predefined_fonts_only_encode_cids_with_widths() {
+        let m = korean("KSC-EUC-H", "ABCDEF+Batang", &[(CID_GA, 1000)], None);
+        assert!(m.subset);
+        assert_eq!(m.encode("가").as_deref(), Some(&[0xB0, 0xA1][..]));
+        assert_eq!(m.encode("나"), None);
+        assert_eq!(m.encode("가나"), None);
+    }
+
+    #[test]
+    fn hostile_bytes_in_predefined_fonts_never_panic() {
+        let all: Vec<u8> = (0..=255).collect();
+        let inputs: [&[u8]; 8] = [&[], &[0xB0], &[0xFF], &[0xFF, 0xFF], &[0x41, 0xB0], &[0xAC, 0x00, 0xD8], &[0xD8, 0x00, 0xDC, 0x00], &all];
+        for (name, _) in PREDEFINED {
+            let m = korean(std::str::from_utf8(name).unwrap(), "ABCDEF+Batang", &[(CID_GA, 900)], None);
+            for s in inputs {
+                let codes = m.codes(s);
+                assert_eq!(codes.iter().map(|c| c.1).sum::<usize>(), s.len());
+                for (code, _) in codes {
+                    let _ = (m.width(code), m.text_of(code));
+                }
+                let _ = m.decode(s);
+            }
+            assert_eq!(m.encode("").as_deref(), Some(&[][..]));
+            for code in [0, 0x80, 0xFF, 0xFFFF, 0x1_0000, u32::MAX] {
+                let _ = (m.width(code), m.text_of(code));
+            }
+        }
+        // A name we don't interpret keeps fixed two-byte codes.
+        let other = korean("KSC-EUC-V", "Batang", &[], None);
+        assert_eq!(other.codes(&[0x41, 0xB0, 0xA1]), [(0x41B0, 2), (0xA1, 1)]);
+        assert_eq!(other.decode(&[0xB0, 0xA1]), "");
     }
 }
 

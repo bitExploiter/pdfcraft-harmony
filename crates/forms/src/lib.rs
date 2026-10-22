@@ -1232,6 +1232,11 @@ fn redraw(doc: &mut Document, f: &Field, values: &[String], scripts: &mut dyn Sc
             None => appearance::field_appearance_drawn(doc, f, w, values, true),
         };
         undrawn |= missing.is_some();
+        let mut stream = stream;
+        if let Some(Object::Dict(mut res)) = stream.dict.get(b"Resources").cloned() {
+            pdfcraft_fonts::hoist_font_descriptors(doc, &mut res);
+            stream.dict.set(b"Resources".to_vec(), Object::Dict(res));
+        }
         let ap = doc.add(Object::Stream(stream));
         let mut fresh = Dict::new();
         fresh.set(b"N".to_vec(), Object::Ref(ap));

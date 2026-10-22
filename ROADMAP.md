@@ -189,6 +189,7 @@ Ranked; detail and the full milestone table in [docs/roadmap.md](docs/roadmap.md
 | 8 | 1.0 polish: performance, right-to-left, missing languages, keyboard-only (M14) | 55–95 |
 
 ## Progress log
+- **2026-10-22 (M7, Korean text in documents):** Korean in PDFs uses craft-fonts NanumGothic/NanumMyeongjo (storytold/craft-fonts#30): Edit text replacements take a Korean Type 3 fallback matching the source's serif and weight; Add text shapes Korean and wraps between words; comments, Fill & Sign text, stamp by-lines, measurement labels and Helvetica form fields draw Korean as glyph outlines with an invisible text layer, so it stays searchable after flattening; KSC-EUC/UHC/UniKS predefined CMaps are decoded and re-encoded without ToUnicode; non-embedded Adobe-Korea1 fonts render. Without the faces, Korean edits are a clear error. Estimates unchanged.
 - **2026-10-13 (M7, free image rotation):** A selected page image has a rotate knob (Shift: 15 degree steps) and `image_edit` a `rotate_by` action; the angle is written as one undoable `cm`. Snapping to page edges while moving is in #1740; resize snapping is not done. Estimates unchanged.
 
 - **2026-10-20 (M4, initial view):** Window and interface options read indirect boolean ViewerPreferences values. Synthetic regressions cover true/false, direct/indirect preference dictionaries and save/reopen; malformed entries retain false defaults. Estimates unchanged.
