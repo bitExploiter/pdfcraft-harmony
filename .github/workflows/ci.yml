@@ -91,6 +91,10 @@ jobs:
         if: runner.os == 'Linux'
         run: cargo test --workspace
 
+      - name: Vendored winit Wayland drop tests (Linux)
+        if: runner.os == 'Linux'
+        run: cargo test --locked --manifest-path vendor/winit/Cargo.toml --lib dnd::tests
+
       - name: Layering
         if: runner.os == 'Linux'
         run: cargo xtask layers
