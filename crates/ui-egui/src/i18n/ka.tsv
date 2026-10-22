@@ -2695,3 +2695,67 @@ theme	Appearance	იერსახე
 # Historical snapshot notice bar (View signed version / revisions)
 	You are viewing the signed version of “{from}” (revision {rev}). It is a snapshot: changes here won't affect the original.	თქვენ ათვალიერებთ „{from}“-ის ხელმოწერილ ვერსიას (რევიზია {rev}). ეს მომენტალური ასლია: აქ შეტანილი ცვლილებები ორიგინალზე არ აისახება.
 	You are viewing revision {rev} of “{from}”. It is a snapshot: changes here won't affect the original.	თქვენ ათვალიერებთ „{from}“-ის რევიზიას {rev}. ეს მომენტალური ასლია: აქ შეტანილი ცვლილებები ორიგინალზე არ აისახება.
+	Calculation order	გამოთვლის რიგი
+	Fix order	რიგის გასწორება
+	Move only what must move, so every field calculates after the fields it reads.	გადაადგილდეს მხოლოდ ის, რაც აუცილებელია, რომ ყოველი ველი გამოითვალოს იმ ველების შემდეგ, რომლებსაც კითხულობს.
+	Earlier in calculation order	გამოთვლის რიგში უფრო ადრე
+	Later in calculation order	გამოთვლის რიგში უფრო გვიან
+	Too early	ზედმეტად ადრე
+	Reads {name}, which calculates later, so it shows an old value.	კითხულობს {name}-ს, რომელიც მოგვიანებით ითვლება, ამიტომ ძველ მნიშვნელობას აჩვენებს.
+	Loop	ციკლი
+	Reads {names}, which read it back. No order can fix a loop: change one of the formulas.	კითხულობს {names}-ს, რომლებიც თავის მხრივ მას კითხულობენ. ციკლს ვერცერთი რიგი ვერ გაასწორებს: შეცვალეთ ერთ-ერთი ფორმულა.
+	Not in order	რიგში არ არის
+	Missing from the calculation order saved in the PDF: other PDF viewers may not calculate it.	PDF-ში შენახულ გამოთვლის რიგში არ არის: სხვა PDF-მნახველებმა შეიძლება ვერ გამოთვალონ.
+	Back to Prepare a form	ფორმის მომზადებაზე დაბრუნება
+	No field in this form calculates its value yet. Give a field a calculation on the Calculate tab of its properties, and it shows here.	ამ ფორმაში ჯერ არცერთი ველი არ ითვლის თავის მნიშვნელობას. ველის თვისებების „გამოთვლა“ ჩანართზე მიეცით მას გამოთვლა და ის აქ გამოჩნდება.
+	{names} and {last}	{names} და {last}
+	{field} reads no other field	{field} სხვა ველს არ კითხულობს
+	{field} reads {fields}	{field} კითხულობს: {fields}
+	No field reads it	მას არცერთი ველი არ კითხულობს
+	The order saved in the PDF needs tidying	PDF-ში შენახულ რიგს მოწესრიგება სჭირდება
+	Moves only what must move	გადაადგილდება მხოლოდ ის, რაც აუცილებელია
+	Every field calculates after the fields it reads.	ყოველი ველი ითვლება იმ ველების შემდეგ, რომლებსაც კითხულობს.
+	Every field outside a loop calculates after the fields it reads.	ციკლის გარეთ ყოველი ველი ითვლება იმ ველების შემდეგ, რომლებსაც კითხულობს.
+	{field} reads its own value	{field} საკუთარ მნიშვნელობას კითხულობს
+	{fields} read each other	{fields} ერთმანეთს კითხულობენ
+	No order can fix a loop. Change one of the formulas.	ციკლს ვერცერთი რიგი ვერ გაასწორებს. შეცვალეთ ერთ-ერთი ფორმულა.
+	Edit {field}'s formula	{field}-ის ფორმულის რედაქტირება
+	Order · top calculates first	რიგი · ზედა ითვლება პირველად
+	Script	სკრიპტი
+	Links on page	კავშირები გვერდზე
+	Show on the page which fields each field reads	გვერდზე ჩვენება, რომელ ველებს კითხულობს თითოეული ველი
+	Drag a field to move it, or select it and press {up} or {down}.	ველის გადასაადგილებლად გადაათრიეთ ის, ან მონიშნეთ და დააჭირეთ {up}-ს ან {down}-ს.
+	Set calculation order	გამოთვლის რიგის დაყენება
+@plural	{n} calculation now uses the new name.|{n} calculations now use the new name.	ახალ სახელს ახლა იყენებს გამოთვლა: {n}.
+@plural	The calculation order has {n} entry that calculates nothing. Fix order removes it.|The calculation order has {n} entries that calculate nothing. Fix order removes them.	გამოთვლის რიგში არის ჩანაწერი, რომელიც არაფერს ითვლის: {n}. „რიგის გასწორება“ მათ წაშლის.
+@plural	{fields} reads it|{fields} read it	მას კითხულობს: {fields}
+@plural	{n} field shows an old value|{n} fields show old values	ძველ მნიშვნელობას აჩვენებს ველი: {n}
+@plural	{field} calculates before {fields}, which it reads.|{field} calculates before {fields}, which it reads.	{field} ითვლება {fields}-მდე, თუმცა მათ კითხულობს.
+@plural	{n} more field calculates too early.|{n} more fields calculate too early.	ზედმეტად ადრე ითვლება კიდევ ველი: {n}.
+@plural	{fields} is missing from the order saved in the PDF, so other PDF viewers may not calculate it.|{fields} are missing from the order saved in the PDF, so other PDF viewers may not calculate them.	PDF-ში შენახულ რიგში არ არის: {fields}, ამიტომ სხვა PDF-მნახველებმა შეიძლება ვერ გამოთვალონ.
+	Bulleted list	ბურთულებიანი სია
+	Numbered list	დანომრილი სია
+	Alignment	სწორება
+	Superscript	ზედა ინდექსი
+	Subscript	ქვედა ინდექსი
+	Paragraph spacing	აბზაცთა დაშორება
+	Less	ნაკლები
+	Other options	სხვა პარამეტრები
+	Add text field table	ტექსტური ველების ცხრილის დამატება
+	Text field table	ტექსტური ველების ცხრილი
+	Text Field Table	ტექსტური ველების ცხრილი
+	Columns	სვეტები
+	Row spacing	სტრიქონებს შორის დაშორება
+	Column spacing	სვეტებს შორის დაშორება
+	First row number	პირველი სტრიქონის ნომერი
+	Column widths	სვეტების სიგანეები
+	Distribute evenly	თანაბრად განაწილება
+	Field names	ველების დასახელებები
+	N or {row} is the row number, {col} the column number, {seq} the cell number. With none of them, the row number goes last.	N ან {row} სტრიქონის ნომერია, {col} — სვეტის ნომერი, {seq} — უჯრის ნომერი. თუ არცერთი არ არის, სტრიქონის ნომერი ბოლოს ემატება.
+	Column {n}	სვეტი {n}
+	Add fields	ველების დამატება
+	the rows are too short: make the area taller, or use fewer rows or less row spacing	სტრიქონები ზედმეტად დაბალია: გაზარდეთ არის სიმაღლე ან შეამცირეთ სტრიქონების რაოდენობა ან მათ შორის დაშორება
+	a column is too narrow: make the area wider, give the column more of it, or use fewer columns or less column spacing	სვეტი ზედმეტად ვიწროა: გაზარდეთ არის სიგანე, მიეცით სვეტს მეტი ადგილი ან შეამცირეთ სვეტების რაოდენობა ან მათ შორის დაშორება
+	field names can't contain a period: {name}	ველის დასახელება წერტილს ვერ შეიცავს: {name}
+	two cells would both be named {name}	ორ უჯრას ერთი და იგივე დასახელება ექნებოდა: {name}
+	a field named {name} already exists	ველი დასახელებით {name} უკვე არსებობს
