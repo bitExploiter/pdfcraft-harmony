@@ -282,6 +282,10 @@ impl FileWatch {
     /// document came from: macOS rewrites a saved file's extended attributes a moment after the
     /// save, which moves its change time and nothing else (#3443, #3755). A file whose stamp
     /// moved but which can't be read is a difference, so Save asks first.
+    ///
+    /// Called on the UI thread when Save starts. The file is read only when its stamp moved and its
+    /// length is still the saved one, and then `holds` compares it in 64 KiB pieces, reading at
+    /// most one byte more than `saved`: the pause is one read of the file, with no copy of it kept.
     pub fn disk_differs(&self, doc: DocId, path: &str, saved: &[u8]) -> bool {
         match (Stamp::at(path), self.basis.get(&doc)) {
             (Some(now), Some(basis)) if now != *basis => now.len != saved.len() as u64 || !holds(path, saved),
