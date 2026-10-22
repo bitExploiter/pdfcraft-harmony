@@ -874,6 +874,55 @@ fn restored_paper_keeps_preview_and_saved_sheet_dimensions() {
     std::fs::remove_file(out).unwrap();
 }
 
+/// The system print dialog is never in the spooler's list, yet it is a choice like a printer:
+/// picked before the list arrives, it isn't replaced by the default printer, and it is still
+/// chosen the next time Print opens (#3537, #4059 review).
+#[test]
+fn the_system_print_dialog_picked_while_looking_is_kept() {
+    use pdfcraft_engine::print::spool::Printer;
+    use pdfcraft_engine::print::system_dialog::{AVAILABLE, SYSTEM_DIALOG};
+    use std::sync::{Arc, Mutex};
+    if !AVAILABLE {
+        return;
+    }
+    let mut h = harness();
+    let gate = Arc::new(Mutex::new(()));
+    let wait = gate.clone();
+    h.state_mut().printer_source = Some(Arc::new(move || {
+        let _open = wait.lock();
+        vec![Printer { name: "Front Desk".into(), default: true, two_sided: None }]
+    }));
+    let listed = |h: &mut Harness<'static, PdfCraftApp>| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while h.state().print_draft.printers_loading && std::time::Instant::now() < deadline {
+            h.run_steps(1);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(!h.state().print_draft.printers_loading);
+        h.run_steps(2);
+    };
+    let hold = gate.lock().unwrap();
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(2);
+    assert!(h.state().print_draft.printers_loading);
+    // Picked from the printer list while it is still looking.
+    h.query_all_by_role(Role::ComboBox).next().expect("the printer box").click();
+    h.run_steps(2);
+    h.get_by_label("System print dialog…").click();
+    h.run_steps(2);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG));
+    drop(hold);
+    listed(&mut h);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "the arriving list keeps the pick");
+
+    h.state_mut().dialog = None;
+    assert!(h.state_mut().execute("print.dialog"));
+    h.run_steps(2);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "remembered at once");
+    listed(&mut h);
+    assert_eq!(h.state().print_draft.printer.as_deref(), Some(SYSTEM_DIALOG), "and after the fresh list");
+}
+
 /// macOS: "System print dialog…" hands the print-ready PDF to the system's own print panel,
 /// where copies, two-sided printing, colour and the printer are chosen (and PDF services, #2157),
 /// so PdfCraft's own copies and two-sided controls step aside. The dialog closes at once; the

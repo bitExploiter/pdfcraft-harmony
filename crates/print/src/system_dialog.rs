@@ -10,9 +10,13 @@
 
 use crate::PrintError;
 
-/// The printer name that means "the system print dialog", in the Print dialog's draft and for the
-/// `doc_print` tool.
-pub const SYSTEM_DIALOG: &str = "system-dialog";
+/// The printer name that means "the system print dialog" in the Print dialog's draft. Like the
+/// browser's (`\u{1}browser`), it starts with a control character, so no print queue can have it.
+pub const SYSTEM_DIALOG: &str = "\u{1}system-dialog";
+
+/// The `doc_print` tool's name for the system print dialog. A print queue with this name is still
+/// reached through the dialog, where it can be picked.
+pub const TOOL_NAME: &str = "system-dialog";
 
 /// Whether this platform has a system print dialog PdfCraft can open.
 pub const AVAILABLE: bool = cfg!(target_os = "macos");

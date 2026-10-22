@@ -4153,6 +4153,17 @@ fn the_system_print_dialog_through_tools() {
     }
     // A bad page range is refused before any dialog opens, on every platform.
     assert!(matches!(a.call("doc_print", &json!({ "doc": doc, "pages": "99", "printer": "system-dialog" })), Err(ToolError::InvalidArgs(_))));
+    // So are the job settings the panel chooses, rather than quietly dropped (#4059 review).
+    for (arg, value) in
+        [("copies", json!(2)), ("collate", json!(false)), ("duplex", json!("long-edge")), ("grayscale", json!(true)), ("options", json!({}))]
+    {
+        let mut args = json!({ "doc": doc, "printer": "system-dialog" });
+        args[arg] = value;
+        assert!(
+            matches!(a.call("doc_print", &args), Err(ToolError::InvalidArgs(m)) if m.contains(arg) && m.contains("system print dialog")),
+            "{arg} must be refused"
+        );
+    }
 }
 
 #[test]

@@ -350,9 +350,10 @@ fn default_printer(printers: &[spool::Printer]) -> Option<String> {
     printers.iter().find(|p| p.default).or(printers.first()).map(|p| p.name.clone())
 }
 
-/// Whether `printer` can still be chosen from `printers`: Save as PDF (`None`) always can.
+/// Whether `printer` can still be chosen from `printers`: Save as PDF (`None`) always can, and
+/// the system print dialog wherever it exists, since it is never in the spooler's list.
 fn offered(printer: Option<&str>, printers: &[spool::Printer]) -> bool {
-    printer.is_none_or(|name| printers.iter().any(|p| p.name == name))
+    printer.is_none_or(|name| (system_dialog::AVAILABLE && name == system_dialog::SYSTEM_DIALOG) || printers.iter().any(|p| p.name == name))
 }
 
 /// Asks for a frame when a worker thread ends, also when it panics: [`PdfCraftApp::poll_print`]

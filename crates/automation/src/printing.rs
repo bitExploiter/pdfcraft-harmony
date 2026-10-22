@@ -162,7 +162,12 @@ impl Automation {
                 out["path"] = json!(path.to_string_lossy());
             }
             // The person finishes the job in macOS's own print panel; this waits until it closes.
-            (None, Some(system_dialog::SYSTEM_DIALOG)) => {
+            (None, Some(system_dialog::TOOL_NAME)) => {
+                // Those are chosen in the panel; refused rather than quietly dropped.
+                let mut job_only = ["copies", "collate", "duplex", "options"].into_iter().chain(settings.raster.is_none().then_some("grayscale"));
+                if let Some(arg) = job_only.find(|k| a.get(k).is_some_and(|v| !v.is_null())) {
+                    return Err(bad(format!("{arg} is chosen in the system print dialog; leave it out with printer {:?}", system_dialog::TOOL_NAME)));
+                }
                 let name = self.doc(a)?.name.clone();
                 let outcome = system_dialog::print(&bytes, &name).map_err(|e| failed(e.to_string()))?;
                 out["system_dialog"] = json!(match outcome {
