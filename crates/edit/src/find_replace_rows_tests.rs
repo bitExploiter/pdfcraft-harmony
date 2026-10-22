@@ -50,7 +50,7 @@ fn replace_keeps_untouched_rows() {
     let mut doc = page("BT /F1 10 Tf 12 TL 100 700 Td [(Hello) -300 (World)] TJ T* (second row here) Tj ET");
     let block = text_blocks(&doc, 0).unwrap().swap_remove(0);
     let start = block.editor_text.find("here").expect("the second row's word is in the paragraph");
-    let (text, sources) = block.replaced(&[start..start + 4], "there").expect("the range is on boundaries");
+    let (text, sources) = block.replaced(std::slice::from_ref(&(start..start + 4)), "there").expect("the range is on boundaries");
     let style = BlockStyle { sources, ..Default::default() };
     rewrite_block(&mut doc, 0, 0, Some(&text), &style).unwrap();
     let after = content(&doc);
