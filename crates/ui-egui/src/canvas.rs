@@ -17,7 +17,10 @@ use crate::{PdfCraftApp, QuickTool, RightPanel, comments, icons, widgets};
 
 /// Logical pixels per PDF point at 100% (96 dpi, like browsers).
 pub const PT: f32 = 96.0 / 72.0;
-const GAP: f32 = 14.0;
+/// Vertical separation between adjacent page rows, in logical screen points.
+const PAGE_ROW_GAP: f32 = 8.0;
+/// Horizontal separation between facing pages, in logical screen points.
+const FACING_PAGE_GAP: f32 = 2.0;
 const MARGIN: f32 = 28.0;
 /// Horizontal gutter that keeps pages clear of the floating quick-action bar.
 const SIDE: f32 = 70.0;
@@ -211,7 +214,7 @@ impl ViewDefaults {
     }
 
     /// These defaults with the zoom a [`zoom_name`](Self::zoom_name) names, in any case. `None`
-    /// for anything else, including a percentage outside the 8–6400% the view can show.
+    /// for anything else, including a percentage outside the 1–6400% the view can show.
     pub fn with_zoom(self, name: &str) -> Option<Self> {
         let name = name.trim();
         let (fit, zoom) = if name.eq_ignore_ascii_case("fit-width") {
@@ -219,7 +222,7 @@ impl ViewDefaults {
         } else if name.eq_ignore_ascii_case("fit-page") {
             (Fit::Page, self.zoom)
         } else {
-            let percent = name.strip_suffix('%').unwrap_or(name).trim().parse::<f32>().ok().filter(|p| (8.0..=6400.0).contains(p))?;
+            let percent = name.strip_suffix('%').unwrap_or(name).trim().parse::<f32>().ok().filter(|p| (1.0..=6400.0).contains(p))?;
             (Fit::None, percent / 100.0)
         };
         Some(Self { fit, zoom, ..self })
@@ -382,6 +385,98 @@ pub(crate) fn snapshot_tab_name(title: &str, file_name: &str, snapshot: &Snapsho
     }
 }
 
+/// Final displayed geometry for one visible page. The canvas builds this from the same snapped
+/// rectangle and page transform used for painting; ruler code must consume it rather than repeat
+/// page-layout calculations.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VisiblePageGeometry {
+    pub page_index: usize,
+    pub page_rect: Rect,
+    /// Page size in PDF/view-space points before View rotation.
+    pub unrotated_size_points: Vec2,
+    /// View rotation in degrees clockwise: 0, 90, 180 or 270.
+    pub rotation_degrees: u16,
+    /// Final logical screen points occupied by one PDF point.
+    pub screen_points_per_pdf_point: f32,
+}
+
+impl VisiblePageGeometry {
+    fn from_xform(page_index: usize, xf: PageXform) -> Self {
+        let displayed_width_points = if xf.rot.is_multiple_of(180) { xf.pw } else { xf.ph };
+        Self {
+            page_index,
+            page_rect: xf.rect,
+            unrotated_size_points: vec2(xf.pw, xf.ph),
+            rotation_degrees: xf.rot,
+            screen_points_per_pdf_point: xf.rect.width() / displayed_width_points.max(1.0),
+        }
+    }
+
+    fn visible_area(self, viewport_rect: Rect) -> f32 {
+        if self.page_rect.intersects(viewport_rect) {
+            let visible = self.page_rect.intersect(viewport_rect);
+            visible.width().max(0.0) * visible.height().max(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+/// Geometry from the most recently painted document frame.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CanvasGeometry {
+    pub viewport_rect: Rect,
+    pub pages: Vec<VisiblePageGeometry>,
+    pub active_page_index: Option<usize>,
+}
+
+impl Default for CanvasGeometry {
+    fn default() -> Self {
+        Self { viewport_rect: Rect::NOTHING, pages: Vec::new(), active_page_index: None }
+    }
+}
+
+impl CanvasGeometry {
+    fn new(viewport_rect: Rect, pages: Vec<VisiblePageGeometry>, pointer: Option<Pos2>) -> Self {
+        let active_page_index = active_page_geometry(viewport_rect, &pages, pointer).map(|page| page.page_index);
+        Self { viewport_rect, pages, active_page_index }
+    }
+
+    /// Geometry for the page selected by the deterministic ruler policy.
+    pub fn active_page(&self) -> Option<&VisiblePageGeometry> {
+        let active = self.active_page_index?;
+        self.pages.iter().find(|page| page.page_index == active)
+    }
+}
+
+/// Select the page that drives both rulers: pointer page, viewport-centre page, greatest visible
+/// area, then the first visible page. A pointer outside the viewport is ignored.
+pub fn active_page_geometry(viewport_rect: Rect, pages: &[VisiblePageGeometry], pointer: Option<Pos2>) -> Option<&VisiblePageGeometry> {
+    if !viewport_rect.is_positive() {
+        return None;
+    }
+    if let Some(pointer) = pointer.filter(|point| viewport_rect.contains(*point))
+        && let Some(page) = pages.iter().find(|page| page.page_rect.contains(pointer))
+    {
+        return Some(page);
+    }
+    if let Some(page) = pages.iter().find(|page| page.page_rect.contains(viewport_rect.center())) {
+        return Some(page);
+    }
+    pages
+        .iter()
+        .filter_map(|page| {
+            let area = page.visible_area(viewport_rect);
+            (area > 0.0 && area.is_finite()).then_some((page, area))
+        })
+        .fold(None, |best, candidate| match best {
+            Some((_, best_area)) if best_area >= candidate.1 => best,
+            _ => Some(candidate),
+        })
+        .map(|(page, _)| page)
+        .or_else(|| pages.first())
+}
+
 pub struct DocView {
     pub id: DocId,
     pub zoom: f32,
@@ -492,8 +587,12 @@ pub struct DocView {
     screen_xforms: Vec<(usize, PageXform)>,
     /// The scroll viewport on screen last frame.
     viewport_screen: Rect,
+    canvas_geometry: CanvasGeometry,
     /// Pending zoom anchor: page, fractional position (also in gutters), and viewport offset.
     zoom_anchor: Option<(usize, f32, f32, Vec2)>,
+    /// A discrete line/page wheel event already advanced one reference zoom stop. Ignore egui's
+    /// eased remainder of that same notch until the generated zoom stream returns to rest.
+    wheel_zoom_easing: bool,
     /// The page view has been shown, so its scroll offset in egui's memory is this document's.
     shown: bool,
     /// Turns wheel input into page turns in single-page view.
@@ -709,6 +808,11 @@ impl DocView {
         self.viewport_screen
     }
 
+    /// Final page geometry from the latest document frame.
+    pub fn canvas_geometry(&self) -> &CanvasGeometry {
+        &self.canvas_geometry
+    }
+
     /// Whether a middle-button scrolling gesture is active (tests and automation).
     pub fn auto_scrolling(&self) -> bool {
         self.auto_scroll.active()
@@ -790,7 +894,9 @@ impl DocView {
             screen_rects: Vec::new(),
             screen_xforms: Vec::new(),
             viewport_screen: Rect::NOTHING,
+            canvas_geometry: CanvasGeometry::default(),
             zoom_anchor: None,
+            wheel_zoom_easing: false,
             shown: false,
             wheel: Default::default(),
             precise_scroll_until: 0.0,
@@ -916,6 +1022,7 @@ impl DocView {
         fresh.viewport_w = self.viewport_w;
         fresh.viewport_h = self.viewport_h;
         fresh.viewport_screen = self.viewport_screen;
+        fresh.canvas_geometry = self.canvas_geometry.clone();
         *self = fresh;
         // Marks the kept images out of date and clamps the page to the new page count.
         self.document_changed(info);
@@ -1343,7 +1450,7 @@ impl DocView {
             DestView::Top => return,
             DestView::Xyz { left, top, zoom } => {
                 if let Some(z) = zoom {
-                    self.zoom = z.clamp(0.08, 64.0);
+                    self.zoom = z.clamp(0.01, 64.0);
                     self.fit = Fit::None;
                     self.zoom_anchor = None;
                 }
@@ -1372,7 +1479,7 @@ impl DocView {
                 let (dw, dh) = self.display_size(p);
                 let (w, h) = ((ax - bx).abs() * dw, (ay - by).abs() * dh);
                 if w >= 1.0 && h >= 1.0 && self.viewport_w >= 1.0 && self.viewport_h >= 1.0 {
-                    self.zoom = (self.viewport_w / (w * PT)).min(self.viewport_h / (h * PT)).clamp(0.08, 64.0);
+                    self.zoom = (self.viewport_w / (w * PT)).min(self.viewport_h / (h * PT)).clamp(0.01, 64.0);
                     self.fit = Fit::None;
                     self.zoom_anchor = None;
                 }
@@ -1555,9 +1662,14 @@ impl DocView {
         self.show_page_gaps = show;
     }
 
-    /// Separation between adjacent page rectangles, in logical screen points.
+    /// Vertical separation between adjacent page rows, in logical screen points.
     fn page_gap(&self) -> f32 {
-        if self.show_page_gaps { GAP } else { 0.0 }
+        if self.show_page_gaps { PAGE_ROW_GAP } else { 0.0 }
+    }
+
+    /// Horizontal separation between facing pages, in logical screen points.
+    fn facing_page_gap(&self) -> f32 {
+        if self.show_page_gaps { FACING_PAGE_GAP } else { 0.0 }
     }
 
     /// Turn continuous scrolling on or off, keeping the current page in view. A no-op when it is
@@ -1642,7 +1754,7 @@ impl DocView {
         let Some((page, pr)) = self.screen_rects.iter().find(|(_, pr)| pr.contains(r.center())).copied() else { return };
         let k = (self.viewport_screen.width() / r.width().max(1.0)).min(self.viewport_screen.height() / r.height().max(1.0));
         let f = (r.center() - pr.min) / pr.size();
-        self.zoom = (self.zoom * k).clamp(0.08, 64.0);
+        self.zoom = (self.zoom * k).clamp(0.01, 64.0);
         self.fit = Fit::None;
         self.zoom_anchor = Some((page, f.x.clamp(0.0, 1.0), f.y.clamp(0.0, 1.0), self.viewport_screen.center() - self.viewport_screen.min));
     }
@@ -1655,7 +1767,7 @@ impl DocView {
         let Some((_, pr)) = self.screen_rects.iter().find(|(p, _)| *p == page).copied() else { return false };
         let w = (content[2] - content[0]).max(0.01) * pr.width();
         let k = (self.viewport_screen.width() - 2.0 * PAD).max(50.0) / w.max(1.0);
-        self.zoom = (self.zoom * k).clamp(0.08, 64.0);
+        self.zoom = (self.zoom * k).clamp(0.01, 64.0);
         self.fit = Fit::None;
         self.zoom_anchor = Some((page, content[0].clamp(0.0, 1.0), content[1].clamp(0.0, 1.0), vec2(PAD, MARGIN)));
         true
@@ -1708,7 +1820,7 @@ impl DocView {
         if !zoom.is_finite() || !screen_pos.is_finite() {
             return;
         }
-        let zoom = zoom.clamp(0.08, 64.0);
+        let zoom = zoom.clamp(0.01, 64.0);
         if zoom == self.zoom && self.fit == Fit::None {
             return;
         }
@@ -1737,11 +1849,18 @@ impl DocView {
         (percent.is_finite() && percent > 0.0).then_some(percent / 100.0)
     }
 
-    /// Standard zoom steps (as in Acrobat's zoom menu).
+    /// The 21 observed wheel stops from 1% through 6400%. The ninth upward step from 1% lands at
+    /// 100%; fit-derived and typed zooms remain valid between these stops.
+    const WHEEL_ZOOM_STEPS: [f32; 21] =
+        [0.01, 0.0625, 0.125, 0.25, 0.333_333_34, 0.5, 0.55, 0.666_666_7, 0.75, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0, 32.0, 64.0];
+
     pub fn zoom_step(&mut self, up: bool) {
-        const STEPS: [f32; 17] = [0.1, 0.25, 0.33, 0.5, 0.66, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0, 12.0, 16.0, 32.0];
         let z = self.zoom;
-        let next = if up { STEPS.iter().copied().find(|s| *s > z * 1.01) } else { STEPS.iter().rev().copied().find(|s| *s < z * 0.99) };
+        let next = if up {
+            Self::WHEEL_ZOOM_STEPS.iter().copied().find(|s| *s > z * 1.001)
+        } else {
+            Self::WHEEL_ZOOM_STEPS.iter().rev().copied().find(|s| *s < z * 0.999)
+        };
         if let Some(n) = next {
             self.set_zoom(n);
         }
@@ -2165,16 +2284,16 @@ impl DocView {
         let avail_w = (self.viewport_w - 2.0 * SIDE).max(100.0);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
         match self.fit {
-            Fit::Width => self.zoom = (avail_w - self.page_gap() * (per_row - 1.0)) / (w * PT * per_row),
+            Fit::Width => self.zoom = (avail_w - self.facing_page_gap() * (per_row - 1.0)) / (w * PT * per_row),
             Fit::Page => {
-                let zw = (avail_w - self.page_gap() * (per_row - 1.0)) / (w * PT * per_row);
+                let zw = (avail_w - self.facing_page_gap() * (per_row - 1.0)) / (w * PT * per_row);
                 let zh = (self.viewport_h - 2.0 * MARGIN) / (h * PT);
                 self.zoom = zw.min(zh);
             }
             Fit::Height => self.zoom = (self.viewport_h - 2.0 * MARGIN) / (h * PT),
             Fit::None => {}
         }
-        self.zoom = self.zoom.clamp(0.08, 64.0);
+        self.zoom = self.zoom.clamp(0.01, 64.0);
     }
 
     /// Width of the scroll content. Single-page view sizes it to the page it shows, so a
@@ -2184,13 +2303,15 @@ impl DocView {
         let shown = info.pages.iter().enumerate().filter(|&(i, _)| single.is_none_or(|c| c == i));
         let max_w = shown.map(|(_, p)| self.display_size(p).0).fold(0.0, f32::max);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
-        (max_w * self.zoom * PT * per_row + 2.0 * SIDE).max(avail_w)
+        let row_gap = self.facing_page_gap() * (per_row - 1.0);
+        (max_w * self.zoom * PT * per_row + row_gap + 2.0 * SIDE).max(avail_w)
     }
 
     /// Page rects in content coordinates (origin at the scroll content's top-left).
     fn layout(&self, info: &DocInfo, content_w: f32, ppp: f32) -> Vec<Rect> {
         let s = self.zoom * PT;
-        let gap = self.page_gap();
+        let row_gap = self.page_gap();
+        let facing_gap = self.facing_page_gap();
         let page_size = |p: &pdfcraft_render::PageInfo| {
             let (w, h) = self.display_size(p);
             if self.show_page_gaps {
@@ -2208,7 +2329,7 @@ impl DocView {
                 for p in &info.pages {
                     let size = page_size(p);
                     rects.push(Rect::from_min_size(pos2(((content_w - size.x) / 2.0).max(SIDE), y), size));
-                    y += size.y + gap;
+                    y += size.y + row_gap;
                 }
             }
             PageLayout::TwoUp => {
@@ -2220,14 +2341,21 @@ impl DocView {
                 };
                 for (ri, pair) in rows.into_iter().enumerate() {
                     let sizes: Vec<Vec2> = pair.iter().map(page_size).collect();
-                    let row_w: f32 = sizes.iter().map(|v| v.x).sum::<f32>() + gap * (sizes.len() as f32 - 1.0);
                     let row_h = sizes.iter().map(|v| v.y).fold(0.0, f32::max);
-                    let mut x = if self.cover && ri == 0 { (content_w / 2.0 + gap / 2.0).max(SIDE) } else { ((content_w - row_w) / 2.0).max(SIDE) };
-                    for size in sizes {
-                        rects.push(Rect::from_min_size(pos2(x, y + (row_h - size.y) / 2.0), size));
-                        x += size.x + gap;
+                    let spine = content_w / 2.0;
+                    if let Some(left) = sizes.first().copied() {
+                        let left_y = y + (row_h - left.y) / 2.0;
+                        if self.cover && ri == 0 {
+                            rects.push(Rect::from_min_size(pos2((spine + facing_gap / 2.0).max(SIDE), left_y), left));
+                        } else {
+                            rects.push(Rect::from_min_size(pos2((spine - facing_gap / 2.0 - left.x).max(SIDE), left_y), left));
+                            if let Some(right) = sizes.get(1).copied() {
+                                let right_y = y + (row_h - right.y) / 2.0;
+                                rects.push(Rect::from_min_size(pos2((spine + facing_gap / 2.0).max(SIDE), right_y), right));
+                            }
+                        }
                     }
-                    y += row_h + gap;
+                    y += row_h + row_gap;
                 }
             }
         }
@@ -2608,8 +2736,203 @@ fn page_scroll<R>(
 }
 
 /// Draws the document tab at `index`: its notice bars, then its pages (or the Organize grid) in a
-/// scroll area with this frame's zoom, scrolling, tool input, overlays and render requests.
+/// scroll area with this frame's zoom, scrolling, tool input, overlays, render requests and optional rulers.
 pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
+    document_area_with_rulers(app, index, ui, app.show_rulers);
+}
+
+/// Show the document viewport with optional ruler overlays.
+pub fn document_area_with_rulers(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui, show_rulers: bool) {
+    // Preserve the document canvas's original UI and scroll-area contract. Rulers are painted only
+    // after the canvas records the exact viewport used by this frame.
+    document_canvas(app, index, ui);
+
+    let units = app.units;
+    let Some(view) = app.views.get(index) else { return };
+    let geometry = view.canvas_geometry();
+
+    let Some(layout) = ruler_layout_for_state(show_rulers, view.presentation.is_some(), view.organize, geometry) else {
+        return;
+    };
+
+    paint_document_rulers(ui, layout, geometry, units);
+}
+
+fn ruler_layout_for_state(show_rulers: bool, presentation: bool, organize: bool, geometry: &CanvasGeometry) -> Option<RulerLayout> {
+    if !show_rulers || presentation || organize || geometry.pages.is_empty() || !geometry.viewport_rect.is_positive() {
+        return None;
+    }
+
+    Some(RulerLayout::new(geometry.viewport_rect, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH))
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct RulerLayout {
+    outer: Rect,
+    corner: Rect,
+    horizontal: Rect,
+    vertical: Rect,
+    canvas: Rect,
+}
+
+impl RulerLayout {
+    fn new(outer: Rect, horizontal_height: f32, vertical_width: f32) -> Self {
+        let horizontal_height = horizontal_height.max(0.0).min(outer.height());
+        let vertical_width = vertical_width.max(0.0).min(outer.width());
+        let split = outer.min + vec2(vertical_width, horizontal_height);
+        Self {
+            outer,
+            corner: Rect::from_min_max(outer.min, split),
+            horizontal: Rect::from_min_max(pos2(split.x, outer.top()), pos2(outer.right(), split.y)),
+            vertical: Rect::from_min_max(pos2(outer.left(), split.y), pos2(split.x, outer.bottom())),
+            // Fixed viewport chrome: rulers overlay rather than shifting document layout.
+            canvas: outer,
+        }
+    }
+}
+
+fn paint_document_rulers(ui: &egui::Ui, layout: RulerLayout, geometry: &CanvasGeometry, units: crate::units::Unit) {
+    // Rulers are viewport chrome: paint across the complete available document area rather than
+    // shrinking to the current scroll viewport. Page geometry still supplies the moving origin.
+    crate::ruler::paint_corner(ui, layout.corner, units);
+
+    // Pointer movement must never switch the coordinate system between visible pages.
+    let axes = ruler_axes(geometry);
+    let pointer = ui.input(|input| input.pointer.hover_pos()).filter(|position| geometry.viewport_rect.contains(*position));
+    let (mut horizontal_origin, horizontal_start, mut horizontal_length, rendered_width, mut vertical_origin, mut vertical_length, scale) =
+        axes.unwrap_or((0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0));
+    // Acrobat-style rulers become page-relative only once the rendered sheet is large enough to
+    // read distinctly. At wider views an axis uses viewport coordinates, with zero at its ruler
+    // corner. Rendered geometry keeps fit-page, resizing and differently sized PDFs consistent.
+    // Each axis switches independently at 72%. The horizontal decision uses the actual rendered
+    // page or spread bounds, including the facing-page gap, rather than reconstructing them from
+    // PDF point widths. The vertical decision keeps using the rendered page height.
+    // Acrobat uses viewport coordinates while a sheet is small, then anchors the horizontal
+    // ruler to the page or facing-page spine once the rendered sheet occupies 72% of its track.
+    // `rendered_width` is the complete displayed row, including the gap between facing pages.
+    let horizontal_page_relative = ruler_axis_is_page_relative(rendered_width, f64::from(layout.horizontal.width()));
+    let vertical_page_relative = ruler_axis_is_page_relative(vertical_length * scale, f64::from(layout.vertical.height()));
+    // A facing-page ruler uses the spread spine as zero: negative values cover the left page and
+    // positive values cover the right page. Horizontal scrolling moves that origin with the spread.
+    (horizontal_origin, horizontal_length) =
+        horizontal_ruler_axis(layout, horizontal_origin, horizontal_start, horizontal_length, scale, horizontal_page_relative);
+    // Page rectangles are snapped before they are recorded. Snap the derived ruler origin with the
+    // same physical-pixel rule so the zero tick lands on exactly the same pixel as the page edge or
+    // spread spine at fractional display scales.
+    horizontal_origin = snap_ruler_coordinate(horizontal_origin, ui.ctx().pixels_per_point());
+    if !vertical_page_relative {
+        vertical_origin = f64::from(layout.vertical.top());
+        vertical_length = f64::from(layout.vertical.height()) / scale.max(f64::EPSILON);
+    }
+
+    crate::ruler::paint_ruler(
+        ui,
+        crate::ruler::RulerPaintInput {
+            orientation: crate::ruler::RulerOrientation::Horizontal,
+            rect: layout.horizontal,
+            page_origin: horizontal_origin,
+            page_length_pdf_points: horizontal_length,
+            screen_points_per_pdf_point: scale,
+            unit: units,
+            pointer_screen_position: pointer.map(|position| f64::from(position.x)),
+        },
+    );
+    crate::ruler::paint_ruler(
+        ui,
+        crate::ruler::RulerPaintInput {
+            orientation: crate::ruler::RulerOrientation::Vertical,
+            rect: layout.vertical,
+            page_origin: vertical_origin,
+            page_length_pdf_points: vertical_length,
+            screen_points_per_pdf_point: scale,
+            unit: units,
+            pointer_screen_position: pointer.map(|position| f64::from(position.y)),
+        },
+    );
+}
+
+/// Select the horizontal ruler range. Facing pages deliberately use the viewport's left edge:
+/// their signed page range is useful for describing the spread, but the spine is not a ruler
+/// origin because it would move zero to the middle of the window.
+fn horizontal_ruler_axis(_layout: RulerLayout, page_origin: f64, page_start: f64, page_length: f64, scale: f64, page_relative: bool) -> (f64, f64) {
+    if page_start < 0.0 && !page_relative {
+        // Below the two-page threshold, zero is left-aligned to the complete spread, not to the
+        // ruler viewport. `page_origin` is the spine and `page_start` is the signed left-page width.
+        (page_origin + page_start * scale, page_length)
+    } else {
+        // A single page always starts at its own left edge. Above the two-page threshold, zero is
+        // the facing-page spine so the left and right pages use negative and positive coordinates.
+        (page_origin, page_length)
+    }
+}
+
+fn snap_ruler_coordinate(value: f64, pixels_per_point: f32) -> f64 {
+    let pixels_per_point = f64::from(pixels_per_point);
+    if value.is_finite() && pixels_per_point.is_finite() && pixels_per_point > 0.0 {
+        (value * pixels_per_point).round() / pixels_per_point
+    } else {
+        value
+    }
+}
+
+/// Whether one rendered axis occupies at least 72% of its corresponding ruler track.
+fn ruler_axis_is_page_relative(rendered_length: f64, ruler_length: f64) -> bool {
+    const DISTINCT_PAGE_SHARE: f64 = 0.72;
+    rendered_length.is_finite() && ruler_length.is_finite() && ruler_length > 0.0 && rendered_length / ruler_length >= DISTINCT_PAGE_SHARE
+}
+
+fn ruler_axes(geometry: &CanvasGeometry) -> Option<(f64, f64, f64, f64, f64, f64, f64)> {
+    // Ignore the pointer entirely. The viewport policy chooses one stable visible row, and a
+    // facing-page row is represented as one signed range around its fixed spine.
+    let page = active_page_geometry(geometry.viewport_rect, &geometry.pages, None)?;
+    let rotated = !page.rotation_degrees.is_multiple_of(180);
+    let page_width_points = if rotated { page.unrotated_size_points.y } else { page.unrotated_size_points.x };
+    let page_height_points = if rotated { page.unrotated_size_points.x } else { page.unrotated_size_points.y };
+    let same_row = |other: &&VisiblePageGeometry| {
+        other.page_index != page.page_index && other.page_rect.bottom() >= page.page_rect.top() && other.page_rect.top() <= page.page_rect.bottom()
+    };
+    let partner = geometry.pages.iter().filter(same_row).min_by(|a, b| {
+        let gap = |other: &VisiblePageGeometry| {
+            if other.page_rect.center().x < page.page_rect.center().x {
+                (page.page_rect.left() - other.page_rect.right()).abs()
+            } else {
+                (other.page_rect.left() - page.page_rect.right()).abs()
+            }
+        };
+        gap(a).total_cmp(&gap(b))
+    });
+    let (horizontal_origin, horizontal_start, horizontal_length, rendered_width) =
+        partner.map_or((page.page_rect.left(), 0.0, page_width_points, page.page_rect.width()), |other| {
+            let other_rotated = !other.rotation_degrees.is_multiple_of(180);
+            let other_width_points = if other_rotated { other.unrotated_size_points.y } else { other.unrotated_size_points.x };
+            if other.page_rect.center().x < page.page_rect.center().x {
+                (
+                    (other.page_rect.right() + page.page_rect.left()) / 2.0,
+                    -other_width_points,
+                    other_width_points + page_width_points,
+                    page.page_rect.right() - other.page_rect.left(),
+                )
+            } else {
+                (
+                    (page.page_rect.right() + other.page_rect.left()) / 2.0,
+                    -page_width_points,
+                    page_width_points + other_width_points,
+                    other.page_rect.right() - page.page_rect.left(),
+                )
+            }
+        });
+    Some((
+        f64::from(horizontal_origin),
+        f64::from(horizontal_start),
+        f64::from(horizontal_length),
+        f64::from(rendered_width),
+        f64::from(page.page_rect.top()),
+        f64::from(page_height_points),
+        f64::from(page.screen_points_per_pdf_point),
+    ))
+}
+
+fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     // Keyboard scrolling applies to this frame's page view only, never later.
     let key_scroll = std::mem::take(&mut app.views[index].key_scroll);
@@ -2642,6 +2965,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     });
     if info.pages.is_empty() {
         app.views[index].auto_scroll.cancel();
+        app.views[index].canvas_geometry = CanvasGeometry::default();
         ui.centered_and_justified(|ui| ui.label(tl!("This document has no pages.")));
         return;
     }
@@ -2685,6 +3009,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     let unobstructed = !app.modal_open() && !app.palette_open;
     let organize_zoom = app.organize_zoom;
     let view = &mut app.views[index];
+    view.canvas_geometry = CanvasGeometry::default();
     if view.organize {
         // One remembered grid size for every document, kept in the settings.
         view.set_grid_zoom(organize_zoom);
@@ -2739,11 +3064,43 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                     matches!(e, egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, modifiers, .. } if modifiers.shift)
                 })
         });
+    let discrete_zoom_notch = ui.input(|input| {
+        input
+            .events
+            .iter()
+            .any(|event| matches!(event, egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page, .. }))
+    });
+    let zoom_modifier = ui.ctx().options(|options| options.input_options.zoom_modifier);
+    let continuous_zoom_gesture = ui.input(|input| {
+        input.multi_touch().is_some_and(|touch| touch.zoom_delta != 1.0)
+            || input.events.iter().any(|event| match event {
+                egui::Event::Zoom(factor) => *factor != 1.0,
+                egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta, modifiers, .. } => {
+                    modifiers.matches_any(zoom_modifier) && *delta != egui::Vec2::ZERO
+                }
+                _ => false,
+            })
+    });
+
+    // A new continuous gesture is independent of any earlier discrete-notch easing.
+    if view.wheel_zoom_easing && (zoom_delta == 1.0 || continuous_zoom_gesture) {
+        view.wheel_zoom_easing = false;
+    }
+
     if zoom_delta.is_finite() && zoom_delta > 0.0 && zoom_delta != 1.0 && navigation_enabled && ui.rect_contains_pointer(navigation_rect) {
-        let z = view.zoom * zoom_delta;
-        match ui.input(|i| i.pointer.hover_pos()) {
-            Some(p) => view.zoom_at(z, p),
-            None => view.set_zoom(z),
+        if discrete_zoom_notch {
+            // A discrete wheel notch advances exactly one observed reference stop. egui may keep
+            // easing that same notch on later frames; those generated residual deltas must not move
+            // beyond the selected stop.
+            view.zoom_step(zoom_delta > 1.0);
+            view.wheel_zoom_easing = true;
+        } else if !view.wheel_zoom_easing {
+            // Pinch and genuinely continuous gestures retain upstream smooth scaling.
+            let z = view.zoom * zoom_delta;
+            match ui.input(|i| i.pointer.hover_pos()) {
+                Some(p) => view.zoom_at(z, p),
+                None => view.set_zoom(z),
+            }
         }
     }
     view.viewport_screen = avail;
@@ -3143,6 +3500,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         let visible = viewport.translate(resp_rect.min.to_vec2());
         let mut wanted = Vec::new();
         let mut visible_now = Vec::new();
+        let mut page_geometry = Vec::new();
         view.screen_rects.clear();
         view.screen_xforms.clear();
         // Visible heights (points) closer than this are equal: one page size can meet the
@@ -3166,6 +3524,11 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
         for &i in &visible_pages {
             badge_hover = None;
             let r = snap_to_pixels(rects[i].translate(origin.to_vec2()), ppp);
+            let xf = PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) };
+            // Rulers need the complete displayed row, including an unequal-height partner that has
+            // moved outside the viewport. Keep that geometry separate from screen_rects, whose
+            // established contract contains only pages currently visible on screen.
+            page_geometry.push(VisiblePageGeometry::from_xform(i, xf));
             if !r.intersects(visible.expand(400.0)) {
                 continue;
             }
@@ -3175,8 +3538,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             if r.intersects(visible) {
                 visible_now.push(i);
                 view.screen_rects.push((i, r));
-                view.screen_xforms
-                    .push((i, PageXform { rect: r, rot: view.rotation, pw: info.pages[i].width.max(1.0), ph: info.pages[i].height.max(1.0) }));
+                view.screen_xforms.push((i, xf));
             }
             let overlap = r.intersect(visible).height();
             if i == view.current {
@@ -3878,6 +4240,7 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
                 hover_text = badge_hover.take();
             }
         }
+        view.canvas_geometry = CanvasGeometry::new(visible, page_geometry, pointer);
         if calc_order {
             view.calc_order.set_hover_page(calc_hover);
             let selected = view.prepare.selected.as_ref().map(|(name, _)| name.as_str());
@@ -5669,6 +6032,33 @@ fn grayscale(mut img: egui::ColorImage) -> egui::ColorImage {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn wheel_zoom_has_twenty_one_stops_and_reaches_one_hundred_in_nine_steps() {
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS.len(), 21);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[0], 0.01);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[9], 1.0);
+        assert_eq!(DocView::WHEEL_ZOOM_STEPS[20], 64.0);
+
+        let next = |zoom: f32, up: bool| {
+            if up {
+                DocView::WHEEL_ZOOM_STEPS.iter().copied().find(|step| *step > zoom * 1.001)
+            } else {
+                DocView::WHEEL_ZOOM_STEPS.iter().rev().copied().find(|step| *step < zoom * 0.999)
+            }
+        };
+
+        let mut zoom = 0.01;
+        for _ in 0..9 {
+            zoom = next(zoom, true).unwrap();
+        }
+        assert_eq!(zoom, 1.0);
+
+        for _ in 0..11 {
+            zoom = next(zoom, true).unwrap();
+        }
+        assert_eq!(zoom, 64.0);
+    }
+
+    #[test]
     fn zoom_anchor_scroll_stays_within_the_content() {
         let (content, viewport) = (vec2(1000.0, 2000.0), vec2(800.0, 600.0));
         // Past the end: clamped to the maximum (200, 1400), not left for egui to snap back.
@@ -5692,6 +6082,26 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn view_defaults_accept_the_complete_supported_zoom_range() {
+        let defaults = ViewDefaults::default();
+
+        let one = defaults.with_zoom("1%").expect("1% is the minimum supported zoom");
+        assert_eq!(one.fit, Fit::None);
+        assert!((one.zoom - 0.01).abs() < f32::EPSILON);
+
+        let seven = defaults.with_zoom("7").expect("intermediate values below 8% remain valid");
+        assert_eq!(seven.fit, Fit::None);
+        assert!((seven.zoom - 0.07).abs() < f32::EPSILON);
+
+        let maximum = defaults.with_zoom("6400%").expect("6400% is the maximum supported zoom");
+        assert_eq!(maximum.fit, Fit::None);
+        assert!((maximum.zoom - 64.0).abs() < f32::EPSILON);
+
+        assert!(defaults.with_zoom("0%").is_none());
+        assert!(defaults.with_zoom("6400.1%").is_none());
+    }
 
     #[test]
     fn typed_zoom_percentages_parse() {
@@ -6825,6 +7235,108 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
+    fn two_page_layout_uses_a_fixed_spine_and_vertical_centring() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 500.0), page(500.0, 300.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+        let pages = view.layout(&info, 1000.0, 1.0);
+        assert!((pages[0].right() - (500.0 - FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[1].left() - (500.0 + FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[0].center().y - pages[1].center().y).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_page_content_width_includes_the_facing_page_gap() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        assert!((content_w - (2.0 * SIDE + 1_000.0 + FACING_PAGE_GAP)).abs() < 1e-3);
+
+        let pages = view.layout(&info, content_w, 1.0);
+        assert!((pages[0].left() - SIDE).abs() < 1e-3);
+        assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
+    }
+
+    #[test]
+    fn page_row_and_facing_page_gaps_are_independent() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 400.0), page(300.0, 400.0), page(300.0, 400.0), page(300.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let pages = view.layout(&info, 800.0, 1.0);
+
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
+        assert!((pages[2].top() - pages[0].bottom() - PAGE_ROW_GAP).abs() < 1e-3);
+        assert!((pages[3].top() - pages[1].bottom() - PAGE_ROW_GAP).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_page_content_width_joins_pages_when_gaps_are_hidden() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+        view.show_page_gaps = false;
+
+        let content_w = view.content_width(&info, 200.0);
+        assert!((content_w - (2.0 * SIDE + 1_000.0)).abs() < 1e-3);
+
+        let pages = view.layout(&info, content_w, 1.25);
+        assert!((pages[1].left() - pages[0].right()).abs() < 1e-3);
+        assert!((pages[0].right() - content_w / 2.0).abs() < 1e-3);
+        assert!((pages[1].left() - content_w / 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn unequal_two_page_row_keeps_the_gap_and_outer_gutters() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 500.0), page(500.0, 300.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        let pages = view.layout(&info, content_w, 1.0);
+
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
+        assert!(pages[0].left() >= SIDE);
+        assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_page_cover_uses_the_same_fixed_spine_and_gap() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.cover = true;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        let pages = view.layout(&info, content_w, 1.0);
+        let spine = content_w / 2.0;
+
+        assert!((pages[0].left() - (spine + FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[2].left() - pages[1].right() - FACING_PAGE_GAP).abs() < 1e-3);
+    }
+
+    #[test]
     fn layouts_match_their_commands_and_names() {
         for l in PageLayout::ORDER {
             let spec = pdfcraft_engine::commands::command(l.command()).expect("registered");
@@ -6910,6 +7422,269 @@ trailer << /Root 1 0 R >>
         assert_eq!(v.find.as_ref().unwrap().current, Some(0));
         assert_eq!(v.find.as_ref().unwrap().matches, vec![(1, 5..9)]);
         assert!(v.goto.is_none());
+    }
+
+    fn page_geometry(page_index: usize, rect: Rect) -> VisiblePageGeometry {
+        VisiblePageGeometry {
+            page_index,
+            page_rect: rect,
+            unrotated_size_points: vec2(600.0, 800.0),
+            rotation_degrees: 0,
+            screen_points_per_pdf_point: rect.width() / 600.0,
+        }
+    }
+
+    #[test]
+    fn ruler_active_page_prefers_the_pointer_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(2, Rect::from_min_max(pos2(100.0, 0.0), pos2(700.0, 500.0))),
+            page_geometry(3, Rect::from_min_max(pos2(100.0, 520.0), pos2(700.0, 1_020.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(200.0, 550.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(3));
+    }
+
+    #[test]
+    fn ruler_active_page_ignores_a_pointer_outside_the_viewport() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(4, Rect::from_min_max(pos2(100.0, -400.0), pos2(700.0, 100.0))),
+            page_geometry(5, Rect::from_min_max(pos2(100.0, 120.0), pos2(700.0, 620.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(200.0, 700.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(5));
+    }
+
+    #[test]
+    fn ruler_active_page_prefers_the_viewport_centre_without_a_pointer_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(6, Rect::from_min_max(pos2(100.0, -100.0), pos2(700.0, 200.0))),
+            page_geometry(7, Rect::from_min_max(pos2(100.0, 220.0), pos2(700.0, 720.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, Some(pos2(10.0, 10.0)));
+        assert_eq!(active.map(|page| page.page_index), Some(7));
+    }
+
+    #[test]
+    fn ruler_active_page_uses_greatest_visible_area_then_first_on_a_tie() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(1_000.0, 600.0));
+        let pages = [
+            page_geometry(8, Rect::from_min_max(pos2(0.0, 0.0), pos2(300.0, 600.0))),
+            page_geometry(9, Rect::from_min_max(pos2(700.0, 0.0), pos2(1_000.0, 600.0))),
+        ];
+        let active = active_page_geometry(viewport, &pages, None);
+        assert_eq!(active.map(|page| page.page_index), Some(8));
+
+        let larger = [pages[0], page_geometry(9, Rect::from_min_max(pos2(600.0, 0.0), pos2(1_000.0, 600.0)))];
+        let active = active_page_geometry(viewport, &larger, None);
+        assert_eq!(active.map(|page| page.page_index), Some(9));
+    }
+
+    #[test]
+    fn ruler_active_page_falls_back_to_first_and_handles_empty_geometry() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = [
+            page_geometry(10, Rect::from_min_max(pos2(1_000.0, 0.0), pos2(1_600.0, 800.0))),
+            page_geometry(11, Rect::from_min_max(pos2(1_700.0, 0.0), pos2(2_300.0, 800.0))),
+        ];
+        assert_eq!(active_page_geometry(viewport, &pages, None).map(|page| page.page_index), Some(10));
+        assert!(active_page_geometry(viewport, &[], None).is_none());
+        assert!(active_page_geometry(Rect::NOTHING, &pages, None).is_none());
+    }
+
+    #[test]
+    fn visible_page_geometry_uses_final_transform_scale_and_rotation() {
+        let unrotated = VisiblePageGeometry::from_xform(
+            12,
+            PageXform { rect: Rect::from_min_size(pos2(20.0, 30.0), vec2(300.0, 400.0)), rot: 0, pw: 600.0, ph: 800.0 },
+        );
+        assert_eq!(unrotated.unrotated_size_points, vec2(600.0, 800.0));
+        assert_eq!(unrotated.rotation_degrees, 0);
+        assert!((unrotated.screen_points_per_pdf_point - 0.5).abs() < f32::EPSILON);
+
+        let rotated = VisiblePageGeometry::from_xform(
+            13,
+            PageXform { rect: Rect::from_min_size(pos2(20.0, 30.0), vec2(400.0, 300.0)), rot: 90, pw: 600.0, ph: 800.0 },
+        );
+        assert_eq!(rotated.rotation_degrees, 90);
+        assert!((rotated.screen_points_per_pdf_point - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn canvas_geometry_returns_the_selected_page() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
+        let pages = vec![page_geometry(14, Rect::from_min_max(pos2(100.0, 50.0), pos2(700.0, 550.0)))];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+        assert_eq!(geometry.active_page_index, Some(14));
+        assert_eq!(geometry.active_page().map(|page| page.page_index), Some(14));
+    }
+
+    #[test]
+    fn ruler_layout_overlays_the_full_document_viewport() {
+        let outer = Rect::from_min_max(pos2(10.0, 20.0), pos2(810.0, 620.0));
+        let layout = RulerLayout::new(outer, 18.0, 20.0);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(10.0, 20.0), pos2(30.0, 38.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(30.0, 20.0), pos2(810.0, 38.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(10.0, 38.0), pos2(30.0, 620.0)));
+        assert_eq!(layout.canvas, outer);
+    }
+
+    #[test]
+    fn ruler_layout_clamps_safely_in_a_tiny_viewport() {
+        let outer = Rect::from_min_max(pos2(5.0, 7.0), pos2(15.0, 15.0));
+        let layout = RulerLayout::new(outer, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH);
+        assert_eq!(layout.corner, outer);
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(15.0, 7.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(5.0, 15.0), pos2(15.0, 15.0)));
+        assert_eq!(layout.canvas, outer);
+        assert!(!layout.horizontal.is_positive());
+        assert!(!layout.vertical.is_positive());
+        assert!(layout.canvas.is_positive());
+    }
+
+    #[test]
+    fn ruler_layout_tracks_the_actual_scroll_viewport_edges() {
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
+        let layout = RulerLayout::new(viewport, 18.0, 20.0);
+
+        assert_eq!(layout.outer, viewport);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(32.0, 18.0), pos2(52.0, 36.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(52.0, 18.0), pos2(786.0, 36.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(32.0, 36.0), pos2(52.0, 586.0)));
+        assert_eq!(layout.canvas, viewport);
+    }
+
+    #[test]
+    fn ruler_layout_requires_enabled_document_geometry() {
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
+        let pages = vec![page_geometry(0, Rect::from_min_max(pos2(100.0, 80.0), pos2(700.0, 500.0)))];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+
+        let layout = ruler_layout_for_state(true, false, false, &geometry).expect("ordinary document view has rulers");
+        assert_eq!(layout.outer, viewport);
+
+        assert!(ruler_layout_for_state(false, false, false, &geometry).is_none());
+        assert!(ruler_layout_for_state(true, true, false, &geometry).is_none());
+        assert!(ruler_layout_for_state(true, false, true, &geometry).is_none());
+    }
+
+    #[test]
+    fn ruler_layout_rejects_empty_pages_and_invalid_viewports() {
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
+        let empty = CanvasGeometry::new(viewport, Vec::new(), None);
+        assert!(ruler_layout_for_state(true, false, false, &empty).is_none());
+
+        let pages = vec![page_geometry(0, Rect::from_min_max(pos2(100.0, 80.0), pos2(700.0, 500.0)))];
+        let invalid = CanvasGeometry::new(Rect::NOTHING, pages, None);
+        assert!(ruler_layout_for_state(true, false, false, &invalid).is_none());
+    }
+
+    #[test]
+    fn horizontal_zero_uses_the_same_physical_pixel_as_the_page_edge() {
+        assert_eq!(snap_ruler_coordinate(100.24, 2.0), 100.0);
+        assert_eq!(snap_ruler_coordinate(100.26, 2.0), 100.5);
+        assert_eq!(snap_ruler_coordinate(100.4, 1.25), 100.8);
+        assert_eq!(snap_ruler_coordinate(42.0, 0.0), 42.0);
+    }
+
+    #[test]
+    fn each_ruler_axis_switches_at_72_percent_of_its_own_length() {
+        assert!(!ruler_axis_is_page_relative(719.9, 1_000.0));
+        assert!(ruler_axis_is_page_relative(720.0, 1_000.0));
+        assert!(ruler_axis_is_page_relative(720.1, 1_000.0));
+        assert!(!ruler_axis_is_page_relative(720.0, 0.0));
+        assert!(!ruler_axis_is_page_relative(f64::NAN, 1_000.0));
+    }
+
+    #[test]
+    fn two_page_horizontal_ruler_switches_at_72_percent_of_the_track() {
+        let layout = RulerLayout::new(Rect::from_min_size(Pos2::ZERO, vec2(1_026.0, 900.0)), 24.0, 26.0);
+        let ruler_width = f64::from(layout.horizontal.width());
+        let spine = 500.0;
+        let spread_length = 1_224.0;
+        let scale = 1.0;
+
+        let below = ruler_axis_is_page_relative(ruler_width * 0.72 - 0.1, ruler_width);
+        assert!(!below);
+        assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, spread_length, scale, below).0, spine - 612.0 * scale);
+
+        let at = ruler_axis_is_page_relative(ruler_width * 0.72, ruler_width);
+        assert!(at);
+        assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, spread_length, scale, at), (spine, spread_length));
+    }
+
+    #[test]
+    fn two_page_horizontal_ruler_keeps_the_spine_while_scrolling() {
+        let layout = RulerLayout::new(Rect::from_min_size(Pos2::ZERO, vec2(1_200.0, 900.0)), 24.0, 26.0);
+        for spine in [-800.0, -100.0, 600.0, 1_300.0, 2_000.0] {
+            assert_eq!(horizontal_ruler_axis(layout, spine, -612.0, 1_224.0, 2.0, true), (spine, 1_224.0));
+        }
+    }
+
+    #[test]
+    fn horizontal_switch_uses_rendered_spread_width_independently_of_vertical() {
+        let horizontal_ruler_width = 1_000.0;
+        let vertical_ruler_height = 900.0;
+        assert!(ruler_axis_is_page_relative(720.0, horizontal_ruler_width));
+        assert!(!ruler_axis_is_page_relative(400.0, vertical_ruler_height));
+        assert!(!ruler_axis_is_page_relative(719.9, horizontal_ruler_width));
+        assert!(ruler_axis_is_page_relative(648.0, vertical_ruler_height));
+    }
+
+    #[test]
+    fn facing_pages_align_horizontal_zero_to_the_spread_spine() {
+        let layout = RulerLayout::new(Rect::from_min_size(pos2(10.0, 20.0), vec2(1_200.0, 900.0)), 24.0, 26.0);
+        let spine = 607.0_f64;
+        let (origin, length) = horizontal_ruler_axis(layout, spine, -600.0, 1_200.0, 1.0, true);
+        assert_eq!(origin, spine);
+        assert_eq!(length, 1_200.0);
+    }
+
+    #[test]
+    fn ruler_axes_identify_vertically_centred_mixed_height_facing_pages() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(700.0, 700.0));
+        let pages = vec![
+            VisiblePageGeometry {
+                page_index: 0,
+                page_rect: Rect::from_min_size(pos2(100.0, 250.0), vec2(300.0, 300.0)),
+                unrotated_size_points: vec2(600.0, 600.0),
+                rotation_degrees: 0,
+                screen_points_per_pdf_point: 0.5,
+            },
+            VisiblePageGeometry {
+                page_index: 1,
+                page_rect: Rect::from_min_size(pos2(402.0, 200.0), vec2(300.0, 400.0)),
+                unrotated_size_points: vec2(600.0, 800.0),
+                rotation_degrees: 0,
+                screen_points_per_pdf_point: 0.5,
+            },
+        ];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+
+        assert_eq!(ruler_axes(&geometry), Some((401.0, -600.0, 1_200.0, 602.0, 250.0, 600.0, 0.5)));
+    }
+
+    #[test]
+    fn ruler_axes_are_pointer_independent_and_describe_the_visible_spread() {
+        let page = |page_index, left, rotation_degrees| VisiblePageGeometry {
+            page_index,
+            page_rect: Rect::from_min_size(pos2(left, 200.0), vec2(300.0, 400.0)),
+            unrotated_size_points: vec2(600.0, 800.0),
+            rotation_degrees,
+            screen_points_per_pdf_point: 0.5,
+        };
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(1000.0, 700.0));
+        let single = CanvasGeometry::new(viewport, vec![page(0, 100.0, 0)], Some(pos2(350.0, 300.0)));
+        assert_eq!(ruler_axes(&single), Some((100.0, 0.0, 600.0, 300.0, 200.0, 800.0, 0.5)));
+        let pages = vec![page(0, 100.0, 0), page(1, 414.0, 0)];
+        let left = CanvasGeometry::new(viewport, pages.clone(), Some(pos2(200.0, 300.0)));
+        let right = CanvasGeometry::new(viewport, pages, Some(pos2(500.0, 300.0)));
+        assert_eq!(ruler_axes(&left), Some((407.0, -600.0, 1200.0, 614.0, 200.0, 800.0, 0.5)));
+        assert_eq!(ruler_axes(&right), ruler_axes(&left));
+        let rotated = CanvasGeometry::new(viewport, vec![page(0, 100.0, 90)], None);
+        assert_eq!(ruler_axes(&rotated), Some((100.0, 0.0, 800.0, 300.0, 200.0, 600.0, 0.5)));
     }
 
     /// A page whose picture moved can get its whole-page raster back before its last stale tile.

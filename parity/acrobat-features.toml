@@ -1595,11 +1595,11 @@ title = "Rulers"
 area = "B"
 tier = "P2"
 milestone = "M12"
-status = "planned"
-commands = []
+status = "shipped"
+commands = ["view.rulers"]
 tools = []
-evidence = []
-notes = ""
+evidence = ["crates/ui-egui/tests/it/view.rs::view_menu_hides_rulers_until_a_document_is_open", "crates/ui-egui/tests/it/view.rs::rulers_command_requires_an_open_document_and_toggles_global_visibility", "crates/ui-egui/tests/it/view.rs::ruler_visibility_persists_and_legacy_settings_keep_rulers_hidden", "crates/ui-egui/src/canvas.rs::visible_page_geometry_uses_final_transform_scale_and_rotation"]
+notes = "Read-only horizontal and vertical document rulers use the configured display unit, the canvas's final displayed page transform, adaptive ticks and pointer indicators. View ▸ Rulers, Ctrl/Command+R and the command palette toggle one persisted global setting. Missing: draggable origins, guides, grids and snap-to-grid."
 
 [[feature]]
 id = "view.grid"

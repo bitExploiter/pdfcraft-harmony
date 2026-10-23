@@ -364,6 +364,11 @@ impl LineEditor {
         style
     }
 
+    /// Current screen-space rectangle used to paint and hit-test the inline editor.
+    pub fn screen_rect(&self) -> Rect {
+        self.rect
+    }
+
     /// After applying formatting: the paragraph now has it.
     pub fn applied(&mut self) {
         self.selection = None;
@@ -1635,15 +1640,11 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
             // can differ from the PDF's. Keep every visible row inside the growing frame.
             let live = draft_rect.map_or(visible, |bounds| bounds.union(visible));
             ui.painter().rect_stroke(live.expand(2.0), CornerRadius::ZERO, Stroke::new(1.5, ACCENT), egui::StrokeKind::Outside);
-            // On the frame, a press takes hold of the box (a click selects it, a drag moves it):
-            // the pointer says so there, and reads as text inside.
-            if let Some(p) = ui.input(|i| i.pointer.hover_pos())
-                && ui.clip_rect().contains(p)
-                && live.expand(2.0 + FRAME_REACH).contains(p)
-                && !live.expand(2.0).contains(p)
-            {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
-            }
+            // On the frame, a press takes hold of the box (a click selects it, a drag moves it).
+            // Apply the cursor after TextEdit is built so the text widget cannot overwrite it.
+            let frame_hovered = ui
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| ui.clip_rect().contains(p) && live.expand(2.0 + FRAME_REACH).contains(p) && !live.expand(2.0).contains(p));
             // White, unless the text is too pale to read on white (white text from a coloured
             // banner, #913): then a dark box, with a caret that shows on it.
             let fill = if background_ready { Color32::TRANSPARENT } else { editor_fill(text_color) };
@@ -1708,6 +1709,9 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     done = Some(true);
                 }
             });
+            if frame_hovered {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Move);
+            }
         });
     if reveal {
         view.text_background.reveal();

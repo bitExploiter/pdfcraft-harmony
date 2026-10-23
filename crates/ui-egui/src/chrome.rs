@@ -606,6 +606,14 @@ fn main_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
                         }
                         ui.separator();
                     }
+                    if app.active.is_some() {
+                        let mut show_rulers = app.show_rulers;
+                        if ui.add(widgets::checkbox(&mut show_rulers, tl!("Rulers"))).changed() {
+                            app.execute("view.rulers");
+                            ui.close();
+                        }
+                        ui.separator();
+                    }
                     crate::commands::registry_menu(app, ui, "View");
                     ui.menu_button(tl!("Display theme"), |ui| theme_menu(app, ui));
                     ui.menu_button(tl!("Side panels"), |ui| {

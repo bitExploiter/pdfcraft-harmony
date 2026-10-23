@@ -4262,7 +4262,9 @@ fn flick(h: &mut Harness<'static, PdfCraftApp>, from: egui::Pos2, to: egui::Pos2
 
 #[test]
 fn a_quick_flick_on_either_edge_rewraps_the_paragraph() {
-    let mut h = harness(1, |_| {});
+    let mut h = harness(1, |app| {
+        app.show_rulers = false;
+    });
     assert!(h.state_mut().execute("edit.edit_text"));
     h.run_steps(2);
     let lines = |h: &Harness<'static, PdfCraftApp>| {
@@ -5591,9 +5593,10 @@ fn private_new_chinese_keyboard_input_preserves_font_layout_and_saved_pixels() {
 /// Moving text shows the four-way arrow wherever a drag would move it (#1520 follow-up): over a
 /// closed paragraph, on the frame of an open one, and while dragging. Inside the open one the
 /// pointer reads as text; on a closed one's edge, as the rewrap handle.
-#[test]
-fn moving_text_offers_the_four_way_arrow() {
-    let mut h = harness(2, |_| {});
+fn moving_text_offers_the_four_way_arrow_with_rulers(show_rulers: bool) {
+    let mut h = harness(2, move |app| {
+        app.show_rulers = show_rulers;
+    });
     assert!(h.state_mut().execute("edit.edit_text"));
     h.run_steps(2);
     let id = h.state().views[0].id;
@@ -5627,9 +5630,25 @@ fn moving_text_offers_the_four_way_arrow() {
     let centre = screen((moved.rect[0] + moved.rect[2]) / 2.0, (moved.rect[1] + moved.rect[3]) / 2.0);
     click_at(&mut h, centre);
     assert!(h.state().views[0].line_editor.is_some());
-    assert_eq!(cursor_at(&mut h, centre), egui::CursorIcon::Text);
-    let frame = screen((moved.rect[0] + moved.rect[2]) / 2.0, moved.rect[3]) - egui::vec2(0.0, 4.0);
+
+    let editor_rect = h.state().views[0].line_editor.as_ref().expect("editor remains open").screen_rect();
+    assert_eq!(cursor_at(&mut h, editor_rect.center()), egui::CursorIcon::Text);
+
+    // The frame hit zone extends outwards from the live editor rectangle. Use that same
+    // authoritative screen-space geometry so viewport changes such as ruler bands cannot make
+    // this probe fall back inside the text editor.
+    let frame = egui::pos2(editor_rect.center().x, editor_rect.top() - 4.0);
     assert_eq!(cursor_at(&mut h, frame), egui::CursorIcon::Move);
+}
+
+#[test]
+fn moving_text_offers_the_four_way_arrow() {
+    moving_text_offers_the_four_way_arrow_with_rulers(true);
+}
+
+#[test]
+fn moving_text_offers_the_four_way_arrow_without_rulers() {
+    moving_text_offers_the_four_way_arrow_with_rulers(false);
 }
 
 /// Cropping a picture on the page (Acrobat's crop handles): in crop mode the

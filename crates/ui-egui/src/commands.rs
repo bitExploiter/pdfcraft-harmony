@@ -158,6 +158,7 @@ impl PdfCraftApp {
                     self.notify(error);
                 }
             }
+            "view.rulers" => self.show_rulers = !self.show_rulers,
             "file.open" => self.open_dialog(),
             "file.open_recent" => match self.recent.first().map(|r| r.path.clone()) {
                 // The palette runs commands without a submenu: open the most recent file.

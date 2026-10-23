@@ -49,7 +49,7 @@ No dump of Acrobat's menu tree has been diffed against the registry yet (gap 24)
 | Select and move several objects at once | yes | on one page: Shift/Ctrl/⌘-click and marquee, one undo step (#844); not across pages, no group resize | partial |
 | Object handles: corners keep proportion, edges free | yes | yes for added images and signatures; Shift on a corner keeps the proportions of comments, stamps and form fields (#2199); no Alt resize from the centre | shipped |
 | Arrange, align and distribute page objects | yes | fields only | partial |
-| Rulers, grids, snap to grid, guides | yes | no | planned |
+| Rulers, grids, snap to grid, guides | yes | read-only document rulers with persisted View toggle, adaptive units/ticks and pointer indicators; no draggable origins, grids, snap or guides | partial (`view.rulers` shipped; grid/guides planned) |
 | Cursor coordinates, line weights | yes | no | planned |
 | Measuring snap to paths, endpoints, midpoints, intersections | yes | yes | shipped |
 | Nudge selected objects with arrow keys (Shift for larger steps) | yes | yes in Edit text: a point, Shift ten points, for selected objects, images and an open paragraph's box (#1520); and in Prepare a form, for the selected field (#2608) | shipped |

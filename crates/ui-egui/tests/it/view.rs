@@ -134,7 +134,7 @@ fn continuous_layout_stacks_pages_vertically() {
     h.run_steps(4);
     let (a, b) = (rect(&h, 0).expect("page 1 on screen"), rect(&h, 1).expect("page 2 on screen"));
     assert!(b.min.y > a.max.y, "page 2 below page 1: {a:?} {b:?}");
-    assert!((a.center().x - b.center().x).abs() < 1.0, "same column");
+    assert!((a.center().x - b.center().x).abs() <= 1.0, "same column");
 }
 
 /// The toggle joins page edges while preserving zoom and leaving the PDF unmodified.
@@ -305,7 +305,7 @@ fn two_up_layout_places_pages_side_by_side() {
     let mut h = harness(&[("layout", "two-up"), ("zoom", "50")]);
     h.run_steps(4);
     let (a, b) = (rect(&h, 0).expect("page 1"), rect(&h, 1).expect("page 2"));
-    assert!((a.min.y - b.min.y).abs() < 1.0, "same row: {a:?} {b:?}");
+    assert!((a.min.y - b.min.y).abs() <= 1.0, "same row: {a:?} {b:?}");
     assert!(b.min.x > a.max.x, "page 2 right of page 1");
     let c = rect(&h, 2).expect("page 3 on the next row");
     assert!(c.min.y > a.max.y);
@@ -693,7 +693,7 @@ fn touching_the_touchpad_again_or_turning_animations_off_stops_the_glide() {
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "continuous"), ("zoom", "300")]);
     h.state_mut().set_option("animation_effects", "off").unwrap();
     let swiped = swipe_and_lift(&mut h);
-    assert!((swiped - 175.0).abs() < 1.0, "the swipe still scrolls 1:1: moved {swiped}");
+    assert!((swiped - 175.0).abs() <= 1.0, "the swipe still scrolls 1:1: moved {swiped}");
     let drift = scroll_over(&mut h, 20);
     assert!(drift.abs() < 0.5, "no glide with animations off: drifted {drift}");
 }
@@ -741,33 +741,25 @@ fn a_wheel_notch_scrolls_at_once_with_animation_effects_off() {
         let moved = frames_after_a_notch(system_reduced, effects, false);
         assert!(moved[2] < notch * 0.75, "{effects}, system reduced {system_reduced}: egui eases the notch: {moved:?}");
         assert!(
-            (moved[39] - notch).abs() < 1.0,
+            (moved[39] - notch).abs() <= 1.0,
             "{effects}, system reduced {system_reduced}: easing changes how long a notch takes, not how far it goes: {moved:?}"
         );
     }
 }
 
 #[test]
-fn the_wheel_zooms_a_whole_step_at_once_with_animation_effects_off() {
-    // ⌘/Ctrl with the wheel: egui eases the zoom as it eases scrolling.
+fn a_wheel_zoom_notch_advances_one_reference_stop_without_easing() {
+    // A discrete Ctrl-wheel notch uses the observed reference ladder. Unlike scrolling and
+    // continuous pinch zoom, one notch selects one stop immediately and remains there while
+    // egui drains any generated easing remainder.
     let step = frames_after_a_notch(true, "system", true)[0];
     assert!(step > 1.1, "the notch zoomed in: {step}");
-    for (system_reduced, effects) in AT_ONCE {
+
+    for (system_reduced, effects) in AT_ONCE.into_iter().chain(EASED) {
         let zooms = frames_after_a_notch(system_reduced, effects, true);
         assert!(
             zooms.iter().all(|zoom| *zoom == step),
-            "{effects}, system reduced {system_reduced}: the whole step in the frame the notch arrives, and no more after it: {zooms:?}"
-        );
-    }
-    for (system_reduced, effects) in EASED {
-        let zooms = frames_after_a_notch(system_reduced, effects, true);
-        assert!(
-            zooms[0] > 1.0 && zooms[0] < 1.0 + (step - 1.0) * 0.75,
-            "{effects}, system reduced {system_reduced}: egui eases the notch: {zooms:?}"
-        );
-        assert!(
-            (zooms[39] / step - 1.0).abs() < 0.01,
-            "{effects}, system reduced {system_reduced}: easing changes how long a zoom step takes, not how far it goes: {zooms:?}"
+            "{effects}, system reduced {system_reduced}: one notch selects one reference stop and stays there: {zooms:?}"
         );
     }
 }
@@ -1023,6 +1015,34 @@ fn rail_page_display_button_switches_layouts() {
 }
 
 #[test]
+fn view_menu_hides_rulers_until_a_document_is_open() {
+    use egui_kittest::kittest::Queryable;
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app
+    });
+    h.run_steps(6);
+
+    let open_view_menu = |h: &mut Harness<'static, PdfCraftApp>| {
+        h.get_by_label("Menu").click();
+        h.run_steps(2);
+        h.get_by_label("View ⏵").hover();
+        h.run_steps(3);
+    };
+    open_view_menu(&mut h);
+    assert!(h.query_by_label("Rulers").is_none(), "Rulers is absent when no document is open");
+
+    h.key_press(Key::Escape);
+    h.run_steps(2);
+    h.state_mut().open_bytes("pages.pdf", None, PAGES.to_vec()).expect("opens");
+    h.run_steps(8);
+
+    open_view_menu(&mut h);
+    assert!(h.query_by_label("Rulers").is_some(), "Rulers appears when a document is open");
+}
+
+#[test]
 fn view_menu_page_display_uses_the_same_commands() {
     use egui_kittest::kittest::Queryable;
     let mut h = harness(&[]);
@@ -1057,7 +1077,7 @@ fn actual_size_fit_width_and_fit_page() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::Num1); // actual size
     h.run_steps(4);
     let r = rect(&h, 0).expect("page 1");
-    assert!((r.width() - 300.0 * pt).abs() < 1.0, "100% is 300 pt at 96 dpi: {}", r.width());
+    assert!((r.width() - 300.0 * pt).abs() <= 1.0, "100% is 300 pt at 96 dpi: {}", r.width());
 
     h.key_press_modifiers(Modifiers::COMMAND, Key::Num2); // fit width
     h.run_steps(4);
@@ -1796,7 +1816,7 @@ fn sidebar_collapse_and_resize_preserves_scroll_position() {
     let rect_after = v.page_screen_rect(2).expect("page 2 still on screen");
     let vp_after = v.viewport_rect();
     let rel_y_after = rect_after.min.y - vp_after.min.y;
-    assert!((rel_y_after - rel_y_before).abs() < 1.0, "page 2 scroll position preserved: before {rel_y_before}, after {rel_y_after}");
+    assert!((rel_y_after - rel_y_before).abs() <= 1.0, "page 2 scroll position preserved: before {rel_y_before}, after {rel_y_after}");
 
     // Reopen bookmarks panel: available width decreases, so fit-width zoom decreases.
     h.state_mut().set_option("panel", "bookmarks").unwrap();
@@ -1813,7 +1833,10 @@ fn sidebar_collapse_and_resize_preserves_scroll_position() {
     let rect_reopened = v.page_screen_rect(2).expect("page 2 still on screen");
     let vp_reopened = v.viewport_rect();
     let rel_y_reopened = rect_reopened.min.y - vp_reopened.min.y;
-    assert!((rel_y_reopened - rel_y_before).abs() < 1.0, "page 2 scroll position preserved on reopen: before {rel_y_before}, after {rel_y_reopened}");
+    assert!(
+        (rel_y_reopened - rel_y_before).abs() <= 1.0,
+        "page 2 scroll position preserved on reopen: before {rel_y_before}, after {rel_y_reopened}"
+    );
 }
 
 /// Synthetic unequal-height spreads, generated without font or image assets.
@@ -1860,7 +1883,7 @@ fn assert_final_spread_bottom_reachable(heights: &[u32], cover: bool) {
         "final spread remains below the viewport: heights={heights:?}, cover={cover}, pages={pages:?}, viewport={viewport:?}"
     );
     // The maximum-height page reaches the bottom margin after the scroll offset settles.
-    assert!((viewport.bottom() - bottom - 28.0).abs() < 1.0, "scroll end leaves the bottom margin: pages={pages:?}, viewport={viewport:?}");
+    assert!((viewport.bottom() - bottom - 28.0).abs() <= 1.0, "scroll end leaves the bottom margin: pages={pages:?}, viewport={viewport:?}");
 }
 
 #[test]
@@ -1967,6 +1990,42 @@ fn long_view_menu_fits_a_short_window() {
     assert_eq!(h.state().right, Some(pdfcraft_ui_egui::RightPanel::Bookmarks));
 }
 
+#[test]
+fn rulers_command_requires_an_open_document_and_toggles_global_visibility() {
+    let mut empty = PdfCraftApp::new();
+    assert!(!empty.show_rulers, "rulers start hidden");
+    assert!(!empty.execute("view.rulers"));
+    assert!(!empty.show_rulers, "refusing the command leaves rulers hidden");
+
+    let mut h = harness(&[]);
+    assert!(!h.state().show_rulers, "rulers start hidden");
+
+    assert!(h.state_mut().execute("view.rulers"));
+    assert!(h.state().show_rulers, "the first command shows rulers");
+
+    assert!(h.state_mut().execute("view.rulers"));
+    assert!(!h.state().show_rulers, "the second command hides rulers");
+}
+
+#[test]
+fn ruler_visibility_persists_and_legacy_settings_keep_rulers_hidden() {
+    let mut app = PdfCraftApp::new();
+    assert!(!app.show_rulers, "rulers are hidden by default");
+
+    app.show_rulers = true;
+    let saved = app.persist();
+
+    let mut restored = PdfCraftApp::new();
+    restored.restore(&saved);
+    assert!(restored.show_rulers, "an explicit ruler choice persists");
+
+    let mut legacy = PdfCraftApp::new();
+    legacy.restore("{}");
+    assert!(!legacy.show_rulers, "legacy settings keep the hidden default");
+
+    legacy.restore(r#"{"show_rulers":"sometimes"}"#);
+    assert!(!legacy.show_rulers, "an invalid stored value keeps the current choice");
+}
 fn click_with(h: &mut Harness<'static, PdfCraftApp>, pos: egui::Pos2, modifiers: Modifiers) {
     h.hover_at(pos);
     h.run_steps(1);

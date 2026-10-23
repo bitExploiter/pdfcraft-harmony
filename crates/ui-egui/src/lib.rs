@@ -114,6 +114,7 @@ mod web_print;
 mod word_count_ui;
 pub use print_ui::{Handling as PrintHandling, OptionsSource, PrintDraft, PrinterSource, Which as PrintWhich, system_printers};
 mod redact_ui;
+pub mod ruler;
 pub use redact_ui::{HiddenDraft, PagesDraft as RedactPagesDraft, RedactPrefs, SearchDraft as RedactSearchDraft, SearchMode as RedactSearchMode};
 pub mod i18n;
 
@@ -511,6 +512,8 @@ pub struct PdfCraftApp {
     pub view_defaults: canvas::ViewDefaults,
     /// The unit page sizes and margins are shown in (Preferences ▸ Documents and view).
     pub units: units::Unit,
+    /// Whether document rulers reserve space around the viewer. Global and persisted.
+    pub show_rulers: bool,
     /// The Preferences ▸ Date format box while it's being edited, or while it holds an invalid
     /// pattern (the session keeps the last valid one).
     pub date_format_draft: Option<String>,
@@ -944,6 +947,7 @@ impl PdfCraftApp {
             default_mode: Mode::AllTools,
             view_defaults: Default::default(),
             units: Default::default(),
+            show_rulers: false,
             date_format_draft: None,
             mode_override: None,
             left: LeftPanel::AllTools,
@@ -2430,6 +2434,7 @@ impl PdfCraftApp {
         v["redact_prefs"] = self.redact_defaults.to_json();
         // Set outside json! above, which is at serde_json's macro recursion limit.
         v["hide_empty_highlight_hover"] = serde_json::Value::Bool(self.comment_prefs.hide_empty_highlight_hover);
+        v["show_rulers"] = serde_json::Value::Bool(self.show_rulers);
         v["organize_zoom"] = serde_json::json!(self.organize_zoom);
         // Canonical names survive changes to the order of PAPERS and do not depend on UI language.
         v["print_paper"] = serde_json::json!(pdfcraft_engine::print::PAPERS.get(self.print_draft.paper).map(|(name, _)| *name));
@@ -2496,6 +2501,9 @@ impl PdfCraftApp {
         }
         if let Ok(units) = serde_json::from_value::<units::Unit>(v["units"].clone()) {
             self.units = units;
+        }
+        if let Some(show) = v["show_rulers"].as_bool() {
+            self.show_rulers = show;
         }
         if let Some(on) = v["always_default_view"].as_bool() {
             self.always_default_view = on;
