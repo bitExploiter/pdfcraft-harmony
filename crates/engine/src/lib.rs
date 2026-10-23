@@ -1429,6 +1429,17 @@ pub enum Edit {
         path: Vec<usize>,
         page: usize,
     },
+    /// Colour a bookmark's title (`/C`); `None` or black is the default black.
+    SetBookmarkColor {
+        path: Vec<usize>,
+        color: Option<[f64; 3]>,
+    },
+    /// Make a bookmark's title bold or italic or not (`/F`); `None` keeps that one.
+    SetBookmarkStyle {
+        path: Vec<usize>,
+        bold: Option<bool>,
+        italic: Option<bool>,
+    },
     /// Bookmarks for the tagged headings (H, H1–H6), nested by level under a new first
     /// "Untitled" bookmark (New Bookmarks from Structure).
     BookmarksFromStructure,
@@ -2073,6 +2084,9 @@ impl Edit {
             Edit::DeleteBookmark { .. } => Label::of("Delete bookmark"),
             Edit::MoveBookmark { .. } => Label::of("Move bookmark"),
             Edit::SetBookmarkPage { .. } => Label::of("Set bookmark destination"),
+            // The bookmark Style and Colour menus' own names, already said in every language.
+            Edit::SetBookmarkColor { .. } => Label::of("Colour"),
+            Edit::SetBookmarkStyle { .. } => Label::of("Style"),
             Edit::BookmarksFromStructure => Label::of("New bookmarks from structure"),
             Edit::NumberPages { .. } => Label::of("Number pages"),
             // What was measured is part of the wording too, for the same reason.
@@ -2240,6 +2254,8 @@ fn check_permission(edit: &Edit, p: &pdfcraft_cos::Permissions) -> Result<(), Ed
         | Edit::DeleteBookmark { .. }
         | Edit::MoveBookmark { .. }
         | Edit::SetBookmarkPage { .. }
+        | Edit::SetBookmarkColor { .. }
+        | Edit::SetBookmarkStyle { .. }
         | Edit::BookmarksFromStructure
         | Edit::NumberPages { .. } => {
             if p.assemble() {
@@ -2477,6 +2493,8 @@ fn run_edit(doc: &mut pdfcraft_cos::Document, edit: &Edit, cx: &mut EditCtx) -> 
             pdfcraft_organize::move_bookmark(doc, from, to_parent, *index)?;
         }
         Edit::SetBookmarkPage { path, page } => pdfcraft_organize::set_bookmark_page(doc, path, *page)?,
+        Edit::SetBookmarkColor { path, color } => pdfcraft_organize::set_bookmark_color(doc, path, *color)?,
+        Edit::SetBookmarkStyle { path, bold, italic } => pdfcraft_organize::set_bookmark_style(doc, path, *bold, *italic)?,
         Edit::BookmarksFromStructure => {
             let entries: Vec<_> = pdfcraft_a11y::headings(doc)
                 .into_iter()

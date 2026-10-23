@@ -3320,3 +3320,50 @@ fn bookmarks_report_their_colour_and_style() {
         ]
     );
 }
+
+/// #3193: setting a bookmark's style and colour writes what ISO 32000-2 §12.3.3 asks for: bold is
+/// `/F 2` and bold italic `/F 3` (Table 152), and neither removes `/F`, whose default is 0; a
+/// style change leaves `/C` alone and a colour change leaves `/F`; black, the default (Table 151),
+/// removes `/C`. Bits the table doesn't define are kept, and a colour outside 0–1 is refused.
+#[test]
+fn bookmark_style_and_colour_are_set_as_the_table_says() {
+    let mut objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 400] >>".into(),
+        "<< /Type /Page /Parent 2 0 R >>".into(),
+        "<< /Type /Outlines /First 5 0 R /Last 6 0 R /Count 2 >>".into(),
+    ];
+    objs.push("<< /Title (Plain) /Parent 4 0 R /Next 6 0 R /Dest [3 0 R /Fit] >>".into()); // 5
+    objs.push("<< /Title (Odd bits) /Parent 4 0 R /Prev 5 0 R /Dest [3 0 R /Fit] /F 4 /C [1 0 0] >>".into()); // 6
+    let mut doc = open(build(&objs, "/Root 1 0 R"));
+    let raw = |doc: &Document, n: u32, key: &[u8]| doc.get(ObjRef { num: n, generation: 0 }).as_dict().and_then(|d| d.get(key).cloned());
+    crate::set_bookmark_style(&mut doc, &[0], Some(true), None).unwrap();
+    assert_eq!(raw(&doc, 5, b"F"), Some(Object::Int(2)), "bold");
+    crate::set_bookmark_style(&mut doc, &[0], None, Some(true)).unwrap();
+    assert_eq!(raw(&doc, 5, b"F"), Some(Object::Int(3)), "bold italic");
+    crate::set_bookmark_color(&mut doc, &[0], Some([0.0, 0.5, 0.0])).unwrap();
+    assert_eq!(raw(&doc, 5, b"C"), Some(Object::Array(vec![Object::Real(0.0), Object::Real(0.5), Object::Real(0.0)])));
+    assert_eq!(raw(&doc, 5, b"F"), Some(Object::Int(3)), "a colour change keeps the style");
+    crate::set_bookmark_style(&mut doc, &[0], Some(false), Some(false)).unwrap();
+    assert_eq!(raw(&doc, 5, b"F"), None, "regular removes /F");
+    assert!(raw(&doc, 5, b"C").is_some(), "a style change keeps the colour");
+    crate::set_bookmark_color(&mut doc, &[0], Some([0.0; 3])).unwrap();
+    assert_eq!(raw(&doc, 5, b"C"), None, "black removes /C");
+
+    crate::set_bookmark_style(&mut doc, &[1], Some(true), None).unwrap();
+    assert_eq!(raw(&doc, 6, b"F"), Some(Object::Int(6)), "bold beside a bit the table doesn't define");
+    crate::set_bookmark_style(&mut doc, &[1], Some(false), Some(false)).unwrap();
+    assert_eq!(raw(&doc, 6, b"F"), Some(Object::Int(4)), "that bit stays");
+    crate::set_bookmark_color(&mut doc, &[1], None).unwrap();
+    assert_eq!(raw(&doc, 6, b"C"), None, "no colour is black");
+    for bad in [[1.5, 0.0, 0.0], [0.0, -0.1, 0.0], [f64::NAN, 0.0, 0.0]] {
+        assert_eq!(crate::set_bookmark_color(&mut doc, &[1], Some(bad)), Err(crate::OutlineError::BadColor), "{bad:?}");
+    }
+    assert_eq!(crate::set_bookmark_style(&mut doc, &[7], Some(true), None), Err(crate::OutlineError::NoSuchBookmark(vec![7])));
+
+    crate::set_bookmark_style(&mut doc, &[0], Some(true), Some(true)).unwrap();
+    crate::set_bookmark_color(&mut doc, &[0], Some([0.0, 0.0, 1.0])).unwrap();
+    let saved = open(write_full(&doc, &SaveOptions::default()).unwrap());
+    let got: Vec<_> = bookmarks(&saved).into_iter().map(|b| (b.color, b.bold, b.italic)).collect();
+    assert_eq!(got, [(Some([0.0, 0.0, 1.0]), true, true), (None, false, false)]);
+}

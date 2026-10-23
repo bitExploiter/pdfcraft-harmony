@@ -1019,6 +1019,10 @@ pub enum BmAction {
     StartRename(Vec<usize>),
     Rename(Vec<usize>, String),
     SetToCurrentPage(Vec<usize>),
+    /// Make the title bold or italic or not (`None` keeps that one).
+    SetStyle(Vec<usize>, Option<bool>, Option<bool>),
+    /// Colour the title; black is the default.
+    SetColor(Vec<usize>, [f64; 3]),
     Delete(Vec<usize>),
     MoveUp(Vec<usize>),
     MoveDown(Vec<usize>),
@@ -1208,6 +1212,26 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
                 pick(ui, tl!("Rename"), true, BmAction::StartRename(path.to_vec()));
                 let set_page = crate::i18n::fmt(tl!("Set to current page ({n})"), &[("n", &(current + 1).to_string())]);
                 pick(ui, &set_page, true, BmAction::SetToCurrentPage(path.to_vec()));
+                // The title's style and colour (ISO 32000-2 §12.3.3, Tables 151 and 152).
+                let mut styled = None;
+                ui.menu_button(tl!("Style"), |ui| {
+                    let (mut bold, mut italic) = (item.bold, item.italic);
+                    if ui.add(crate::widgets::checkbox(&mut bold, tl!("Bold"))).clicked() {
+                        styled = Some(BmAction::SetStyle(path.to_vec(), Some(bold), None));
+                    }
+                    if ui.add(crate::widgets::checkbox(&mut italic, tl!("Italic"))).clicked() {
+                        styled = Some(BmAction::SetStyle(path.to_vec(), None, Some(italic)));
+                    }
+                });
+                ui.menu_button(tl!("Colour"), |ui| {
+                    let current = item.color.map_or([0.0; 3], |c| c.map(f64::from));
+                    if let Some(c) = crate::comments::swatch_grid(ui, Some(current)) {
+                        styled = Some(BmAction::SetColor(path.to_vec(), c));
+                    }
+                });
+                if styled.is_some() {
+                    ui.close();
+                }
                 ui.separator();
                 pick(ui, tl!("Move up"), i > 0, BmAction::MoveUp(path.to_vec()));
                 pick(ui, tl!("Move down"), i + 1 < siblings, BmAction::MoveDown(path.to_vec()));
@@ -1215,6 +1239,9 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
                 pick(ui, tl!("Outdent"), depth > 0, BmAction::Outdent(path.to_vec()));
                 ui.separator();
                 pick(ui, tl!("Delete"), true, BmAction::Delete(path.to_vec()));
+                if let Some(a) = styled {
+                    *cx.action = Some(a);
+                }
             });
         }
     }

@@ -8200,6 +8200,7 @@ fn comments_are_reshaped_through_the_tool() {
 /// #3193: bookmark_list reports a bookmark's colour and style (ISO 32000-2 §12.3.3, Tables 151
 /// and 152), only where they differ from black and regular. The list is read from the opened file
 /// and, once the document has been edited, from the edited one; both read them alike.
+/// bookmark_set_style changes them, and they survive a save.
 #[test]
 fn bookmark_list_reports_colour_and_style() {
     let dir = workdir("bookmark-style");
@@ -8242,4 +8243,30 @@ fn bookmark_list_reports_colour_and_style() {
     ok(&mut a, "bookmark_rename", json!({ "doc": doc, "path": [1], "title": "Still plain" }));
     let edited = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
     assert_eq!(style(&edited), expected, "after an edit: {edited}");
+
+    // bookmark_set_style changes only what it is given.
+    ok(&mut a, "bookmark_set_style", json!({ "doc": doc, "path": [1], "color": [0, 0.5, 0], "italic": true }));
+    ok(&mut a, "bookmark_set_style", json!({ "doc": doc, "path": [2], "bold": false }));
+    ok(&mut a, "bookmark_set_style", json!({ "doc": doc, "path": [3], "color": [0, 0, 0] }));
+    let set = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
+    assert_eq!(
+        style(&set),
+        vec![
+            (json!([0.0, 0.5, 0.0]), Value::Null, json!(true)),
+            (json!([1.0, 0.0, 0.0]), Value::Null, Value::Null),
+            (Value::Null, Value::Null, json!(true))
+        ],
+        "{set}"
+    );
+    for bad in [
+        json!({ "doc": doc, "path": [1] }),
+        json!({ "doc": doc, "path": [1], "color": [2, 0, 0] }),
+        json!({ "doc": doc, "path": [1], "color": [1, 0] }),
+    ] {
+        assert!(matches!(a.call("bookmark_set_style", &bad), Err(ToolError::InvalidArgs(_))), "{bad}");
+    }
+    ok(&mut a, "doc_save", json!({ "doc": doc, "path": "restyled.pdf" }));
+    let mut b = auto(&dir);
+    let re = ok(&mut b, "doc_open", json!({ "path": "restyled.pdf" }))["doc"].as_u64().unwrap();
+    assert_eq!(style(&ok(&mut b, "bookmark_list", json!({ "doc": re }))["bookmarks"]), style(&set), "saved");
 }

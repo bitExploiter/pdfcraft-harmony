@@ -383,6 +383,32 @@ impl Automation {
                 let (path, page) = (a.path("path")?, self.page(&a)?);
                 self.apply(&a, Edit::SetBookmarkPage { path, page })?
             }
+            "bookmark_set_style" => {
+                let path = a.path("path")?;
+                // Left out keeps the colour; [0, 0, 0] is the default black.
+                let color = match a.get("color") {
+                    None => None,
+                    Some(v) => {
+                        let rgb: Option<Vec<f64>> = v.as_array().and_then(|c| c.iter().map(Value::as_f64).collect());
+                        match rgb.as_deref() {
+                            Some(&[r, g, b]) if [r, g, b].iter().all(|c| (0.0..=1.0).contains(c)) => Some([r, g, b]),
+                            _ => return Err(ToolError::InvalidArgs("color must be [r, g, b], each from 0 to 1".into())),
+                        }
+                    }
+                };
+                let (bold, italic) = (a.opt_bool("bold")?, a.opt_bool("italic")?);
+                if color.is_none() && bold.is_none() && italic.is_none() {
+                    return Err(ToolError::InvalidArgs("give color, bold or italic".into()));
+                }
+                let mut out = json!({});
+                if let Some(color) = color {
+                    out = self.apply(&a, Edit::SetBookmarkColor { path: path.clone(), color: Some(color) })?;
+                }
+                if bold.is_some() || italic.is_some() {
+                    out = self.apply(&a, Edit::SetBookmarkStyle { path, bold, italic })?;
+                }
+                out
+            }
             "bookmark_from_structure" => {
                 let mut out = self.apply(&a, Edit::BookmarksFromStructure)?;
                 let listing = self.bookmark_listing(&a)?;
