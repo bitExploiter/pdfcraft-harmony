@@ -715,6 +715,28 @@ fn format_text_panel_sets_alignment_and_lists_planned_controls_disabled() {
 }
 
 /// Where a mode bar tab is, by its label.
+/// Opening right-aligned added text to edit it shows it right-aligned, as the page does, not at
+/// the box's left edge, where it never was.
+#[test]
+fn the_text_editor_keeps_the_boxs_alignment() {
+    let _gpu = gpu();
+    let mut h = harness();
+    let rect = [40.0, 195.0, 240.0, 210.0];
+    let text = pdfcraft_engine::AddedText { rect, text: "Hi".into(), align: pdfcraft_engine::TextAlign::Right, ..Default::default() };
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::AddText { page: 0, text }));
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let point = at(&h, 200.0, 195.0);
+    click(&mut h, point);
+    assert_eq!(h.state().views[0].content.draft.as_ref().and_then(|d| d.index), Some(0), "the editor opened on the text");
+    h.run_steps(3);
+    let r = item_on_screen(&h, rect);
+    let pixels = h.render().unwrap();
+    let left = ink(&pixels, egui::Rect::from_min_max(r.min, pos2(r.center().x, r.max.y)));
+    let right = ink(&pixels, egui::Rect::from_min_max(pos2(r.center().x, r.min.y), r.max));
+    assert!(left == 0 && right > 20, "the text is drawn at the right ({left} dark pixels left, {right} right)");
+}
+
 fn mode_tab(h: &Harness<'static, PdfCraftApp>, label: &str) -> egui::Rect {
     h.get_all_by_role_and_label(egui::accesskit::Role::Button, label).map(|n| n.rect()).find(|r| r.bottom() < 120.0).expect("a mode tab")
 }
@@ -860,4 +882,36 @@ fn a_resized_added_picture_shows_only_at_its_new_size() {
     h.run_steps(2);
     let pixels = h.render().unwrap();
     assert!(red(&pixels, kept) > 100 && red(&pixels, gone) == 0, "the page raster has the picture at its new size");
+}
+
+/// Bug A for added text: with one line of the box selected, an alignment applies to that line
+/// only, the box stays open, and Undo puts it back and closes the box.
+#[test]
+fn aligning_a_selected_line_of_added_text_aligns_only_that_line() {
+    let mut h = harness();
+    let rect = [40.0, 195.0, 240.0, 220.0];
+    let text = pdfcraft_engine::AddedText { rect, text: "Line one\nLine two".into(), ..Default::default() };
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::AddText { page: 0, text }));
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let point = at(&h, 45.0, 195.0);
+    click(&mut h, point);
+    assert_eq!(h.state().views[0].content.draft.as_ref().and_then(|d| d.index), Some(0), "the editor opened on the text");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::End);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Home);
+    h.run_steps(2);
+    let button = h.get_by_label("Alignment").rect().center();
+    click(&mut h, button);
+    let item = h.get_by_label("Align right").rect().center();
+    click(&mut h, item);
+    let aligns = |h: &Harness<'static, PdfCraftApp>| match &added(h)[0].content {
+        pdfcraft_engine::AddedContent::Text(t) => (t.align, t.aligns.clone()),
+        _ => panic!(),
+    };
+    assert_eq!(aligns(&h), (pdfcraft_engine::TextAlign::Left, vec![None, Some(pdfcraft_engine::TextAlign::Right)]));
+    assert!(h.state().views[0].content.draft.is_some(), "the box stays open");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(4);
+    assert_eq!(aligns(&h), (pdfcraft_engine::TextAlign::Left, vec![]), "Undo puts it back");
+    assert!(h.state().views[0].content.draft.is_none(), "and closes the box");
 }

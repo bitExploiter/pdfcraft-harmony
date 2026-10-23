@@ -8196,3 +8196,26 @@ fn comments_are_reshaped_through_the_tool() {
     assert!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": [[1, 2]] })).is_err(), "a line has two ends");
     assert!(matches!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": "no" })), Err(ToolError::InvalidArgs(_))));
 }
+
+/// `aligns` gives each line of added text an alignment of its own; `align` alone is the whole box
+/// again. Text edits take `aligns` for a paragraph's rows the same way.
+#[test]
+fn added_text_lines_take_their_own_alignments() {
+    let dir = workdir("paragraph-aligns");
+    let mut a = auto(&dir);
+    let id = ok(&mut a, "doc_create", json!({"from":"blank","width":600,"height":400}))["doc"].as_u64().unwrap();
+    ok(&mut a, "page_add_text", json!({"doc":id,"page":1,"text":"Left line\nRight line","at":[40,50],"width":500,"size":12,"aligns":[null,"right"]}));
+    let rect = |a: &mut Automation, text: &str| -> Vec<f64> {
+        let lines = ok(a, "text_lines", json!({"doc":id,"page":1}));
+        let line = lines["lines"].as_array().unwrap().iter().find(|l| l["text"] == text).cloned().unwrap();
+        line["rect"].as_array().unwrap().iter().map(|v| v.as_f64().unwrap()).collect()
+    };
+    assert!((rect(&mut a, "Left line")[0] - 40.0).abs() < 1.0);
+    assert!((rect(&mut a, "Right line")[2] - 540.0).abs() < 1.0, "{:?}", rect(&mut a, "Right line"));
+    // The whole box centred: the right-aligned line goes with it.
+    ok(&mut a, "content_update", json!({"doc":id,"page":1,"index":1,"align":"center"}));
+    let right = rect(&mut a, "Right line");
+    assert!(((right[0] + right[2]) / 2.0 - 290.0).abs() < 1.0, "{right:?}");
+    assert!(a.call("content_update", &json!({"doc":id,"page":1,"index":1,"aligns":["sideways"]})).is_err());
+    assert!(a.call("content_update", &json!({"doc":id,"page":1,"index":1,"aligns":"right"})).is_err());
+}

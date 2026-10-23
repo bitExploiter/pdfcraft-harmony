@@ -726,7 +726,10 @@ impl PdfCraftApp {
             if matches!(spec.id, "view.previous_view" | "view.next_view") && !self.command_enabled(spec) {
                 continue;
             }
-            if typing && !spec.in_text {
+            // A box typed into on the page (a paragraph being edited, added text) keeps Undo and
+            // Redo only while it holds typing the page doesn't have; then they reach the document.
+            let page_box = matches!(spec.id, "edit.undo" | "edit.redo") && self.page_box_focused(ctx) && !self.page_typing_unapplied();
+            if typing && !spec.in_text && !page_box {
                 continue;
             }
             let Some(key) = Key::from_name(s.key) else { continue };

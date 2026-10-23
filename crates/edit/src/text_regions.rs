@@ -44,6 +44,31 @@ fn neighbour_left(lines: &[TextLine], block: &TextBlock) -> Option<f64> {
     Some(best as f64 / 4.0)
 }
 
+/// Where an alignment picked for a one-row paragraph is measured, as `[left, right]`: the column of
+/// text it sits in (the left edge the rest of the page's text uses, to the furthest right those
+/// rows reach) when that column holds it, otherwise its own box. A lone row's own box is no frame
+/// to align in: left-aligning a title centred on the page left it where it was, and since a single
+/// row grows to the page's margin, centring it again moved it right each time. `None` when no
+/// alignment is asked for, or when the paragraph is several rows, turned, or given a width or a
+/// move of its own.
+pub(super) fn alignment_frame(lines: &[TextLine], block: &TextBlock, style: &BlockStyle) -> Option<[f64; 2]> {
+    let asked = style.align.is_some() || style.aligns.iter().any(Option::is_some);
+    if !asked || style.width.is_some() || style.offset.is_some() || block.rows.len() != 1 || block.rotation.abs() > 0.01 {
+        return None;
+    }
+    let own = [block.rect[0], block.rect[2]];
+    let tolerance = block.size.max(1.0) * 0.5;
+    let Some(left) = neighbour_left(lines, block) else { return Some(own) };
+    let right = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| !block.lines.contains(i) && (line.rect[0] - left).abs() < tolerance)
+        .map(|(_, line)| line.rect[2])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let holds = right.is_finite() && right - left > own[1] - own[0] && own[0] >= left - tolerance && own[1] <= right + tolerance;
+    Some(if holds { [left, right] } else { own })
+}
+
 /// Whether a block reads as centred, and so must keep its centre when it grows or wraps.
 ///
 /// Several ragged rows whose left edges disagree while their centres agree are centred. A one row
@@ -728,6 +753,9 @@ pub(super) fn rewrite_styled_block(
     let mut rows: Vec<Vec<(char, usize, String)>> = Vec::new();
     // Each row's characters, as indexes into the draft's characters (`chars` holds all of them).
     let mut row_ranges = Vec::new();
+    // Each row's line in the draft (its `\n`-separated part), which [`BlockStyle::aligns`] counts.
+    let mut row_lines: Vec<usize> = Vec::new();
+    let mut draft_line = 0usize;
     let mut row_start = 0;
     let mut row = Vec::new();
     let mut row_width = 0.0;
@@ -737,6 +765,8 @@ pub(super) fn rewrite_styled_block(
         let Some(item) = chars.get(at) else { break };
         if item.0 == '\n' {
             row_ranges.push(row_start..row_start + row.len());
+            row_lines.push(draft_line);
+            draft_line = draft_line.saturating_add(1);
             rows.push(std::mem::take(&mut row));
             row_width = 0.0;
             at += 1;
@@ -760,6 +790,7 @@ pub(super) fn rewrite_styled_block(
                 row.pop();
             }
             row_ranges.push(row_start..row_start + row.len());
+            row_lines.push(draft_line);
             rows.push(std::mem::take(&mut row));
             row_width = 0.0;
             row_start = at;
@@ -770,6 +801,7 @@ pub(super) fn rewrite_styled_block(
     }
     if !row.is_empty() {
         row_ranges.push(row_start..row_start + row.len());
+        row_lines.push(draft_line);
         rows.push(row);
     }
     let streams = content_streams(doc, &p.dict)?;
@@ -869,10 +901,12 @@ pub(super) fn rewrite_styled_block(
             continue;
         }
         let w = measured.get(row_index).copied().unwrap_or(0.0);
-        let align = style.align.unwrap_or(if centered { crate::added::Align::Center } else { crate::added::Align::Left });
+        // The row's own alignment, or the paragraph's.
+        let asked = row_lines.get(row_index).and_then(|l| style.aligns.get(*l)).copied().flatten().or(style.align);
+        let align = asked.unwrap_or(if centered { crate::added::Align::Center } else { crate::added::Align::Left });
         let original_rect = block.rows.get(row_index).and_then(|row| row_rect(row, lines)).unwrap_or(block.rect);
-        let left = if style.width.is_none() && style.align.is_none() { original_rect[0] } else { block.rect[0] };
-        let available = if style.width.is_none() && style.align.is_none() { original_rect[2] - original_rect[0] } else { width };
+        let left = if style.width.is_none() && asked.is_none() { original_rect[0] } else { block.rect[0] };
+        let available = if style.width.is_none() && asked.is_none() { original_rect[2] - original_rect[0] } else { width };
         let mut x = left
             + match align {
                 crate::added::Align::Center => (available - w) / 2.0,
