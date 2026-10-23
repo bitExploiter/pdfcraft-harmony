@@ -202,3 +202,28 @@ fn invert_keeping_images_maps_text_not_pixels() {
     restored.restore(&json);
     assert!(restored.invert_keep_images);
 }
+
+/// Inverting and the Reading colours preference never stack: while the inverted view is on, a
+/// preference such as white on black is not applied (stacked, it turned the dark page light again),
+/// and turning the view off brings the preference back.
+#[test]
+fn invert_everything_does_not_stack_on_reading_colours() {
+    use pdfcraft_render::ReadingColors;
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("doc.pdf", None, pdf()).expect("opens");
+        app
+    });
+    h.run_steps(4);
+    let id = h.state().views[0].id;
+    h.state_mut().set_reading_colors(ReadingColors::WHITE_ON_BLACK);
+    h.state_mut().set_invert_keep_images(false);
+    h.state_mut().set_invert_colors(true);
+    assert_eq!(h.state().session.invert_colors(id), Some(true));
+    assert_eq!(h.state().session.reading_colors(id), Some(ReadingColors::default()), "reading colours are off while inverted");
+
+    h.state_mut().set_invert_colors(false);
+    assert_eq!(h.state().session.invert_colors(id), Some(false));
+    assert_eq!(h.state().session.reading_colors(id), Some(ReadingColors::WHITE_ON_BLACK), "the preference comes back");
+}

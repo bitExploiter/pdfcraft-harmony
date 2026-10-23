@@ -2153,11 +2153,16 @@ impl PdfCraftApp {
         self.sync_night_all();
     }
 
-    /// The reading colours documents render with. While the inverted view is on and keeps images,
-    /// it replaces the reading-colours preference (the two never stack): text and line art map to
-    /// the palette's ink and paper, and pictures are left alone. Otherwise it is the preference.
+    /// The reading colours documents render with. While the inverted view is on it replaces the
+    /// reading-colours preference, and the two never stack (stacked, a white-on-black preference
+    /// turned the dark page light again): text only maps text and line art to the palette's ink and
+    /// paper and leaves pictures alone, and invert everything renders with reading colours off.
+    /// With the view off it is the preference.
     fn night_reading(&self) -> pdfcraft_render::ReadingColors {
-        if self.invert_colors && self.invert_keep_images {
+        if !self.invert_colors {
+            return self.reading_colors;
+        }
+        if self.invert_keep_images {
             let params = pdfcraft_render::ReadingParams {
                 text: self.invert_palette.ink,
                 background: self.invert_palette.paper,
@@ -2166,7 +2171,7 @@ impl PdfCraftApp {
             };
             pdfcraft_render::ReadingColors { params: Some(params) }
         } else {
-            self.reading_colors
+            pdfcraft_render::ReadingColors::default()
         }
     }
 
