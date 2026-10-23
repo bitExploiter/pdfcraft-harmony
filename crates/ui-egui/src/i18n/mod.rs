@@ -159,7 +159,7 @@ fn plural_sl(n: u64) -> usize {
 }
 
 /// The registry. English first: it is the fallback and the source language.
-pub static LANGUAGES: [LangInfo; 34] = [
+pub static LANGUAGES: [LangInfo; 35] = [
     LangInfo { code: "en", name: "English", source: "", plural: plural_one_other, rtl: false, catalog: OnceLock::new() },
     LangInfo { code: "ja", name: "日本語", source: include_str!("ja.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Simplified Chinese; `zh`, `zh-CN`, `zh-SG` and `zh-Hans-*` locales resolve here (see `candidates`).
@@ -224,6 +224,9 @@ pub static LANGUAGES: [LangInfo; 34] = [
     LangInfo { code: "tr", name: "Türkçe", source: include_str!("tr.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Lithuanian; every `lt-*` locale (`lt-LT`, `lt_LT.UTF-8`) resolves here. Three plural forms (one, few, other).
     LangInfo { code: "lt", name: "Lietuvių", source: include_str!("lt.tsv"), plural: plural_lithuanian, rtl: false, catalog: OnceLock::new() },
+    // Georgian; every `ka-*` locale (`ka-GE`, `ka_GE.UTF-8`) resolves here. Nouns stay singular after
+    // a numeral, so one plural form.
+    LangInfo { code: "ka", name: "ქართული", source: include_str!("ka.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
     // Indonesian; every `id-*` locale (`id-ID`, `id_ID.UTF-8`) resolves here. CLDR `id` counts have
     // one form ("other"), so `@plural` entries list a single form.
     LangInfo { code: "id", name: "Bahasa Indonesia", source: include_str!("id.tsv"), plural: plural_none, rtl: false, catalog: OnceLock::new() },
@@ -943,7 +946,7 @@ mod tests {
         let error = pdfcraft_engine::ocr::OcrError::NoModels.to_string();
         let notice = "Text recognition isn't installed: its model files are missing. Reinstall PdfCraft, or set PDFCRAFT_MODELS to the folder that holds them.";
         assert!(include_str!("../ocr_ui.rs").contains(notice), "keep in step with ocr_ui.rs");
-        for code in ["bg", "cs", "de", "es", "fr", "hu", "ja", "ru", "te", "uk", "zh-hans", "zh-hant"] {
+        for code in ["bg", "cs", "de", "es", "fr", "hu", "ja", "ka", "ru", "te", "uk", "zh-hans", "zh-hant"] {
             let lang = Lang::from_code(code).expect("registered");
             assert!(has(lang, notice) && has(lang, &error), "{code}");
         }
@@ -1006,7 +1009,7 @@ mod tests {
             labels.insert(label.to_string());
         }
         assert!(labels.len() > 20 && labels.contains("Comb of characters"), "the scan found the dialog's labels: {labels:?}");
-        for code in ["bg", "cs", "de", "es", "fr", "hu", "it", "ja", "pt-br", "ru", "te", "tr", "uk", "zh-hans", "zh-hant"] {
+        for code in ["bg", "cs", "de", "es", "fr", "hu", "it", "ja", "ka", "pt-br", "ru", "te", "tr", "uk", "zh-hans", "zh-hant"] {
             let lang = Lang::from_code(code).expect("registered");
             let missing: Vec<_> = labels.iter().filter(|l| !has(lang, l)).collect();
             assert!(missing.is_empty(), "{code} lacks Shared Field Properties labels: {missing:#?}");
@@ -1844,6 +1847,95 @@ mod tests {
         let tr_lang = Lang::from_code("tr").expect("tr registered");
         let missing: Vec<_> = literals.iter().filter(|label| !has(tr_lang, label)).collect();
         assert!(missing.is_empty(), "untranslated Turkish UI literals: {missing:#?}");
+    }
+
+    /// Georgian is registered for every `ka` locale, keeps one plural form, and translates every
+    /// registered command, menu, All tools label and `tl!` literal, with no English left over.
+    #[test]
+    fn georgian_is_registered_and_complete() {
+        let ka = Lang::from_code("ka").expect("ka registered");
+        assert_eq!(ka.name(), "ქართული");
+        for tag in ["ka", "ka_GE", "ka_GE.UTF-8", "ka-GE"] {
+            assert_eq!(lang_from_tag(tag), Some(ka), "{tag}");
+        }
+        assert_eq!(tr(ka, "File"), "ფაილი");
+        assert_eq!(trn(ka, 5, "{n} page", "{n} pages"), "5 გვერდი");
+        for command in pdfcraft_engine::commands::COMMANDS {
+            assert!(has(ka, command.label), "missing command: {}", command.label);
+            if let Some(menu) = command.menu {
+                assert!(has(ka, menu), "missing menu: {menu}");
+            }
+        }
+        for group in pdfcraft_engine::catalog::TOOL_GROUPS {
+            assert!(has(ka, group.label), "missing group: {}", group.label);
+            for section in group.sections {
+                assert!(has(ka, section.title), "missing section: {}", section.title);
+                for item in section.items {
+                    assert!(has(ka, item.label), "missing item: {}", item.label);
+                }
+            }
+        }
+        let missing: Vec<_> = scan_ui_literals(true).into_iter().filter(|label| !has(ka, label)).collect();
+        assert!(missing.is_empty(), "untranslated Georgian UI literals: {missing:#?}");
+        let lists: [&[&str]; 8] = [
+            pdfcraft_engine::a11y::WORDINGS,
+            pdfcraft_engine::a11y::REPORT_WORDS,
+            pdfcraft_engine::pdfa::WORDINGS,
+            pdfcraft_engine::sign::pdf::WORDINGS,
+            pdfcraft_engine::sign::pdf::kind::ALL,
+            pdfcraft_engine::print::WORDINGS,
+            pdfcraft_engine::EDIT_LABELS,
+            pdfcraft_engine::BATCH_LABELS,
+        ];
+        for wording in lists.into_iter().flatten() {
+            assert!(has(ka, wording), "missing engine wording: {wording}");
+            assert_eq!(wording.matches("{}").count(), tr(ka, wording).matches("{}").count(), "{wording:?} loses a hole");
+        }
+        const KEEP_AS_IS: &[&str] = &[
+            "OK",
+            "PDF/A…",
+            "JavaScript",
+            "ZIP",
+            "Microsoft Word (.docx)",
+            "Rich Text Format (.rtf)",
+            "PostScript / EPS",
+            "{n} {kind}",
+            "{rule} - {status}",
+            "{field}: {e}",
+            "`{command}` {when}",
+            "{0}: {1}",
+            "{month} {y}",
+            "+LOC",
+            "ΔLOC",
+            "−LOC",
+            "+Bin",
+            "−Bin",
+            "Home / End",
+            "English",
+            "CheckBox",
+            "Radio",
+            "PushButton",
+            "Keychain  ·  ",
+            // The distinguished name of a certificate, abbreviated as in X.500.
+            "DN: ",
+        ];
+        let (entries, errors) = parse_entries(ka.0.source, ka.0.plural_forms());
+        assert!(errors.is_empty(), "Georgian catalog errors: {errors:?}");
+        for e in &entries {
+            assert!(
+                e.source != e.translation
+                    || KEEP_AS_IS.contains(&e.source.as_str())
+                    || (e.context == "key" && KEY_CAP_NAMES.contains(&e.source.as_str())),
+                "{:?} is untranslated",
+                e.source
+            );
+            assert!(!e.translation.chars().any(|c| matches!(c, '\u{1C90}'..='\u{1CBF}')), "no Mtavruli capitals: {:?}", e.translation);
+        }
+        let mut app = crate::PdfCraftApp::default();
+        app.set_option("language", "ka").unwrap();
+        let mut restored = crate::PdfCraftApp::default();
+        restored.restore(&app.persist());
+        assert_eq!(restored.language, "ka");
     }
 
     #[test]
