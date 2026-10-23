@@ -24,7 +24,7 @@ use crate::EditError;
 mod regions;
 #[path = "text_session.rs"]
 mod session;
-use regions::{group_blocks, is_centred, rewrite_styled_block};
+use regions::{alignment_frame, group_blocks, is_centred, rewrite_styled_block};
 pub use session::TextSession;
 
 /// One line of existing text.
@@ -2677,6 +2677,16 @@ fn rewrite_block_from(
 ) -> Result<LineEdit, EditError> {
     let blocks = group_blocks(&lines);
     let b = blocks.get(block).cloned().ok_or_else(|| EditError::Invalid(format!("page {} has no paragraph {}", page + 1, block + 1)))?;
+    // An alignment for a one-row paragraph is laid out across the column it sits in, as a
+    // paragraph of that width moved to its left edge.
+    let framed;
+    let style = match alignment_frame(&lines, &b, style) {
+        Some([left, right]) => {
+            framed = BlockStyle { width: Some(right - left), offset: Some([left - b.rect[0], 0.0]), ..style.clone() };
+            &framed
+        }
+        None => style,
+    };
     let members: Vec<&TextLine> = b.lines.iter().map(|i| &lines[*i]).collect();
     // One clipping run is enough: rewriting the paragraph would drop its mask with the rest.
     let mut dropped = coincident_ops(&lines, &members);

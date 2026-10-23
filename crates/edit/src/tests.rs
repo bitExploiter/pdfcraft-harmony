@@ -6642,3 +6642,36 @@ fn added_text_paragraphs_keep_their_own_alignments() {
     let tidy = paragraph_align::tidy(vec![Some(Align::Left), Some(Align::Right)], Align::Left);
     assert_eq!(tidy, [None, Some(Align::Right)]);
 }
+
+/// A one-row title over a body column: an alignment picked for it is measured across the column.
+/// Left puts it on the column's left edge, and centring it again leaves it where it is, rather
+/// than aligning it in its own box (a no-op) or toward the page's margin (moving it right each
+/// time). It is aligned as the editor aligns a selected row, in whichever paragraph holds it.
+#[test]
+fn a_lone_row_aligns_across_the_column_it_sits_in() {
+    let mut doc = text_page(
+        "BT /F1 24 Tf 1 0 0 1 250 700 Tm (Title) Tj ET          BT /F1 10 Tf 12 TL 72 650 Td (The body of the page runs across the whole column here.) Tj T* (It has a second row that is a little shorter.) Tj ET",
+    );
+    let blocks = text::text_blocks(&doc, 0).unwrap();
+    assert_eq!(blocks[0].text, "Title");
+    let column = [blocks[1].rect[0], blocks[1].rect[2]];
+    let title = |doc: &Document| text::text_lines(doc, 0).unwrap().into_iter().find(|l| l.text == "Title").unwrap().rect;
+    let align = |doc: &mut Document, a: added::Align| {
+        let lines = text::text_lines(doc, 0).unwrap();
+        let line = lines.iter().position(|l| l.text == "Title").unwrap();
+        let blocks = text::text_blocks(doc, 0).unwrap();
+        let (index, block) = blocks.iter().enumerate().find(|(_, b)| b.lines.contains(&line)).unwrap();
+        // The title is the paragraph's first row.
+        let style = text::BlockStyle { aligns: vec![Some(a)], ..Default::default() };
+        text::rewrite_block(doc, 0, index, Some(&block.editor_text), &style).unwrap();
+    };
+    align(&mut doc, added::Align::Center);
+    let centred = title(&doc);
+    assert!(((centred[0] + centred[2]) / 2.0 - (column[0] + column[1]) / 2.0).abs() < 1.0, "centred in the column: {centred:?} vs {column:?}");
+    align(&mut doc, added::Align::Center);
+    assert!((title(&doc)[0] - centred[0]).abs() < 0.5, "centring again leaves it where it is: {:?} vs {centred:?}", title(&doc));
+    align(&mut doc, added::Align::Left);
+    assert!((title(&doc)[0] - column[0]).abs() < 0.5, "left: back on the column's edge, {:?} vs {column:?}", title(&doc));
+    align(&mut doc, added::Align::Right);
+    assert!((title(&doc)[2] - column[1]).abs() < 1.0, "right: on the column's right edge, {:?} vs {column:?}", title(&doc));
+}

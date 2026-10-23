@@ -44,6 +44,31 @@ fn neighbour_left(lines: &[TextLine], block: &TextBlock) -> Option<f64> {
     Some(best as f64 / 4.0)
 }
 
+/// Where an alignment picked for a one-row paragraph is measured, as `[left, right]`: the column of
+/// text it sits in (the left edge the rest of the page's text uses, to the furthest right those
+/// rows reach) when that column holds it, otherwise its own box. A lone row's own box is no frame
+/// to align in: left-aligning a title centred on the page left it where it was, and since a single
+/// row grows to the page's margin, centring it again moved it right each time. `None` when no
+/// alignment is asked for, or when the paragraph is several rows, turned, or given a width or a
+/// move of its own.
+pub(super) fn alignment_frame(lines: &[TextLine], block: &TextBlock, style: &BlockStyle) -> Option<[f64; 2]> {
+    let asked = style.align.is_some() || style.aligns.iter().any(Option::is_some);
+    if !asked || style.width.is_some() || style.offset.is_some() || block.rows.len() != 1 || block.rotation.abs() > 0.01 {
+        return None;
+    }
+    let own = [block.rect[0], block.rect[2]];
+    let tolerance = block.size.max(1.0) * 0.5;
+    let Some(left) = neighbour_left(lines, block) else { return Some(own) };
+    let right = lines
+        .iter()
+        .enumerate()
+        .filter(|(i, line)| !block.lines.contains(i) && (line.rect[0] - left).abs() < tolerance)
+        .map(|(_, line)| line.rect[2])
+        .fold(f64::NEG_INFINITY, f64::max);
+    let holds = right.is_finite() && right - left > own[1] - own[0] && own[0] >= left - tolerance && own[1] <= right + tolerance;
+    Some(if holds { [left, right] } else { own })
+}
+
 /// Whether a block reads as centred, and so must keep its centre when it grows or wraps.
 ///
 /// Several ragged rows whose left edges disagree while their centres agree are centred. A one row
