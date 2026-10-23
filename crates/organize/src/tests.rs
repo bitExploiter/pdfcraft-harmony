@@ -3286,3 +3286,37 @@ fn repeated_content_references_share_one_decode_budget() {
         assert!(len <= pdfcraft_cos::MAX_PAGE_DECODED + 300, "{len} bytes");
     }
 }
+
+/// #3193: the bookmark list reads a bookmark's colour and style as the inspector does (ISO
+/// 32000-2 §12.3.3, Tables 151 and 152): `/C` within 0–1, black and malformed values as none,
+/// `/F` bit 1 italic and bit 2 bold, through indirect values too.
+#[test]
+fn bookmarks_report_their_colour_and_style() {
+    let mut objs: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>".into(),
+        "<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 400] >>".into(),
+        "<< /Type /Page /Parent 2 0 R >>".into(),
+        "<< /Type /Outlines /First 5 0 R /Last 10 0 R /Count 6 >>".into(),
+    ];
+    objs.push("<< /Title (Plain) /Parent 4 0 R /Next 6 0 R /Dest [3 0 R /Fit] >>".into()); // 5
+    objs.push("<< /Title (Red bold) /Parent 4 0 R /Prev 5 0 R /Next 7 0 R /Dest [3 0 R /Fit] /C [1 0 0] /F 2 >>".into()); // 6
+    objs.push("<< /Title (Indirect) /Parent 4 0 R /Prev 6 0 R /Next 8 0 R /Dest [3 0 R /Fit] /C 11 0 R /F 12 0 R >>".into()); // 7
+    objs.push("<< /Title (Black) /Parent 4 0 R /Prev 7 0 R /Next 9 0 R /Dest [3 0 R /Fit] /C [0 0 0] /F 1 >>".into()); // 8
+    objs.push("<< /Title (Bright) /Parent 4 0 R /Prev 8 0 R /Next 10 0 R /Dest [3 0 R /Fit] /C [2 -1 0.5] >>".into()); // 9
+    objs.push("<< /Title (Short) /Parent 4 0 R /Prev 9 0 R /Dest [3 0 R /Fit] /C [1 0] /F 4 >>".into()); // 10
+    objs.push("[0 0.5 0]".into()); // 11
+    objs.push("3".into()); // 12
+    let doc = open(build(&objs, "/Root 1 0 R"));
+    let got: Vec<(String, Option<[f32; 3]>, bool, bool)> = bookmarks(&doc).into_iter().map(|b| (b.title, b.color, b.italic, b.bold)).collect();
+    assert_eq!(
+        got,
+        [
+            ("Plain".into(), None, false, false),
+            ("Red bold".into(), Some([1.0, 0.0, 0.0]), false, true),
+            ("Indirect".into(), Some([0.0, 0.5, 0.0]), true, true),
+            ("Black".into(), None, true, false),
+            ("Bright".into(), Some([1.0, 0.0, 0.5]), false, false),
+            ("Short".into(), None, false, false),
+        ]
+    );
+}

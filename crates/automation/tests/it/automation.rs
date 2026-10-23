@@ -8196,3 +8196,50 @@ fn comments_are_reshaped_through_the_tool() {
     assert!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": [[1, 2]] })).is_err(), "a line has two ends");
     assert!(matches!(a.call("comment_edit", &json!({ "doc": doc, "page": 1, "index": 1, "points": "no" })), Err(ToolError::InvalidArgs(_))));
 }
+
+/// #3193: bookmark_list reports a bookmark's colour and style (ISO 32000-2 §12.3.3, Tables 151
+/// and 152), only where they differ from black and regular. The list is read from the opened file
+/// and, once the document has been edited, from the edited one; both read them alike.
+#[test]
+fn bookmark_list_reports_colour_and_style() {
+    let dir = workdir("bookmark-style");
+    let objects: Vec<&[u8]> = vec![
+        b"<< /Type /Catalog /Pages 2 0 R /Outlines 4 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 /MediaBox [0 0 200 300] >>",
+        b"<< /Type /Page /Parent 2 0 R >>",
+        b"<< /Type /Outlines /First 5 0 R /Last 7 0 R /Count 3 >>",
+        b"<< /Title (Plain) /Parent 4 0 R /Next 6 0 R /Dest [3 0 R /Fit] >>",
+        b"<< /Title (Red bold) /Parent 4 0 R /Prev 5 0 R /Next 7 0 R /Dest [3 0 R /Fit] /C [1 0 0] /F 2 >>",
+        b"<< /Title (Blue italic) /Parent 4 0 R /Prev 6 0 R /Dest [3 0 R /Fit] /C [0 0 1] /F 1 >>",
+    ];
+    let mut bytes = b"%PDF-1.7\n".to_vec();
+    let mut offsets = Vec::new();
+    for (i, object) in objects.iter().enumerate() {
+        offsets.push(bytes.len());
+        bytes.extend_from_slice(format!("{} 0 obj\n", i + 1).as_bytes());
+        bytes.extend_from_slice(object);
+        bytes.extend_from_slice(b"\nendobj\n");
+    }
+    let xref = bytes.len();
+    bytes.extend_from_slice(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for o in offsets {
+        bytes.extend_from_slice(format!("{o:010} 00000 n \n").as_bytes());
+    }
+    bytes.extend_from_slice(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).as_bytes());
+    std::fs::write(dir.join("styled.pdf"), bytes).unwrap();
+    let mut a = auto(&dir);
+    let doc = ok(&mut a, "doc_open", json!({ "path": "styled.pdf" }))["doc"].as_u64().unwrap();
+    let style = |list: &Value| -> Vec<(Value, Value, Value)> {
+        list.as_array().unwrap().iter().map(|b| (b["color"].clone(), b["bold"].clone(), b["italic"].clone())).collect()
+    };
+    let expected = vec![
+        (Value::Null, Value::Null, Value::Null),
+        (json!([1.0, 0.0, 0.0]), json!(true), Value::Null),
+        (json!([0.0, 0.0, 1.0]), Value::Null, json!(true)),
+    ];
+    let opened = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
+    assert_eq!(style(&opened), expected, "as opened: {opened}");
+    ok(&mut a, "bookmark_rename", json!({ "doc": doc, "path": [1], "title": "Still plain" }));
+    let edited = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
+    assert_eq!(style(&edited), expected, "after an edit: {edited}");
+}

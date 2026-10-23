@@ -1129,6 +1129,10 @@ pub struct BookmarkRow {
     pub page: Option<usize>,
     /// Where on that page it goes ([`pdfcraft_render::DestView::Top`] when it doesn't say).
     pub view: pdfcraft_render::DestView,
+    /// The title's colour (`/C`), `None` for the default black, and its style (`/F`).
+    pub color: Option<[f32; 3]>,
+    pub italic: bool,
+    pub bold: bool,
 }
 
 /// One page of the bookmark list, in outline order.
@@ -1156,7 +1160,16 @@ fn outline_rows(items: &[pdfcraft_render::OutlineItem]) -> Vec<BookmarkRow> {
             top.1 += 1;
         }
         let path: Vec<usize> = levels.iter().map(|(_, listed)| listed.saturating_sub(1)).collect();
-        rows.push(BookmarkRow { path, title: item.title.clone(), open: item.open, page: item.page, view: item.view });
+        rows.push(BookmarkRow {
+            path,
+            title: item.title.clone(),
+            open: item.open,
+            page: item.page,
+            view: item.view,
+            color: item.color,
+            italic: item.italic,
+            bold: item.bold,
+        });
         if !item.children.is_empty() {
             levels.push((&item.children, 0));
         }
@@ -4846,7 +4859,7 @@ impl Session {
                         let numbers: Vec<Option<f32>> = numbers.iter().map(|n| n.map(|n| n as f32)).collect();
                         pdfcraft_render::DestView::from_operands(Some(&kind), &numbers)
                     });
-                    BookmarkRow { path: b.path, title: b.title, open: b.open, page: b.page, view }
+                    BookmarkRow { path: b.path, title: b.title, open: b.open, page: b.page, view, color: b.color, italic: b.italic, bold: b.bold }
                 })
                 .collect();
             return Some(BookmarkPage { rows, next: page.next, truncated: false });

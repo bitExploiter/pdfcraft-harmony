@@ -2445,6 +2445,16 @@ fn nest_rows(rows: &[pdfcraft_engine::BookmarkRow], pages: &[pdfcraft_render::Pa
         }
         let path: Vec<usize> = row.path.iter().map(|p| p.saturating_add(1)).collect();
         let mut fields = json!({ "path": path, "title": row.title, "page": row.page.map(|p| p.saturating_add(1)), "open": row.open });
+        // Only what differs from the defaults (black, regular), as the PDF itself stores it.
+        if let Some(color) = row.color {
+            fields["color"] = json!(color);
+        }
+        if row.bold {
+            fields["bold"] = json!(true);
+        }
+        if row.italic {
+            fields["italic"] = json!(true);
+        }
         if let Some(destination) = row.page.and_then(|p| pages.get(p)).and_then(|p| destination(&row.view, p)) {
             fields["destination"] = destination;
         }

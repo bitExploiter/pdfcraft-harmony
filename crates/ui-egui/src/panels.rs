@@ -1092,6 +1092,23 @@ pub(crate) fn ellipsized_prefix(text: &str, mut fits: impl FnMut(&str) -> bool) 
     }
 }
 
+/// How a bookmark's title is drawn: in its own style and colour (ISO 32000-2 §12.3.3, Tables 151
+/// and 152), bold in the heavier face and italic slanted, its colour kept readable on the panel.
+/// Top-level bookmarks without a style keep the medium face.
+fn title_format(item: &OutlineItem, depth: usize, t: &Tokens) -> egui::TextFormat {
+    let font_id = match (item.bold, depth) {
+        (true, _) => theme::semibold(13.0),
+        (false, 0) => theme::medium(13.0),
+        (false, _) => theme::regular(13.0),
+    };
+    let color = item.color.map_or(t.text, |rgb| {
+        // Each component is within 0–1, so the rounded value fits a byte.
+        let [r, g, b] = rgb.map(|c| (c * 255.0).round() as u8);
+        theme::readable(egui::Color32::from_rgb(r, g, b), t.panel, t.text)
+    });
+    egui::TextFormat { font_id, color, italics: item.italic, ..Default::default() }
+}
+
 fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineItem, path: &[usize], siblings: usize, cx: &mut OutlineCtx<'_>) {
     if cx.searching && !cx.matches.contains(path) {
         return;
@@ -1145,9 +1162,10 @@ fn outline_item(ui: &mut egui::Ui, t: &Tokens, info: &DocInfo, item: &OutlineIte
             })
         });
         let label_w = label_galley.as_ref().map_or(0.0, |g| g.size().x);
-        let font = if depth == 0 { theme::medium(13.0) } else { theme::regular(13.0) };
         let wrap_w = (ui.available_width() - indent - 20.0 - label_w - 12.0).max(60.0);
-        let galley = ui.fonts_mut(|f| f.layout(item.title.clone(), font, t.text, wrap_w));
+        let mut job = egui::text::LayoutJob::single_section(item.title.clone(), title_format(item, depth, t));
+        job.wrap.max_width = wrap_w;
+        let galley = ui.fonts_mut(|f| f.layout_job(job));
         let h = (galley.size().y + 12.0).max(28.0);
         let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &item.title));
@@ -1863,11 +1881,39 @@ mod label_column {
 
 #[cfg(test)]
 mod bookmark_filter {
-    use super::outline_matches;
+    use super::{outline_matches, title_format};
+    use crate::theme::{self, Tokens};
     use pdfcraft_render::OutlineItem;
 
+    /// #3193: a bookmark's title is drawn in its own style and colour.
+    #[test]
+    fn bookmark_titles_take_their_style_and_colour() {
+        let t = Tokens::for_kind(crate::theme::ThemeKind::Light);
+        let plain = item("Plain", Vec::new());
+        assert_eq!(title_format(&plain, 0, &t).font_id, theme::medium(13.0));
+        assert_eq!(title_format(&plain, 1, &t).font_id, theme::regular(13.0));
+        assert_eq!(title_format(&plain, 1, &t).color, t.text);
+        assert!(!title_format(&plain, 1, &t).italics);
+        let styled = OutlineItem { color: Some([1.0, 0.0, 0.0]), italic: true, bold: true, ..item("Styled", Vec::new()) };
+        let f = title_format(&styled, 1, &t);
+        assert_eq!(f.font_id, theme::semibold(13.0));
+        assert!(f.italics);
+        assert_eq!(f.color, egui::Color32::from_rgb(255, 0, 0));
+        let half = OutlineItem { color: Some([0.0, 0.5, 0.0]), ..item("Green", Vec::new()) };
+        assert_eq!(title_format(&half, 1, &t).color, egui::Color32::from_rgb(0, 128, 0));
+    }
+
     fn item(title: &str, children: Vec<OutlineItem>) -> OutlineItem {
-        OutlineItem { title: title.into(), page: Some(0), view: pdfcraft_render::DestView::Top, children, open: true }
+        OutlineItem {
+            title: title.into(),
+            page: Some(0),
+            view: pdfcraft_render::DestView::Top,
+            children,
+            open: true,
+            color: None,
+            italic: false,
+            bold: false,
+        }
     }
 
     /// Turkish dotted and dotless i match in any case, as in Find (#892).
