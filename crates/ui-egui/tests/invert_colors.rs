@@ -51,6 +51,8 @@ fn invert_colors_preference_round_trips() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
+        // These tests exercise the every-pixel inversion; the text-only mode has its own below.
+        app.invert_keep_images = false;
         app.open_bytes("doc.pdf", None, pdf()).expect("opens");
         app
     });
@@ -98,6 +100,7 @@ fn invert_colors_seed_on_open() {
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
         let mut app = PdfCraftApp::new();
         app.set_option("language", "en").unwrap();
+        app.invert_keep_images = false;
         app.invert_colors = true;
         app.open_bytes("doc.pdf", None, pdf()).expect("opens");
         app
@@ -152,4 +155,50 @@ fn invert_colors_seed_on_open() {
     for view in &h.state().views {
         assert_eq!(h.state().session.invert_colors(view.id), Some(false));
     }
+}
+
+/// The inverted view that keeps pictures: text and line art take the palette through the
+/// reading-colours mapping, nothing inverts pixels, and turning it off restores the user's own
+/// reading colours.
+#[test]
+fn invert_keeping_images_maps_text_not_pixels() {
+    use pdfcraft_render::{InvertPalette, ReadingColors};
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_cc| {
+        let mut app = PdfCraftApp::new();
+        app.set_option("language", "en").unwrap();
+        app.open_bytes("doc.pdf", None, pdf()).expect("opens");
+        app
+    });
+    h.run_steps(4);
+    assert!(h.state().invert_keep_images, "pictures are kept by default");
+    let id = h.state().views[0].id;
+
+    h.state_mut().set_invert_palette(InvertPalette::SOFT_DARK);
+    h.state_mut().set_invert_colors(true);
+    assert_eq!(h.state().session.invert_colors(id), Some(false), "no pixel inversion in text-only mode");
+    let params = h.state().session.reading_colors(id).and_then(|r| r.params).expect("reading colours carry the palette");
+    assert_eq!((params.text, params.background), (InvertPalette::SOFT_DARK.ink, InvertPalette::SOFT_DARK.paper));
+
+    // A new palette reaches open documents.
+    h.state_mut().set_invert_palette(InvertPalette::SEPIA);
+    let params = h.state().session.reading_colors(id).and_then(|r| r.params).unwrap();
+    assert_eq!((params.text, params.background), (InvertPalette::SEPIA.ink, InvertPalette::SEPIA.paper));
+
+    // Every-pixel mode swaps over: pixels invert, reading colours go back to off.
+    h.state_mut().set_invert_keep_images(false);
+    assert_eq!(h.state().session.invert_colors(id), Some(true));
+    assert_eq!(h.state().session.reading_colors(id), Some(ReadingColors::default()));
+
+    // Off: the user's own reading-colours preference is what documents render with again.
+    h.state_mut().set_invert_keep_images(true);
+    h.state_mut().set_reading_colors(ReadingColors::YELLOW_ON_BLACK);
+    h.state_mut().set_invert_colors(false);
+    assert_eq!(h.state().session.invert_colors(id), Some(false));
+    assert_eq!(h.state().session.reading_colors(id), Some(ReadingColors::YELLOW_ON_BLACK));
+
+    // The choice survives a restart.
+    let json = h.state().persist();
+    let mut restored = PdfCraftApp::new();
+    restored.restore(&json);
+    assert!(restored.invert_keep_images);
 }

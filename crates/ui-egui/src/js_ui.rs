@@ -478,6 +478,13 @@ pub(crate) fn preferences_body(ui: &mut egui::Ui, app: &mut PdfCraftApp, t: &Tok
         app.set_invert_colors(invert);
     }
     ui.horizontal(|ui| {
+        for (keep, label) in [(false, "Invert everything"), (true, "Text only, keep images")] {
+            if ui.selectable_label(app.invert_keep_images == keep, tl!(label)).clicked() {
+                app.set_invert_keep_images(keep);
+            }
+        }
+    });
+    ui.horizontal(|ui| {
         for (palette, label) in [
             (pdfcraft_render::InvertPalette::SOFT_DARK, "Soft dark gray"),
             (pdfcraft_render::InvertPalette::PURE, "Black and white"),

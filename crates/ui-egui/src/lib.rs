@@ -546,6 +546,9 @@ pub struct PdfCraftApp {
     pub invert_colors: bool,
     /// Paper and ink colours of the inverted page (Preferences ▸ Reading colours).
     pub invert_palette: pdfcraft_render::InvertPalette,
+    /// Inverted view keeps pictures as they are: text and line art take the palette (through the
+    /// reading-colours mapping) and images are untouched. Off inverts every pixel of the page.
+    pub invert_keep_images: bool,
     /// The Linux portal is enabled only by the native host, and starts on the first System choice.
     #[cfg(target_os = "linux")]
     desktop_theme: Option<pdfcraft_platform::desktop_theme::DesktopTheme>,
@@ -967,6 +970,7 @@ impl PdfCraftApp {
             reading_colors: Default::default(),
             invert_colors: false,
             invert_palette: pdfcraft_render::InvertPalette::default(),
+            invert_keep_images: true,
             #[cfg(target_os = "linux")]
             desktop_theme: None,
             #[cfg(target_os = "linux")]
@@ -2146,9 +2150,42 @@ impl PdfCraftApp {
     /// Colors). A document the change actually touches re-renders.
     pub fn set_reading_colors(&mut self, colors: pdfcraft_render::ReadingColors) {
         self.reading_colors = colors;
+        self.sync_night_all();
+    }
+
+    /// The reading colours documents render with. While the inverted view is on and keeps images,
+    /// it replaces the reading-colours preference (the two never stack): text and line art map to
+    /// the palette's ink and paper, and pictures are left alone. Otherwise it is the preference.
+    fn night_reading(&self) -> pdfcraft_render::ReadingColors {
+        if self.invert_colors && self.invert_keep_images {
+            let params = pdfcraft_render::ReadingParams {
+                text: self.invert_palette.ink,
+                background: self.invert_palette.paper,
+                only_black: false,
+                line_art: true,
+            };
+            pdfcraft_render::ReadingColors { params: Some(params) }
+        } else {
+            self.reading_colors
+        }
+    }
+
+    /// Gives document `id` the app-wide night-reading state: pixel inversion (every pixel, pictures
+    /// included) or the text-only mapping through reading colours. `true` when anything changed.
+    fn sync_night(&mut self, id: pdfcraft_engine::DocId) -> bool {
+        let pixels = self.invert_colors && !self.invert_keep_images;
+        let reading = self.night_reading();
+        let a = self.session.set_invert_palette(id, self.invert_palette);
+        let b = self.session.set_invert_colors(id, pixels);
+        let c = self.session.set_reading_colors(id, reading);
+        a || b || c
+    }
+
+    /// [`Self::sync_night`] for every open document; the ones it touches re-render.
+    fn sync_night_all(&mut self) {
         for i in 0..self.views.len() {
-            // Idempotent per document: the engine says whether anything changed.
-            if self.session.set_reading_colors(self.views[i].id, colors) {
+            let id = self.views[i].id;
+            if self.sync_night(id) {
                 self.views[i].invalidate_content();
             }
         }
@@ -2156,29 +2193,26 @@ impl PdfCraftApp {
 
     /// Give document `id` the app-wide invert setting and palette.
     pub(crate) fn apply_invert(&mut self, id: pdfcraft_engine::DocId) {
-        self.session.set_invert_colors(id, self.invert_colors);
-        self.session.set_invert_palette(id, self.invert_palette);
+        self.sync_night(id);
     }
 
     /// Set the paper and ink colours of the inverted page, for every open document.
     pub fn set_invert_palette(&mut self, palette: pdfcraft_render::InvertPalette) {
         self.invert_palette = palette;
-        for i in 0..self.views.len() {
-            if self.session.set_invert_palette(self.views[i].id, palette) {
-                self.views[i].invalidate_content();
-            }
-        }
+        self.sync_night_all();
     }
 
     /// Invert page colours (View ▸ Invert colors): sets the app-wide preference and applies it to
     /// every open document, which re-renders. The files never change.
     pub fn set_invert_colors(&mut self, invert: bool) {
         self.invert_colors = invert;
-        for i in 0..self.views.len() {
-            if self.session.set_invert_colors(self.views[i].id, invert) {
-                self.views[i].invalidate_content();
-            }
-        }
+        self.sync_night_all();
+    }
+
+    /// Whether the inverted view keeps pictures as they are (text only) or inverts every pixel.
+    pub fn set_invert_keep_images(&mut self, keep: bool) {
+        self.invert_keep_images = keep;
+        self.sync_night_all();
     }
 
     /// Enable the Linux desktop portal in a native window. Headless contexts keep
@@ -2422,6 +2456,7 @@ impl PdfCraftApp {
             "reading_colors": self.reading_colors,
             "invert_colors": self.invert_colors,
             "invert_palette": self.invert_palette,
+            "invert_keep_images": self.invert_keep_images,
             // Null follows the system's text scaling.
             "ui_scale": self.ui_scale,
             "flatten_fill_sign": self.flatten_fill_sign_on_save,
@@ -2575,6 +2610,9 @@ impl PdfCraftApp {
         }
         if let Some(on) = v["invert_colors"].as_bool() {
             self.invert_colors = on;
+        }
+        if let Some(keep) = v["invert_keep_images"].as_bool() {
+            self.invert_keep_images = keep;
         }
         // Settings are untrusted: a palette that isn't two #rgb byte triples keeps the default.
         if let Ok(palette) = serde_json::from_value::<pdfcraft_render::InvertPalette>(v["invert_palette"].clone()) {

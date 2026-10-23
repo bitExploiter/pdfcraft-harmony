@@ -344,6 +344,14 @@ fn invert_colors_menu(app: &mut PdfCraftApp, ui: &mut egui::Ui) {
         app.set_invert_colors(invert);
     }
     ui.separator();
+    for (keep, label) in [(false, "Invert everything"), (true, "Text only, keep images")] {
+        if ui.add(widgets::radio(app.invert_keep_images == keep, tl!(label))).clicked() {
+            app.set_invert_keep_images(keep);
+            app.set_invert_colors(true);
+            ui.close();
+        }
+    }
+    ui.separator();
     for (palette, label) in [
         (pdfcraft_render::InvertPalette::SOFT_DARK, "Soft dark gray"),
         (pdfcraft_render::InvertPalette::PURE, "Black and white"),
