@@ -1941,6 +1941,8 @@ pub const EDIT_LABELS: &[&str] = &[
     "Delete bookmark",
     "Move bookmark",
     "Set bookmark destination",
+    "Colour",
+    "Style",
     "New bookmarks from structure",
     "Number pages",
     "Measure distance",
@@ -2053,7 +2055,7 @@ pub const EDIT_LABELS: &[&str] = &[
 /// [`EDIT_LABELS`] and so translates the same way. A batch built in the interface itself arrives
 /// already worded in the interface's language.
 pub const BATCH_LABELS: &[&str] =
-    &["Set document title", "Mark differences", "Detect form fields", "Run JavaScript", "Recognize text", field_table::LABEL];
+    &["Set document title", "Mark differences", "Detect form fields", "Run JavaScript", "Recognize text", field_table::LABEL, "Style"];
 
 impl Edit {
     /// Label for the Edit menu and history ("Undo Rotate pages").

@@ -400,14 +400,18 @@ impl Automation {
                 if color.is_none() && bold.is_none() && italic.is_none() {
                     return Err(ToolError::InvalidArgs("give color, bold or italic".into()));
                 }
-                let mut out = json!({});
+                let mut edits = Vec::new();
                 if let Some(color) = color {
-                    out = self.apply(&a, Edit::SetBookmarkColor { path: path.clone(), color: Some(color) })?;
+                    edits.push(Edit::SetBookmarkColor { path: path.clone(), color: Some(color) });
                 }
                 if bold.is_some() || italic.is_some() {
-                    out = self.apply(&a, Edit::SetBookmarkStyle { path, bold, italic })?;
+                    edits.push(Edit::SetBookmarkStyle { path, bold, italic });
                 }
-                out
+                // A colour and a style given together are one step to undo, applied all or nothing.
+                match edits.len() {
+                    1 => self.apply(&a, edits.remove(0))?,
+                    _ => self.apply(&a, Edit::Batch { label: "Style".into(), edits })?,
+                }
             }
             "bookmark_from_structure" => {
                 let mut out = self.apply(&a, Edit::BookmarksFromStructure)?;

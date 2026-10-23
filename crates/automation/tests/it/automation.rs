@@ -8258,6 +8258,13 @@ fn bookmark_list_reports_colour_and_style() {
         ],
         "{set}"
     );
+    // A colour and a style in one call are one undo step.
+    ok(&mut a, "bookmark_set_style", json!({ "doc": doc, "path": [2], "color": [0, 0, 0], "bold": true, "italic": true }));
+    let both = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
+    assert_eq!(style(&both)[1], (Value::Null, json!(true), json!(true)), "{both}");
+    ok(&mut a, "edit_undo", json!({ "doc": doc }));
+    let undone = ok(&mut a, "bookmark_list", json!({ "doc": doc }))["bookmarks"].clone();
+    assert_eq!(style(&undone), style(&set), "one undo takes back both: {undone}");
     for bad in [
         json!({ "doc": doc, "path": [1] }),
         json!({ "doc": doc, "path": [1], "color": [2, 0, 0] }),
