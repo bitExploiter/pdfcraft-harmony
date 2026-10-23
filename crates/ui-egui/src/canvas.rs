@@ -214,7 +214,7 @@ impl ViewDefaults {
     }
 
     /// These defaults with the zoom a [`zoom_name`](Self::zoom_name) names, in any case. `None`
-    /// for anything else, including a percentage outside the 8–6400% the view can show.
+    /// for anything else, including a percentage outside the 1–6400% the view can show.
     pub fn with_zoom(self, name: &str) -> Option<Self> {
         let name = name.trim();
         let (fit, zoom) = if name.eq_ignore_ascii_case("fit-width") {
@@ -222,7 +222,7 @@ impl ViewDefaults {
         } else if name.eq_ignore_ascii_case("fit-page") {
             (Fit::Page, self.zoom)
         } else {
-            let percent = name.strip_suffix('%').unwrap_or(name).trim().parse::<f32>().ok().filter(|p| (8.0..=6400.0).contains(p))?;
+            let percent = name.strip_suffix('%').unwrap_or(name).trim().parse::<f32>().ok().filter(|p| (1.0..=6400.0).contains(p))?;
             (Fit::None, percent / 100.0)
         };
         Some(Self { fit, zoom, ..self })
@@ -2889,10 +2889,7 @@ fn ruler_axes(geometry: &CanvasGeometry) -> Option<(f64, f64, f64, f64, f64, f64
     let page_width_points = if rotated { page.unrotated_size_points.y } else { page.unrotated_size_points.x };
     let page_height_points = if rotated { page.unrotated_size_points.x } else { page.unrotated_size_points.y };
     let same_row = |other: &&VisiblePageGeometry| {
-        other.page_index != page.page_index
-            && (other.page_rect.top() - page.page_rect.top()).abs() <= 1.0
-            && other.page_rect.bottom() >= page.page_rect.top()
-            && other.page_rect.top() <= page.page_rect.bottom()
+        other.page_index != page.page_index && other.page_rect.bottom() >= page.page_rect.top() && other.page_rect.top() <= page.page_rect.bottom()
     };
     let partner = geometry.pages.iter().filter(same_row).min_by(|a, b| {
         let gap = |other: &VisiblePageGeometry| {
@@ -6087,6 +6084,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn view_defaults_accept_the_complete_supported_zoom_range() {
+        let defaults = ViewDefaults::default();
+
+        let one = defaults.with_zoom("1%").expect("1% is the minimum supported zoom");
+        assert_eq!(one.fit, Fit::None);
+        assert!((one.zoom - 0.01).abs() < f32::EPSILON);
+
+        let seven = defaults.with_zoom("7").expect("intermediate values below 8% remain valid");
+        assert_eq!(seven.fit, Fit::None);
+        assert!((seven.zoom - 0.07).abs() < f32::EPSILON);
+
+        let maximum = defaults.with_zoom("6400%").expect("6400% is the maximum supported zoom");
+        assert_eq!(maximum.fit, Fit::None);
+        assert!((maximum.zoom - 64.0).abs() < f32::EPSILON);
+
+        assert!(defaults.with_zoom("0%").is_none());
+        assert!(defaults.with_zoom("6400.1%").is_none());
+    }
+
+    #[test]
     fn typed_zoom_percentages_parse() {
         for (typed, zoom) in [("150", 1.5), ("150%", 1.5), (" 62.5 % ", 0.625), ("6400%", 64.0)] {
             assert_eq!(DocView::parse_zoom_percent(typed), Some(zoom), "{typed}");
@@ -7623,6 +7640,30 @@ trailer << /Root 1 0 R >>
         let (origin, length) = horizontal_ruler_axis(layout, spine, -600.0, 1_200.0, 1.0, true);
         assert_eq!(origin, spine);
         assert_eq!(length, 1_200.0);
+    }
+
+    #[test]
+    fn ruler_axes_identify_vertically_centred_mixed_height_facing_pages() {
+        let viewport = Rect::from_min_max(pos2(0.0, 0.0), pos2(700.0, 700.0));
+        let pages = vec![
+            VisiblePageGeometry {
+                page_index: 0,
+                page_rect: Rect::from_min_size(pos2(100.0, 250.0), vec2(300.0, 300.0)),
+                unrotated_size_points: vec2(600.0, 600.0),
+                rotation_degrees: 0,
+                screen_points_per_pdf_point: 0.5,
+            },
+            VisiblePageGeometry {
+                page_index: 1,
+                page_rect: Rect::from_min_size(pos2(402.0, 200.0), vec2(300.0, 400.0)),
+                unrotated_size_points: vec2(600.0, 800.0),
+                rotation_degrees: 0,
+                screen_points_per_pdf_point: 0.5,
+            },
+        ];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+
+        assert_eq!(ruler_axes(&geometry), Some((401.0, -600.0, 1_200.0, 602.0, 250.0, 600.0, 0.5)));
     }
 
     #[test]
