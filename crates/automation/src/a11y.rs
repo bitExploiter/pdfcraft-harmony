@@ -575,6 +575,8 @@ impl Automation {
 }
 
 impl Automation {
+    /// The OCR settings the arguments ask for: `dpi` (clamped to 72-600), `language` (an error
+    /// unless it is one the models read) and `skip_text_pages`; any left out keep their defaults.
     pub(crate) fn ocr_settings(&self, a: &Args) -> Result<pdfcraft_engine::ocr::OcrSettings> {
         let mut settings = pdfcraft_engine::ocr::OcrSettings::default();
         if let Some(d) = a.opt_num("dpi")? {
@@ -592,6 +594,9 @@ impl Automation {
         Ok(settings)
     }
 
+    /// Recognize text in each PDF in `paths` and write the searchable result into `folder` under
+    /// its own file name. A path outside the root refuses the whole call; otherwise each file
+    /// reports its output path, word count and skipped pages (1-based), or its error.
     pub(crate) fn ocr_recognize_files(&mut self, a: &Args) -> Result<Value> {
         let settings = self.ocr_settings(a)?;
         let folder = self.resolve(a.str("folder")?, true)?;
@@ -623,6 +628,9 @@ impl Automation {
         Ok(json!({ "files": out }))
     }
 
+    /// Recognize text on the document's `pages` (all of them when absent) and add it to the
+    /// document. Returns the total word count and, per page, its text and word count or why it
+    /// was skipped.
     pub(crate) fn ocr_recognize(&mut self, a: &Args) -> Result<Value> {
         let settings = self.ocr_settings(a)?;
         let pages = if a.opt_ints("pages")?.is_some() { self.pages(a, "pages")? } else { Vec::new() };
@@ -642,6 +650,8 @@ impl Automation {
         Ok(json!({ "words": found.iter().map(|p| p.words.len()).sum::<usize>(), "pages": list }))
     }
 
+    /// Whether text recognition is available (its models are installed), the directories it
+    /// looks in for the models, and the languages it reads.
     pub(crate) fn ocr_status(&self) -> Result<Value> {
         use pdfcraft_engine::ocr;
         let dirs: Vec<String> = ocr::Models::search_dirs().iter().map(|d| d.to_string_lossy().into_owned()).collect();
@@ -650,6 +660,7 @@ impl Automation {
     }
 }
 
+/// A script's request to the viewer as `js_run` reports it in JSON (page numbers 1-based).
 fn request_json(r: &pdfcraft_engine::js::Request) -> Value {
     use pdfcraft_engine::js::Request as R;
     match r {
@@ -661,6 +672,7 @@ fn request_json(r: &pdfcraft_engine::js::Request) -> Value {
         R::Focus(f) => json!({ "focus": f }),
         R::Beep => json!({ "beep": true }),
         R::SaveAs => json!({ "save_as": true }),
+        R::OpenAttachment { name, open } => json!({ "attachment": name, "open": open }),
     }
 }
 

@@ -22,14 +22,26 @@ pub struct JsOutput {
 }
 
 impl JsOutput {
+    /// Whether scripts produced nothing: no alerts, console lines, requests or errors.
     pub fn is_empty(&self) -> bool {
         self.alerts.is_empty() && self.console.is_empty() && self.requests.is_empty() && self.errors.is_empty()
     }
 
+    /// Keep a field script's alerts, console lines, requests and error. A request to open or save
+    /// an attached file is dropped with a note in the console: only a button may make one.
     fn absorb(&mut self, o: &Outcome) {
         self.alerts.extend(o.alerts.iter().cloned());
         self.console.extend(o.console.iter().cloned());
-        self.requests.extend(o.requests.iter().cloned());
+        // A field's own scripts (keystroke, format, validate, calculate) run unasked: only a
+        // button's may open or save an attached file.
+        for r in &o.requests {
+            match r {
+                Request::OpenAttachment { name, .. } => {
+                    self.console.push(format!("A field script asked to open the attached file {name}; only a button may open an attached file"))
+                }
+                r => self.requests.push(r.clone()),
+            }
+        }
         self.errors.extend(o.error.iter().cloned());
     }
 
@@ -222,10 +234,12 @@ impl Session {
         }
         let doc = self.get(id).ok_or(EditError::NoDocument)?;
         let cos = doc.editor.as_ref().map(|e| e.cos.clone()).ok_or_else(|| EditError::ReadOnly(doc.read_only_reason.clone().unwrap_or_default()))?;
-        // A button PdfCraft generated from an XFA template runs its XFA click script.
+        // A button PdfCraft generated from an XFA template runs its XFA click script (the app runs
+        // click scripts for buttons only, so other fields' click events don't run here either).
         if let Some(t) = target
             && let Some(tpl) = doc.xfa_template.clone()
             && let Some(field) = doc.form.iter().find(|f| f.name == t)
+            && field.kind == crate::FormFieldKind::PushButton
             && let Some(som) = crate::xfa::clickable_som(&cos, &tpl, field)
         {
             self.apply(id, Edit::XfaEvent { som, activity: "click".into() })?;

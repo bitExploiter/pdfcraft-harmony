@@ -15,7 +15,7 @@ use boa_engine::object::builtins::{JsArray, JsProxy};
 use boa_engine::property::Attribute;
 use boa_engine::{Context, JsObject, JsResult, JsString, JsValue, NativeFunction, Source, js_string};
 
-use crate::{Limits, arg, as_number, error, function, platform, printd, printf, printx, refuse, s, text};
+use crate::{Limits, arg, as_number, data_object, error, function, platform, printd, printf, printx, refuse, s, text};
 
 /// What kind of template object a node is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -115,6 +115,11 @@ pub enum XfaEffect {
     MessageBox(String),
     /// `xfa.host.resetData()`: the named fields, or every field when empty.
     ResetData(Vec<String>),
+    /// `event.target.exportDataObject(…)`: the attached file `name`, to open or to save.
+    OpenAttachment {
+        name: String,
+        open: bool,
+    },
     Print,
     SaveAs,
     LaunchUrl(String),
@@ -217,6 +222,7 @@ fn payload(e: &XfaEffect) -> usize {
             som.len().saturating_add(s.len())
         }
         XfaEffect::AddInstance { som } | XfaEffect::RemoveInstance { som } => som.len(),
+        XfaEffect::OpenAttachment { name, .. } => name.len(),
         XfaEffect::MessageBox(s) | XfaEffect::LaunchUrl(s) | XfaEffect::SetFocus(s) => s.len(),
         XfaEffect::ResetData(names) => names.iter().fold(0usize, |n, s| n.saturating_add(s.len()).saturating_add(std::mem::size_of::<String>())),
         XfaEffect::Print | XfaEffect::SaveAs | XfaEffect::Beep | XfaEffect::Recalculate | XfaEffect::Relayout => 0,
@@ -1131,39 +1137,56 @@ fn resolver(ctx: &mut Context, from: usize, many: bool) -> JsResult<JsValue> {
 
 // ── xfa.host, xfa.layout, xfa.event, app, console ───────────────────────────────────────────
 
+/// Record the effect `e` for the viewer.
 fn effect(ctx: &mut Context, e: XfaEffect) -> JsResult<()> {
     host(ctx)?.borrow_mut().push(e);
     Ok(())
 }
 
+/// `event.target.exportDataObject(…)`: the document asks to open or save an attached file.
+fn export_data_object(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let (name, open) = data_object(args, ctx)?;
+    effect(ctx, XfaEffect::OpenAttachment { name, open })?;
+    Ok(JsValue::undefined())
+}
+
+/// `xfa.host.messageBox(…)`: records the message, cut to [`MAX_LINE`] characters, as a message
+/// box and returns 1, the OK button.
 fn message_box(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let m = clip(text(&arg(args, 0), ctx)?);
     effect(ctx, XfaEffect::MessageBox(m))?;
     Ok(JsValue::from(1.0))
 }
 
+/// `xfa.host.resetData(…)`: records a reset of the fields named in the comma-separated argument
+/// (every field when it names none).
 fn reset_data(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let list = text(&arg(args, 0), ctx)?;
     effect(ctx, XfaEffect::ResetData(reset_names(&list)))?;
     Ok(JsValue::undefined())
 }
 
+/// `xfa.host.print(…)`: records a request to print.
 fn print(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     effect(ctx, XfaEffect::Print)?;
     Ok(JsValue::undefined())
 }
 
+/// `xfa.host.beep()` and `app.beep()`: record a request to beep.
 fn beep(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     effect(ctx, XfaEffect::Beep)?;
     Ok(JsValue::undefined())
 }
 
+/// `xfa.host.gotoURL(url)` and `app.launchURL(url)`: record a request to open the link.
 fn goto_url(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let u = text(&arg(args, 0), ctx)?;
     effect(ctx, XfaEffect::LaunchUrl(u))?;
     Ok(JsValue::undefined())
 }
 
+/// `xfa.host.setFocus(…)`: records moving the focus to a node, given as a node or as a SOM
+/// expression resolved from the current node (kept as written when nothing matches).
 fn set_focus(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let target = arg(args, 0);
     let som = match target.as_object() {
@@ -1182,6 +1205,8 @@ fn set_focus(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsVal
     Ok(JsValue::undefined())
 }
 
+/// `app.execMenuItem(…)`: `SaveAs` and `Save` record a save-as request and `Print` a print
+/// request; other items do nothing.
 fn exec_menu_item(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let item = text(&arg(args, 0), ctx)?;
     match item.as_str() {
@@ -1192,47 +1217,62 @@ fn exec_menu_item(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<
     Ok(JsValue::undefined())
 }
 
+/// `recalculate(…)` on a node or on `xfa`: records a request to recalculate the form.
 fn recalculate(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     effect(ctx, XfaEffect::Recalculate)?;
     Ok(JsValue::undefined())
 }
 
+/// `xfa.layout.relayout()`, `relayoutPageArea()` and `remerge()`: record a request to lay the
+/// form out again.
 fn relayout(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     effect(ctx, XfaEffect::Relayout)?;
     Ok(JsValue::undefined())
 }
 
+/// `console.println(…)`: adds the line, cut to [`MAX_LINE`] characters, to the run's console
+/// output.
 fn console_println(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let m = clip(text(&arg(args, 0), ctx)?);
     host(ctx)?.borrow_mut().print(m);
     Ok(JsValue::undefined())
 }
 
+/// `xfa.host.response(…)` and `app.response(…)`: always return `null`, as for a canceled dialog.
 fn response(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(JsValue::null())
 }
 
+/// `xfa.layout.page(…)`: the current page, 1-based, whatever the argument.
 fn layout_page(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(JsValue::from(host(ctx)?.borrow().doc.page as f64 + 1.0))
 }
 
+/// `xfa.layout.absPage(…)`: the current page, 0-based, whatever the argument.
 fn layout_page0(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(JsValue::from(host(ctx)?.borrow().doc.page as f64))
 }
 
+/// `xfa.layout.pageCount()` and `absPageCount()`: the document's page count.
 fn layout_page_count(_: &JsValue, _: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     Ok(JsValue::from(host(ctx)?.borrow().doc.page_count as f64))
 }
 
+/// The `xfa.layout` measures `h`, `w`, `x`, `y` and `pageSpan`: always 0.
 fn zero(_: &JsValue, _: &[JsValue], _: &mut Context) -> JsResult<JsValue> {
     Ok(JsValue::from(0.0))
 }
 
+/// `xfa.resolveNode(som)`, or `xfa.resolveNodes(som)` when `many`, resolving from the node the
+/// script runs on.
 fn xfa_resolve(ctx: &mut Context, many: bool) -> JsResult<JsValue> {
     let current = host(ctx)?.borrow().current;
     resolver(ctx, current, many)
 }
 
+/// Set up the object model for one script run from node `current`: `xfa` (with `xfa.event`, whose
+/// target is that node), a separate global `event` whose target is a document offering
+/// `exportDataObject`, `app`, `console`, `util`, and the nodes in scope under their own names.
 fn install(ctx: &mut Context, event: &XfaEvent, doc: &XfaDoc, current: usize) -> JsResult<()> {
     let rw = Attribute::CONFIGURABLE;
     let form = node_object(ctx, 0)?;
@@ -1277,24 +1317,33 @@ fn install(ctx: &mut Context, event: &XfaEvent, doc: &XfaDoc, current: usize) ->
         .function(NativeFunction::from_fn_ptr(zero), js_string!("pageSpan"), 1)
         .property(js_string!("ready"), JsValue::from(true), Attribute::READONLY)
         .build();
-    let ev = ObjectInitializer::new(ctx)
-        .property(js_string!("name"), s(&event.activity), Attribute::all())
-        .property(js_string!("newText"), s(&event.new_text), Attribute::all())
-        .property(js_string!("prevText"), s(&event.prev_text), Attribute::all())
-        .property(js_string!("fullText"), s(&event.new_text), Attribute::all())
-        .property(js_string!("change"), s(""), Attribute::all())
-        .property(js_string!("target"), this_node.clone(), Attribute::all())
-        .property(js_string!("selStart"), JsValue::from(0.0), Attribute::all())
-        .property(js_string!("selEnd"), JsValue::from(0.0), Attribute::all())
-        .property(js_string!("cancelAction"), JsValue::from(false), Attribute::all())
-        .property(js_string!("reenter"), JsValue::from(false), Attribute::all())
-        .property(js_string!("shift"), JsValue::from(false), Attribute::all())
-        .property(js_string!("modifier"), JsValue::from(false), Attribute::all())
-        .property(js_string!("keyDown"), JsValue::from(false), Attribute::all())
-        .property(js_string!("commitKey"), JsValue::from(0.0), Attribute::all())
-        .function(NativeFunction::from_fn_ptr(noop), js_string!("emit"), 0)
-        .function(NativeFunction::from_fn_ptr(noop), js_string!("reset"), 0)
-        .build();
+    // Two event objects, as in Acrobat's XFA scripting: `xfa.event`, whose target is the form
+    // node the event happened on, and Acrobat's own `event`, whose target is the document
+    // (`event.target.exportDataObject(…)` is how forms open their attached files).
+    let acrobat_doc =
+        ObjectInitializer::new(ctx).function(NativeFunction::from_fn_ptr(export_data_object), js_string!("exportDataObject"), 4).build();
+    let event_object = |ctx: &mut Context, target: JsValue| {
+        ObjectInitializer::new(ctx)
+            .property(js_string!("name"), s(&event.activity), Attribute::all())
+            .property(js_string!("newText"), s(&event.new_text), Attribute::all())
+            .property(js_string!("prevText"), s(&event.prev_text), Attribute::all())
+            .property(js_string!("fullText"), s(&event.new_text), Attribute::all())
+            .property(js_string!("change"), s(""), Attribute::all())
+            .property(js_string!("target"), target, Attribute::all())
+            .property(js_string!("selStart"), JsValue::from(0.0), Attribute::all())
+            .property(js_string!("selEnd"), JsValue::from(0.0), Attribute::all())
+            .property(js_string!("cancelAction"), JsValue::from(false), Attribute::all())
+            .property(js_string!("reenter"), JsValue::from(false), Attribute::all())
+            .property(js_string!("shift"), JsValue::from(false), Attribute::all())
+            .property(js_string!("modifier"), JsValue::from(false), Attribute::all())
+            .property(js_string!("keyDown"), JsValue::from(false), Attribute::all())
+            .property(js_string!("commitKey"), JsValue::from(0.0), Attribute::all())
+            .function(NativeFunction::from_fn_ptr(noop), js_string!("emit"), 0)
+            .function(NativeFunction::from_fn_ptr(noop), js_string!("reset"), 0)
+            .build()
+    };
+    let ev = event_object(ctx, this_node.clone());
+    let acrobat_ev = event_object(ctx, acrobat_doc.into());
     let datasets = ObjectInitializer::new(ctx).property(js_string!("data"), form.clone(), rw).build();
     let template = sink(ctx)?;
     let resolve_one = xfa_resolve(ctx, false)?;
@@ -1313,7 +1362,7 @@ fn install(ctx: &mut Context, event: &XfaEvent, doc: &XfaDoc, current: usize) ->
         .function(NativeFunction::from_fn_ptr(relayout), js_string!("remerge"), 0)
         .build();
     ctx.register_global_property(js_string!("xfa"), xfa, rw)?;
-    ctx.register_global_property(js_string!("event"), ev, rw)?;
+    ctx.register_global_property(js_string!("event"), acrobat_ev, rw)?;
     ctx.register_global_property(js_string!("__xfa_this"), this_node, rw)?;
     let app = ObjectInitializer::new(ctx)
         .function(NativeFunction::from_fn_ptr(message_box), js_string!("alert"), 4)

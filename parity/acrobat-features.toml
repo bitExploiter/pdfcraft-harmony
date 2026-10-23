@@ -5165,8 +5165,8 @@ milestone = "M6"
 status = "partial"
 commands = ["tools.js_console"]
 tools = ["js_run"]
-evidence = ["crates/js/src/tests.rs::calculate_scripts_read_fields_and_set_the_value", "crates/engine/src/tests.rs::form_javascript_validates_calculates_and_formats", "crates/automation/tests/it/automation.rs::javascript_through_tools"]
-notes = "boa (pure Rust) with the forms object model: event, getField/Field (value, readonly, display, colours, items, check boxes), app, util.printf/printd/printx, console, display, color; no annotations, layers or dialogs (app.response returns null) yet."
+evidence = ["crates/js/src/tests.rs::calculate_scripts_read_fields_and_set_the_value", "crates/engine/src/tests.rs::form_javascript_validates_calculates_and_formats", "crates/automation/tests/it/automation.rs::javascript_through_tools", "crates/ui-egui/tests/it/forms.rs::a_form_button_opens_its_attached_instructions_in_a_new_tab"]
+notes = "boa (pure Rust) with the forms object model: event, getField/Field (value, readonly, display, colours, items, check boxes), app, util.printf/printd/printx, console, display, color, exportDataObject (from a button only: an attached PDF opens in a new tab, other files are offered to save, also as event.target in XFA scripts); no annotations, layers or dialogs (app.response returns null) yet."
 
 [[feature]]
 id = "form.js-console"
