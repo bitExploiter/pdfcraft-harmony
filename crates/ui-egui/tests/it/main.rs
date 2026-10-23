@@ -62,6 +62,7 @@ mod recovery;
 mod redact;
 mod reload;
 mod signing;
+mod stamp_locale;
 mod stamps;
 mod text_select;
 mod theme;
