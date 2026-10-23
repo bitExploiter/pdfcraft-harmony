@@ -883,3 +883,35 @@ fn a_resized_added_picture_shows_only_at_its_new_size() {
     let pixels = h.render().unwrap();
     assert!(red(&pixels, kept) > 100 && red(&pixels, gone) == 0, "the page raster has the picture at its new size");
 }
+
+/// Bug A for added text: with one line of the box selected, an alignment applies to that line
+/// only, the box stays open, and Undo puts it back and closes the box.
+#[test]
+fn aligning_a_selected_line_of_added_text_aligns_only_that_line() {
+    let mut h = harness();
+    let rect = [40.0, 195.0, 240.0, 220.0];
+    let text = pdfcraft_engine::AddedText { rect, text: "Line one\nLine two".into(), ..Default::default() };
+    assert!(h.state_mut().apply_edit(pdfcraft_engine::Edit::AddText { page: 0, text }));
+    assert!(h.state_mut().execute("edit.text"));
+    h.run_steps(3);
+    let point = at(&h, 45.0, 195.0);
+    click(&mut h, point);
+    assert_eq!(h.state().views[0].content.draft.as_ref().and_then(|d| d.index), Some(0), "the editor opened on the text");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::End);
+    h.key_press_modifiers(egui::Modifiers::SHIFT, egui::Key::Home);
+    h.run_steps(2);
+    let button = h.get_by_label("Alignment").rect().center();
+    click(&mut h, button);
+    let item = h.get_by_label("Align right").rect().center();
+    click(&mut h, item);
+    let aligns = |h: &Harness<'static, PdfCraftApp>| match &added(h)[0].content {
+        pdfcraft_engine::AddedContent::Text(t) => (t.align, t.aligns.clone()),
+        _ => panic!(),
+    };
+    assert_eq!(aligns(&h), (pdfcraft_engine::TextAlign::Left, vec![None, Some(pdfcraft_engine::TextAlign::Right)]));
+    assert!(h.state().views[0].content.draft.is_some(), "the box stays open");
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::Z);
+    h.run_steps(4);
+    assert_eq!(aligns(&h), (pdfcraft_engine::TextAlign::Left, vec![]), "Undo puts it back");
+    assert!(h.state().views[0].content.draft.is_none(), "and closes the box");
+}

@@ -53,15 +53,46 @@ fn style(a: &Args, t: &mut AddedText) -> Result<()> {
         t.color = parse_color(c)?;
     }
     if let Some(al) = a.opt_str("align")? {
-        t.align = match al {
-            "left" => TextAlign::Left,
-            "center" | "centre" => TextAlign::Center,
-            "right" => TextAlign::Right,
-            "justify" => TextAlign::Justify,
-            other => return Err(bad(format!("unknown align {other:?}"))),
-        };
+        t.align = parse_align(al)?;
+        // The whole box: no paragraph keeps an alignment of its own unless `aligns` gives it one.
+        t.aligns.clear();
+    }
+    if let Some(aligns) = opt_aligns(a)? {
+        let count = pdfcraft_engine::paragraph_align::count(&t.text);
+        t.aligns = pdfcraft_engine::paragraph_align::tidy(aligns.into_iter().take(count).collect(), t.align);
     }
     Ok(())
+}
+
+pub(crate) fn parse_align(al: &str) -> Result<TextAlign> {
+    Ok(match al {
+        "left" => TextAlign::Left,
+        "center" | "centre" => TextAlign::Center,
+        "right" => TextAlign::Right,
+        "justify" => TextAlign::Justify,
+        other => return Err(bad(format!("unknown align {other:?}"))),
+    })
+}
+
+/// Most entries `aligns` takes: one per paragraph, and no text has this many.
+const MAX_ALIGNS: usize = 4096;
+
+/// `aligns`: each paragraph's (line's) own alignment, or null where it follows `align`.
+pub(crate) fn opt_aligns(a: &Args) -> Result<Option<Vec<Option<TextAlign>>>> {
+    let Some(v) = a.get("aligns") else { return Ok(None) };
+    let items = v.as_array().ok_or_else(|| bad("aligns must be an array of left, center, right, justify or null"))?;
+    if items.len() > MAX_ALIGNS {
+        return Err(bad(format!("aligns takes at most {MAX_ALIGNS} entries")));
+    }
+    items
+        .iter()
+        .map(|v| match v {
+            Value::Null => Ok(None),
+            Value::String(s) => parse_align(s).map(Some),
+            _ => Err(bad("each entry of aligns is left, center, right, justify or null")),
+        })
+        .collect::<Result<Vec<_>>>()
+        .map(Some)
 }
 
 impl Automation {
@@ -153,6 +184,8 @@ impl Automation {
         match &mut content {
             AddedContent::Text(t) => {
                 if let Some(s) = a.opt_str("text")? {
+                    // Each paragraph keeps its own alignment through the retyping.
+                    t.aligns = pdfcraft_engine::paragraph_align::remap(&t.text, s, &t.aligns);
                     t.text = s.to_string();
                 }
                 style(a, t)?;
@@ -164,8 +197,8 @@ impl Automation {
                 if a.get("text").is_some() {
                     return Err(bad("images have no text"));
                 }
-                if ["font", "size", "bold", "italic", "color", "align"].iter().any(|k| a.get(k).is_some()) {
-                    return Err(bad("font, size, bold, italic, color and align apply to text"));
+                if ["font", "size", "bold", "italic", "color", "align", "aligns"].iter().any(|k| a.get(k).is_some()) {
+                    return Err(bad("font, size, bold, italic, color, align and aligns apply to text"));
                 }
                 if let Some(deg) = a.opt_int("rotate")? {
                     if deg.rem_euclid(90) != 0 {

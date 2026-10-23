@@ -356,7 +356,12 @@ impl LineEditor {
             family: (l.family != o.family || self.family_chosen || l.bold != o.bold || l.italic != o.italic).then_some((l.family, l.bold, l.italic)),
             size: (l.size != o.size).then_some(l.size),
             color: (l.color != o.color).then_some(l.color),
-            align: (l.align != o.align).then_some(l.align),
+            // The whole paragraph's alignment when it was picked, or when the rows' own were
+            // dropped for it (the rows are where those put them, so leaving it out keeps them there).
+            align: (l.align != o.align || l.aligns.is_empty() && !o.aligns.is_empty()).then_some(l.align),
+            // Rows aligned on their own, sent with every rewrite of the paragraph while it is open:
+            // nothing in the page records them, so a rewrite without them would undo them.
+            aligns: if l.aligns != o.aligns || self.text != self.original { l.aligns.clone() } else { Vec::new() },
             underline: (self.extras.underline != self.extras0.underline).then_some(self.extras.underline),
             line_spacing: (self.extras.line_spacing != self.extras0.line_spacing && self.extras.line_spacing > 0.0)
                 .then_some(self.extras.line_spacing),
@@ -403,8 +408,16 @@ impl LineEditor {
         self.source_rect = block.rect.map(|v| v as f32);
         self.multiline = block.rows.len() > 1;
         self.source = Some((block.clone(), lines));
-        self.text = block.editor_text.clone();
+        let before = std::mem::replace(&mut self.text, block.editor_text.clone());
+        self.follow_rows(&before);
         self.original = self.text.clone();
+    }
+
+    /// The text changed from `before`: rows aligned on their own keep their alignment.
+    pub(crate) fn follow_rows(&mut self, before: &str) {
+        for look in [&mut self.look, &mut self.look0] {
+            look.aligns = pdfcraft_engine::paragraph_align::remap(before, &self.text, &look.aligns);
+        }
     }
 }
 
@@ -1539,7 +1552,14 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
     let g = Arc::make_mut(&mut galley);
     let mut bounds = Rect::NOTHING;
     let mut meshes = Rect::NOTHING;
+    // Which line of the text (between `\n`s) each row is on: rows aligned on their own go where
+    // the rewrite will put them, in the paragraph's width.
+    let mut line = 0usize;
     for (index, placed) in g.rows.iter_mut().enumerate() {
+        let own = ed.look.aligns.get(line).copied().flatten();
+        if placed.ends_with_newline {
+            line = line.saturating_add(1);
+        }
         let (last_baseline, last_rect) = sources.last().copied().unwrap_or((first_baseline, first_rect));
         let (baseline, source_rect) = sources
             .get(index)
@@ -1552,7 +1572,14 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
         let base_y = (block.rect[3] - baseline) as f32 * scale;
         let row = Arc::make_mut(&mut placed.row);
         placed.pos.y = base_y - ascent;
-        placed.pos.x = if centered { (width - row.size.x) / 2.0 } else { (source_rect[0] - block.rect[0]) as f32 * scale };
+        let free = (width - row.size.x).max(0.0);
+        placed.pos.x = match own {
+            Some(pdfcraft_engine::TextAlign::Center) => free / 2.0,
+            Some(pdfcraft_engine::TextAlign::Right) => free,
+            Some(pdfcraft_engine::TextAlign::Left | pdfcraft_engine::TextAlign::Justify) => 0.0,
+            None if centered => (width - row.size.x) / 2.0,
+            None => (source_rect[0] - block.rect[0]) as f32 * scale,
+        };
         for glyph in &mut row.glyphs {
             let dy = ascent - glyph.pos.y;
             glyph.pos.y = ascent;
@@ -1578,7 +1605,9 @@ fn editor_galley(ui: &egui::Ui, ed: &LineEditor, text: &str, scale: f32, width: 
 /// The inline editor; returns the edit once the text is applied.
 pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -> Option<Edit> {
     // Clicks outside the document (the Format text panel) keep the paragraph open.
-    let outside = ctx.input(|i| i.pointer.latest_pos()).is_some_and(|p| !view.viewport_rect().contains(p));
+    // Where the click that took the focus was: the pointer itself may be gone by then (a touch, a
+    // pen lifted away).
+    let outside = ctx.input(|i| i.pointer.interact_pos()).is_some_and(|p| !view.viewport_rect().contains(p));
     let page = view.line_editor.as_ref()?.page;
     let xf = view.page_xform(page)?;
     let hold = view.objects.hold_editor;
@@ -1692,6 +1721,7 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                     let galley = editor_galley(ui, &snapshot, text.as_str(), scale, wrap_width);
                     if snapshot.changes_with(text.as_str()) { galley } else { unseen(galley) }
                 };
+                let before = ed.text.clone();
                 let input = input_id();
                 forget_typing_before(ui.ctx(), input, &mut ed.typing_from, &ed.original);
                 let output = egui::TextEdit::multiline(&mut ed.text)
@@ -1719,6 +1749,7 @@ pub(crate) fn overlay(ctx: &egui::Context, view: &mut DocView, info: &DocInfo) -
                 }
                 let r = output.response;
                 if r.changed() {
+                    ed.follow_rows(&before);
                     // The next pass measures the updated draft with the Apply/Save rewrite.
                     ctx.request_repaint();
                 }

@@ -696,13 +696,10 @@ impl Automation {
                     style.color = Some(comments::parse_color(c)?);
                 }
                 if let Some(al) = a.opt_str("align")? {
-                    style.align = Some(match al {
-                        "left" => pdfcraft_engine::TextAlign::Left,
-                        "center" => pdfcraft_engine::TextAlign::Center,
-                        "right" => pdfcraft_engine::TextAlign::Right,
-                        "justify" => pdfcraft_engine::TextAlign::Justify,
-                        other => return Err(ToolError::InvalidArgs(format!("unknown align {other:?}"))),
-                    });
+                    style.align = Some(content::parse_align(al)?);
+                }
+                if let Some(aligns) = content::opt_aligns(&a)? {
+                    style.aligns = aligns;
                 }
                 // Where the paragraph is drawn after the edit: moved by dx, dy (up is +dy).
                 let [dx, dy] = style.offset.unwrap_or([0.0, 0.0]);

@@ -6571,3 +6571,74 @@ fn a_flatten_refused_on_a_later_page_changes_nothing() {
     assert!(matches!(flatten(&mut doc, &[0, 1], true, false), Err(EditError::Invalid(_))));
     assert_eq!((*doc.get(first)).clone(), before, "the first page keeps its comment and content");
 }
+
+/// One row of an edited paragraph aligned on its own (#A: highlighting a line and aligning it):
+/// the other rows stay where they were.
+#[test]
+fn one_row_of_a_paragraph_takes_its_own_alignment() {
+    let mut doc = text_page("BT /F1 10 Tf 12 TL 100 700 Td (One two three four five six seven) Tj T* (eight nine ten eleven twelve) Tj ET");
+    let block = text::text_blocks(&doc, 0).unwrap()[0].clone();
+    assert_eq!(block.editor_text, "One two three four five six seven\neight nine ten eleven twelve");
+    let style = text::BlockStyle { aligns: vec![None, Some(added::Align::Right)], ..Default::default() };
+    text::rewrite_block(&mut doc, 0, 0, Some(&block.editor_text), &style).unwrap();
+    let lines = text::text_lines(&doc, 0).unwrap();
+    let row = |t: &str| lines.iter().find(|l| l.text.starts_with(t)).unwrap().rect;
+    assert!((row("One")[0] - block.rect[0]).abs() < 0.5, "the first row stays at the left: {:?}", row("One"));
+    assert!((row("eight")[2] - block.rect[2]).abs() < 1.0, "the second row ends at the right edge: {:?} vs {}", row("eight"), block.rect[2]);
+}
+
+/// The same in a region of several styles: only the short first row is centred.
+#[test]
+fn one_row_of_a_styled_region_takes_its_own_alignment() {
+    let mut doc = mixed_region_page();
+    let block = text::text_blocks(&doc, 0).unwrap()[1].clone();
+    assert_eq!(
+        block.editor_text,
+        "About
+Plain bold text.
+Italic footer"
+    );
+    let row = |lines: &[text::TextLine], t: &str| lines.iter().find(|l| l.text.starts_with(t)).unwrap().rect;
+    let before = text::text_lines(&doc, 0).unwrap();
+    let style = text::BlockStyle { aligns: vec![Some(added::Align::Center)], ..Default::default() };
+    text::rewrite_block(&mut doc, 0, 1, Some(&block.editor_text), &style).unwrap();
+    let lines = text::text_lines(&doc, 0).unwrap();
+    assert!((row(&lines, "Italic")[0] - row(&before, "Italic")[0]).abs() < 0.5, "the last row stays put");
+    assert!((row(&lines, "Plain")[0] - row(&before, "Plain")[0]).abs() < 0.5, "the middle row stays put");
+    let about = row(&lines, "About");
+    let (mid, centre) = ((about[0] + about[2]) / 2.0, (block.rect[0] + block.rect[2]) / 2.0);
+    assert!(about[0] > row(&before, "About")[0] + 5.0 && (mid - centre).abs() < 1.5, "the first row is centred: {mid} vs {centre}");
+}
+
+/// Added text: each paragraph is laid out with its own alignment, a justified paragraph's last
+/// line isn't stretched, and the alignments survive saving and reopening.
+#[test]
+fn added_text_paragraphs_keep_their_own_alignments() {
+    let mut doc = fixture();
+    let text = AddedText {
+        rect: [72.0, 600.0, 372.0, 700.0],
+        text: "Left line\nRight line\nCentred line".into(),
+        size: 12.0,
+        aligns: vec![None, Some(Align::Right), Some(Align::Center)],
+        ..AddedText::default()
+    };
+    assert_eq!(text.paragraph_align(1), Align::Right);
+    add_content(&mut doc, 0, &Content::Text(text.clone())).unwrap();
+    let doc = reopen(&doc);
+    let Content::Text(t) = &list_added(&doc)[0].content else { panic!() };
+    assert_eq!(t.aligns, text.aligns, "saved with the item");
+    let page = streams(&doc, 0).join("\n");
+    let x_of = |s: &str| -> f64 {
+        let at = page.find(&format!("({s}) Tj")).unwrap();
+        let tm = page[..at].rfind(" Tm").unwrap();
+        let nums: Vec<f64> = page[..tm].rsplit("1 0 0 1 ").next().unwrap().split_whitespace().filter_map(|v| v.parse().ok()).collect();
+        nums[0]
+    };
+    let w = |s: &str| Family::Helvetica.width(s, 12.0, false, false);
+    assert!((x_of("Left line") - 72.0).abs() < 0.01);
+    assert!((x_of("Right line") - (372.0 - w("Right line"))).abs() < 0.01);
+    assert!((x_of("Centred line") - (72.0 + (300.0 - w("Centred line")) / 2.0)).abs() < 0.01);
+    // A paragraph's own alignment the same as the box's is no entry at all.
+    let tidy = paragraph_align::tidy(vec![Some(Align::Left), Some(Align::Right)], Align::Left);
+    assert_eq!(tidy, [None, Some(Align::Right)]);
+}

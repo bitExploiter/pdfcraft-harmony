@@ -6035,3 +6035,56 @@ fn undo_while_typing_takes_back_the_typing_first() {
     assert_eq!(ed.text, original, "the typing is taken back");
     assert_eq!(s.session.get(s.views[0].id).unwrap().can_undo(), None, "the document is untouched");
 }
+
+/// A paragraph of a short, a wide and a short row, opened in the paragraph editor.
+fn three_row_paragraph() -> Harness<'static, PdfCraftApp> {
+    let bytes = paragraph_drag_fixture("BT /F1 10 Tf 12 TL 60 400 Td (One two) Tj T* (three four five six seven eight) Tj T* (nine ten) Tj ET", 0, 1);
+    let mut h = paragraph_drag_harness(bytes, 0);
+    let (at, _) = paragraph_drag_points(&h, "One two three four five six seven eight nine ten", [0.0, 0.0]);
+    click_at(&mut h, at);
+    assert!(h.state().views[0].line_editor.is_some(), "the paragraph opens for typing");
+    h
+}
+
+/// Format text's alignment flyout, by pointer.
+fn align_by_pointer(h: &mut Harness<'static, PdfCraftApp>, choice: &str) {
+    let button = h.get_by_label("Alignment").rect().center();
+    click_at(h, button);
+    let item = h.get_by_label(choice).rect().center();
+    click_at(h, item);
+}
+
+fn row_rect(h: &Harness<'static, PdfCraftApp>, starts: &str) -> [f64; 4] {
+    let s = h.state();
+    s.session.get(s.views[0].id).unwrap().text_lines(0).into_iter().find(|l| l.text.starts_with(starts)).expect("the row").rect
+}
+
+/// Bug A: with one row of a paragraph selected, an alignment applies to that row only.
+/// Bug C: Undo then puts the paragraph back and closes the editor, instead of leaving it open on
+/// a text the page no longer has.
+#[test]
+fn aligning_a_selected_row_aligns_only_that_row_and_undo_puts_it_back() {
+    let mut h = three_row_paragraph();
+    let first = row_rect(&h, "One");
+    let wide = row_rect(&h, "three");
+    let last = row_rect(&h, "nine");
+    // Select the last row.
+    h.key_press_modifiers(Modifiers::COMMAND, Key::End);
+    h.key_press_modifiers(Modifiers::SHIFT, Key::Home);
+    h.run_steps(2);
+    align_by_pointer(&mut h, "Align right");
+    {
+        let s = h.state();
+        assert_eq!(s.session.get(s.views[0].id).unwrap().can_undo(), Some("Edit text"));
+        assert!(s.views[0].line_editor.is_some(), "the paragraph stays open");
+    }
+    let moved = row_rect(&h, "nine");
+    assert!((row_rect(&h, "One")[0] - first[0]).abs() < 0.5, "the first row stays put");
+    assert!((moved[2] - wide[2]).abs() < 1.0 && moved[0] > last[0] + 20.0, "the last row is right-aligned: {moved:?}");
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(4);
+    let s = h.state();
+    assert_eq!(s.session.get(s.views[0].id).unwrap().can_undo(), None, "the alignment is undone");
+    assert!(s.views[0].line_editor.is_none(), "the editor closed with the step it showed");
+    assert!((row_rect(&h, "nine")[0] - last[0]).abs() < 0.5, "the last row is back");
+}

@@ -728,6 +728,9 @@ pub(super) fn rewrite_styled_block(
     let mut rows: Vec<Vec<(char, usize, String)>> = Vec::new();
     // Each row's characters, as indexes into the draft's characters (`chars` holds all of them).
     let mut row_ranges = Vec::new();
+    // Each row's line in the draft (its `\n`-separated part), which [`BlockStyle::aligns`] counts.
+    let mut row_lines: Vec<usize> = Vec::new();
+    let mut draft_line = 0usize;
     let mut row_start = 0;
     let mut row = Vec::new();
     let mut row_width = 0.0;
@@ -737,6 +740,8 @@ pub(super) fn rewrite_styled_block(
         let Some(item) = chars.get(at) else { break };
         if item.0 == '\n' {
             row_ranges.push(row_start..row_start + row.len());
+            row_lines.push(draft_line);
+            draft_line = draft_line.saturating_add(1);
             rows.push(std::mem::take(&mut row));
             row_width = 0.0;
             at += 1;
@@ -760,6 +765,7 @@ pub(super) fn rewrite_styled_block(
                 row.pop();
             }
             row_ranges.push(row_start..row_start + row.len());
+            row_lines.push(draft_line);
             rows.push(std::mem::take(&mut row));
             row_width = 0.0;
             row_start = at;
@@ -770,6 +776,7 @@ pub(super) fn rewrite_styled_block(
     }
     if !row.is_empty() {
         row_ranges.push(row_start..row_start + row.len());
+        row_lines.push(draft_line);
         rows.push(row);
     }
     let streams = content_streams(doc, &p.dict)?;
@@ -869,10 +876,12 @@ pub(super) fn rewrite_styled_block(
             continue;
         }
         let w = measured.get(row_index).copied().unwrap_or(0.0);
-        let align = style.align.unwrap_or(if centered { crate::added::Align::Center } else { crate::added::Align::Left });
+        // The row's own alignment, or the paragraph's.
+        let asked = row_lines.get(row_index).and_then(|l| style.aligns.get(*l)).copied().flatten().or(style.align);
+        let align = asked.unwrap_or(if centered { crate::added::Align::Center } else { crate::added::Align::Left });
         let original_rect = block.rows.get(row_index).and_then(|row| row_rect(row, lines)).unwrap_or(block.rect);
-        let left = if style.width.is_none() && style.align.is_none() { original_rect[0] } else { block.rect[0] };
-        let available = if style.width.is_none() && style.align.is_none() { original_rect[2] - original_rect[0] } else { width };
+        let left = if style.width.is_none() && asked.is_none() { original_rect[0] } else { block.rect[0] };
+        let available = if style.width.is_none() && asked.is_none() { original_rect[2] - original_rect[0] } else { width };
         let mut x = left
             + match align {
                 crate::added::Align::Center => (available - w) / 2.0,
