@@ -4,7 +4,8 @@
 //! For each page and scenario it prints the cold time (a fresh renderer, so image decoding is
 //! included), the minimum and median of `ROUNDS` warm renders (decoded images cached, so mostly
 //! drawing and resampling), and an FNV-1a hash of every answer's size and pixels. Equal hashes mean
-//! equal output.
+//! equal output. A render that fails stops the run with its error: a failed render is an empty
+//! page, so two failing builds would otherwise hash alike.
 //!
 //! Usage: `page_bench FILE PAGES [ROUNDS] [SCENARIOS]`, with `PAGES` 1-based and comma-separated
 //! (`1,4,11`) and `SCENARIOS` a comma-separated subset of the ones below (all by default).
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         pdf.pages().iter().map(|p| p.render_dimensions()).collect::<Vec<_>>()
     };
 
-    println!("page scenario scale requests cold_ms warm_min_ms warm_median_ms errors hash");
+    println!("page scenario scale requests cold_ms warm_min_ms warm_median_ms hash");
     for &page in &pages {
         let &(width, height) = sizes.get(page).ok_or("no such page")?;
         for scenario in SCENARIOS.into_iter().filter(|s| only.as_ref().is_none_or(|o| o.contains(s))) {
@@ -52,11 +53,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             let scale = requests.first().map_or(0.0, |r| r.scale);
             // Cold: a fresh renderer, so the page's images are decoded.
             let mut renderer = PageRenderer::new(bytes.clone(), RenderConfig::default());
-            let (cold, hash, errors) = run(&mut renderer, &requests);
+            let (cold, hash) = run(&mut renderer, &requests).map_err(|e| format!("page {} {scenario}: {e}", page + 1))?;
             // Warm: the same renderer again, with decoded images cached.
             let mut warm = Vec::with_capacity(rounds);
             for _ in 0..rounds {
-                let (time, warm_hash, _) = run(&mut renderer, &requests);
+                let (time, warm_hash) = run(&mut renderer, &requests).map_err(|e| format!("page {} {scenario}: {e}", page + 1))?;
                 if warm_hash != hash {
                     return Err(format!("page {} {scenario}: warm output differs from cold", page + 1).into());
                 }
@@ -66,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             let min = warm.first().copied().unwrap_or_default();
             let median = warm.get(warm.len() / 2).copied().unwrap_or_default();
             println!(
-                "{} {scenario} {scale:.3} {} {} {} {} {errors} {hash:016x}",
+                "{} {scenario} {scale:.3} {} {} {} {} {hash:016x}",
                 page + 1,
                 requests.len(),
                 cold.as_millis(),
@@ -98,19 +99,21 @@ fn scenario_requests(scenario: &str, page: usize, width: f32, height: f32) -> Ve
     }
 }
 
-/// Renders `requests` in order. Returns the wall time, the output hash and the error count.
-fn run(renderer: &mut PageRenderer, requests: &[RenderRequest]) -> (Duration, u64, usize) {
+/// Renders `requests` in order. Returns the wall time and the output hash, or the first render
+/// error.
+fn run(renderer: &mut PageRenderer, requests: &[RenderRequest]) -> Result<(Duration, u64), String> {
     let start = Instant::now();
     let mut hash = FNV_OFFSET;
-    let mut errors = 0;
     for req in requests {
         let out = renderer.render(*req);
-        errors += usize::from(out.error.is_some());
+        if let Some(error) = out.error {
+            return Err(format!("render failed: {error}"));
+        }
         hash = fnv1a(hash, &out.width.to_le_bytes());
         hash = fnv1a(hash, &out.height.to_le_bytes());
         hash = fnv1a(hash, &out.rgba[..]);
     }
-    (start.elapsed(), hash, errors)
+    Ok((start.elapsed(), hash))
 }
 
 fn fnv1a(mut hash: u64, bytes: &[u8]) -> u64 {
