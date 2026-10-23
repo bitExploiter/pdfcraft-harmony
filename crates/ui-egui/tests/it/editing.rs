@@ -5980,3 +5980,58 @@ fn mode_tabs_keep_the_hand_over_a_paragraph_scrolled_under_them() {
     click_at(&mut h, convert);
     assert_eq!(h.state().mode, pdfcraft_ui_egui::Mode::Convert, "the tab takes the click, not the paragraph's editor");
 }
+
+/// The paragraph opened for typing, as a person opens it: a click on its text.
+fn open_paragraph(h: &mut Harness<'static, PdfCraftApp>) {
+    let r = h.state().views[0].page_screen_rect(0).expect("on screen");
+    let at = egui::pos2(r.left() + 40.0 / 200.0 * r.width(), r.top() + (300.0 - 158.0) / 300.0 * r.height());
+    click_at(h, at);
+    assert!(h.state().views[0].line_editor.is_some(), "the paragraph opens for typing");
+}
+
+/// Ctrl+Z after a formatting change, with the paragraph still open: the change is undone and
+/// the editor closes. The box's own Undo used to take the key, putting back the text it had
+/// before the change into a box laid out for the page after it, and the document kept the change.
+#[test]
+fn undo_with_the_paragraph_open_undoes_the_formatting() {
+    let mut h = harness(1, |_| {});
+    assert!(h.state_mut().execute("edit.edit_text"));
+    h.run_steps(2);
+    open_paragraph(&mut h);
+    h.get_by_label("Bold").click();
+    h.run_steps(4);
+    {
+        let s = h.state();
+        let doc = s.session.get(s.views[0].id).unwrap();
+        assert_eq!(doc.can_undo(), Some("Edit text"));
+        assert_eq!(doc.text_blocks(0)[0].base_font, "Helvetica-Bold");
+        assert!(s.views[0].line_editor.is_some(), "still editing");
+    }
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(4);
+    let s = h.state();
+    let doc = s.session.get(s.views[0].id).unwrap();
+    assert_eq!(doc.can_undo(), None, "the formatting is undone");
+    assert_eq!(doc.text_blocks(0)[0].base_font, "Helvetica");
+    assert!(s.views[0].line_editor.is_none(), "the editor closed with the step it showed");
+}
+
+/// Undo while typing takes back the typing in the box first; the document is left alone.
+#[test]
+fn undo_while_typing_takes_back_the_typing_first() {
+    let mut h = harness(1, |_| {});
+    assert!(h.state_mut().execute("edit.edit_text"));
+    h.run_steps(2);
+    open_paragraph(&mut h);
+    let original = h.state().views[0].line_editor.as_ref().unwrap().text.clone();
+    h.key_press_modifiers(Modifiers::COMMAND, Key::End);
+    h.event(egui::Event::Text(" more".into()));
+    h.run_steps(2);
+    assert_ne!(h.state().views[0].line_editor.as_ref().unwrap().text, original);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::Z);
+    h.run_steps(3);
+    let s = h.state();
+    let ed = s.views[0].line_editor.as_ref().expect("still typing");
+    assert_eq!(ed.text, original, "the typing is taken back");
+    assert_eq!(s.session.get(s.views[0].id).unwrap().can_undo(), None, "the document is untouched");
+}
