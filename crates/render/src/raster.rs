@@ -7274,7 +7274,7 @@ trailer << /Root 1 0 R >>
     /// and square caps, a sharp miter, a rotated and a stretched matrix, a hairline, dashes, a
     /// curve, text, and a page shown rotated.
     ///
-    /// Images are skipped the same way (vendored patch (10)): an image on a tile, one crossing
+    /// Images are skipped the same way (vendored patch (11)): an image on a tile, one crossing
     /// tile lines, and one fully off the page.
     #[test]
     fn skipping_paths_off_the_canvas_changes_no_pixel() {
@@ -7333,7 +7333,7 @@ trailer << /Root 1 0 R >>
         }
     }
 
-    /// Previews skip images that would cover only a few device pixels (vendored patch (11)):
+    /// Previews skip images that would cover only a few device pixels (vendored patch (12)):
     /// a tiny draw is missing from the preview but present in the final, while a large draw
     /// is in both. Finals never set the flag, so they draw everything.
     #[test]
