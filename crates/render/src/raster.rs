@@ -2369,8 +2369,9 @@ mod tests {
         assert_eq!(hayro::image_resampling_size(65_532 + 4, 1 + 4, 4, 65_536 * 5 * 4, 1.0, 1.0, 1 << 28, true), None);
     }
 
-    /// Nearest-neighbour copies source pixels and needs no filter tables, so a source wider than the
-    /// Catmull-Rom side cap still shrinks. The pixel budget applies to it all the same.
+    /// Area averaging (nearest-neighbour before it) needs no filter tables, so a source wider than
+    /// the Catmull-Rom side cap still shrinks. The pixel budget applies to it all the same; its
+    /// sums are bounded when averaging (`area_average_refuses_strips_over_its_scratch_budget`).
     #[test]
     fn image_resampling_nearest_accepts_wide_sources_the_filter_refuses() {
         let wide: u32 = (1 << 20) + 1;
@@ -2431,8 +2432,9 @@ mod tests {
         assert_eq!(&page.rgba[(20 + 3) * 4..][..4], &[255, 128, 128, 255]);
     }
 
-    /// A source wider than the filter's 2^20-pixel side cap is shrunk by nearest-neighbour rather
-    /// than refused and skipped (the default, `/Interpolate` omitted, is nearest).
+    /// A source wider than the filter's 2^20-pixel side cap is area-averaged rather than refused
+    /// and skipped (`/Interpolate` omitted, the default, means no filter). Its 1.1 M column sums
+    /// take 8.8 MB, well within the averaging budget.
     #[test]
     fn wide_non_interpolated_sources_draw_after_shrinking() {
         let data = "7f".repeat(1_100_000);

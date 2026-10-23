@@ -116,8 +116,10 @@ fn resampling_scratch_byte_len(
 
 /// PdfCraft patch: validate output, crossed intermediate and filter-work bounds before planning.
 /// Source width × target height also bounds PicScale's smaller single-threaded four-row scratch.
-/// Area averaging (`!interpolate`) has none of those: it streams source rows into the target and
-/// keeps only target-sized sums, so only the source and target buffers are bounded.
+/// Area averaging (`!interpolate`) has none of those: it streams source rows into the target, so
+/// only the source and target buffers are bounded here. Its sums (one source row of columns and
+/// a target row or two) are bounded by [`area_average`] itself, which knows the channel count
+/// it averages (four for an image with a soft mask), against [`MAX_AREA_SCRATCH_BYTES`].
 fn resampling_byte_len(
     source: (u32, u32),
     target: (u32, u32),
@@ -201,9 +203,33 @@ fn zeroed_buffer<T: Copy + Default>(len: usize) -> Option<Vec<T>> {
     Some(out)
 }
 
-/// PdfCraft patch: most samples (width × channels) of one row [`area_average`] sums, as `u64`
-/// column sums: 256 MB. Only absurdly wide strips reach it, and they fall back to the source.
-const MAX_AREA_COLUMNS: usize = 1 << 25;
+/// PdfCraft patch: most bytes of `u64` sums [`area_average`] keeps besides its output: 128 MiB,
+/// the budget of Catmull-Rom filter planning ([`MAX_RESAMPLING_PLAN_BYTES`]). Those sums take
+/// 8 bytes per sample of one source row, so a one-row strip needs 8× its decoded size, and a
+/// tiny Flate stream can decode to such a strip. Real images stay far below it: the budget is a
+/// row of about 16 M samples (a 16 M-pixel gray or 4 M-pixel RGBA strip). A source over it
+/// keeps its size, like any resize over its limit; one that wide cannot fit the backend's u16
+/// sides, so the image is skipped with a warning.
+const MAX_AREA_SCRATCH_BYTES: usize = 128 << 20;
+
+/// PdfCraft patch: the bytes of `u64` sums [`area_average`] keeps for an `N`-channel source
+/// `source_width` wide shrunk to `target_width`: the column sums of one source row, and one row
+/// of target sums, or two when the height is enlarged. `None` past [`MAX_AREA_SCRATCH_BYTES`].
+fn area_scratch_byte_len(
+    source_width: u32,
+    target_width: u32,
+    channels: usize,
+    enlarging: bool,
+) -> Option<usize> {
+    let columns = usize::try_from(source_width).ok()?.checked_mul(channels)?;
+    let target_rows = 1 + usize::from(enlarging);
+    let sums = usize::try_from(target_width)
+        .ok()?
+        .checked_mul(channels)?
+        .checked_mul(target_rows)?;
+    let len = columns.checked_add(sums)?.checked_mul(size_of::<u64>())?;
+    (len <= MAX_AREA_SCRATCH_BYTES).then_some(len)
+}
 
 /// PdfCraft patch: resizes an `N`-channel image to `target` by exact area averaging (a box
 /// filter): each target pixel is the mean of the source area it covers, weighted by coverage.
@@ -221,7 +247,8 @@ const MAX_AREA_COLUMNS: usize = 1 << 25;
 /// target rows, so it is added and walked across once, and that row is reused for each of them:
 /// adding it again per target row cost source width × target height, about nine billion samples
 /// for a 1,100,000 × 1 strip drawn 16 × 8192. Either way the integer sums are the same. Memory is
-/// one row of column sums and one or two target rows of sums besides the output. Coordinates are
+/// one row of column sums and one or two target rows of sums besides the output, within
+/// [`MAX_AREA_SCRATCH_BYTES`] (checked before anything is allocated or read). Coordinates are
 /// integers in units where a source pixel is `target` long and a target pixel `source` long, so
 /// every overlap is exact.
 fn area_average<const N: usize>(
@@ -237,10 +264,9 @@ fn area_average<const N: usize>(
         return None;
     }
     let out_len = image_byte_len(tw, th, N, MAX_IMAGE_PIXELS)?;
+    let enlarging = th > sh;
+    area_scratch_byte_len(sw, tw, N, enlarging)?;
     let columns_len = (sw as usize).checked_mul(N)?;
-    if columns_len > MAX_AREA_COLUMNS {
-        return None;
-    }
     let sums_len = (tw as usize).checked_mul(N)?;
     let mut out = image_buffer(out_len)?;
     let mut columns = zeroed_buffer::<u64>(columns_len)?;
@@ -248,7 +274,7 @@ fn area_average<const N: usize>(
     let (sh, th) = (u64::from(sh), u64::from(th));
     // Enlarging the height: the current source row walked across (each target column's sum,
     // at most 255 × `sw`), filled when that row is first reached.
-    let mut row = if th > sh {
+    let mut row = if enlarging {
         Some(zeroed_buffer::<u64>(sums_len)?)
     } else {
         None
@@ -2346,8 +2372,39 @@ pub fn tiling_cell_scale(scale: f32, step: f32, max_pixels: f32) -> f32 {
 // PdfCraft patch: unit tests for area averaging and the snapping of minified images.
 #[cfg(test)]
 mod area_average_tests {
-    use super::{area_average, snap_minified_image};
+    use super::{MAX_AREA_SCRATCH_BYTES, area_average, area_scratch_byte_len, snap_minified_image};
     use kurbo::Affine;
+
+    /// Every `u64` sum `area_average` keeps besides its output counts against one budget: the
+    /// column sums of a source row and the target row (two when enlarging the height). A cap on
+    /// the column sums alone let them reach 256 MiB, twice the Catmull-Rom planning budget, for a
+    /// one-row strip a tiny Flate stream decodes to. A strip over the budget is refused before
+    /// anything is allocated or a row is read.
+    #[test]
+    fn area_average_refuses_strips_over_its_scratch_budget() {
+        let samples = (MAX_AREA_SCRATCH_BYTES / 8) as u32;
+        let budget = Some(MAX_AREA_SCRATCH_BYTES);
+        assert_eq!(area_scratch_byte_len(samples - 1, 1, 1, false), budget);
+        assert_eq!(area_scratch_byte_len(samples - 2, 1, 1, true), budget);
+        assert_eq!(area_scratch_byte_len(samples, 1, 1, false), None);
+        assert_eq!(area_scratch_byte_len(samples - 1, 1, 1, true), None);
+        assert_eq!(area_scratch_byte_len(samples / 4 - 1, 1, 4, false), budget);
+        assert_eq!(area_scratch_byte_len(samples / 4, 1, 4, false), None);
+        assert_eq!(area_scratch_byte_len(u32::MAX, u32::MAX, 4, true), None);
+
+        let mut reads = 0;
+        let mut read = |_: usize, _: u64, _: &mut [u64]| {
+            reads += 1;
+            Some(())
+        };
+        assert_eq!(area_average::<1>((samples, 1), (16, 1), &mut read), None);
+        assert_eq!(
+            area_average::<4>((samples / 4, 1), (16, 1), &mut read),
+            None
+        );
+        assert_eq!(area_average::<1>((samples - 1, 1), (1, 2), &mut read), None);
+        assert_eq!(reads, 0, "a row was read past the budget");
+    }
 
     /// An image shrunk across but enlarged down (a long strip drawn as a tall, narrow box) must
     /// read each source row a bounded number of times. Repeating a source row once per target
