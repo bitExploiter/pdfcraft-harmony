@@ -25,6 +25,7 @@ mod copy_image;
 pub mod dates;
 pub mod export;
 pub mod field_table;
+pub mod find_replace;
 pub mod js;
 pub mod links;
 pub mod ocr;
@@ -2028,8 +2029,15 @@ pub const EDIT_LABELS: &[&str] = &[
 /// The names of the batches built below L7, which an interface shows in the same places as
 /// [`EDIT_LABELS`] and so translates the same way. A batch built in the interface itself arrives
 /// already worded in the interface's language.
-pub const BATCH_LABELS: &[&str] =
-    &["Set document title", "Mark differences", "Detect form fields", "Run JavaScript", "Recognize text", field_table::LABEL];
+pub const BATCH_LABELS: &[&str] = &[
+    "Set document title",
+    "Mark differences",
+    "Detect form fields",
+    "Run JavaScript",
+    "Recognize text",
+    field_table::LABEL,
+    find_replace::REPLACE_ALL,
+];
 
 impl Edit {
     /// Label for the Edit menu and history ("Undo Rotate pages").
