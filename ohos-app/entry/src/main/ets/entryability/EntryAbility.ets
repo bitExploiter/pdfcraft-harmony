@@ -28,6 +28,12 @@ export default class EntryAbility extends UIAbility {
         return;
       }
       hilog.info(DOMAIN, 'testTag', 'Succeeded in loading the content.');
+      // The desktop app opens maximized (its window state is restored as maximized); match it on 2in1.
+      try {
+        windowStage.getMainWindowSync().maximize();
+      } catch (e) {
+        hilog.warn(DOMAIN, 'testTag', 'maximize unavailable: %{public}s', JSON.stringify(e));
+      }
     });
   }
 
