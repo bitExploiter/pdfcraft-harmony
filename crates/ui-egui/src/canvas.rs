@@ -17,7 +17,10 @@ use crate::{PdfCraftApp, QuickTool, RightPanel, comments, icons, widgets};
 
 /// Logical pixels per PDF point at 100% (96 dpi, like browsers).
 pub const PT: f32 = 96.0 / 72.0;
-const GAP: f32 = 14.0;
+/// Vertical separation between adjacent page rows, in logical screen points.
+const PAGE_ROW_GAP: f32 = 8.0;
+/// Horizontal separation between facing pages, in logical screen points.
+const FACING_PAGE_GAP: f32 = 2.0;
 const MARGIN: f32 = 28.0;
 /// Horizontal gutter that keeps pages clear of the floating quick-action bar.
 const SIDE: f32 = 70.0;
@@ -1659,9 +1662,14 @@ impl DocView {
         self.show_page_gaps = show;
     }
 
-    /// Separation between adjacent page rectangles, in logical screen points.
+    /// Vertical separation between adjacent page rows, in logical screen points.
     fn page_gap(&self) -> f32 {
-        if self.show_page_gaps { GAP } else { 0.0 }
+        if self.show_page_gaps { PAGE_ROW_GAP } else { 0.0 }
+    }
+
+    /// Horizontal separation between facing pages, in logical screen points.
+    fn facing_page_gap(&self) -> f32 {
+        if self.show_page_gaps { FACING_PAGE_GAP } else { 0.0 }
     }
 
     /// Turn continuous scrolling on or off, keeping the current page in view. A no-op when it is
@@ -2276,9 +2284,9 @@ impl DocView {
         let avail_w = (self.viewport_w - 2.0 * SIDE).max(100.0);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
         match self.fit {
-            Fit::Width => self.zoom = (avail_w - self.page_gap() * (per_row - 1.0)) / (w * PT * per_row),
+            Fit::Width => self.zoom = (avail_w - self.facing_page_gap() * (per_row - 1.0)) / (w * PT * per_row),
             Fit::Page => {
-                let zw = (avail_w - self.page_gap() * (per_row - 1.0)) / (w * PT * per_row);
+                let zw = (avail_w - self.facing_page_gap() * (per_row - 1.0)) / (w * PT * per_row);
                 let zh = (self.viewport_h - 2.0 * MARGIN) / (h * PT);
                 self.zoom = zw.min(zh);
             }
@@ -2295,14 +2303,15 @@ impl DocView {
         let shown = info.pages.iter().enumerate().filter(|&(i, _)| single.is_none_or(|c| c == i));
         let max_w = shown.map(|(_, p)| self.display_size(p).0).fold(0.0, f32::max);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
-        let row_gap = self.page_gap() * (per_row - 1.0);
+        let row_gap = self.facing_page_gap() * (per_row - 1.0);
         (max_w * self.zoom * PT * per_row + row_gap + 2.0 * SIDE).max(avail_w)
     }
 
     /// Page rects in content coordinates (origin at the scroll content's top-left).
     fn layout(&self, info: &DocInfo, content_w: f32, ppp: f32) -> Vec<Rect> {
         let s = self.zoom * PT;
-        let gap = self.page_gap();
+        let row_gap = self.page_gap();
+        let facing_gap = self.facing_page_gap();
         let page_size = |p: &pdfcraft_render::PageInfo| {
             let (w, h) = self.display_size(p);
             if self.show_page_gaps {
@@ -2320,7 +2329,7 @@ impl DocView {
                 for p in &info.pages {
                     let size = page_size(p);
                     rects.push(Rect::from_min_size(pos2(((content_w - size.x) / 2.0).max(SIDE), y), size));
-                    y += size.y + gap;
+                    y += size.y + row_gap;
                 }
             }
             PageLayout::TwoUp => {
@@ -2337,16 +2346,16 @@ impl DocView {
                     if let Some(left) = sizes.first().copied() {
                         let left_y = y + (row_h - left.y) / 2.0;
                         if self.cover && ri == 0 {
-                            rects.push(Rect::from_min_size(pos2((spine + gap / 2.0).max(SIDE), left_y), left));
+                            rects.push(Rect::from_min_size(pos2((spine + facing_gap / 2.0).max(SIDE), left_y), left));
                         } else {
-                            rects.push(Rect::from_min_size(pos2((spine - gap / 2.0 - left.x).max(SIDE), left_y), left));
+                            rects.push(Rect::from_min_size(pos2((spine - facing_gap / 2.0 - left.x).max(SIDE), left_y), left));
                             if let Some(right) = sizes.get(1).copied() {
                                 let right_y = y + (row_h - right.y) / 2.0;
-                                rects.push(Rect::from_min_size(pos2((spine + gap / 2.0).max(SIDE), right_y), right));
+                                rects.push(Rect::from_min_size(pos2((spine + facing_gap / 2.0).max(SIDE), right_y), right));
                             }
                         }
                     }
-                    y += row_h + gap;
+                    y += row_h + row_gap;
                 }
             }
         }
@@ -7217,8 +7226,8 @@ trailer << /Root 1 0 R >>
         view.layout = PageLayout::TwoUp;
         view.zoom = 1.0 / PT;
         let pages = view.layout(&info, 1000.0, 1.0);
-        assert!((pages[0].right() - (500.0 - GAP / 2.0)).abs() < 1e-3);
-        assert!((pages[1].left() - (500.0 + GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[0].right() - (500.0 - FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[1].left() - (500.0 + FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
         assert!((pages[0].center().y - pages[1].center().y).abs() < 1e-3);
     }
 
@@ -7232,12 +7241,28 @@ trailer << /Root 1 0 R >>
         view.zoom = 1.0 / PT;
 
         let content_w = view.content_width(&info, 200.0);
-        assert!((content_w - (2.0 * SIDE + 1_000.0 + GAP)).abs() < 1e-3);
+        assert!((content_w - (2.0 * SIDE + 1_000.0 + FACING_PAGE_GAP)).abs() < 1e-3);
 
         let pages = view.layout(&info, content_w, 1.0);
         assert!((pages[0].left() - SIDE).abs() < 1e-3);
         assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
-        assert!((pages[1].left() - pages[0].right() - GAP).abs() < 1e-3);
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
+    }
+
+    #[test]
+    fn page_row_and_facing_page_gaps_are_independent() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 400.0), page(300.0, 400.0), page(300.0, 400.0), page(300.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let pages = view.layout(&info, 800.0, 1.0);
+
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
+        assert!((pages[2].top() - pages[0].bottom() - PAGE_ROW_GAP).abs() < 1e-3);
+        assert!((pages[3].top() - pages[1].bottom() - PAGE_ROW_GAP).abs() < 1e-3);
     }
 
     #[test]
@@ -7271,7 +7296,7 @@ trailer << /Root 1 0 R >>
         let content_w = view.content_width(&info, 200.0);
         let pages = view.layout(&info, content_w, 1.0);
 
-        assert!((pages[1].left() - pages[0].right() - GAP).abs() < 1e-3);
+        assert!((pages[1].left() - pages[0].right() - FACING_PAGE_GAP).abs() < 1e-3);
         assert!(pages[0].left() >= SIDE);
         assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
     }
@@ -7290,8 +7315,8 @@ trailer << /Root 1 0 R >>
         let pages = view.layout(&info, content_w, 1.0);
         let spine = content_w / 2.0;
 
-        assert!((pages[0].left() - (spine + GAP / 2.0)).abs() < 1e-3);
-        assert!((pages[2].left() - pages[1].right() - GAP).abs() < 1e-3);
+        assert!((pages[0].left() - (spine + FACING_PAGE_GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[2].left() - pages[1].right() - FACING_PAGE_GAP).abs() < 1e-3);
     }
 
     #[test]
