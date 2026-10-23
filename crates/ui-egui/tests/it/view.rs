@@ -5,7 +5,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use pdfcraft_ui_egui::PdfCraftApp;
 
-/// Three 300Γö£├╣400 pt pages. Page 1 links to page 3.
+/// Three 300×400 pt pages. Page 1 links to page 3.
 const PAGES: &[u8] = b"%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
 2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R 5 0 R] /Count 3 /MediaBox [0 0 300 400] >> endobj
@@ -43,7 +43,7 @@ fn rect(h: &Harness<'static, PdfCraftApp>, page: usize) -> Option<egui::Rect> {
     h.state().views[0].page_screen_rect(page)
 }
 
-/// Two pages of different sizes: 300Γö£├╣400 then 600Γö£├╣300.
+/// Two pages of different sizes: 300×400 then 600×300.
 const MIXED: &[u8] = b"%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj
 2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >> endobj
@@ -491,7 +491,7 @@ fn stepping_past_either_end_leaves_the_view_alone() {
 #[test]
 fn wheel_turns_one_page_per_notch_and_per_trackpad_swipe() {
     // At a real frame rate: brisk notches each turn a page, and one trackpad swipe turns one
-    // page, its momentum included (macOS sends the momentum as a second Start╬ô├ç┬¬End).
+    // page, its momentum included (macOS sends the momentum as a second Start…End).
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "single"), ("zoom", "50")]);
     let at = h.state().views[0].viewport_rect().center();
     h.hover_at(at);
@@ -665,7 +665,7 @@ fn touchpad_swipe_glides_on_after_the_fingers_lift_and_stops() {
     let drift = scroll_over(&mut h, 20);
     assert!(drift.abs() < 0.5, "the glide slows to a stop: still drifting {drift}");
     let total = swiped - 175.0 + glided + rest;
-    assert!(total > 400.0 && total < 600.0, "about the lift speed Γö£├╣ 0.35 s: glided {total}");
+    assert!(total > 400.0 && total < 600.0, "about the lift speed × 0.35 s: glided {total}");
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -699,8 +699,8 @@ fn touching_the_touchpad_again_or_turning_animations_off_stops_the_glide() {
 }
 
 /// The 40 frames from one wheel notch on, with the system asking for no animations (Windows'
-/// Animation effects turned off) or not, and Preferences ╬ô├╗Γòò Animation effects as given: how far
-/// page 1 has moved up in each frame, or with ╬ô├«├┐/Ctrl held, the view's zoom.
+/// Animation effects turned off) or not, and Preferences ▸ Animation effects as given: how far
+/// page 1 has moved up in each frame, or with ⌘/Ctrl held, the view's zoom.
 fn frames_after_a_notch(system_reduced: bool, animation_effects: &str, zooming: bool) -> Vec<f32> {
     let mut h = harness_stepping(1.0 / 60.0, &[("layout", "continuous"), ("zoom", "100")]);
     h.state_mut().motion.reduced = system_reduced;
@@ -826,7 +826,7 @@ fn default_page_display_is_used_for_new_documents() {
     h.state_mut().set_option("default-layout", "single").unwrap();
     h.state_mut().open_bytes("other.pdf", None, PAGES.to_vec()).expect("opens");
     assert_eq!(h.state().views[1].layout, PageLayout::Single);
-    // So do documents the app creates itself (blank, combined, extracted, from images╬ô├ç┬¬).
+    // So do documents the app creates itself (blank, combined, extracted, from images…).
     assert!(h.state_mut().execute("create.blank"));
     assert_eq!(h.state().views[2].layout, PageLayout::Single);
     // Persisted preferences survive a restart.
@@ -1128,7 +1128,7 @@ fn clicking_a_link_goes_to_its_destination() {
     let mut h = harness(&[]);
     h.run_steps(4);
     let r = rect(&h, 0).expect("page 1");
-    // The link spans x 50..250, y 300..350 in PDF space (y up) on a 300Γö£├╣400 page.
+    // The link spans x 50..250, y 300..350 in PDF space (y up) on a 300×400 page.
     let at = egui::pos2(r.min.x + r.width() * (150.0 / 300.0), r.min.y + r.height() * (1.0 - 325.0 / 400.0));
     h.hover_at(at);
     h.run_steps(2);
@@ -1140,7 +1140,7 @@ fn clicking_a_link_goes_to_its_destination() {
     assert!((target.min.y - vp.min.y).abs() < 40.0, "page 3 is scrolled to the top: {target:?} in {vp:?}");
 }
 
-/// Bookmarks and a link with positioned destinations (ISO 32000-2 Γö¼┬║12.3.2.2). Page 2's crop box
+/// Bookmarks and a link with positioned destinations (ISO 32000-2 §12.3.2.2). Page 2's crop box
 /// is away from the origin (x 50..350, y 100..500), so its user-space y 420 is 20% down the page.
 const DESTS: &[u8] = b"%PDF-1.7
 1 0 obj << /Type /Catalog /Pages 2 0 R /Outlines 10 0 R >> endobj
@@ -1226,7 +1226,7 @@ fn link_destinations_scroll_to_their_position() {
     h.state_mut().set_option("zoom", "100%").unwrap();
     h.run_steps(4);
     let r = rect(&h, 0).expect("page 1");
-    // The link spans x 50..250, y 300..350 in PDF space on the 300Γö£├╣400 page 1.
+    // The link spans x 50..250, y 300..350 in PDF space on the 300×400 page 1.
     let at = egui::pos2(r.min.x + r.width() * (150.0 / 300.0), r.min.y + r.height() * (1.0 - 325.0 / 400.0));
     h.hover_at(at);
     h.run_steps(2);
@@ -1294,7 +1294,7 @@ fn highlight_fields_tints_the_field_area() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let r = rect(&h, 0).expect("page 1");
-    // The field spans x 50..250, y 300..330 (PDF space, y up) on a 300Γö£├╣400 page; sample inside it.
+    // The field spans x 50..250, y 300..330 (PDF space, y up) on a 300×400 page; sample inside it.
     let at = egui::pos2(r.min.x + r.width() * (60.0 / 300.0), r.min.y + r.height() * (1.0 - 305.0 / 400.0));
     let pixel = |h: &mut Harness<'static, PdfCraftApp>| {
         let img = h.render().expect("renders");
@@ -1439,7 +1439,7 @@ fn required_radio_buttons_get_a_round_red_border() {
     let r = rect(&h, 0).expect("page 1");
     let ppp = h.ctx.pixels_per_point();
     let img = h.render().expect("renders");
-    // The first button spans x 50..90, y 300..340 on the 300Γö£├╣400 pt page (y up).
+    // The first button spans x 50..90, y 300..340 on the 300×400 pt page (y up).
     let at = |x: f32, y: f32| {
         let p = egui::pos2(r.min.x + r.width() * (x / 300.0), r.min.y + r.height() * (1.0 - y / 400.0));
         *img.get_pixel((p.x * ppp) as u32, (p.y * ppp) as u32)
@@ -1527,7 +1527,7 @@ fn the_hand_tool_pans_by_dragging() {
     h.drop_at(start - egui::vec2(0.0, 300.0));
     h.run_steps(4);
     let after = rect(&h, 0).expect("still on screen");
-    assert!(before.top() - after.top() > 200.0, "dragging up scrolls down: {before:?} ╬ô├Ñ├å {after:?}");
+    assert!(before.top() - after.top() > 200.0, "dragging up scrolls down: {before:?} → {after:?}");
     assert!(h.state().views[0].selected_text().is_none(), "no text selection with the hand");
 }
 
@@ -1588,7 +1588,7 @@ fn required_fields_get_a_red_border_when_highlighting() {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let r = rect(&h, 0).expect("page 1");
-    // Just inside the left edge of the field (x 50, y 300..330 on a 300Γö£├╣400 page).
+    // Just inside the left edge of the field (x 50, y 300..330 on a 300×400 page).
     let ppp = h.ctx.pixels_per_point();
     let at = egui::pos2(r.min.x + r.width() * (50.0 / 300.0) + 0.75, r.min.y + r.height() * (1.0 - 315.0 / 400.0));
     let img = h.render().expect("renders");
@@ -1603,7 +1603,7 @@ fn required_fields_get_a_red_border_when_highlighting() {
 #[test]
 fn page_raster_maps_one_to_one_onto_screen_pixels() {
     let _gpu = gpu();
-    // Fine vertical and horizontal lines (0.5 pt every 1.7 pt) fill most of a 300Γö£├╣400 pt page.
+    // Fine vertical and horizontal lines (0.5 pt every 1.7 pt) fill most of a 300×400 pt page.
     let mut content = String::from("0 g\n");
     for i in 0..140 {
         let v = 30.0 + 1.7 * i as f32;

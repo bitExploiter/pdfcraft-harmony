@@ -2295,7 +2295,8 @@ impl DocView {
         let shown = info.pages.iter().enumerate().filter(|&(i, _)| single.is_none_or(|c| c == i));
         let max_w = shown.map(|(_, p)| self.display_size(p).0).fold(0.0, f32::max);
         let per_row = if self.layout == PageLayout::TwoUp { 2.0 } else { 1.0 };
-        (max_w * self.zoom * PT * per_row + 2.0 * SIDE).max(avail_w)
+        let row_gap = self.page_gap() * (per_row - 1.0);
+        (max_w * self.zoom * PT * per_row + row_gap + 2.0 * SIDE).max(avail_w)
     }
 
     /// Page rects in content coordinates (origin at the scroll content's top-left).
@@ -2731,23 +2732,29 @@ pub fn document_area(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
     document_area_with_rulers(app, index, ui, app.show_rulers);
 }
 
-/// Show the document viewport with or without reserved ruler bands.
+/// Show the document viewport with optional ruler overlays.
 pub fn document_area_with_rulers(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui, show_rulers: bool) {
-    if !show_rulers {
-        document_canvas(app, index, ui);
-        return;
-    }
-
-    let outer = ui.available_rect_before_wrap();
-    let layout = RulerLayout::new(outer, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH);
-    // Preserve the document canvas's original UI and scroll-area contract. The rulers are overlay
-    // chrome, so wrapping the canvas in a second scoped UI must not change its viewport, cursor or
-    // scroll-end calculations.
+    // Preserve the document canvas's original UI and scroll-area contract. Rulers are painted only
+    // after the canvas records the exact viewport used by this frame.
     document_canvas(app, index, ui);
 
     let units = app.units;
-    let geometry = app.views.get(index).map(DocView::canvas_geometry).cloned().unwrap_or_default();
-    paint_document_rulers(ui, layout, &geometry, units);
+    let Some(view) = app.views.get(index) else { return };
+    let geometry = view.canvas_geometry();
+
+    let Some(layout) = ruler_layout_for_state(show_rulers, view.presentation.is_some(), view.organize, geometry) else {
+        return;
+    };
+
+    paint_document_rulers(ui, layout, geometry, units);
+}
+
+fn ruler_layout_for_state(show_rulers: bool, presentation: bool, organize: bool, geometry: &CanvasGeometry) -> Option<RulerLayout> {
+    if !show_rulers || presentation || organize || geometry.pages.is_empty() || !geometry.viewport_rect.is_positive() {
+        return None;
+    }
+
+    Some(RulerLayout::new(geometry.viewport_rect, crate::ruler::HORIZONTAL_RULER_HEIGHT, crate::ruler::VERTICAL_RULER_WIDTH))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2771,17 +2778,6 @@ impl RulerLayout {
             vertical: Rect::from_min_max(pos2(outer.left(), split.y), pos2(split.x, outer.bottom())),
             // Fixed viewport chrome: rulers overlay rather than shifting document layout.
             canvas: outer,
-        }
-    }
-
-    #[cfg(test)]
-    fn fit_to_viewport(self, viewport: Rect) -> Self {
-        let viewport = viewport.intersect(self.outer);
-        Self {
-            corner: Rect::from_min_max(self.outer.min, viewport.min),
-            horizontal: Rect::from_min_max(pos2(viewport.left(), self.outer.top()), pos2(viewport.right(), viewport.top())),
-            vertical: Rect::from_min_max(pos2(self.outer.left(), viewport.top()), pos2(viewport.left(), viewport.bottom())),
-            ..self
         }
     }
 }
@@ -7216,6 +7212,78 @@ trailer << /Root 1 0 R >>
     }
 
     #[test]
+    fn two_page_content_width_includes_the_facing_page_gap() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        assert!((content_w - (2.0 * SIDE + 1_000.0 + GAP)).abs() < 1e-3);
+
+        let pages = view.layout(&info, content_w, 1.0);
+        assert!((pages[0].left() - SIDE).abs() < 1e-3);
+        assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
+        assert!((pages[1].left() - pages[0].right() - GAP).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_page_content_width_joins_pages_when_gaps_are_hidden() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+        view.show_page_gaps = false;
+
+        let content_w = view.content_width(&info, 200.0);
+        assert!((content_w - (2.0 * SIDE + 1_000.0)).abs() < 1e-3);
+
+        let pages = view.layout(&info, content_w, 1.25);
+        assert!((pages[1].left() - pages[0].right()).abs() < 1e-3);
+        assert!((pages[0].right() - content_w / 2.0).abs() < 1e-3);
+        assert!((pages[1].left() - content_w / 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn unequal_two_page_row_keeps_the_gap_and_outer_gutters() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(300.0, 500.0), page(500.0, 300.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        let pages = view.layout(&info, content_w, 1.0);
+
+        assert!((pages[1].left() - pages[0].right() - GAP).abs() < 1e-3);
+        assert!(pages[0].left() >= SIDE);
+        assert!((pages[1].right() - (content_w - SIDE)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn two_page_cover_uses_the_same_fixed_spine_and_gap() {
+        let page =
+            |width: f32, height: f32| pdfcraft_render::PageInfo { width, height, label: String::new(), crop: [0.0, 0.0, width, height], rotation: 0 };
+        let info = DocInfo { pages: vec![page(500.0, 400.0), page(500.0, 400.0), page(500.0, 400.0)], ..Default::default() };
+        let mut view = DocView::new(DocId(1), &info, ViewDefaults::default());
+        view.layout = PageLayout::TwoUp;
+        view.cover = true;
+        view.zoom = 1.0 / PT;
+
+        let content_w = view.content_width(&info, 200.0);
+        let pages = view.layout(&info, content_w, 1.0);
+        let spine = content_w / 2.0;
+
+        assert!((pages[0].left() - (spine + GAP / 2.0)).abs() < 1e-3);
+        assert!((pages[2].left() - pages[1].right() - GAP).abs() < 1e-3);
+    }
+
+    #[test]
     fn layouts_match_their_commands_and_names() {
         for l in PageLayout::ORDER {
             let spec = pdfcraft_engine::commands::command(l.command()).expect("registered");
@@ -7425,14 +7493,39 @@ trailer << /Root 1 0 R >>
 
     #[test]
     fn ruler_layout_tracks_the_actual_scroll_viewport_edges() {
-        let outer = Rect::from_min_max(pos2(0.0, 0.0), pos2(800.0, 600.0));
-        let base = RulerLayout::new(outer, 18.0, 20.0);
         let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
-        let layout = base.fit_to_viewport(viewport);
-        assert_eq!(layout.corner, Rect::from_min_max(outer.min, viewport.min));
-        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(32.0, 0.0), pos2(786.0, 18.0)));
-        assert_eq!(layout.vertical, Rect::from_min_max(pos2(0.0, 18.0), pos2(32.0, 586.0)));
-        assert_eq!(layout.canvas, base.canvas);
+        let layout = RulerLayout::new(viewport, 18.0, 20.0);
+
+        assert_eq!(layout.outer, viewport);
+        assert_eq!(layout.corner, Rect::from_min_max(pos2(32.0, 18.0), pos2(52.0, 36.0)));
+        assert_eq!(layout.horizontal, Rect::from_min_max(pos2(52.0, 18.0), pos2(786.0, 36.0)));
+        assert_eq!(layout.vertical, Rect::from_min_max(pos2(32.0, 36.0), pos2(52.0, 586.0)));
+        assert_eq!(layout.canvas, viewport);
+    }
+
+    #[test]
+    fn ruler_layout_requires_enabled_document_geometry() {
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
+        let pages = vec![page_geometry(0, Rect::from_min_max(pos2(100.0, 80.0), pos2(700.0, 500.0)))];
+        let geometry = CanvasGeometry::new(viewport, pages, None);
+
+        let layout = ruler_layout_for_state(true, false, false, &geometry).expect("ordinary document view has rulers");
+        assert_eq!(layout.outer, viewport);
+
+        assert!(ruler_layout_for_state(false, false, false, &geometry).is_none());
+        assert!(ruler_layout_for_state(true, true, false, &geometry).is_none());
+        assert!(ruler_layout_for_state(true, false, true, &geometry).is_none());
+    }
+
+    #[test]
+    fn ruler_layout_rejects_empty_pages_and_invalid_viewports() {
+        let viewport = Rect::from_min_max(pos2(32.0, 18.0), pos2(786.0, 586.0));
+        let empty = CanvasGeometry::new(viewport, Vec::new(), None);
+        assert!(ruler_layout_for_state(true, false, false, &empty).is_none());
+
+        let pages = vec![page_geometry(0, Rect::from_min_max(pos2(100.0, 80.0), pos2(700.0, 500.0)))];
+        let invalid = CanvasGeometry::new(Rect::NOTHING, pages, None);
+        assert!(ruler_layout_for_state(true, false, false, &invalid).is_none());
     }
 
     #[test]
