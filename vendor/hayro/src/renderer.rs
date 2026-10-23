@@ -611,6 +611,24 @@ enum PaintSetup {
     Nothing,
 }
 
+/// PdfCraft patch: the transform that draws an image's final raster of `size` pixels. A snapped
+/// image (`snapped` from [`snap_minified_image`]) whose raster has its snapped size is drawn 1:1
+/// at the snapped corner. Any other raster is scaled by `additional` (source over raster size)
+/// and drawn with the image's `transform`. That includes a resize that fell back to the source
+/// (a failed allocation or resampler): drawn at the snapped corner, the source came out 1:1,
+/// many times too large.
+fn image_draw_transform(
+    transform: Affine,
+    additional: Affine,
+    size: (u32, u32),
+    snapped: Option<(u32, u32, f64, f64)>,
+) -> Affine {
+    match snapped {
+        Some((w, h, x0, y0)) if (w, h) == size => Affine::translate((x0, y0)),
+        _ => transform * additional,
+    }
+}
+
 pub(crate) struct Renderer {
     pub(crate) ctx: RenderContext,
     /// PdfCraft patch: when set, solid text and line-art paint colours are remapped
@@ -1222,10 +1240,12 @@ impl Renderer {
             img_height as u16,
             may_have_transparency,
         );
-        let draw_transform = match snapped {
-            Some((_, _, x0, y0)) => Affine::translate((x0, y0)),
-            None => cur_transform * additional_transform,
-        };
+        let draw_transform = image_draw_transform(
+            cur_transform,
+            additional_transform,
+            (img_width, img_height),
+            snapped,
+        );
         self.draw_pixmap(Arc::new(pixmap), quality, draw_transform);
     }
 
@@ -2372,8 +2392,30 @@ pub fn tiling_cell_scale(scale: f32, step: f32, max_pixels: f32) -> f32 {
 // PdfCraft patch: unit tests for area averaging and the snapping of minified images.
 #[cfg(test)]
 mod area_average_tests {
-    use super::{MAX_AREA_SCRATCH_BYTES, area_average, area_scratch_byte_len, snap_minified_image};
-    use kurbo::Affine;
+    use super::{
+        MAX_AREA_SCRATCH_BYTES, area_average, area_scratch_byte_len, image_draw_transform,
+        snap_minified_image,
+    };
+    use kurbo::{Affine, Rect};
+
+    /// A snapped image is drawn 1:1 at its snapped corner only when its raster has the snapped
+    /// size. A resize that falls back to the source (a failed allocation or resampler) keeps the
+    /// image's own transform: placed at the snapped corner, an 8 × 8 source meant for 4 × 4
+    /// device pixels covered 8 × 8.
+    #[test]
+    fn a_resize_that_falls_back_keeps_the_image_transform() {
+        let transform = Affine::new([0.5, 0.0, 0.0, 0.5, 1.0, 1.0]);
+        let snapped = snap_minified_image(&transform, (8, 8), (4, 4));
+        assert_eq!(snapped, Some((4, 4, 1.0, 1.0)));
+        let shrunk = image_draw_transform(transform, Affine::scale(2.0), (4, 4), snapped);
+        assert_eq!(shrunk, Affine::translate((1.0, 1.0)));
+        let fallback = image_draw_transform(transform, Affine::IDENTITY, (8, 8), snapped);
+        let device = fallback.transform_rect_bbox(Rect::new(0.0, 0.0, 8.0, 8.0));
+        let size = "the source keeps the image's size";
+        assert_eq!(device, Rect::new(1.0, 1.0, 5.0, 5.0), "{size}");
+        let unsnapped = image_draw_transform(transform, Affine::scale(2.0), (4, 4), None);
+        assert_eq!(unsnapped, transform * Affine::scale(2.0));
+    }
 
     /// Every `u64` sum `area_average` keeps besides its output counts against one budget: the
     /// column sums of a source row and the target row (two when enlarging the height). A cap on
