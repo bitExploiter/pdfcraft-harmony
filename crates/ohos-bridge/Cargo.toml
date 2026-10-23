@@ -1,0 +1,19 @@
+﻿[package]
+name = "pdfcraft-ohos-bridge"
+description = "N-API bridge exposing the PdfCraft engine to ArkTS on HarmonyOS (OpenHarmony)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+name = "pdfcraft_ohos"
+crate-type = ["cdylib", "rlib"]
+
+[target.'cfg(target_env = "ohos")'.dependencies]
+pdfcraft-render = { workspace = true }
+napi-ohos = { version = "1.2", default-features = false, features = ["napi8"] }
+napi-derive-ohos = "1.2"
+
+[build-dependencies]
+napi-build-ohos = "1.2"
