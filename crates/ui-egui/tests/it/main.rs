@@ -51,6 +51,7 @@ mod object_selection;
 mod ocr;
 mod pageboxes;
 mod panel_snapshots;
+mod paragraph_spacing;
 mod pdf_links;
 mod pickers;
 mod preferences_layout;
