@@ -731,13 +731,19 @@ fn keychain_identities_carry_their_issuers() {
     // A test that failed while holding it leaves the list restored, so a poisoned lock is fine.
     let _list = KEYCHAIN_SEARCH_LIST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     use std::process::Command;
-    let dir = std::env::temp_dir().join(format!("pdfcraft-keychain-chain-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    // The same path every run: trustd remembers which keychain file it found an issuer in, and
+    // after a run's keychain is deleted it keeps looking there, so a keychain at a new path
+    // would get an empty chain until that memory expires.
+    let dir = std::env::temp_dir().join("pdfcraft-keychain-chain");
     let kc = dir.join("test.keychain-db");
     let sec = |args: &[&str]| Command::new("security").args(args).output().unwrap();
+    let k = kc.to_str().unwrap();
+    // Left over by a run that was killed before its clean-up.
+    sec(&["delete-keychain", k]);
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
     let list = String::from_utf8(sec(&["list-keychains", "-d", "user"]).stdout).unwrap();
     let saved: Vec<String> = list.lines().map(|l| l.trim().trim_matches('"').to_string()).filter(|l| !l.is_empty()).collect();
-    let k = kc.to_str().unwrap();
     assert!(sec(&["create-keychain", "-p", "pc-test", k]).status.success());
     let set_list = |extra: Option<&str>| {
         let mut args = vec!["list-keychains", "-d", "user", "-s"];
