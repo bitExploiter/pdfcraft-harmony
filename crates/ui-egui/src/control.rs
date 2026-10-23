@@ -52,7 +52,9 @@ pub type Reply = Result<Value, String>;
 
 /// Seconds to wait for frames (input to be handled, a screenshot to be taken) before reporting
 /// that the window is not being drawn. While a window is hidden, minimized or fully covered,
-/// eframe keeps calling `logic` but runs no egui pass, so input and screenshots wait.
+/// eframe keeps calling `logic` but runs no egui pass, so input and screenshots wait. On macOS the
+/// app turns on `egui_wgpu::winit::set_keep_drawing` with the control channel, so a covered or
+/// minimized window keeps answering there (vendor/winit, vendor/egui-wgpu).
 const NOT_DRAWN_TIMEOUT: f64 = 5.0;
 
 /// Wall-clock seconds (egui's own clock stops while the window is not drawn).

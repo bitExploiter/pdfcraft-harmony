@@ -24,6 +24,12 @@ pub use mpsc::channel as capture_channel;
 
 impl CaptureState {
     pub fn new(device: &wgpu::Device, surface_texture: &wgpu::Texture) -> Self {
+        Self::new_for(device, surface_texture.size(), surface_texture.format())
+    }
+
+    /// PdfCraft patch: a capture texture of a given size and format, for a
+    /// frame drawn off screen when the surface texture can't be acquired (a covered window).
+    pub fn new_for(device: &wgpu::Device, size: wgpu::Extent3d, format: wgpu::TextureFormat) -> Self {
         let shader = device.create_shader_module(wgpu::include_wgsl!("texture_copy.wgsl"));
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -39,7 +45,7 @@ impl CaptureState {
                 module: &shader,
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
-                targets: &[Some(surface_texture.format().into())],
+                targets: &[Some(format.into())],
             }),
             primitive: wgpu::PrimitiveState {
                 topology: wgpu::PrimitiveTopology::TriangleList,
@@ -54,7 +60,7 @@ impl CaptureState {
         let bind_group_layout = pipeline.get_bind_group_layout(0);
 
         let (texture, padding, bind_group) =
-            Self::create_texture(device, surface_texture, &bind_group_layout);
+            Self::create_texture(device, size, format, &bind_group_layout);
 
         Self {
             padding,
@@ -66,23 +72,25 @@ impl CaptureState {
 
     fn create_texture(
         device: &wgpu::Device,
-        surface_texture: &wgpu::Texture,
+        size: wgpu::Extent3d,
+        format: wgpu::TextureFormat,
         layout: &BindGroupLayout,
     ) -> (wgpu::Texture, BufferPadding, wgpu::BindGroup) {
+        // A surface texture is always one 2D level with one sample.
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("egui_screen_capture_texture"),
-            size: surface_texture.size(),
-            mip_level_count: surface_texture.mip_level_count(),
-            sample_count: surface_texture.sample_count(),
-            dimension: surface_texture.dimension(),
-            format: surface_texture.format(),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
-        let padding = BufferPadding::new(surface_texture.width());
+        let padding = BufferPadding::new(size.width);
 
         let view = texture.create_view(&Default::default());
 
@@ -100,9 +108,15 @@ impl CaptureState {
 
     /// Updates the [`CaptureState`] if the size of the surface texture has changed
     pub fn update(&mut self, device: &wgpu::Device, texture: &wgpu::Texture) {
-        if self.texture.size() != texture.size() {
+        self.update_for(device, texture.size());
+    }
+
+    /// PdfCraft patch: [`Self::update`] for a size without a texture.
+    pub fn update_for(&mut self, device: &wgpu::Device, size: wgpu::Extent3d) {
+        if self.texture.size() != size {
+            let format = self.texture.format();
             let (new_texture, padding, bind_group) =
-                Self::create_texture(device, texture, &self.pipeline.get_bind_group_layout(0));
+                Self::create_texture(device, size, format, &self.pipeline.get_bind_group_layout(0));
             self.texture = new_texture;
             self.padding = padding;
             self.bind_group = bind_group;
@@ -123,6 +137,39 @@ impl CaptureState {
             "Texture sizes must match, `CaptureState::update` was probably not called"
         );
 
+        let buffer = self.copy_to_buffer(device, encoder);
+
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("texture_copy"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &output_frame.texture.create_view(&Default::default()),
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            occlusion_query_set: None,
+            timestamp_writes: None,
+            multiview_mask: None,
+        });
+
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        pass.draw(0..3, 0..1);
+
+        buffer
+    }
+
+    /// PdfCraft patch: only the copy from the [`CaptureState`] texture to a
+    /// buffer, for a frame drawn off screen with no surface texture to show it on.
+    pub fn copy_to_buffer(
+        &mut self,
+        device: &wgpu::Device,
+        encoder: &mut wgpu::CommandEncoder,
+    ) -> wgpu::Buffer {
         // It would be more efficient to reuse the Buffer, e.g. via some kind of ring buffer, but
         // for most screenshot use cases this should be fine. When taking many screenshots (e.g. for a video)
         // it might make sense to revisit this and implement a more efficient solution.
@@ -150,27 +197,6 @@ impl CaptureState {
             },
             tex_extent,
         );
-
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("texture_copy"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &output_frame.texture.create_view(&Default::default()),
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-        });
-
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, &self.bind_group, &[]);
-        pass.draw(0..3, 0..1);
 
         buffer
     }

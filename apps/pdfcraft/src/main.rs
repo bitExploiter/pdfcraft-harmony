@@ -241,6 +241,12 @@ fn main() -> eframe::Result {
         single_instance::Claim::Alone => None,
     };
     let choice = renderer_choice(std::env::var("PDFCRAFT_RENDERER").ok().as_deref());
+    // With the control channel on, a covered or minimized window keeps handling input and
+    // screenshots (vendor/winit, vendor/egui-wgpu), so an agent keeps working while the user is
+    // in another app.
+    if control_file.is_some() {
+        eframe::egui_wgpu::winit::set_keep_drawing(true);
+    }
     let launch = Launch { files, options, control_file, create_images, integrated, window_controls };
     // Finder, Open With and the Dock deliver files as Apple events, not arguments; catch the one
     // that launched us as well as later ones. Lives until the event loop returns.
@@ -1060,6 +1066,93 @@ mod tests {
         ] {
             assert!(painter.contains(patch), "vendor/egui-wgpu lost its surface size patch: {patch}");
         }
+    }
+
+    #[test]
+    fn the_control_channel_keeps_a_covered_window_working() {
+        // An agent drives the app through `--control` while the user works in another app. On
+        // macOS a covered or minimized window is reported occluded or minimized, eframe then runs
+        // no egui pass, and wgpu-hal skips its drawable (gfx-rs/wgpu#8309): every click and
+        // screenshot timed out with "the window is not being drawn". vendor/winit keeps reporting
+        // the window visible and vendor/egui-wgpu draws a requested screenshot off screen, both
+        // only while `set_keep_drawing` is on. Re-vendoring without the patch brings the timeouts
+        // back; the covering itself needs a macOS session with another window on top.
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let read = |path: &str| std::fs::read_to_string(root.join(path)).unwrap().replace("\r\n", "\n");
+        let delegate = read("vendor/winit/src/platform_impl/macos/window_delegate.rs");
+        for patch in [
+            "let visible = keep_drawing()\n                || self.window().occlusionState().contains(NSWindowOcclusionState::Visible);",
+            "Some(self.window().isMiniaturized() && !keep_drawing())",
+        ] {
+            assert!(delegate.contains(patch), "vendor/winit lost its covered-window patch: {patch}");
+        }
+        let painter = read("vendor/egui-wgpu/src/winit.rs");
+        for patch in [
+            "wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout\n                if capture && keep_drawing() =>",
+            "None => capture_state.copy_to_buffer(&render_state.device, &mut encoder),",
+            "winit::platform::macos::set_keep_drawing(on);",
+        ] {
+            assert!(painter.contains(patch), "vendor/egui-wgpu lost its off-screen screenshot patch: {patch}");
+        }
+        let main = read("apps/pdfcraft/src/main.rs");
+        assert!(
+            main.contains("if control_file.is_some() {\n        eframe::egui_wgpu::winit::set_keep_drawing(true);"),
+            "--control no longer keeps a covered window working"
+        );
+    }
+
+    #[test]
+    fn a_screenshot_drawn_off_screen_reads_back() {
+        // The off-screen path of `the_control_channel_keeps_a_covered_window_working`, on a real
+        // device: a capture texture made from a size and format alone (no surface texture to copy
+        // them from) reads back exactly what was drawn into it, padding rows included (70 pixels
+        // is not a multiple of wgpu's 256-byte row alignment), and follows a resize.
+        use eframe::egui_wgpu::capture::{CaptureState, capture_channel};
+        use eframe::wgpu;
+        let _gpu = gpu();
+        let native = super::native_options(false, false, eframe::Renderer::Wgpu);
+        let eframe::egui_wgpu::WgpuSetup::CreateNew(setup) = &native.wgpu_options.wgpu_setup else {
+            panic!("default setup creates its own instance")
+        };
+        let instance = pollster::block_on(native.wgpu_options.wgpu_setup.new_instance());
+        let options = wgpu::RequestAdapterOptions { power_preference: setup.power_preference, ..Default::default() };
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&options)) else {
+            eprintln!("skipping: no GPU adapter on this machine");
+            return;
+        };
+        let Ok((device, queue)) = pollster::block_on(adapter.request_device(&(setup.device_descriptor)(&adapter))) else {
+            eprintln!("skipping: the adapter gives no device");
+            return;
+        };
+        let extent = |width, height| wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let mut capture = CaptureState::new_for(&device, extent(16, 16), wgpu::TextureFormat::Bgra8Unorm);
+        capture.update_for(&device, extent(70, 3));
+        assert_eq!(capture.texture.size(), extent(70, 3));
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let view = capture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("covered-window"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::RED), store: wgpu::StoreOp::Store },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+        }
+        let buffer = capture.copy_to_buffer(&device, &mut encoder);
+        queue.submit([encoder.finish()]);
+        let (tx, rx) = capture_channel();
+        capture.read_screen_rgba(eframe::egui::Context::default(), buffer, Vec::new(), tx, eframe::egui::ViewportId::ROOT);
+        device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        let (_, _, image) = rx.recv_timeout(std::time::Duration::from_secs(10)).expect("the screenshot arrives");
+        assert_eq!(image.size, [70, 3]);
+        assert!(image.pixels.iter().all(|p| *p == eframe::egui::Color32::RED), "{:?}", image.pixels.first());
     }
 
     #[test]

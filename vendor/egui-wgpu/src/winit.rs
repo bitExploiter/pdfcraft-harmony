@@ -12,6 +12,24 @@ use core::num::NonZeroU32;
 use egui::{Context, Event, UserData, ViewportId, ViewportIdMap, ViewportIdSet};
 use std::sync::Arc;
 
+static KEEP_DRAWING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// PdfCraft patch: while `on`, a screenshot of a window whose surface can't be acquired (covered
+/// or minimized on macOS) is drawn off screen instead of never arriving (see
+/// `paint_and_update_textures`), and on macOS the vendored winit keeps reporting such a window
+/// visible, so eframe keeps running egui passes. For the UI control channel, whose agent works
+/// while the user is in another app. One switch for both, since the app reaches winit only
+/// through eframe.
+pub fn set_keep_drawing(on: bool) {
+    KEEP_DRAWING.store(on, std::sync::atomic::Ordering::Relaxed);
+    #[cfg(target_os = "macos")]
+    winit::platform::macos::set_keep_drawing(on);
+}
+
+fn keep_drawing() -> bool {
+    KEEP_DRAWING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 struct SurfaceState {
     surface: wgpu::Surface<'static>,
     alpha_mode: wgpu::CompositeAlphaMode,
@@ -723,10 +741,19 @@ impl Painter {
         };
 
         let output_frame = match output_frame {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Success(frame) => Some(frame),
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                 surface_state.needs_reconfigure = true;
-                frame
+                Some(frame)
+            }
+            // PdfCraft patch: wgpu-hal doesn't acquire a covered window's drawable on macOS
+            // (gfx-rs/wgpu#8309), so no frame and no screenshot ever arrive. With
+            // `set_keep_drawing(true)` a requested screenshot is drawn off screen instead, into
+            // the capture texture, and nothing is presented.
+            wgpu::CurrentSurfaceTexture::Occluded | wgpu::CurrentSurfaceTexture::Timeout
+                if capture && keep_drawing() =>
+            {
+                None
             }
             other => {
                 match (*self.config.on_surface_status)(&other) {
@@ -754,14 +781,31 @@ impl Painter {
             let renderer = render_state.renderer.read();
 
             let target_texture = if capture {
+                // PdfCraft patch: sized like the surface when there is no
+                // surface texture to copy the size and format from.
+                let (size, format) = match &output_frame {
+                    Some(frame) => (frame.texture.size(), frame.texture.format()),
+                    None => (
+                        wgpu::Extent3d {
+                            width: surface_state.width,
+                            height: surface_state.height,
+                            depth_or_array_layers: 1,
+                        },
+                        render_state.target_format,
+                    ),
+                };
                 let capture_state = self.screen_capture_state.get_or_insert_with(|| {
-                    CaptureState::new(&render_state.device, &output_frame.texture)
+                    CaptureState::new_for(&render_state.device, size, format)
                 });
-                capture_state.update(&render_state.device, &output_frame.texture);
+                capture_state.update_for(&render_state.device, size);
 
                 &capture_state.texture
             } else {
-                &output_frame.texture
+                match &output_frame {
+                    Some(frame) => &frame.texture,
+                    // Unreachable: the arm that leaves `output_frame` empty requires `capture`.
+                    None => return vsync_sec,
+                }
             };
             let target_view = target_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
@@ -830,11 +874,12 @@ impl Painter {
             );
 
             if capture && let Some(capture_state) = &mut self.screen_capture_state {
-                capture_buffer = Some(capture_state.copy_textures(
-                    &render_state.device,
-                    &output_frame,
-                    &mut encoder,
-                ));
+                capture_buffer = Some(match &output_frame {
+                    Some(frame) => {
+                        capture_state.copy_textures(&render_state.device, frame, &mut encoder)
+                    }
+                    None => capture_state.copy_to_buffer(&render_state.device, &mut encoder),
+                });
             }
         }
 
@@ -879,6 +924,11 @@ impl Painter {
                 viewport_id,
             );
         }
+
+        // PdfCraft patch: an off-screen frame has nothing to present.
+        let Some(output_frame) = output_frame else {
+            return vsync_sec;
+        };
 
         window.pre_present_notify();
 

@@ -18,6 +18,8 @@ mod window_delegate;
 
 use std::fmt;
 
+// PdfCraft patch: see `app_state::keep_drawing`.
+pub(crate) use self::app_state::set_keep_drawing;
 pub(crate) use self::event::{physicalkey_to_scancode, scancode_to_physicalkey, KeyEventExtra};
 pub(crate) use self::event_loop::{
     ActiveEventLoop, EventLoop, EventLoopProxy, OwnedDisplayHandle,

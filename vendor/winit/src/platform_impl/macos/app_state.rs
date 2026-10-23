@@ -18,6 +18,19 @@ use crate::event::{DeviceEvent, Event, StartCause, WindowEvent};
 use crate::event_loop::{ActiveEventLoop as RootActiveEventLoop, ControlFlow};
 use crate::window::WindowId as RootWindowId;
 
+/// PdfCraft patch: set while the app's UI control channel is on. A covered or minimized window
+/// then still reports itself visible and not minimized, so eframe keeps running egui passes and an
+/// agent driving the app keeps working while the user is in another app.
+static KEEP_DRAWING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(crate) fn keep_drawing() -> bool {
+    KEEP_DRAWING.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn set_keep_drawing(on: bool) {
+    KEEP_DRAWING.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 #[derive(Debug)]
 pub(super) struct AppState {
     activation_policy: Option<NSApplicationActivationPolicy>,

@@ -26,7 +26,7 @@ use objc2_foundation::{
 };
 use tracing::{trace, warn};
 
-use super::app_state::ApplicationDelegate;
+use super::app_state::{keep_drawing, ApplicationDelegate};
 use super::cursor::cursor_from_icon;
 use super::monitor::{self, flip_window_screen_coordinates, get_display_id};
 use super::observer::RunLoop;
@@ -348,7 +348,9 @@ declare_class!(
         #[method(windowDidChangeOcclusionState:)]
         fn window_did_change_occlusion_state(&self, _: Option<&AnyObject>) {
             trace_scope!("windowDidChangeOcclusionState:");
-            let visible = self.window().occlusionState().contains(NSWindowOcclusionState::Visible);
+            // PdfCraft patch: see `app_state::keep_drawing`.
+            let visible = keep_drawing()
+                || self.window().occlusionState().contains(NSWindowOcclusionState::Visible);
             self.queue_event(WindowEvent::Occluded(!visible));
         }
 
@@ -1250,7 +1252,8 @@ impl WindowDelegate {
 
     #[inline]
     pub fn is_minimized(&self) -> Option<bool> {
-        Some(self.window().isMiniaturized())
+        // PdfCraft patch: see `app_state::keep_drawing`.
+        Some(self.window().isMiniaturized() && !keep_drawing())
     }
 
     #[inline]

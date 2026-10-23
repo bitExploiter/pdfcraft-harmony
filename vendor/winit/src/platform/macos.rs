@@ -91,6 +91,13 @@ use crate::event_loop::{ActiveEventLoop, EventLoopBuilder};
 use crate::monitor::MonitorHandle;
 use crate::window::{Window, WindowAttributes};
 
+/// PdfCraft patch: while `on`, a covered or minimized window still reports itself visible
+/// (`WindowEvent::Occluded(false)`) and not minimized, so the app keeps handling input. For the UI
+/// control channel, whose agent works while the user is in another app.
+pub fn set_keep_drawing(on: bool) {
+    crate::platform_impl::set_keep_drawing(on);
+}
+
 /// Additional methods on [`Window`] that are specific to MacOS.
 pub trait WindowExtMacOS {
     /// Returns whether or not the window is in simple fullscreen mode.
