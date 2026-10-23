@@ -17,6 +17,7 @@ pub mod parse;
 pub mod pdf;
 pub mod script;
 pub mod text;
+mod traverse;
 
 use pdfcraft_cos::Document;
 
