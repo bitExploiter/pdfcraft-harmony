@@ -4340,6 +4340,8 @@ dependencies = [
 name = "pdfcraft-ohos-bridge"
 version = "0.13.0"
 dependencies = [
+ "image",
+ "lopdf",
  "napi-build-ohos",
  "napi-derive-ohos",
  "napi-ohos",

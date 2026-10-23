@@ -17,3 +17,8 @@ napi-derive-ohos = "1.2"
 
 [build-dependencies]
 napi-build-ohos = "1.2"
+
+[dev-dependencies]
+pdfcraft-render = { workspace = true }
+lopdf = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png"] }

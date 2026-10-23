@@ -1,4 +1,4 @@
-﻿import { hilog } from '@kit.PerformanceAnalysisKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { fileIo as fs } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { common } from '@kit.AbilityKit';
@@ -32,15 +32,16 @@ struct Index {
       hilog.info(DOMAIN, TAG, 'PDFCRAFT_OK pageCount=%{public}d path=%{public}s', this.pages, path);
 
       const r = pdf.renderPage(handle, 0, 1.5);
-      hilog.info(DOMAIN, TAG, 'PDFCRAFT_RENDER %{public}dx%{public}d bytes=%{public}d', r.width, r.height, r.rgba.byteLength);
-      this.pixel = await image.createPixelMap(r.rgba, {
+      hilog.info(DOMAIN, TAG, 'PDFCRAFT_RENDER %{public}dx%{public}d bytes=%{public}d nonWhite=%{public}d', r.width, r.height, r.rgba.byteLength, r.nonWhite);
+      this.status = `Renderizada: ${r.width}x${r.height}, píxeles con contenido: ${r.nonWhite}`;
+      this.pixel = await image.createPixelMap(r.rgba.buffer.slice(r.rgba.byteOffset, r.rgba.byteOffset + r.rgba.byteLength), {
         size: { width: r.width, height: r.height },
         srcPixelFormat: image.PixelMapFormat.RGBA_8888,
         pixelFormat: image.PixelMapFormat.RGBA_8888,
         alphaType: image.AlphaType.PREMUL
       });
       pdf.close(handle);
-      this.status = 'Motor PdfCraft (Rust) cargado';
+      hilog.info(DOMAIN, TAG, 'PDFCRAFT_PIXELMAP ok');
     } catch (e) {
       this.status = 'Error: ' + JSON.stringify(e) + ' ' + String(e);
       hilog.error(DOMAIN, TAG, 'PDFCRAFT_FAIL %{public}s', String(e));
@@ -66,3 +67,4 @@ struct Index {
     .alignItems(HorizontalAlign.Start)
   }
 }
+

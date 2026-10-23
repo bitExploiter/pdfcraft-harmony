@@ -1,16 +1,7 @@
 {
   "string": [
-    {
-      "name": "module_desc",
-      "value": "module description"
-    },
-    {
-      "name": "EntryAbility_desc",
-      "value": "description"
-    },
-    {
-      "name": "EntryAbility_label",
-      "value": "label"
-    }
+    { "name": "module_desc", "value": "Prueba técnica del motor PdfCraft (Rust) en HarmonyOS" },
+    { "name": "EntryAbility_desc", "value": "Abre un PDF de muestra y muestra la primera página" },
+    { "name": "EntryAbility_label", "value": "PdfCraft Prueba" }
   ]
 }
