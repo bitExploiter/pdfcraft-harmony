@@ -280,7 +280,7 @@ pub fn epub(pages: &[Page], title: &str, language: &str) -> Result<Vec<u8>, Stri
                     archive.add(&format!("EPUB/{name}"), &image.bytes, false)?;
                     manifest.push_str(&format!("<item id=\"p{number}i{image_number}\" href=\"{name}\" media-type=\"{mime}\"/>"));
                     body.push_str(&format!("<p><img src=\"{name}\" alt=\"Image {image_number} on page {number}\"/></p>"));
-                    for byte in &image.bytes {
+                    for byte in image.bytes.iter() {
                         fingerprint = (fingerprint ^ u64::from(*byte)).wrapping_mul(1099511628211);
                     }
                 }
@@ -383,7 +383,7 @@ mod tests {
         std::io::Write::write_all(&mut z, &[0, 30, 90, 170]).unwrap();
         chunk(&mut png, b"IDAT", &z.finish().unwrap());
         chunk(&mut png, b"IEND", &[]);
-        page.images.push(Image { ext: "png", bytes: png, rect: [40.0, 400.0, 140.0, 500.0], size: [100.0, 100.0], rotation: 0.0 });
+        page.images.push(Image { ext: "png", bytes: png.into(), rect: [40.0, 400.0, 140.0, 500.0], size: [100.0, 100.0], rotation: 0.0 });
         page
     }
 
@@ -399,7 +399,7 @@ mod tests {
         }
         assert!(!sheet.contains("<f>"));
         assert!(parts.contains_key("xl/worksheets/sheet2.xml"));
-        assert_eq!(parts["xl/media/page1-image1.png"], fixture().images[0].bytes);
+        assert_eq!(parts["xl/media/page1-image1.png"], &*fixture().images[0].bytes);
         assert!(String::from_utf8(parts["xl/drawings/drawing1.xml"].clone()).unwrap().contains("r:embed=\"i1\""));
     }
 
@@ -418,7 +418,7 @@ mod tests {
         let chapter = String::from_utf8(parts["EPUB/page1.xhtml"].clone()).unwrap();
         assert!(chapter.contains("<table>"));
         assert!(chapter.contains("日本語"));
-        assert_eq!(parts["EPUB/images/page1-image1.png"], fixture().images[0].bytes);
+        assert_eq!(parts["EPUB/images/page1-image1.png"], &*fixture().images[0].bytes);
         assert_eq!(bytes, epub(&[fixture(), fixture()], "Report & notes", "de-AT").unwrap());
     }
 
