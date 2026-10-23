@@ -4139,6 +4139,7 @@ dependencies = [
  "pdfcraft-xfa",
  "pdfcraft-xfdf",
  "png 0.18.1",
+ "sha2 0.11.0",
  "thiserror 2.0.21",
  "tiff",
  "unicode-segmentation",
@@ -4150,6 +4151,7 @@ name = "pdfcraft-export"
 version = "0.13.0"
 dependencies = [
  "flate2",
+ "roxmltree",
 ]
 
 [[package]]

@@ -12,3 +12,6 @@ workspace = true
 
 [dependencies]
 flate2.workspace = true
+
+[dev-dependencies]
+roxmltree = "0.20"
