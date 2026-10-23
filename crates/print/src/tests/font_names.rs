@@ -1,8 +1,9 @@
 //! #3132: embedded TrueType programs go to the Windows spooler under names no installed font has.
 
 use super::*;
-use crate::font_names::{distinct, renamed_sfnt};
+use crate::font_names::{distinct, distinct_within, renamed_sfnt};
 use crate::spool::spooled;
+use pdfcraft_cos::DecodeBudget;
 use pdfcraft_render::{PageRenderer, RenderConfig, RenderRequest, RequestKind};
 use skrifa::raw::TableProvider as _;
 use skrifa::string::StringId;
@@ -191,6 +192,21 @@ fn a_program_that_cannot_be_rewritten_keeps_its_name_in_the_pdf_too() {
     resources.set(b"Font".to_vec(), Object::Dict(fonts));
     doc.update_dict(page, |d| d.set(b"Resources".to_vec(), Object::Dict(resources))).unwrap();
     assert_eq!(distinct(&write_full(&doc, &SaveOptions::default()).unwrap()).unwrap(), None);
+}
+
+#[test]
+fn programs_past_the_shared_decode_budget_keep_their_names() {
+    // Each program decodes to Inter's whole length; the budget covers one and a half.
+    let pdf = print_ready();
+    let mut budget = DecodeBudget::new(INTER.len() * 3 / 2, 0);
+    let renamed = distinct_within(&pdf, &mut budget).unwrap().unwrap();
+    let names: Vec<_> = true_type_fonts(&renamed).into_iter().map(|f| (f.0, name_of(&f.2, StringId::FAMILY_NAME).unwrap())).collect();
+    let (new, old): (Vec<_>, Vec<_>) = names.iter().partition(|(base_font, _)| base_font.contains("PdfCraftPrint"));
+    assert_eq!((new.len(), old.len()), (1, 1), "{names:?}");
+    assert!(new[0].0.starts_with("AAAAAA+PdfCraftPrint") && new[0].1.starts_with("PdfCraftPrint"), "{names:?}");
+    assert!(old[0].0.starts_with("AAAAAA+Arial") && old[0].1 == "Inter", "{names:?}");
+    // With the default allowance both are renamed.
+    assert_eq!(true_type_fonts(&distinct(&pdf).unwrap().unwrap()).iter().filter(|f| f.0.contains("PdfCraftPrint")).count(), 2);
 }
 
 #[test]

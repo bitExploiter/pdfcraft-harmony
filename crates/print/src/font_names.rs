@@ -18,7 +18,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use pdfcraft_cos::{Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
+use pdfcraft_cos::{DecodeBudget, Dict, Document, ObjRef, Object, SaveOptions, Stream, write_full};
 
 use crate::PrintError;
 
@@ -27,6 +27,10 @@ pub const RENAME_FOR_SPOOLER: bool = cfg!(windows);
 
 /// Decoded size past which a program is left as it is (a whole CJK font is about 20 MB).
 const MAX_PROGRAM: usize = 64 << 20;
+
+/// Decoded bytes the whole renaming may read, across every program. A document's fonts rarely
+/// come to 100 MB; a file of many distinct compressed bombs is read only this far.
+const MAX_DECODED_IN_ALL: usize = 512 << 20;
 
 /// More tables than any font has; a larger count is a damaged directory.
 const MAX_TABLES: usize = 256;
@@ -60,11 +64,17 @@ struct Found {
 /// `pdf` with every embedded TrueType or OpenType program renamed; `None` when it has none that
 /// can be.
 pub fn distinct(pdf: &[u8]) -> Result<Option<Vec<u8>>, PrintError> {
+    distinct_within(pdf, &mut DecodeBudget::new(MAX_DECODED_IN_ALL, 0))
+}
+
+/// [`distinct`], decoding the programs against `budget`: once it is spent, the programs not yet
+/// read keep their names, as one that can't be read does.
+pub(crate) fn distinct_within(pdf: &[u8], budget: &mut DecodeBudget) -> Result<Option<Vec<u8>>, PrintError> {
     let mut doc = Document::open(Arc::new(pdf.to_vec()))?;
     let mut found = find(&doc);
     // A program that can't be rewritten keeps its names in the PDF too: a viewer that can't load
     // it either then still picks its substitute by the original name. The lookups below skip it.
-    found.programs.retain(|program, about| rename_program(&mut doc, *program, about));
+    found.programs.retain(|program, about| rename_program(&mut doc, *program, about, budget));
     if found.programs.is_empty() {
         return Ok(None);
     }
@@ -152,11 +162,11 @@ fn subset_tag(name: &[u8]) -> Option<&[u8]> {
 }
 
 /// Rewrite the program with its `name` table renamed; whether it was. A program that can't be
-/// decoded or isn't an sfnt with a readable `name` table stays as it is.
-fn rename_program(doc: &mut Document, program: ObjRef, about: &Program) -> bool {
+/// decoded within `budget` or isn't an sfnt with a readable `name` table stays as it is.
+fn rename_program(doc: &mut Document, program: ObjRef, about: &Program, budget: &mut DecodeBudget) -> bool {
     let object = doc.get(program);
     let Object::Stream(stream) = object.as_ref() else { return false };
-    let Ok(bytes) = stream.decoded_within(MAX_PROGRAM) else { return false };
+    let Ok(bytes) = budget.decode_within(stream, MAX_PROGRAM) else { return false };
     let Some(renamed) = renamed_sfnt(&bytes, &about.name) else { return false };
     let mut dict = stream.dict.clone();
     dict.remove(b"DL");
