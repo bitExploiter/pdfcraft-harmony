@@ -3064,9 +3064,20 @@ fn document_canvas(app: &mut PdfCraftApp, index: usize, ui: &mut egui::Ui) {
             .iter()
             .any(|event| matches!(event, egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Line | egui::MouseWheelUnit::Page, .. }))
     });
+    let zoom_modifier = ui.ctx().options(|options| options.input_options.zoom_modifier);
+    let continuous_zoom_gesture = ui.input(|input| {
+        input.multi_touch().is_some_and(|touch| touch.zoom_delta != 1.0)
+            || input.events.iter().any(|event| match event {
+                egui::Event::Zoom(factor) => *factor != 1.0,
+                egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta, modifiers, .. } => {
+                    modifiers.matches_any(zoom_modifier) && *delta != egui::Vec2::ZERO
+                }
+                _ => false,
+            })
+    });
 
-    // Once egui's generated zoom stream reaches rest, the next continuous gesture is independent.
-    if view.wheel_zoom_easing && zoom_delta == 1.0 {
+    // A new continuous gesture is independent of any earlier discrete-notch easing.
+    if view.wheel_zoom_easing && (zoom_delta == 1.0 || continuous_zoom_gesture) {
         view.wheel_zoom_easing = false;
     }
 
