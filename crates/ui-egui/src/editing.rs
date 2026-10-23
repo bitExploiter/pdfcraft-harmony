@@ -229,6 +229,9 @@ impl PdfCraftApp {
 
     fn history_step(&mut self, undo: bool) {
         let Some((i, id)) = self.active_ids() else { return };
+        if !self.close_text_editors(i, id) {
+            return;
+        }
         let result = if undo { self.session.undo(id) } else { self.session.redo(id) };
         match result {
             Ok(label) => {
@@ -245,6 +248,57 @@ impl PdfCraftApp {
             }
             Err(e) => self.notify_error(e),
         }
+    }
+
+    /// Before Undo or Redo: a paragraph or added text box open on the page shows the document as
+    /// it is before the step, so it is applied as clicking away applies it, then closed. Left
+    /// open, it kept showing what the step took away, and wrote from it when it was next applied.
+    /// What was typed is then the step Undo takes back. False (nothing is undone, and the box
+    /// stays open) while it holds text the standard fonts can't draw, or text that couldn't be
+    /// applied: it is shown, never lost.
+    pub(crate) fn close_text_editors(&mut self, i: usize, id: pdfcraft_engine::DocId) -> bool {
+        let Some(view) = self.views.get_mut(i) else { return true };
+        if let Some(c) = view.content.blocked() {
+            view.content.hold_blocked();
+            self.notify(crate::content_ui::undrawable_message(c));
+            return false;
+        }
+        if let Some(ed) = view.line_editor.take()
+            && let Some(edit) = crate::edit_text_ui::finished_edit(ed.clone())
+            && !self.apply_edit(edit)
+        {
+            if let Some(view) = self.views.get_mut(i) {
+                view.line_editor = Some(ed);
+            }
+            return false;
+        }
+        let added = self.session.get(id).map(|d| d.added().to_vec()).unwrap_or_default();
+        let Some(view) = self.views.get_mut(i) else { return true };
+        let draft = view.content.draft.clone();
+        if let Some(edit) = view.content.finish_draft(&added)
+            && !self.apply_edit(edit)
+        {
+            if let Some(view) = self.views.get_mut(i) {
+                view.content.draft = draft;
+            }
+            return false;
+        }
+        true
+    }
+
+    /// Whether the keyboard is in a box typed into on the page: a paragraph being edited, or added
+    /// text.
+    pub(crate) fn page_box_focused(&self, ctx: &egui::Context) -> bool {
+        let focused = ctx.memory(|m| m.focused());
+        focused == Some(crate::edit_text_ui::input_id()) || focused == Some(crate::content_ui::input_id())
+    }
+
+    /// Typing in a box on the page (a paragraph being edited, added text) that the page doesn't
+    /// have yet: Undo and Redo keys take it back in the box first.
+    pub(crate) fn page_typing_unapplied(&self) -> bool {
+        self.active.and_then(|i| self.views.get(i)).is_some_and(|v| {
+            v.line_editor.as_ref().is_some_and(|ed| ed.has_unsaved_text()) || v.content.draft.as_ref().is_some_and(|d| d.has_unapplied_typing())
+        })
     }
 
     /// Apply any edit a view queued this frame (organize toolbar, keys).
