@@ -3575,7 +3575,9 @@ trailer << /Root 1 0 R >>
                 let mut renderer = PageRenderer::new(Arc::new(pdf), RenderConfig::default());
                 let _ = tx.send(renderer.render(RenderRequest { page: 0, scale: 1.0, ..Default::default() }));
             });
-            let page = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{case}: render did not finish"));
+            // A hang guard only: the pixels below check the bound. 10 s failed on a nested-KVM
+            // FreeBSD CI VM while the render was still finishing.
+            let page = rx.recv_timeout(std::time::Duration::from_secs(600)).unwrap_or_else(|_| panic!("{case}: render did not finish"));
             assert!(page.error.is_none(), "{case}: {:?}", page.error);
             assert_eq!((page.width, page.height), (40, 40), "{case}");
             let pixel = |x: u32, y: u32| {
@@ -5261,7 +5263,9 @@ trailer << /Root 1 0 R >>
                 let mut renderer = PageRenderer::new(Arc::new(pdf), RenderConfig::default());
                 let _ = tx.send(renderer.render(RenderRequest { page: 0, scale: 1.0, ..Default::default() }));
             });
-            let page = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap_or_else(|_| panic!("{case}: render did not finish"));
+            // A hang guard only: the pixels below check the bound. 10 s failed on a nested-KVM
+            // FreeBSD CI VM while the render was still finishing.
+            let page = rx.recv_timeout(std::time::Duration::from_secs(600)).unwrap_or_else(|_| panic!("{case}: render did not finish"));
             assert!(page.error.is_none(), "{case}: {:?}", page.error);
             assert_eq!((page.width, page.height), (40, 40), "{case}");
             let pixel = |x: u32, y: u32| {
