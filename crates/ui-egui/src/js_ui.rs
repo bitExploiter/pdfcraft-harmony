@@ -67,12 +67,23 @@ impl PdfCraftApp {
                     &[("u", &u)],
                 ),
                 Request::SaveAs => self.run_command("file.save_as"),
+                Request::Highlight(on) => self.script_highlight(id, on),
                 Request::Focus(_) | Request::Beep | Request::Reset(_) => {}
             }
         }
         if let Some(a) = out.alerts.last() {
             self.notify(a.clone());
         }
+    }
+
+    /// A form's script turned field highlighting on or off (`app.runtimeHighlight`): as the
+    /// Highlight fields button does, for document `id` and the next ones.
+    pub(crate) fn script_highlight(&mut self, id: DocId, on: bool) {
+        if let Some(v) = self.views.iter_mut().find(|v| v.id == id) {
+            v.highlight_fields = on;
+        }
+        self.view_defaults.highlight_fields = on;
+        self.session.set_field_highlight(on);
     }
 
     /// Run a push button's JavaScript (its Mouse Up action).

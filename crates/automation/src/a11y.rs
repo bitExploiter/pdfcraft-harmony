@@ -650,6 +650,7 @@ impl Automation {
     }
 }
 
+/// A script's request as `js_run` reports it: one small object per kind of request.
 fn request_json(r: &pdfcraft_engine::js::Request) -> Value {
     use pdfcraft_engine::js::Request as R;
     match r {
@@ -660,6 +661,7 @@ fn request_json(r: &pdfcraft_engine::js::Request) -> Value {
         R::Submit(u) => json!({ "submit": u }),
         R::Focus(f) => json!({ "focus": f }),
         R::Beep => json!({ "beep": true }),
+        R::Highlight(on) => json!({ "highlight": on }),
         R::SaveAs => json!({ "save_as": true }),
     }
 }
